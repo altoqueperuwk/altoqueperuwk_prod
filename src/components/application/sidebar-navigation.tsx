@@ -1,0 +1,175 @@
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
+import type { FC } from "react";
+import {
+    LayoutGrid01,
+    Settings01,
+    CreditCard01,
+    Sun,
+    Moon01,
+    LogOut01,
+    Circle,
+    Shield01,
+    Building07,
+    Users03,
+    User01,
+    Menu03,
+    Key01,
+    UserSquare,
+    Hash02,
+    Bank,
+    Briefcase02,
+    Sliders03,
+    Activity,
+    BarChart03,
+    File07,
+    Link01,
+} from "@untitledui/icons";
+import { UntitledLogoMinimal } from "@/components/foundations/logo/untitledui-logo-minimal";
+import { Button } from "@/components/base/buttons/button";
+import { cx } from "@/utils/cx";
+import { useTheme } from "@/providers/theme-provider";
+import { useSessionCache } from "@/providers/session-cache-provider";
+import { useAuth } from "@/providers/auth-provider";
+import type { NavItemType } from "@/components/application/app-navigation/config";
+import { NavList } from "@/components/application/app-navigation/base-components/nav-list";
+
+const iconMap: Record<string, FC<{ className?: string }>> = {
+    "settings": Settings01,
+    "credit-card": CreditCard01,
+    "activity": Activity,
+    "bar-chart": BarChart03,
+    "file-text": File07,
+    "circle": Circle,
+    "shield": Shield01,
+    "building": Building07,
+    "users": Users03,
+    "user": User01,
+    "menu": Menu03,
+    "key": Key01,
+    "user-square": UserSquare,
+    "hash": Hash02,
+    "bank": Bank,
+    "briefcase": Briefcase02,
+    "sliders": Sliders03,
+    "link": Link01,
+};
+
+const resolveIcon = (iconName: string): FC<{ className?: string }> => {
+    if (!iconName) return LayoutGrid01;
+    const key = iconName.toLowerCase();
+    return iconMap[key] || LayoutGrid01;
+};
+
+const SIDEBAR_WIDTH = 280;
+
+export const SidebarNavigation = () => {
+    const location = useLocation();
+    const { theme, setTheme } = useTheme();
+    const { navegacion, isLoading } = useSessionCache();
+    const { signOut, user, businessUser } = useAuth();
+    const navigate = useNavigate();
+
+    const [activeUrl, setActiveUrl] = useState(location.pathname);
+
+    useEffect(() => {
+        setActiveUrl(location.pathname);
+    }, [location.pathname]);
+
+    const menuItems: NavItemType[] = useMemo(() => {
+        if (!navegacion?.menus) return [];
+        return navegacion.menus.map((group) => ({
+            label: group.nombre as string,
+            icon: resolveIcon(group.icono as string || ""),
+            items: group.children?.map((child) => ({
+                label: child.nombre as string,
+                href: child.ruta || "#",
+                icon: resolveIcon(child.icono as string || ""),
+            })) || [],
+        }));
+    }, [navegacion]);
+
+    if (isLoading && !navegacion) {
+        return (
+            <aside
+                className="fixed inset-y-0 left-0 z-40 flex h-full flex-col border-r border-secondary bg-primary"
+                style={{ width: SIDEBAR_WIDTH }}
+            >
+                <div className="flex flex-1 items-center justify-center">
+                    <svg className="size-6 animate-spin text-fg-quaternary" viewBox="0 0 20 20" fill="none">
+                        <circle className="stroke-current opacity-30" cx="10" cy="10" r="8" fill="none" strokeWidth="2" />
+                        <circle className="origin-center animate-spin stroke-current" cx="10" cy="10" r="8" fill="none" strokeWidth="2" strokeDasharray="12.5 50" strokeLinecap="round" />
+                    </svg>
+                </div>
+            </aside>
+        );
+    }
+
+    return (
+        <aside
+            className="fixed inset-y-0 left-0 z-40 flex h-full flex-col justify-between overflow-auto border-r border-secondary bg-primary pt-4 lg:pt-5"
+            style={{ width: SIDEBAR_WIDTH }}
+        >
+            <div className="flex flex-col gap-5 px-4 lg:px-5">
+                <button
+                    onClick={() => navigate("/")}
+                    className="flex w-fit items-center gap-2"
+                >
+                    <UntitledLogoMinimal className="size-6" />
+                    <span className="text-sm font-semibold text-primary">
+                        Al Toque Peru
+                    </span>
+                </button>
+            </div>
+
+            <NavList activeUrl={activeUrl} items={menuItems} />
+
+            <div className="mt-auto flex flex-col gap-3 px-4 py-4 lg:py-5">
+                <div className="flex flex-col gap-1">
+                    <Button
+                        size="sm"
+                        color="tertiary"
+                        className="w-full justify-start"
+                        iconLeading={theme === "dark" ? Sun : Moon01}
+                        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                    >
+                        {theme === "dark" ? "Light mode" : "Dark mode"}
+                    </Button>
+                    <Button
+                        size="sm"
+                        color="tertiary"
+                        className="w-full justify-start"
+                        iconLeading={LogOut01}
+                        onClick={async () => {
+                            await signOut();
+                            navigate("/login");
+                        }}
+                    >
+                        Cerrar sesión
+                    </Button>
+                </div>
+
+                <div className="flex items-center gap-3 rounded-xl p-3 ring-1 ring-secondary ring-inset">
+                    <div
+                        className={cx(
+                            "flex size-9 shrink-0 items-center justify-center rounded-full",
+                            "bg-brand-solid text-white",
+                        )}
+                    >
+                        <span className="text-sm font-semibold uppercase">
+                            {(businessUser?.nombre as string)?.charAt(0) || user?.email?.charAt(0) || "U"}
+                        </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-primary">
+                            {(businessUser?.rol_nombre as string) || "—"}
+                        </p>
+                        <p className="truncate text-xs text-tertiary">
+                            {(businessUser?.username as string) || user?.email || "—"}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    );
+};
