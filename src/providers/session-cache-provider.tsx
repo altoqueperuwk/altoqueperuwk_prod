@@ -45,8 +45,62 @@ interface SessionCacheProviderProps {
     children: ReactNode;
 }
 
+interface GlobalCatalogData {
+    estados: Record<string, unknown>[] | null;
+    comunidades: Record<string, unknown>[] | null;
+    bancos: Record<string, unknown>[] | null;
+    empresas: Record<string, unknown>[] | null;
+    empresasCuentasBancarias: Record<string, unknown>[] | null;
+    codigosServicio: Record<string, unknown>[] | null;
+}
+
+let globalCatalogData: GlobalCatalogData | null = null;
+let globalCatalogRequest: Promise<GlobalCatalogData> | null = null;
+
+const loadGlobalCatalogs = async (): Promise<GlobalCatalogData> => {
+    if (globalCatalogData) {
+        return globalCatalogData;
+    }
+
+    if (globalCatalogRequest) {
+        return globalCatalogRequest;
+    }
+
+    globalCatalogRequest = Promise.all([
+        supabase.rpc("f_get_tb_estado"),
+        supabase.rpc("f_get_tb_comunidad"),
+        supabase.rpc("f_get_tb_banco"),
+        supabase.rpc("f_get_tb_empresa"),
+        supabase.rpc("f_get_tb_empresa_cuenta_bancaria"),
+        supabase.rpc("f_get_tb_codigo_servicio"),
+    ]).then(([
+        estadosResult,
+        comunidadesResult,
+        bancosResult,
+        empresasResult,
+        cuentasResult,
+        codigosResult,
+    ]) => {
+        globalCatalogData = {
+            estados: estadosResult.data ?? null,
+            comunidades: comunidadesResult.data ?? null,
+            bancos: bancosResult.data ?? null,
+            empresas: empresasResult.data ?? null,
+            empresasCuentasBancarias: cuentasResult.data ?? null,
+            codigosServicio: codigosResult.data ?? null,
+        };
+
+        return globalCatalogData;
+    }).finally(() => {
+        globalCatalogRequest = null;
+    });
+
+    return globalCatalogRequest;
+};
+
 export const SessionCacheProvider = ({ children }: SessionCacheProviderProps) => {
-    const { user, businessUser } = useAuth();
+    const { businessUser } = useAuth();
+    const businessUserId = businessUser?.id;
 
     const [navegacion, setNavegacion] = useState<NavegacionData | null>(null);
     const [estados, setEstados] = useState<Record<string, unknown>[] | null>(null);
@@ -58,7 +112,7 @@ export const SessionCacheProvider = ({ children }: SessionCacheProviderProps) =>
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        if (!user || !businessUser) {
+        if (!businessUserId) {
             return;
         }
 
@@ -68,33 +122,20 @@ export const SessionCacheProvider = ({ children }: SessionCacheProviderProps) =>
             setIsLoading(true);
 
             try {
-                const [
-                    navResult,
-                    estadosResult,
-                    comunidadesResult,
-                    bancosResult,
-                    empresasResult,
-                    cuentasResult,
-                    codigosResult,
-                ] = await Promise.all([
-                    supabase.rpc("f_get_tb_navegacion_x_usuario", { p_id_usuario: businessUser.id }),
-                    supabase.rpc("f_get_tb_estado"),
-                    supabase.rpc("f_get_tb_comunidad"),
-                    supabase.rpc("f_get_tb_banco"),
-                    supabase.rpc("f_get_tb_empresa"),
-                    supabase.rpc("f_get_tb_empresa_cuenta_bancaria"),
-                    supabase.rpc("f_get_tb_codigo_servicio"),
+                const [navResult, catalogs] = await Promise.all([
+                    supabase.rpc("f_get_tb_navegacion_x_usuario", { p_id_usuario: businessUserId }),
+                    loadGlobalCatalogs(),
                 ]);
 
                 if (cancelled) return;
 
                 setNavegacion(navResult.data as NavegacionData ?? { menus: [], rutas_permitidas: [], nombres_permitidos: [], usuario: null });
-                setEstados(estadosResult.data ?? null);
-                setComunidades(comunidadesResult.data ?? null);
-                setBancos(bancosResult.data ?? null);
-                setEmpresas(empresasResult.data ?? null);
-                setEmpresasCuentasBancarias(cuentasResult.data ?? null);
-                setCodigosServicio(codigosResult.data ?? null);
+                setEstados(catalogs.estados);
+                setComunidades(catalogs.comunidades);
+                setBancos(catalogs.bancos);
+                setEmpresas(catalogs.empresas);
+                setEmpresasCuentasBancarias(catalogs.empresasCuentasBancarias);
+                setCodigosServicio(catalogs.codigosServicio);
             } catch {
                 if (!cancelled) {
                     setNavegacion(null);
@@ -111,7 +152,7 @@ export const SessionCacheProvider = ({ children }: SessionCacheProviderProps) =>
         return () => {
             cancelled = true;
         };
-    }, [user, businessUser]);
+    }, [businessUserId]);
 
     const value = useMemo<SessionCacheContextType>(
         () => ({

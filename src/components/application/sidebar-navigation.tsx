@@ -37,6 +37,15 @@ import { NavList } from "@/components/application/app-navigation/base-components
 const iconMap: Record<string, FC<{ className?: string }>> = {
     "settings": Settings01,
     "credit-card": CreditCard01,
+    "credit-card-bcp": Bank,
+    "credit-card-bbva": Bank,
+    "credit-card-scotiabank": Bank,
+    "credit-card-banbif": Bank,
+    "credit-card-interbank": Bank,
+    "credit-card-safetypay": Bank,
+    "credit-card-pos": CreditCard01,
+    "credit-card-linkpago": Link01,
+    "credit-card-deuda": CreditCard01,
     "activity": Activity,
     "bar-chart": BarChart03,
     "file-text": File07,
@@ -61,6 +70,27 @@ const resolveIcon = (iconName: string): FC<{ className?: string }> => {
     return iconMap[key] || LayoutGrid01;
 };
 
+const resolveNavLabel = (label: string, href?: string | null) => {
+    if (href === "/operaciones/deuda") return "Pago Deuda";
+    return label;
+};
+
+const operationAccentByRoute: Record<string, string> = {
+    "/operaciones/bcp": "#FF7900",
+    "/operaciones/bbva": "#004481",
+    "/operaciones/scotiabank": "#EC1C24",
+    "/operaciones/banbif": "#00A1E4",
+    "/operaciones/interbank": "#00A757",
+    "/operaciones/safetypay": "#1363DF",
+    "/operaciones/pos": "#6A1B9A",
+    "/operaciones/linkpago": "#00E5FF",
+    "/operaciones/deuda": "#2C3E50",
+    "/operaciones/pago-deuda": "#2C3E50",
+    "/operaciones/pagodeuda": "#2C3E50",
+};
+
+const resolveNavAccent = (href?: string | null) => href ? operationAccentByRoute[href] : undefined;
+
 const SIDEBAR_WIDTH = 280;
 
 export const SidebarNavigation = () => {
@@ -82,9 +112,10 @@ export const SidebarNavigation = () => {
             label: group.nombre as string,
             icon: resolveIcon(group.icono as string || ""),
             items: group.children?.map((child) => ({
-                label: child.nombre as string,
+                label: resolveNavLabel(child.nombre as string, child.ruta as string | null),
                 href: child.ruta || "#",
                 icon: resolveIcon(child.icono as string || ""),
+                accentColor: resolveNavAccent(child.ruta as string | null),
             })) || [],
         }));
     }, [navegacion]);

@@ -24,7 +24,10 @@ import { BancoPage } from "@/features/sistema/banco/banco-page";
 import { EmpresaPage } from "@/features/sistema/empresa/empresa-page";
 import { EmpresaCuentaBancariaPage } from "@/features/sistema/empresa-cuenta-bancaria/empresa-cuenta-bancaria-page";
 import { ReglasEfectivizacionPage } from "@/features/sistema/reglas-efectivizacion/reglas-efectivizacion-page";
-import { OperacionPlaceholder } from "@/features/operaciones/operacion-placeholder";
+import { CajaOperativaPage } from "@/features/sistema/caja-operativa/caja-operativa-page";
+import { BancariaPage } from "@/features/operaciones/efectivizacion/bancaria/pages/bancaria-page";
+import { AsistidaPage } from "@/features/operaciones/efectivizacion/asistida/pages/asistida-page";
+import { PagoDeudaPage } from "@/features/operaciones/pago-deuda/pages/pago-deuda-page";
 import "@/styles/globals.css";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -32,7 +35,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
     if (isLoading) {
         return (
-            <div className="flex h-screen items-center justify-center bg-primary">
+            <div className="flex h-screen items-center justify-center bg-secondary">
                 <div className="flex flex-col items-center gap-3">
                     <svg className="size-8 animate-spin text-brand-solid" viewBox="0 0 20 20" fill="none">
                         <circle className="stroke-current opacity-30" cx="10" cy="10" r="8" fill="none" strokeWidth="2" />
@@ -71,17 +74,20 @@ function AppRoutes() {
                 <Route path="/sistema/banco" element={<BancoPage />} />
                 <Route path="/sistema/empresa" element={<EmpresaPage />} />
                 <Route path="/sistema/reglas-efectivizacion" element={<ReglasEfectivizacionPage />} />
+                <Route path="/sistema/caja-operativa" element={<CajaOperativaPage />} />
                 <Route path="/sistema/empresa/:empresaId/cuentas" element={<EmpresaCuentaBancariaPage />} />
 
-                <Route path="/operaciones/bcp" element={<OperacionPlaceholder title="BCP" />} />
-                <Route path="/operaciones/bbva" element={<OperacionPlaceholder title="BBVA" />} />
-                <Route path="/operaciones/scotiabank" element={<OperacionPlaceholder title="Scotiabank" />} />
-                <Route path="/operaciones/banbif" element={<OperacionPlaceholder title="BanBif" />} />
-                <Route path="/operaciones/interbank" element={<OperacionPlaceholder title="Interbank" />} />
-                <Route path="/operaciones/safetypay" element={<OperacionPlaceholder title="SafetyPay" />} />
-                <Route path="/operaciones/pos" element={<OperacionPlaceholder title="POS" />} />
-                <Route path="/operaciones/linkpago" element={<OperacionPlaceholder title="Link Pago" />} />
-                <Route path="/operaciones/pagodeuda" element={<OperacionPlaceholder title="Pago Deuda" />} />
+                <Route path="/operaciones/bcp" element={<BancariaPage ruta="bcp" />} />
+                <Route path="/operaciones/bbva" element={<BancariaPage ruta="bbva" />} />
+                <Route path="/operaciones/scotiabank" element={<BancariaPage ruta="scotiabank" />} />
+                <Route path="/operaciones/banbif" element={<BancariaPage ruta="banbif" />} />
+                <Route path="/operaciones/interbank" element={<BancariaPage ruta="interbank" />} />
+                <Route path="/operaciones/safetypay" element={<BancariaPage ruta="safetypay" />} />
+                <Route path="/operaciones/pos" element={<AsistidaPage ruta="pos" />} />
+                <Route path="/operaciones/linkpago" element={<AsistidaPage ruta="linkpago" />} />
+                <Route path="/operaciones/deuda" element={<PagoDeudaPage />} />
+                <Route path="/operaciones/pago-deuda" element={<PagoDeudaPage />} />
+                <Route path="/operaciones/pagodeuda" element={<PagoDeudaPage />} />
             </Route>
 
             <Route path="*" element={<NotFound />} />

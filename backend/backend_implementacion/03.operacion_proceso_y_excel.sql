@@ -13,7 +13,7 @@ Justificacion del modelo en la etapa compacta:
   - conserva nombres materializados para auditoria historica
   - conserva reglas y resultados congelados para evitar que cambios futuros
     en catalogos o comisiones alteren la lectura historica
-  - no incorpora todavia la capa contable de caja en este archivo
+  - delega el impacto financiero de caja a `05.ruta_operacion_y_cajas.sql`
   - `tipo_servicio` es el unico clasificador de familia comercial y se deriva
     desde `tb_codigo_servicio.tipo`
   - `id_usuario` representa al usuario que registra la operacion
@@ -34,7 +34,7 @@ Nota de compactacion:
 
 Alcance de esta fase:
   - cerrar solo la capa operativa/comercial
-  - dejar fuera cualquier persistencia contable o movimiento de caja
+  - persistir el movimiento de caja mediante la funcion puente del core de cajas
   - permitir pruebas completas de efectivizacion, pago deuda, derivados,
     reasignados y retenidos sobre una sola fila snapshot
 */
@@ -429,10 +429,10 @@ Uso esperado:
   - insercion programatica cuando el frontend ya resolvio la regla aplicada
 
 Regla de fase:
-  - la operacion se registra solo en `tb_operacion_proceso`
-  - no dispara todavia asientos, movimientos ni efectos de caja
-  - si la ruta viene informada, el ingreso debe congelarse contra la caja
-    primaria de esa ruta y no contra una seleccion arbitraria del usuario
+  - la operacion se registra en `tb_operacion_proceso`
+  - el impacto de caja se delega a `f_post_tb_operacion_caja_desde_proceso`
+  - si la ruta bancaria viene informada, el ingreso se valida contra el banco
+    de la ruta; la caja primaria solo se usa como default si no llega empresa
 */
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso(
   p_id_codigo_servicio bigint DEFAULT NULL,
@@ -518,6 +518,8 @@ DECLARE
   v_tipo_servicio character varying;
   v_tipo_documento bigint;
   v_ruta_ingreso jsonb;
+  v_id_banco_ruta bigint;
+  v_nombre_banco_ruta character varying;
   v_ruta_origen_final character varying;
   v_ruta_destino_final character varying;
   v_id_empresa_ingreso_final bigint;
@@ -526,6 +528,7 @@ DECLARE
   v_id_banco_empresa_cuenta_ingreso_final bigint;
   v_nombre_banco_empresa_cuenta_ingreso_final character varying;
   v_ruta_kpi character varying;
+  v_caja_result jsonb;
 BEGIN
   v_cliente_id := p_id_cliente;
   v_cliente_nombre := p_nombre_cliente;
@@ -587,33 +590,102 @@ BEGIN
   END IF;
 
   IF COALESCE(v_ruta_origen_final, '') <> '' THEN
-    v_ruta_ingreso := public.f_get_tb_ruta_operacion_caja_ingreso_principal(v_ruta_origen_final);
+    SELECT b.id, b.nombre
+    INTO v_id_banco_ruta, v_nombre_banco_ruta
+    FROM public.tb_banco b
+    WHERE UPPER(b.nombre) = CASE LOWER(v_ruta_origen_final)
+        WHEN 'bcp' THEN 'BCP'
+        WHEN 'bbva' THEN 'BBVA'
+        WHEN 'scotiabank' THEN 'SCOTIABANK'
+        WHEN 'banbif' THEN 'BANBIF'
+        WHEN 'interbank' THEN 'INTERBANK'
+        WHEN 'safetypay' THEN 'SAFETYPAY'
+        ELSE ''
+      END
+       OR UPPER(COALESCE(b.nombre_abreviatura, '')) = CASE LOWER(v_ruta_origen_final)
+        WHEN 'bcp' THEN 'BCP'
+        WHEN 'bbva' THEN 'BBVA'
+        WHEN 'scotiabank' THEN 'SCOTIABANK'
+        WHEN 'banbif' THEN 'BANBIF'
+        WHEN 'interbank' THEN 'IBK'
+        WHEN 'safetypay' THEN 'SFPAY'
+        ELSE ''
+      END
+    LIMIT 1;
 
-    IF v_ruta_ingreso IS NULL THEN
-      RETURN jsonb_build_object(
-        'error', 'La ruta actual no tiene una caja primaria de ingreso configurada.'
-      );
+    IF v_id_banco_ruta IS NOT NULL THEN
+      IF v_id_empresa_ingreso_final IS NULL THEN
+        v_ruta_ingreso := public.f_get_tb_ruta_operacion_caja_ingreso_principal(v_ruta_origen_final);
+
+        IF v_ruta_ingreso IS NULL THEN
+          RETURN jsonb_build_object(
+            'error', 'Selecciona una empresa de ingreso para la ruta actual.'
+          );
+        END IF;
+
+        v_id_empresa_ingreso_final := (v_ruta_ingreso->>'id_empresa')::bigint;
+        v_nombre_empresa_ingreso_final := v_ruta_ingreso->>'nombre_empresa';
+      END IF;
+
+      SELECT ecb.id
+      INTO v_id_empresa_cuenta_ingreso_final
+      FROM public.tb_empresa_cuenta_bancaria ecb
+      WHERE ecb.id_empresa = v_id_empresa_ingreso_final
+        AND ecb.id_banco = v_id_banco_ruta
+      LIMIT 1;
+
+      IF v_id_empresa_cuenta_ingreso_final IS NULL THEN
+        RETURN jsonb_build_object(
+          'error', 'La empresa seleccionada no tiene cuenta bancaria activa para el banco de la ruta.'
+        );
+      END IF;
+
+      IF p_id_empresa_cuenta_ingreso IS NOT NULL
+         AND p_id_empresa_cuenta_ingreso <> v_id_empresa_cuenta_ingreso_final THEN
+        RETURN jsonb_build_object(
+          'error', 'La cuenta bancaria de ingreso no corresponde al banco de la ruta.'
+        );
+      END IF;
+
+      IF v_nombre_empresa_ingreso_final IS NULL THEN
+        SELECT e.nombre
+        INTO v_nombre_empresa_ingreso_final
+        FROM public.tb_empresa e
+        WHERE e.id = v_id_empresa_ingreso_final
+        LIMIT 1;
+      END IF;
+
+      v_id_banco_empresa_cuenta_ingreso_final := v_id_banco_ruta;
+      v_nombre_banco_empresa_cuenta_ingreso_final := v_nombre_banco_ruta;
+    ELSE
+      v_ruta_ingreso := public.f_get_tb_ruta_operacion_caja_ingreso_principal(v_ruta_origen_final);
+
+      IF v_ruta_ingreso IS NULL THEN
+        RETURN jsonb_build_object(
+          'error', 'La ruta actual no tiene una caja primaria de ingreso configurada.'
+        );
+      END IF;
+
+      IF p_id_empresa_ingreso IS NOT NULL
+         AND p_id_empresa_ingreso <> COALESCE((v_ruta_ingreso->>'id_empresa')::bigint, 0) THEN
+        RETURN jsonb_build_object(
+          'error', 'La empresa de ingreso no coincide con la caja primaria de la ruta.'
+        );
+      END IF;
+
+      IF p_id_empresa_cuenta_ingreso IS NOT NULL
+         AND p_id_empresa_cuenta_ingreso <> COALESCE((v_ruta_ingreso->>'id_empresa_cuenta_bancaria')::bigint, 0) THEN
+        RETURN jsonb_build_object(
+          'error', 'La cuenta bancaria de ingreso no coincide con la caja primaria de la ruta.'
+        );
+      END IF;
+
+      v_id_empresa_ingreso_final := (v_ruta_ingreso->>'id_empresa')::bigint;
+      v_nombre_empresa_ingreso_final := v_ruta_ingreso->>'nombre_empresa';
+      v_id_empresa_cuenta_ingreso_final := (v_ruta_ingreso->>'id_empresa_cuenta_bancaria')::bigint;
+      v_id_banco_empresa_cuenta_ingreso_final := (v_ruta_ingreso->>'id_banco')::bigint;
+      v_nombre_banco_empresa_cuenta_ingreso_final := v_ruta_ingreso->>'nombre_banco';
     END IF;
-
-    IF p_id_empresa_ingreso IS NOT NULL
-       AND p_id_empresa_ingreso <> COALESCE((v_ruta_ingreso->>'id_empresa')::bigint, 0) THEN
-      RETURN jsonb_build_object(
-        'error', 'La empresa de ingreso no coincide con la caja primaria de la ruta.'
-      );
-    END IF;
-
-    IF p_id_empresa_cuenta_ingreso IS NOT NULL
-       AND p_id_empresa_cuenta_ingreso <> COALESCE((v_ruta_ingreso->>'id_empresa_cuenta_bancaria')::bigint, 0) THEN
-      RETURN jsonb_build_object(
-        'error', 'La cuenta bancaria de ingreso no coincide con la caja primaria de la ruta.'
-      );
-    END IF;
-
-    v_id_empresa_ingreso_final := (v_ruta_ingreso->>'id_empresa')::bigint;
-    v_nombre_empresa_ingreso_final := v_ruta_ingreso->>'nombre_empresa';
-    v_id_empresa_cuenta_ingreso_final := (v_ruta_ingreso->>'id_empresa_cuenta_bancaria')::bigint;
-    v_id_banco_empresa_cuenta_ingreso_final := (v_ruta_ingreso->>'id_banco')::bigint;
-    v_nombre_banco_empresa_cuenta_ingreso_final := v_ruta_ingreso->>'nombre_banco';
   END IF;
 
   INSERT INTO public.tb_operacion_proceso (
@@ -759,6 +831,19 @@ BEGIN
     COALESCE(p_tipo_facturacion, 'Boleta')
   )
   RETURNING id INTO v_id;
+
+  v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
+    p_id_operacion_proceso := v_id,
+    p_tipo_origen := 'OPERACION_PROCESO',
+    p_tipo_movimiento := NULL,
+    p_id_usuario := p_id_usuario,
+    p_nombre_usuario := p_nombre_usuario,
+    p_id_estado := p_id_estado
+  );
+
+  IF v_caja_result ? 'error' THEN
+    RETURN v_caja_result;
+  END IF;
 
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, p_id_usuario);
 
@@ -1305,12 +1390,11 @@ $$;
 /*
 Funcion: f_patch_tb_operacion_proceso_pagado
 Objetivo:
-  Marcar una operacion como pagada sin acoplarla todavia a contabilidad.
+  Marcar una operacion como pagada y asegurar el impacto de caja.
 
 Regla de fase:
-  - no registrar movimientos de caja
-  - no crear asientos
-  - no tocar tablas contables
+  - registra el movimiento de caja si aun no existe
+  - la funcion de caja es idempotente por id_operacion_proceso
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_pagado(
   p_id bigint,
@@ -1327,6 +1411,7 @@ AS $$
 DECLARE
   v_actual record;
   v_ruta_kpi character varying;
+  v_caja_result jsonb;
 BEGIN
   SELECT *
   INTO v_actual
@@ -1341,6 +1426,19 @@ BEGIN
       id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = p_id;
+
+  v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
+    p_id_operacion_proceso := p_id,
+    p_tipo_origen := 'OPERACION_PROCESO',
+    p_tipo_movimiento := NULL,
+    p_id_usuario := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario),
+    p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_actual.nombre_usuario_gestor, v_actual.nombre_usuario),
+    p_id_estado := p_id_estado
+  );
+
+  IF v_caja_result ? 'error' THEN
+    RETURN v_caja_result;
+  END IF;
 
   v_ruta_kpi := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario));
@@ -1734,11 +1832,11 @@ Objetivo:
   de negocio, no al CRUD fila por fila.
 
 Regla de fase:
-  - solo inserta operaciones en `tb_operacion_proceso`
-  - no genera movimientos de caja
+  - inserta operaciones en `tb_operacion_proceso`
+  - registra el movimiento de caja por cada operacion procesada
   - congela `tipo_servicio` desde `tb_codigo_servicio`
-  - si la ruta viene informada, el ingreso se toma de la caja primaria de esa
-    ruta y ya no de una seleccion libre por empresa/banco
+  - si la ruta bancaria viene informada, se respeta la empresa seleccionada y
+    se valida que tenga cuenta del banco de la ruta
 */
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso_excel(
   p_datos_excel_json jsonb,
@@ -1793,10 +1891,13 @@ DECLARE
   v_excel_nombre_codigo_servicio character varying;
   v_excel_tipo_servicio character varying;
   v_ruta_ingreso jsonb;
+  v_id_banco_ruta bigint;
+  v_nombre_banco_ruta character varying;
   v_id_empresa_ingreso_final bigint;
   v_nombre_empresa_ingreso_final character varying;
   v_id_banco_ingreso_final bigint;
   v_nombre_banco_ingreso_final character varying;
+  v_caja_result jsonb;
 BEGIN
   SELECT username INTO v_username
   FROM public.tb_usuario
@@ -1823,7 +1924,7 @@ BEGIN
   v_id_banco_ingreso_final := p_id_banco;
   v_nombre_banco_ingreso_final := NULL;
   IF p_id_empresa_ingreso IS NOT NULL THEN
-    SELECT COALESCE(e.nombre_codigo_servicio, cs.nombre, p_nombre_codigo_servicio), cs.tipo
+    SELECT COALESCE(cs.nombre, p_nombre_codigo_servicio), cs.tipo
     INTO v_excel_nombre_codigo_servicio, v_excel_tipo_servicio
     FROM public.tb_empresa e
     CROSS JOIN public.tb_codigo_servicio cs
@@ -1839,43 +1940,101 @@ BEGIN
   END IF;
 
   IF COALESCE(p_ruta_actual, '') <> '' THEN
-    v_ruta_ingreso := public.f_get_tb_ruta_operacion_caja_ingreso_principal(p_ruta_actual);
+    SELECT b.id, b.nombre
+    INTO v_id_banco_ruta, v_nombre_banco_ruta
+    FROM public.tb_banco b
+    WHERE UPPER(b.nombre) = CASE LOWER(p_ruta_actual)
+        WHEN 'bcp' THEN 'BCP'
+        WHEN 'bbva' THEN 'BBVA'
+        WHEN 'scotiabank' THEN 'SCOTIABANK'
+        WHEN 'banbif' THEN 'BANBIF'
+        WHEN 'interbank' THEN 'INTERBANK'
+        WHEN 'safetypay' THEN 'SAFETYPAY'
+        ELSE ''
+      END
+       OR UPPER(COALESCE(b.nombre_abreviatura, '')) = CASE LOWER(p_ruta_actual)
+        WHEN 'bcp' THEN 'BCP'
+        WHEN 'bbva' THEN 'BBVA'
+        WHEN 'scotiabank' THEN 'SCOTIABANK'
+        WHEN 'banbif' THEN 'BANBIF'
+        WHEN 'interbank' THEN 'IBK'
+        WHEN 'safetypay' THEN 'SFPAY'
+        ELSE ''
+      END
+    LIMIT 1;
 
-    IF v_ruta_ingreso IS NULL THEN
-      RETURN jsonb_build_object(
-        'filas_procesadas', 0,
-        'filas_omitidas', 0,
-        'filas_error', 1,
-        'detalle', jsonb_build_array(
-          jsonb_build_object(
-            'fila', 0,
-            'estado', 'ERROR',
-            'motivo', 'La ruta actual no tiene una caja primaria de ingreso configurada'
+    IF v_id_banco_ruta IS NOT NULL THEN
+      IF v_id_empresa_ingreso_final IS NULL THEN
+        v_ruta_ingreso := public.f_get_tb_ruta_operacion_caja_ingreso_principal(p_ruta_actual);
+
+        IF v_ruta_ingreso IS NULL THEN
+          RETURN jsonb_build_object(
+            'filas_procesadas', 0,
+            'filas_omitidas', 0,
+            'filas_error', 1,
+            'detalle', jsonb_build_array(
+              jsonb_build_object(
+                'fila', 0,
+                'estado', 'ERROR',
+                'motivo', 'Selecciona una empresa de ingreso para la ruta actual'
+              )
+            )
+          );
+        END IF;
+
+        v_id_empresa_ingreso_final := (v_ruta_ingreso->>'id_empresa')::bigint;
+        v_nombre_empresa_ingreso_final := v_ruta_ingreso->>'nombre_empresa';
+      END IF;
+
+      IF v_nombre_empresa_ingreso_final IS NULL THEN
+        SELECT e.nombre
+        INTO v_nombre_empresa_ingreso_final
+        FROM public.tb_empresa e
+        WHERE e.id = v_id_empresa_ingreso_final
+        LIMIT 1;
+      END IF;
+
+      v_id_banco_ingreso_final := v_id_banco_ruta;
+      v_nombre_banco_ingreso_final := v_nombre_banco_ruta;
+    ELSE
+      v_ruta_ingreso := public.f_get_tb_ruta_operacion_caja_ingreso_principal(p_ruta_actual);
+
+      IF v_ruta_ingreso IS NULL THEN
+        RETURN jsonb_build_object(
+          'filas_procesadas', 0,
+          'filas_omitidas', 0,
+          'filas_error', 1,
+          'detalle', jsonb_build_array(
+            jsonb_build_object(
+              'fila', 0,
+              'estado', 'ERROR',
+              'motivo', 'La ruta actual no tiene una caja primaria de ingreso configurada'
+            )
           )
-        )
-      );
-    END IF;
+        );
+      END IF;
 
-    IF p_id_empresa_ingreso IS NOT NULL
-       AND p_id_empresa_ingreso <> COALESCE((v_ruta_ingreso->>'id_empresa')::bigint, 0) THEN
-      RETURN jsonb_build_object(
-        'filas_procesadas', 0,
-        'filas_omitidas', 0,
-        'filas_error', 1,
-        'detalle', jsonb_build_array(
-          jsonb_build_object(
-            'fila', 0,
-            'estado', 'ERROR',
-            'motivo', 'La empresa seleccionada no coincide con la caja primaria de ingreso de la ruta'
+      IF p_id_empresa_ingreso IS NOT NULL
+         AND p_id_empresa_ingreso <> COALESCE((v_ruta_ingreso->>'id_empresa')::bigint, 0) THEN
+        RETURN jsonb_build_object(
+          'filas_procesadas', 0,
+          'filas_omitidas', 0,
+          'filas_error', 1,
+          'detalle', jsonb_build_array(
+            jsonb_build_object(
+              'fila', 0,
+              'estado', 'ERROR',
+              'motivo', 'La empresa seleccionada no coincide con la caja primaria de ingreso de la ruta'
+            )
           )
-        )
-      );
-    END IF;
+        );
+      END IF;
 
-    v_id_empresa_ingreso_final := (v_ruta_ingreso->>'id_empresa')::bigint;
-    v_nombre_empresa_ingreso_final := v_ruta_ingreso->>'nombre_empresa';
-    v_id_banco_ingreso_final := (v_ruta_ingreso->>'id_banco')::bigint;
-    v_nombre_banco_ingreso_final := v_ruta_ingreso->>'nombre_banco';
+      v_id_empresa_ingreso_final := (v_ruta_ingreso->>'id_empresa')::bigint;
+      v_nombre_empresa_ingreso_final := v_ruta_ingreso->>'nombre_empresa';
+      v_id_banco_ingreso_final := (v_ruta_ingreso->>'id_banco')::bigint;
+      v_nombre_banco_ingreso_final := v_ruta_ingreso->>'nombre_banco';
+    END IF;
   END IF;
 
   SELECT
@@ -2044,7 +2203,7 @@ BEGIN
     WHERE r.id_codigo_servicio = p_id_codigo_servicio
       AND r.id_banco = v_id_banco_ingreso_final
       AND r.id_comunidad = COALESCE(v_cliente_comunidad, p_id_comunidad)
-      AND r.tipo_deposito = p_id_tipo_deposito
+      AND (p_nombre_tipo_deposito IS NULL OR r.tipo_deposito = p_nombre_tipo_deposito)
       AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1);
 
     SELECT r.*
@@ -2053,7 +2212,7 @@ BEGIN
     WHERE r.id_codigo_servicio = p_id_codigo_servicio
       AND r.id_banco = v_id_banco_ingreso_final
       AND r.id_comunidad = COALESCE(v_cliente_comunidad, p_id_comunidad)
-      AND r.tipo_deposito = p_id_tipo_deposito
+      AND (p_nombre_tipo_deposito IS NULL OR r.tipo_deposito = p_nombre_tipo_deposito)
       AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
     LIMIT 1;
 
@@ -2212,6 +2371,27 @@ BEGIN
     )
     RETURNING id INTO v_new_id;
 
+    v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
+      p_id_operacion_proceso := v_new_id,
+      p_tipo_origen := 'EXCEL',
+      p_tipo_movimiento := 'INGRESO',
+      p_id_usuario := p_id_usuario,
+      p_nombre_usuario := v_username,
+      p_id_estado := v_estado_pendiente_id
+    );
+
+    IF v_caja_result ? 'error' THEN
+      v_detalle := v_detalle || jsonb_build_object(
+        'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
+        'codigo_operacion', v_fila.codigo_operacion,
+        'estado', 'ERROR',
+        'id_operacion', v_new_id,
+        'motivo', v_caja_result->>'error'
+      );
+      v_filas_error := v_filas_error + 1;
+      CONTINUE;
+    END IF;
+
     v_detalle := v_detalle || jsonb_build_object(
       'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
       'codigo_operacion', v_fila.codigo_operacion,
@@ -2239,10 +2419,10 @@ Objetivo:
 
 Regla de fase:
   - sigue siendo un registro operativo/comercial
-  - no debe tocar caja ni contabilidad
+  - registra el ingreso de caja asociado a la ganancia cargada
   - congela `tipo_servicio` desde `tb_codigo_servicio`
-  - si la ruta viene informada, el ingreso se toma de la caja primaria de la
-    ruta y ya no de una seleccion libre por empresa/banco
+  - si la ruta bancaria viene informada, se respeta la empresa seleccionada y
+    se valida que tenga cuenta del banco de la ruta
 */
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso_excel_ganancia(
   p_datos_excel_json jsonb,
@@ -2285,10 +2465,13 @@ DECLARE
   v_excel_nombre_codigo_servicio character varying;
   v_excel_tipo_servicio character varying;
   v_ruta_ingreso jsonb;
+  v_id_banco_ruta bigint;
+  v_nombre_banco_ruta character varying;
   v_id_empresa_ingreso_final bigint;
   v_nombre_empresa_ingreso_final character varying;
   v_id_banco_ingreso_final bigint;
   v_nombre_banco_ingreso_final character varying;
+  v_caja_result jsonb;
 BEGIN
   SELECT username INTO v_username
   FROM public.tb_usuario
@@ -2310,7 +2493,7 @@ BEGIN
   v_id_banco_ingreso_final := p_id_banco;
   v_nombre_banco_ingreso_final := NULL;
   IF p_id_empresa_ingreso IS NOT NULL THEN
-    SELECT COALESCE(e.nombre_codigo_servicio, cs.nombre, p_nombre_codigo_servicio), cs.tipo
+    SELECT COALESCE(cs.nombre, p_nombre_codigo_servicio), cs.tipo
     INTO v_excel_nombre_codigo_servicio, v_excel_tipo_servicio
     FROM public.tb_empresa e
     CROSS JOIN public.tb_codigo_servicio cs
@@ -2326,43 +2509,101 @@ BEGIN
   END IF;
 
   IF COALESCE(p_ruta_actual, '') <> '' THEN
-    v_ruta_ingreso := public.f_get_tb_ruta_operacion_caja_ingreso_principal(p_ruta_actual);
+    SELECT b.id, b.nombre
+    INTO v_id_banco_ruta, v_nombre_banco_ruta
+    FROM public.tb_banco b
+    WHERE UPPER(b.nombre) = CASE LOWER(p_ruta_actual)
+        WHEN 'bcp' THEN 'BCP'
+        WHEN 'bbva' THEN 'BBVA'
+        WHEN 'scotiabank' THEN 'SCOTIABANK'
+        WHEN 'banbif' THEN 'BANBIF'
+        WHEN 'interbank' THEN 'INTERBANK'
+        WHEN 'safetypay' THEN 'SAFETYPAY'
+        ELSE ''
+      END
+       OR UPPER(COALESCE(b.nombre_abreviatura, '')) = CASE LOWER(p_ruta_actual)
+        WHEN 'bcp' THEN 'BCP'
+        WHEN 'bbva' THEN 'BBVA'
+        WHEN 'scotiabank' THEN 'SCOTIABANK'
+        WHEN 'banbif' THEN 'BANBIF'
+        WHEN 'interbank' THEN 'IBK'
+        WHEN 'safetypay' THEN 'SFPAY'
+        ELSE ''
+      END
+    LIMIT 1;
 
-    IF v_ruta_ingreso IS NULL THEN
-      RETURN jsonb_build_object(
-        'filas_procesadas', 0,
-        'filas_omitidas', 0,
-        'filas_error', 1,
-        'detalle', jsonb_build_array(
-          jsonb_build_object(
-            'fila', 0,
-            'estado', 'ERROR',
-            'motivo', 'La ruta actual no tiene una caja primaria de ingreso configurada'
+    IF v_id_banco_ruta IS NOT NULL THEN
+      IF v_id_empresa_ingreso_final IS NULL THEN
+        v_ruta_ingreso := public.f_get_tb_ruta_operacion_caja_ingreso_principal(p_ruta_actual);
+
+        IF v_ruta_ingreso IS NULL THEN
+          RETURN jsonb_build_object(
+            'filas_procesadas', 0,
+            'filas_omitidas', 0,
+            'filas_error', 1,
+            'detalle', jsonb_build_array(
+              jsonb_build_object(
+                'fila', 0,
+                'estado', 'ERROR',
+                'motivo', 'Selecciona una empresa de ingreso para la ruta actual'
+              )
+            )
+          );
+        END IF;
+
+        v_id_empresa_ingreso_final := (v_ruta_ingreso->>'id_empresa')::bigint;
+        v_nombre_empresa_ingreso_final := v_ruta_ingreso->>'nombre_empresa';
+      END IF;
+
+      IF v_nombre_empresa_ingreso_final IS NULL THEN
+        SELECT e.nombre
+        INTO v_nombre_empresa_ingreso_final
+        FROM public.tb_empresa e
+        WHERE e.id = v_id_empresa_ingreso_final
+        LIMIT 1;
+      END IF;
+
+      v_id_banco_ingreso_final := v_id_banco_ruta;
+      v_nombre_banco_ingreso_final := v_nombre_banco_ruta;
+    ELSE
+      v_ruta_ingreso := public.f_get_tb_ruta_operacion_caja_ingreso_principal(p_ruta_actual);
+
+      IF v_ruta_ingreso IS NULL THEN
+        RETURN jsonb_build_object(
+          'filas_procesadas', 0,
+          'filas_omitidas', 0,
+          'filas_error', 1,
+          'detalle', jsonb_build_array(
+            jsonb_build_object(
+              'fila', 0,
+              'estado', 'ERROR',
+              'motivo', 'La ruta actual no tiene una caja primaria de ingreso configurada'
+            )
           )
-        )
-      );
-    END IF;
+        );
+      END IF;
 
-    IF p_id_empresa_ingreso IS NOT NULL
-       AND p_id_empresa_ingreso <> COALESCE((v_ruta_ingreso->>'id_empresa')::bigint, 0) THEN
-      RETURN jsonb_build_object(
-        'filas_procesadas', 0,
-        'filas_omitidas', 0,
-        'filas_error', 1,
-        'detalle', jsonb_build_array(
-          jsonb_build_object(
-            'fila', 0,
-            'estado', 'ERROR',
-            'motivo', 'La empresa seleccionada no coincide con la caja primaria de ingreso de la ruta'
+      IF p_id_empresa_ingreso IS NOT NULL
+         AND p_id_empresa_ingreso <> COALESCE((v_ruta_ingreso->>'id_empresa')::bigint, 0) THEN
+        RETURN jsonb_build_object(
+          'filas_procesadas', 0,
+          'filas_omitidas', 0,
+          'filas_error', 1,
+          'detalle', jsonb_build_array(
+            jsonb_build_object(
+              'fila', 0,
+              'estado', 'ERROR',
+              'motivo', 'La empresa seleccionada no coincide con la caja primaria de ingreso de la ruta'
+            )
           )
-        )
-      );
-    END IF;
+        );
+      END IF;
 
-    v_id_empresa_ingreso_final := (v_ruta_ingreso->>'id_empresa')::bigint;
-    v_nombre_empresa_ingreso_final := v_ruta_ingreso->>'nombre_empresa';
-    v_id_banco_ingreso_final := (v_ruta_ingreso->>'id_banco')::bigint;
-    v_nombre_banco_ingreso_final := v_ruta_ingreso->>'nombre_banco';
+      v_id_empresa_ingreso_final := (v_ruta_ingreso->>'id_empresa')::bigint;
+      v_nombre_empresa_ingreso_final := v_ruta_ingreso->>'nombre_empresa';
+      v_id_banco_ingreso_final := (v_ruta_ingreso->>'id_banco')::bigint;
+      v_nombre_banco_ingreso_final := v_ruta_ingreso->>'nombre_banco';
+    END IF;
   END IF;
 
   SELECT ecb.id
@@ -2371,6 +2612,21 @@ BEGIN
   WHERE ecb.id_empresa = v_id_empresa_ingreso_final
     AND ecb.id_banco = v_id_banco_ingreso_final
   LIMIT 1;
+
+  IF v_id_empresa_cuenta_ingreso IS NULL THEN
+    RETURN jsonb_build_object(
+      'filas_procesadas', 0,
+      'filas_omitidas', 0,
+      'filas_error', 1,
+      'detalle', jsonb_build_array(
+        jsonb_build_object(
+          'fila', 0,
+          'estado', 'ERROR',
+          'motivo', 'No existe una cuenta bancaria de ingreso para la empresa y banco definidos por la ruta'
+        )
+      )
+    );
+  END IF;
 
   FOR v_fila IN
     SELECT *
@@ -2556,6 +2812,27 @@ BEGIN
     )
     RETURNING id INTO v_new_id;
 
+    v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
+      p_id_operacion_proceso := v_new_id,
+      p_tipo_origen := 'EXCEL_GANANCIA',
+      p_tipo_movimiento := 'INGRESO',
+      p_id_usuario := p_id_usuario,
+      p_nombre_usuario := v_username,
+      p_id_estado := v_estado_pagado_id
+    );
+
+    IF v_caja_result ? 'error' THEN
+      v_detalle := v_detalle || jsonb_build_object(
+        'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
+        'codigo_operacion', v_fila.codigo_operacion,
+        'estado', 'ERROR',
+        'id_operacion', v_new_id,
+        'motivo', v_caja_result->>'error'
+      );
+      v_filas_error := v_filas_error + 1;
+      CONTINUE;
+    END IF;
+
     v_detalle := v_detalle || jsonb_build_object(
       'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
       'codigo_operacion', v_fila.codigo_operacion,
@@ -2576,6 +2853,16 @@ BEGIN
 END;
 $$;
 
-
-
-
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN (
+  'f_post_tb_operacion_proceso',
+  'f_patch_tb_operacion_proceso_pagado',
+  'f_post_tb_operacion_proceso_excel',
+  'f_post_tb_operacion_proceso_excel_ganancia'
+)
+ORDER BY n.nspname, p.proname;

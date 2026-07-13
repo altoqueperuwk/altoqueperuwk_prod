@@ -27,13 +27,13 @@ export function LoginPage() {
 
     if (authLoading) {
         return (
-            <div className="flex min-h-screen items-center justify-center bg-primary">
+            <div className="flex min-h-screen items-center justify-center bg-secondary">
                 <div className="flex flex-col items-center gap-3">
                     <svg className="size-8 animate-spin text-brand-solid" viewBox="0 0 20 20" fill="none">
                         <circle className="stroke-current opacity-30" cx="10" cy="10" r="8" fill="none" strokeWidth="2" />
                         <circle className="origin-center animate-spin stroke-current" cx="10" cy="10" r="8" fill="none" strokeWidth="2" strokeDasharray="12.5 50" strokeLinecap="round" />
                     </svg>
-                    <span className="text-sm text-tertiary">Verificando sesión...</span>
+                    <span className="text-sm text-tertiary">Verificando sesion...</span>
                 </div>
             </div>
         );
@@ -55,11 +55,11 @@ export function LoginPage() {
     };
 
     return (
-        <div className="flex min-h-screen items-center justify-center bg-primary px-4">
+        <div className="flex min-h-screen items-center justify-center bg-secondary px-4">
             <motion.div
                 initial={{ opacity: 0, y: 24 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, ease: "easeOut" }}
+                transition={{ duration: 0.2 }}
                 className="w-full max-w-sm"
             >
                 <div className="flex flex-col gap-8 rounded-xl border border-secondary bg-primary p-8">
@@ -68,7 +68,7 @@ export function LoginPage() {
                             <h1 className="text-display-sm font-semibold text-primary">Al Toque Peru</h1>
                             <div className="h-5 w-1 rounded-full bg-brand-solid" />
                         </div>
-                        <p className="text-sm text-tertiary">Sistema de Gestión Operativa</p>
+                        <p className="text-sm text-tertiary">Sistema de Gestion Operativa</p>
                     </div>
 
                     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
@@ -81,8 +81,8 @@ export function LoginPage() {
                             onChange={setEmail}
                         />
                         <Input
-                            label="Contraseña"
-                            placeholder="Tu contraseña"
+                            label="Contrasena"
+                            placeholder="Tu contrasena"
                             icon={Lock01}
                             isRequired
                             type="password"
@@ -103,7 +103,7 @@ export function LoginPage() {
                             showTextWhileLoading
                             className="w-full"
                         >
-                            Iniciar sesión
+                            Iniciar sesion
                         </Button>
                     </form>
                 </div>

@@ -15,6 +15,7 @@ const routeLabels: Record<string, string> = {
     "/sistema/banco": "Bancos",
     "/sistema/empresa": "Empresas",
     "/sistema/reglas-efectivizacion": "Reglas Efectivizacion",
+    "/sistema/caja-operativa": "Caja Operativa",
     "/sistema": "Sistema",
     "/operaciones": "Operaciones",
     "/operaciones/bcp": "BCP",
@@ -25,6 +26,8 @@ const routeLabels: Record<string, string> = {
     "/operaciones/safetypay": "SafetyPay",
     "/operaciones/pos": "POS",
     "/operaciones/linkpago": "Link Pago",
+    "/operaciones/deuda": "Pago Deuda",
+    "/operaciones/pago-deuda": "Pago Deuda",
     "/operaciones/pagodeuda": "Pago Deuda",
     "/": "Home",
 };

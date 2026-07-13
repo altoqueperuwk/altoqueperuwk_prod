@@ -6,14 +6,14 @@ export function ForbiddenPage() {
     const navigate = useNavigate();
 
     return (
-        <section className="flex min-h-screen items-start bg-primary py-16 md:items-center md:py-24">
+        <section className="flex min-h-screen items-start bg-secondary py-16 md:items-center md:py-24">
             <div className="mx-auto max-w-container grow px-4 md:px-8">
                 <div className="flex w-full max-w-3xl flex-col gap-8 md:gap-12">
                     <div className="flex flex-col gap-4 md:gap-6">
                         <div className="flex flex-col gap-3">
                             <span className="text-md font-semibold text-brand-secondary">403 error</span>
                             <h1 className="text-display-md font-semibold text-primary md:text-display-lg lg:text-display-xl">
-                                No tienes permisos para acceder a esta página
+                                No tienes permisos para acceder a esta pagina
                             </h1>
                         </div>
                         <p className="text-lg text-tertiary md:text-xl">

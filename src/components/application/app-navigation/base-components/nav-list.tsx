@@ -48,6 +48,7 @@ export const NavList = ({ activeUrl, items, className }: NavListProps) => {
                                     {item.items.map((childItem) => (
                                         <li key={childItem.label} className="py-0.25">
                                             <NavItemBase
+                                                accentColor={childItem.accentColor}
                                                 href={childItem.href}
                                                 badge={childItem.badge}
                                                 type="collapsible-child"

@@ -1,0 +1,56 @@
+import { describe, expect, it } from "vitest";
+import { findExcelHeaderIndex, getExcelAliases, mapExcelRows, normalizeExcelHeader } from "./excel-parser";
+
+describe("excel-parser", () => {
+    it("normalizes accents, separators and spaces", () => {
+        expect(normalizeExcelHeader("  Código_Operación  ")).toBe("codigo operacion");
+    });
+
+    it("finds the header row using aliases", () => {
+        const rows = [
+            ["Reporte BCP"],
+            ["DNI", "Importe", "Nro Operacion", "Fecha Pago"],
+            ["12345678", "100", "ABC", "2026-07-13"],
+        ];
+
+        expect(findExcelHeaderIndex(rows)).toBe(1);
+    });
+
+    it("maps rows to backend excel contract", () => {
+        const rows = [
+            ["DNI", "Importe", "Nro Operacion", "Fecha Pago", "Hora", "Banco", "Estado"],
+            ["12345678", "100.50", "OP-1", "2026-07-13", "10:00", "BCP", "OK"],
+        ];
+
+        expect(mapExcelRows(rows)).toEqual([
+            {
+                dni: "12345678",
+                monto: "100.50",
+                codigo_operacion: "OP-1",
+                fecha_pago: "2026-07-13 00:00:00",
+                hora_proceso: "10:00",
+                nombre_cliente_banco_ingreso: "BCP",
+                estado: "OK",
+            },
+        ]);
+    });
+
+    it("uses route aliases without changing the backend contract", () => {
+        const aliases = getExcelAliases("safetypay");
+
+        expect(aliases.codigo_operacion).toContain("transaction id");
+    });
+
+    it("requires core columns before mapping rows", () => {
+        const rows = [
+            ["DNI", "Importe", "Fecha Pago"],
+            ["12345678", "100.50", "2026-07-13"],
+        ];
+
+        expect(() => mapExcelRows(rows)).toThrow("No se encontraron encabezados de columna en el archivo.");
+    });
+
+    it("throws when no compatible header exists", () => {
+        expect(() => mapExcelRows([["foo", "bar"]])).toThrow("No se encontro un encabezado compatible.");
+    });
+});

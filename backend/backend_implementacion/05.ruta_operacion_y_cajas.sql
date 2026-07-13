@@ -143,6 +143,237 @@ BEGIN
 END;
 $$;
 
+/*
+Funcion: f_post_tb_ruta_operacion_caja
+Objetivo:
+  Asociar una caja operativa base a una ruta de Operaciones para bootstrap
+  tecnico-administrativo desde Sistema. La caja se resuelve por empresa + cuenta
+  bancaria, y se protege que solo exista una caja principal activa por ruta.
+*/
+CREATE OR REPLACE FUNCTION public.f_post_tb_ruta_operacion_caja(
+  p_ruta character varying,
+  p_id_empresa bigint,
+  p_id_empresa_cuenta_bancaria bigint,
+  p_flag_caja_ingreso_principal boolean DEFAULT false,
+  p_id_estado bigint DEFAULT NULL,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_cuenta record;
+  v_caja record;
+  v_estado_final bigint;
+  v_new_id bigint;
+  v_result jsonb;
+BEGIN
+  IF COALESCE(p_ruta, '') = '' THEN
+    RETURN jsonb_build_object('error', 'La ruta es obligatoria.');
+  END IF;
+
+  SELECT ecb.id, ecb.id_empresa
+  INTO v_cuenta
+  FROM public.tb_empresa_cuenta_bancaria ecb
+  WHERE ecb.id = p_id_empresa_cuenta_bancaria
+  LIMIT 1;
+
+  IF v_cuenta.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La cuenta bancaria no existe.');
+  END IF;
+
+  IF v_cuenta.id_empresa <> p_id_empresa THEN
+    RETURN jsonb_build_object('error', 'La cuenta bancaria no pertenece a la empresa seleccionada.');
+  END IF;
+
+  SELECT c.id, c.id_estado
+  INTO v_caja
+  FROM public.tb_caja_operativa c
+  WHERE c.id_empresa = p_id_empresa
+    AND c.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria
+  LIMIT 1;
+
+  IF v_caja.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Primero debe crear la caja operativa para esa empresa y cuenta bancaria.');
+  END IF;
+
+  v_estado_final := COALESCE(p_id_estado, 1);
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_ruta_operacion_caja rc
+    WHERE rc.ruta = p_ruta
+      AND rc.id_empresa = p_id_empresa
+      AND rc.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria
+  ) THEN
+    RETURN jsonb_build_object('error', 'La caja ya esta asociada a esa ruta.');
+  END IF;
+
+  IF COALESCE(p_flag_caja_ingreso_principal, false) = true
+     AND v_estado_final = 1
+     AND EXISTS (
+       SELECT 1
+       FROM public.tb_ruta_operacion_caja rc
+       WHERE rc.ruta = p_ruta
+         AND rc.flag_caja_ingreso_principal = true
+         AND rc.id_estado = 1
+     ) THEN
+    RETURN jsonb_build_object('error', 'Ya existe una caja de ingreso principal activa para esta ruta.');
+  END IF;
+
+  INSERT INTO public.tb_ruta_operacion_caja (
+    ruta,
+    id_empresa,
+    id_empresa_cuenta_bancaria,
+    flag_caja_ingreso_principal,
+    id_estado,
+    id_usuario
+  )
+  VALUES (
+    p_ruta,
+    p_id_empresa,
+    p_id_empresa_cuenta_bancaria,
+    COALESCE(p_flag_caja_ingreso_principal, false),
+    v_estado_final,
+    p_id_usuario
+  )
+  RETURNING id INTO v_new_id;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(p_ruta, p_id_usuario);
+
+  SELECT to_jsonb(x)
+  INTO v_result
+  FROM public.f_get_tb_ruta_operacion_caja(p_id := v_new_id) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_ruta_operacion_caja
+Objetivo:
+  Editar la asociacion ruta/caja usada por Operaciones, conservando la validacion
+  de coherencia empresa-cuenta-caja y bloqueando multiples cajas principales
+  activas en una misma ruta.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_ruta_operacion_caja(
+  p_id bigint,
+  p_ruta character varying DEFAULT NULL,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_flag_caja_ingreso_principal boolean DEFAULT NULL,
+  p_id_estado bigint DEFAULT NULL,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actual record;
+  v_ruta_final character varying;
+  v_empresa_final bigint;
+  v_cuenta_final bigint;
+  v_principal_final boolean;
+  v_estado_final bigint;
+  v_cuenta record;
+  v_caja record;
+  v_result jsonb;
+BEGIN
+  SELECT *
+  INTO v_actual
+  FROM public.tb_ruta_operacion_caja
+  WHERE id = p_id
+  LIMIT 1;
+
+  IF v_actual.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La asociacion de ruta no existe.');
+  END IF;
+
+  v_ruta_final := COALESCE(p_ruta, v_actual.ruta);
+  v_empresa_final := COALESCE(p_id_empresa, v_actual.id_empresa);
+  v_cuenta_final := COALESCE(p_id_empresa_cuenta_bancaria, v_actual.id_empresa_cuenta_bancaria);
+  v_principal_final := COALESCE(p_flag_caja_ingreso_principal, v_actual.flag_caja_ingreso_principal);
+  v_estado_final := COALESCE(p_id_estado, v_actual.id_estado);
+
+  IF COALESCE(v_ruta_final, '') = '' THEN
+    RETURN jsonb_build_object('error', 'La ruta es obligatoria.');
+  END IF;
+
+  SELECT ecb.id, ecb.id_empresa
+  INTO v_cuenta
+  FROM public.tb_empresa_cuenta_bancaria ecb
+  WHERE ecb.id = v_cuenta_final
+  LIMIT 1;
+
+  IF v_cuenta.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La cuenta bancaria no existe.');
+  END IF;
+
+  IF v_cuenta.id_empresa <> v_empresa_final THEN
+    RETURN jsonb_build_object('error', 'La cuenta bancaria no pertenece a la empresa seleccionada.');
+  END IF;
+
+  SELECT c.id, c.id_estado
+  INTO v_caja
+  FROM public.tb_caja_operativa c
+  WHERE c.id_empresa = v_empresa_final
+    AND c.id_empresa_cuenta_bancaria = v_cuenta_final
+  LIMIT 1;
+
+  IF v_caja.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Primero debe crear la caja operativa para esa empresa y cuenta bancaria.');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_ruta_operacion_caja rc
+    WHERE rc.id <> p_id
+      AND rc.ruta = v_ruta_final
+      AND rc.id_empresa = v_empresa_final
+      AND rc.id_empresa_cuenta_bancaria = v_cuenta_final
+  ) THEN
+    RETURN jsonb_build_object('error', 'La caja ya esta asociada a esa ruta.');
+  END IF;
+
+  IF v_principal_final = true
+     AND v_estado_final = 1
+     AND EXISTS (
+       SELECT 1
+       FROM public.tb_ruta_operacion_caja rc
+       WHERE rc.id <> p_id
+         AND rc.ruta = v_ruta_final
+         AND rc.flag_caja_ingreso_principal = true
+         AND rc.id_estado = 1
+     ) THEN
+    RETURN jsonb_build_object('error', 'Ya existe una caja de ingreso principal activa para esta ruta.');
+  END IF;
+
+  UPDATE public.tb_ruta_operacion_caja
+  SET ruta = v_ruta_final,
+      id_empresa = v_empresa_final,
+      id_empresa_cuenta_bancaria = v_cuenta_final,
+      flag_caja_ingreso_principal = v_principal_final,
+      id_estado = v_estado_final,
+      id_usuario = COALESCE(p_id_usuario, id_usuario)
+  WHERE id = p_id;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_actual.ruta, COALESCE(p_id_usuario, v_actual.id_usuario));
+  IF v_actual.ruta <> v_ruta_final THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta_final, COALESCE(p_id_usuario, v_actual.id_usuario));
+  END IF;
+
+  SELECT to_jsonb(x)
+  INTO v_result
+  FROM public.f_get_tb_ruta_operacion_caja(p_id := p_id) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
 -- ============================================================================
 -- 15. TB_RUTA_OPERACION_KPI
 -- ============================================================================
@@ -518,6 +749,7 @@ CREATE TABLE IF NOT EXISTS public.tb_caja_operativa (
   id_empresa bigint NOT NULL,
   id_empresa_cuenta_bancaria bigint NOT NULL,
   saldo_inicial numeric NOT NULL DEFAULT 0,
+  saldo_total numeric NOT NULL DEFAULT 0,
   saldo_actual numeric NOT NULL DEFAULT 0,
   total_recaudado numeric NOT NULL DEFAULT 0,
   ingresos numeric NOT NULL DEFAULT 0,
@@ -535,6 +767,7 @@ CREATE TABLE IF NOT EXISTS public.tb_caja_operativa (
   CONSTRAINT tb_caja_operativa_pkey PRIMARY KEY (id),
   CONSTRAINT tb_caja_operativa_unique UNIQUE (id_empresa, id_empresa_cuenta_bancaria),
   CONSTRAINT tb_caja_operativa_saldo_inicial_check CHECK (saldo_inicial >= 0),
+  CONSTRAINT tb_caja_operativa_saldo_total_check CHECK (saldo_total >= 0),
   CONSTRAINT tb_caja_operativa_saldo_actual_check CHECK (saldo_actual >= 0),
   CONSTRAINT tb_caja_operativa_total_recaudado_check CHECK (total_recaudado >= 0),
   CONSTRAINT tb_caja_operativa_ingresos_check CHECK (ingresos >= 0),
@@ -552,6 +785,30 @@ CREATE TABLE IF NOT EXISTS public.tb_caja_operativa (
 
 DO $$
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'tb_caja_operativa'
+      AND column_name = 'saldo_total'
+  ) THEN
+    ALTER TABLE public.tb_caja_operativa
+    ADD COLUMN saldo_total numeric NOT NULL DEFAULT 0;
+
+    UPDATE public.tb_caja_operativa
+    SET saldo_total = saldo_actual;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'tb_caja_operativa_saldo_total_check'
+      AND conrelid = 'public.tb_caja_operativa'::regclass
+  ) THEN
+    ALTER TABLE public.tb_caja_operativa
+    ADD CONSTRAINT tb_caja_operativa_saldo_total_check CHECK (saldo_total >= 0);
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1
     FROM information_schema.columns
@@ -617,7 +874,7 @@ BEGIN
     ecb.id_banco,
     b.nombre AS nombre_banco,
     c.saldo_inicial,
-    c.saldo_actual AS saldo_total,
+    c.saldo_total,
     c.saldo_actual,
     c.total_recaudado,
     c.ingresos,
@@ -710,6 +967,7 @@ BEGIN
     id_empresa,
     id_empresa_cuenta_bancaria,
     saldo_inicial,
+    saldo_total,
     saldo_actual,
     total_recaudado,
     ingresos,
@@ -728,6 +986,7 @@ BEGIN
     p_id_empresa,
     p_id_empresa_cuenta_bancaria,
     COALESCE(p_saldo_inicial, 0),
+    COALESCE(p_saldo_actual, p_saldo_inicial, 0),
     COALESCE(p_saldo_actual, p_saldo_inicial, 0),
     COALESCE(p_ingresos, 0) + COALESCE(p_ingresos_retenido, 0),
     COALESCE(p_ingresos, 0),
@@ -840,6 +1099,7 @@ BEGIN
   SET id_empresa = v_empresa_final,
       id_empresa_cuenta_bancaria = v_cuenta_final,
       saldo_inicial = COALESCE(p_saldo_inicial, saldo_inicial),
+      saldo_total = COALESCE(p_saldo_actual, saldo_total),
       saldo_actual = COALESCE(p_saldo_actual, saldo_actual),
       total_recaudado = COALESCE(p_ingresos, ingresos) + COALESCE(p_ingresos_retenido, ingresos_retenido),
       ingresos = COALESCE(p_ingresos, ingresos),
@@ -914,6 +1174,7 @@ CREATE TABLE IF NOT EXISTS public.tb_caja_operativa_cierre (
   id_empresa bigint NOT NULL,
   id_empresa_cuenta_bancaria bigint NOT NULL,
   saldo_inicial numeric NOT NULL DEFAULT 0,
+  saldo_total numeric NOT NULL DEFAULT 0,
   saldo_actual numeric NOT NULL DEFAULT 0,
   total_recaudado numeric NOT NULL DEFAULT 0,
   ingresos numeric NOT NULL DEFAULT 0,
@@ -939,6 +1200,20 @@ CREATE TABLE IF NOT EXISTS public.tb_caja_operativa_cierre (
 
 DO $$
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'tb_caja_operativa_cierre'
+      AND column_name = 'saldo_total'
+  ) THEN
+    ALTER TABLE public.tb_caja_operativa_cierre
+    ADD COLUMN saldo_total numeric NOT NULL DEFAULT 0;
+
+    UPDATE public.tb_caja_operativa_cierre
+    SET saldo_total = saldo_actual;
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1
     FROM information_schema.columns
@@ -1005,7 +1280,7 @@ BEGIN
     ecb.id_banco,
     b.nombre AS nombre_banco,
     ch.saldo_inicial,
-    ch.saldo_actual AS saldo_total,
+    ch.saldo_total,
     ch.saldo_actual,
     ch.total_recaudado,
     ch.ingresos,
@@ -1073,7 +1348,7 @@ BEGIN
     p_kpi_snapshot,
     jsonb_build_object(
       'saldo_inicial', v_caja.saldo_inicial,
-      'saldo_total', v_caja.saldo_actual,
+      'saldo_total', v_caja.saldo_total,
       'total_recaudado', COALESCE(v_caja.total_recaudado, 0),
       'ingresos', COALESCE(v_caja.ingresos, 0),
       'ingresos_retenido', COALESCE(v_caja.ingresos_retenido, 0),
@@ -1090,6 +1365,7 @@ BEGIN
     id_empresa,
     id_empresa_cuenta_bancaria,
     saldo_inicial,
+    saldo_total,
     saldo_actual,
     total_recaudado,
     ingresos,
@@ -1110,6 +1386,7 @@ BEGIN
     v_caja.id_empresa,
     v_caja.id_empresa_cuenta_bancaria,
     v_caja.saldo_inicial,
+    v_caja.saldo_total,
     v_caja.saldo_actual,
     COALESCE(v_caja.total_recaudado, 0),
     COALESCE(v_caja.ingresos, 0),
@@ -1129,6 +1406,7 @@ BEGIN
 
   UPDATE public.tb_caja_operativa
   SET saldo_inicial = saldo_actual,
+      saldo_total = saldo_actual,
       total_recaudado = 0,
       ingresos = 0,
       ingresos_retenido = 0,
@@ -1637,6 +1915,7 @@ BEGIN
 
   UPDATE public.tb_caja_operativa
   SET saldo_actual = v_saldo_nuevo,
+      saldo_total = v_saldo_nuevo,
       ingresos = COALESCE(ingresos, 0) + v_delta_ingresos,
       ingresos_retenido = COALESCE(ingresos_retenido, 0) + v_delta_ingresos_retenido,
       gastos = COALESCE(gastos, 0) + v_delta_gastos,
@@ -1651,6 +1930,154 @@ BEGIN
     SELECT x
     FROM public.f_get_tb_operacion_caja(p_id := v_new_id) AS x
     LIMIT 1
+  );
+END;
+$$;
+
+/*
+Funcion: f_post_tb_operacion_caja_desde_proceso
+Objetivo:
+  Traducir una fila comercial de tb_operacion_proceso a un movimiento financiero
+  de caja, usando f_post_tb_operacion_caja como unico punto que modifica saldos.
+
+Reglas:
+  - idempotente por id_operacion_proceso: no duplica impactos de caja;
+  - Efectivizacion y Excel registran INGRESO neto en la caja de ingreso;
+  - Pago Deuda registra SALIDA en la caja de salida;
+  - la caja se resuelve desde empresa + cuenta congeladas en la operacion.
+*/
+CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_caja_desde_proceso(
+  p_id_operacion_proceso bigint,
+  p_tipo_origen character varying DEFAULT 'OPERACION_PROCESO',
+  p_tipo_movimiento character varying DEFAULT NULL,
+  p_id_usuario bigint DEFAULT NULL,
+  p_nombre_usuario character varying DEFAULT NULL,
+  p_id_estado bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_op record;
+  v_existente jsonb;
+  v_tipo_movimiento character varying;
+  v_id_caja bigint;
+  v_monto_ingreso numeric := 0;
+  v_monto_transferencia numeric := 0;
+  v_monto_gasto numeric := 0;
+  v_monto_ganancia numeric := 0;
+  v_monto_salida numeric := 0;
+  v_tipo_servicio character varying;
+  v_detalle character varying;
+BEGIN
+  SELECT x
+  INTO v_existente
+  FROM public.f_get_tb_operacion_caja(p_id_operacion_proceso := p_id_operacion_proceso) AS x
+  LIMIT 1;
+
+  IF v_existente IS NOT NULL THEN
+    RETURN v_existente || jsonb_build_object('idempotente', true);
+  END IF;
+
+  SELECT *
+  INTO v_op
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id_operacion_proceso
+  LIMIT 1;
+
+  IF v_op.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion comercial no existe.');
+  END IF;
+
+  v_tipo_servicio := UPPER(COALESCE(v_op.tipo_servicio, v_op.nombre_codigo_servicio, ''));
+  v_tipo_movimiento := UPPER(
+    COALESCE(
+      p_tipo_movimiento,
+      CASE
+        WHEN v_tipo_servicio LIKE '%PAGO%DEUDA%' THEN 'SALIDA'
+        ELSE 'INGRESO'
+      END
+    )
+  );
+
+  IF v_tipo_movimiento = 'INGRESO' THEN
+    SELECT c.id
+    INTO v_id_caja
+    FROM public.tb_caja_operativa c
+    WHERE c.id_empresa = v_op.id_empresa_ingreso
+      AND c.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_ingreso
+    LIMIT 1;
+
+    IF v_id_caja IS NULL THEN
+      RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de ingreso de la operacion.');
+    END IF;
+
+    v_monto_ingreso := COALESCE(v_op.monto_deposito_cliente, 0);
+    v_monto_transferencia := COALESCE(
+      v_op.monto_transferencia_cliente,
+      GREATEST(COALESCE(v_op.monto_deposito_cliente, 0) - COALESCE(v_op.resultado_comision_servicio, 0), 0),
+      0
+    );
+    v_monto_gasto :=
+      v_monto_transferencia +
+      COALESCE(v_op.resultado_comision_banco_ingreso, 0) +
+      COALESCE(v_op.resultado_comision_banco_salida, 0) +
+      COALESCE(v_op.monto_itf_ingreso, 0) +
+      COALESCE(v_op.monto_itf_salida, 0);
+    v_monto_ganancia := GREATEST(v_monto_ingreso - v_monto_gasto, 0);
+    v_detalle := 'Operacion comercial de ingreso';
+  ELSIF v_tipo_movimiento = 'SALIDA' THEN
+    SELECT c.id
+    INTO v_id_caja
+    FROM public.tb_caja_operativa c
+    WHERE c.id_empresa = v_op.id_empresa_salida
+      AND c.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_salida
+    LIMIT 1;
+
+    IF v_id_caja IS NULL THEN
+      RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida de la operacion.');
+    END IF;
+
+    v_monto_salida := COALESCE(v_op.monto_transferencia_cliente, v_op.monto_deposito_cliente, 0);
+    v_monto_gasto :=
+      COALESCE(v_op.resultado_comision_banco_salida, 0) +
+      COALESCE(v_op.monto_itf_salida, 0);
+    v_detalle := 'Operacion comercial de salida';
+  ELSE
+    RETURN jsonb_build_object('error', 'tipo_movimiento debe ser INGRESO o SALIDA.');
+  END IF;
+
+  IF v_tipo_movimiento = 'INGRESO' AND v_monto_ingreso <= 0 THEN
+    RETURN jsonb_build_object('error', 'La operacion no tiene monto de ingreso para caja.');
+  END IF;
+
+  IF v_tipo_movimiento = 'SALIDA' AND v_monto_salida <= 0 THEN
+    RETURN jsonb_build_object('error', 'La operacion no tiene monto de salida para caja.');
+  END IF;
+
+  RETURN public.f_post_tb_operacion_caja(
+    p_id_caja := v_id_caja,
+    p_tipo_origen := COALESCE(p_tipo_origen, 'OPERACION_PROCESO'),
+    p_tipo_movimiento := v_tipo_movimiento,
+    p_id_operacion_proceso := v_op.id,
+    p_id_codigo_servicio := v_op.id_codigo_servicio,
+    p_nombre_codigo_servicio := v_op.nombre_codigo_servicio,
+    p_dni_cliente := v_op.dni_cliente,
+    p_nombre_cliente := v_op.nombre_cliente,
+    p_codigo_operacion := v_op.codigo_operacion_deposito_cliente,
+    p_detalle := v_detalle,
+    p_id_banco_tercero := COALESCE(v_op.id_banco_cliente_transferencia, v_op.id_banco_cliente),
+    p_nombre_banco_tercero := COALESCE(v_op.nombre_banco_cliente_transferencia, v_op.nombre_banco_cliente),
+    p_monto_ingreso := v_monto_ingreso,
+    p_monto_gasto := v_monto_gasto,
+    p_monto_ganancia := v_monto_ganancia,
+    p_monto_salida := v_monto_salida,
+    p_flag_contabiliza_operacion := true,
+    p_id_estado := COALESCE(p_id_estado, v_op.id_estado),
+    p_id_usuario := COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario),
+    p_nombre_usuario := COALESCE(p_nombre_usuario, v_op.nombre_usuario_gestor, v_op.nombre_usuario),
+    p_tipo_facturacion := COALESCE(v_op.tipo_facturacion, 'Boleta')
   );
 END;
 $$;
@@ -1907,6 +2334,7 @@ BEGIN
 
   UPDATE public.tb_caja_operativa
   SET saldo_actual = v_nuevo_saldo,
+      saldo_total = v_nuevo_saldo,
       ingresos = COALESCE(ingresos, 0) + COALESCE(v_mov.monto_ingreso, 0),
       ingresos_retenido = GREATEST(COALESCE(ingresos_retenido, 0) - COALESCE(v_mov.monto_ingreso, 0), 0),
       ganancia = COALESCE(ganancia, 0) + COALESCE(v_mov.monto_ganancia, 0),
@@ -1929,3 +2357,23 @@ BEGIN
   );
 END;
 $$;
+
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN (
+  'f_post_tb_ruta_operacion_caja',
+  'f_patch_tb_ruta_operacion_caja',
+  'f_get_tb_caja_operativa',
+  'f_post_tb_caja_operativa',
+  'f_patch_tb_caja_operativa',
+  'f_get_tb_caja_operativa_cierre',
+  'f_post_tb_caja_operativa_cierre',
+  'f_post_tb_operacion_caja',
+  'f_post_tb_operacion_caja_desde_proceso',
+  'f_patch_tb_operacion_caja_confirmar_retencion'
+)
+ORDER BY n.nspname, p.proname;

@@ -1,4 +1,4 @@
-import type { FC, HTMLAttributes, MouseEventHandler, ReactNode } from "react";
+import type { CSSProperties, FC, HTMLAttributes, MouseEventHandler, ReactNode } from "react";
 import { ChevronDown, Share04 } from "@untitledui/icons";
 import { Link as AriaLink } from "react-aria-components";
 import { Badge } from "@/components/base/badges/badges";
@@ -22,6 +22,8 @@ interface NavItemBaseProps {
     icon?: FC<HTMLAttributes<HTMLOrSVGElement>>;
     /** Badge to display. */
     badge?: ReactNode;
+    /** Optional route accent color. */
+    accentColor?: string;
     /** Whether the nav item is currently active. */
     current?: boolean;
     /** Whether to truncate the label text. */
@@ -32,10 +34,12 @@ interface NavItemBaseProps {
     children?: ReactNode;
 }
 
-export const NavItemBase = ({ current, type, badge, href, icon: Icon, children, truncate = true, onClick }: NavItemBaseProps) => {
+export const NavItemBase = ({ accentColor, current, type, badge, href, icon: Icon, children, truncate = true, onClick }: NavItemBaseProps) => {
+    const accentStyle = accentColor ? ({ "--nav-accent": accentColor } as CSSProperties) : undefined;
     const iconElement = Icon && (
         <Icon
             aria-hidden="true"
+            style={accentColor ? { color: accentColor } : undefined}
             className={cx(
                 "mr-2 size-5 shrink-0 text-fg-quaternary transition-inherit-all group-hover/item:text-fg-quaternary_hover",
                 current && "text-fg-quaternary_hover",
@@ -87,10 +91,22 @@ export const NavItemBase = ({ current, type, badge, href, icon: Icon, children, 
                 href={href!}
                 target={isExternal ? "_blank" : "_self"}
                 rel="noopener noreferrer"
-                className={cx("py-2 pr-3 pl-10", styles.root, current && styles.rootSelected)}
+                style={accentStyle}
+                className={cx(
+                    "py-2 pr-3 pl-10",
+                    styles.root,
+                    accentColor && "border-l-2 border-l-[var(--nav-accent)]",
+                    current && styles.rootSelected,
+                )}
                 onClick={onClick}
                 aria-current={current ? "page" : undefined}
             >
+                {accentColor && (
+                    <span
+                        aria-hidden="true"
+                        className="mr-2 size-2 shrink-0 rounded-full bg-[var(--nav-accent)]"
+                    />
+                )}
                 {labelElement}
                 {externalIcon}
                 {badgeElement}
@@ -103,6 +119,7 @@ export const NavItemBase = ({ current, type, badge, href, icon: Icon, children, 
             href={href!}
             target={isExternal ? "_blank" : "_self"}
             rel="noopener noreferrer"
+            style={accentStyle}
             className={cx("group/item p-2", styles.root, current && styles.rootSelected)}
             onClick={onClick}
             aria-current={current ? "page" : undefined}

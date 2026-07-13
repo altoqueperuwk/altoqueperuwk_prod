@@ -11,7 +11,7 @@ Objetivo:
 
 Diseno compacto:
   - no usa tablas intermedias
-  - no usa cajas
+  - consulta el snapshot comercial; el impacto de caja se registra al pagar
   - reutiliza el snapshot ya congelado en `tb_operacion_proceso`
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda(
@@ -445,8 +445,9 @@ $$;
 Funcion: f_patch_tb_pago_deuda_salida
 Objetivo:
   Asignar la empresa/cuenta de salida y congelar el snapshot de salida para
-  Pago Deuda, sin tocar caja ni movimientos contables. En esta fase tambien
-  puede congelar la ruta operativa final que atendera la salida.
+  Pago Deuda. La caja se impacta recien al marcar la solicitud como pagada.
+  En esta fase tambien puede congelar la ruta operativa final que atendera la
+  salida.
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_salida(
   p_id_operacion bigint,
@@ -553,7 +554,7 @@ Objetivo:
   efectivizacion, copiando el snapshot de ingreso a la solicitud.
 
 Diseno compacto:
-  - no crea ni borra movimientos de caja
+  - no crea ni borra movimientos de caja porque reutiliza el ingreso conciliado
   - no anula la efectivizacion original
   - solo congela el snapshot que necesita la solicitud de pago de deuda
 */
@@ -642,7 +643,8 @@ $$;
 Funcion: f_patch_tb_pago_deuda_pagado
 Objetivo:
   Marcar una solicitud de Pago Deuda como pagada y, si aplica, congelar el
-  monto final de comision del servicio.
+  monto final de comision del servicio. En este punto se registra la salida de
+  caja asociada.
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_pagado(
   p_id_operacion bigint,
@@ -660,12 +662,30 @@ DECLARE
   v_result jsonb;
   v_op record;
   v_ruta_kpi character varying;
+  v_caja_result jsonb;
 BEGIN
   SELECT *
   INTO v_op
   FROM public.tb_operacion_proceso
   WHERE id = p_id_operacion
   LIMIT 1;
+
+  IF v_op.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Operacion de Pago Deuda no encontrada.');
+  END IF;
+
+  IF v_op.id_empresa_salida IS NULL OR v_op.id_empresa_cuenta_salida IS NULL THEN
+    RETURN jsonb_build_object('error', 'Selecciona la empresa y cuenta de salida antes de marcar Pago Deuda como pagado.');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.tb_caja_operativa c
+    WHERE c.id_empresa = v_op.id_empresa_salida
+      AND c.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_salida
+  ) THEN
+    RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida seleccionada.');
+  END IF;
 
   SELECT id, nombre
   INTO v_estado_pagado_id, v_estado_pagado_nombre
@@ -682,6 +702,19 @@ BEGIN
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = p_id_operacion;
 
+  v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
+    p_id_operacion_proceso := p_id_operacion,
+    p_tipo_origen := 'PAGO_DEUDA',
+    p_tipo_movimiento := 'SALIDA',
+    p_id_usuario := COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario),
+    p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_op.nombre_usuario_gestor, v_op.nombre_usuario),
+    p_id_estado := v_estado_pagado_id
+  );
+
+  IF v_caja_result ? 'error' THEN
+    RETURN v_caja_result;
+  END IF;
+
   v_ruta_kpi := COALESCE(v_op.ruta_destino, v_op.ruta_origen);
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario));
 
@@ -693,4 +726,18 @@ BEGIN
   RETURN v_result;
 END;
 $$;
+
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN (
+  'f_get_tb_pago_deuda',
+  'f_patch_tb_pago_deuda_salida',
+  'f_patch_tb_pago_deuda_match',
+  'f_patch_tb_pago_deuda_pagado'
+)
+ORDER BY n.nspname, p.proname;
 

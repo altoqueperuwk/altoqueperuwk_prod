@@ -9,8 +9,10 @@ export type NavItemType = {
     icon?: FC<{ className?: string }>;
     /** Badge to display. */
     badge?: ReactNode;
+    /** Optional route accent color. */
+    accentColor?: string;
     /** List of sub-items to display. */
-    items?: { label: string; href: string; icon?: FC<{ className?: string }>; badge?: ReactNode }[];
+    items?: { label: string; href: string; icon?: FC<{ className?: string }>; badge?: ReactNode; accentColor?: string }[];
     /** Whether this nav item is a divider. */
     divider?: boolean;
 };
