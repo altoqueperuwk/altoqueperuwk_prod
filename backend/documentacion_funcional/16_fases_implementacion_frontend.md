@@ -1,8 +1,8 @@
-# 08. Fases de Implementacion Frontend
+# 16. Fases de Implementacion Frontend
 
 ## Objetivo
 
-Definir el orden exacto en que debe implementarse el frontend nuevo para que otra IA no improvise el roadmap ni deje piezas criticas "para despues".
+Definir el orden exacto en que debe implementarse el frontend nuevo para que otra IA no improvise el roadmap ni deje piezas criticas para despues.
 
 La implementacion debe hacerse por fases, y cada fase debe quedar utilizable antes de pasar a la siguiente.
 
@@ -251,15 +251,14 @@ Recien aqui se implementa el dominio fuerte del producto.
 
 ### Modulos incluidos
 
-- Operaciones
-- Efectivizacion
-- Pago Deuda
-- Cajas operativas
-- Operacion caja
-- Cierres
-- KPIs
-- Excel
-- Dashboard operativo/contable
+- `features/operaciones/efectivizacion/`
+- `features/operaciones/pago-deuda/`
+- KPI por ruta
+- formularios inline
+- carga Excel
+- tabs de bandeja
+- datatables operativos
+- cierres e historial de ruta
 
 ### Regla de arranque
 
@@ -272,17 +271,55 @@ Esta fase solo comienza cuando:
 - permisos y menu dinamico ya funcionan;
 - maestros alimentadores ya existen.
 
-### Regla de alcance en esta etapa documental
+### Regla de implementacion ya cerrada
 
-Aunque `operaciones` se implemente en esta fase, la siguiente IA no debe asumir por cuenta propia el wireframe final del modulo si todavia no existe especificacion funcional puntual.
+En esta fase ya no se debe improvisar el layout de `Operaciones`.
 
-Si no hay definicion nueva del usuario, solo debe dejar:
+La siguiente IA debe leer de forma obligatoria:
 
-- arquitectura limpia;
-- tema visual correcto;
-- motion transversal;
-- contratos y base de componentes;
-- y layouts operativos solo cuando ya hayan sido cerrados funcionalmente.
+- `17_operaciones_frontend_shell_y_layout_base.md`
+- `18_operaciones_frontend_kpis_y_bloque_superior.md`
+- `19_operaciones_frontend_formularios_inline.md`
+- `20_operaciones_frontend_excel_y_carga_masiva.md`
+- `21_operaciones_frontend_tabs_y_bandejas_operativas.md`
+- `22_operaciones_frontend_contratos_por_tab.md`
+- `23_operaciones_frontend_mapeo_backend_y_rpc.md`
+
+Eso congela:
+
+- el layout exacto de `Webpage.png`;
+- el bloque de bandejas de `Webpage-2.png`;
+- los formularios inline;
+- los KPI materializados;
+- el contrato de Excel;
+- los tabs, filtros y acciones por bandeja;
+- y el mapeo RPC del backend compacto.
+
+### Regla visual obligatoria
+
+`Operaciones` en la nueva web compacta debe implementarse con:
+
+- `Untitled UI` puro como libreria base de componentes;
+- el tema claro/oscuro ya aprobado del proyecto compacto;
+- `Framer Motion` como capa transversal de UX;
+- cero dependencia de la composicion pesada del frontend viejo.
+
+El frontend actual de `src/features/operaciones/` solo sirve como fuente de comportamiento validado:
+
+- parsing Excel;
+- derivacion;
+- reasignacion;
+- retencion;
+- reglas de formularios;
+- reportes.
+
+No sirve como patron obligatorio de estructura, layout ni wrappers de componentes.
+
+Regla estructural adicional:
+
+- `efectivizacion-bancaria` y `efectivizacion-asistida` siguen existiendo como familias de negocio;
+- pero en frontend se implementan dentro del mismo modulo raiz `features/operaciones/efectivizacion/`;
+- `pago-deuda` conserva modulo raiz propio.
 
 ## Set minimo de rutas que deben existir temprano
 
@@ -303,7 +340,7 @@ Y luego, cuando toque negocio:
 - `/operaciones/interbank`
 - `/operaciones/safetypay`
 - `/operaciones/pos`
-- `/operaciones/viaweb`
+- `/operaciones/linkpago`
 - `/operaciones/deuda`
 
 ## Regla final para la siguiente IA
@@ -316,8 +353,9 @@ La siguiente IA debe asumir:
 4. se mantiene el sistema visual actual basado en `Untitled UI`;
 5. el dark/light actual del proyecto prevalece sobre defaults externos;
 6. `Framer Motion` se usa desde el inicio con intensidad moderada;
-7. no debe inventarse el layout final de `operaciones` sin nueva instruccion funcional;
-8. no debe quedar ninguna pieza estructural importante "para despues".
+7. `Operaciones` ya tiene una especificacion tecnica cerrada en los documentos `17-23`;
+8. no debe inventarse ni reinterpretarse el layout operativo fuera de esos contratos;
+9. no debe quedar ninguna pieza estructural importante para despues.
 
 ## Checklist ejecutivo
 
@@ -328,4 +366,4 @@ La siguiente IA debe asumir:
 - [ ] Fase 4 completa
 - [ ] Fase 5 completa
 - [ ] Fase 6 completa
-- [ ] Fase 7 lista para iniciar
+- [ ] Fase 7 lista para iniciar con docs `17-23`

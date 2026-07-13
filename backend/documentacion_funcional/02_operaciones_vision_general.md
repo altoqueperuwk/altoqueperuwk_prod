@@ -2,7 +2,7 @@
 
 ## Objetivo del dominio
 
-`operaciones` concentra los flujos transaccionales del negocio. En el sistema compacto nuevo no debe documentarse como un modulo unico y monolitico, sino como 3 familias hermanas con responsabilidades distintas.
+`operaciones` concentra los flujos transaccionales del negocio. En el sistema compacto nuevo no debe documentarse como un modulo unico y monolitico, sino como 3 familias de negocio con responsabilidades distintas.
 
 ## Familias oficiales de operaciones
 
@@ -44,11 +44,16 @@ Por eso no se debe volver a agrupar todo bajo un solo `features/operaciones/` si
 
 ## Estructura frontend objetivo
 
-El frontend nuevo debe nacer ya dividido por responsabilidad:
+El frontend nuevo debe nacer dividido en 2 modulos raiz:
 
-- `features/operaciones/efectivizacion-bancaria/`
-- `features/operaciones/efectivizacion-asistida/`
+- `features/operaciones/efectivizacion/`
 - `features/operaciones/pago-deuda/`
+
+Y dentro de `features/operaciones/efectivizacion/` se deben separar internamente las 2 variantes reales:
+
+- `bancaria/`
+- `asistida/`
+- `shared/`
 
 Y ademas apoyarse en carpetas transversales:
 
@@ -70,6 +75,7 @@ Y ademas apoyarse en carpetas transversales:
 
 Otra IA debe salir de este documento entendiendo que:
 
-- `operaciones` tiene 3 familias reales;
-- cada familia requiere paginas, servicios y contratos propios;
+- `operaciones` tiene 3 familias reales de negocio;
+- el frontend solo tiene 2 modulos raiz: `efectivizacion` y `pago-deuda`;
+- `efectivizacion-asistida` no es una tercera raiz tecnica, sino una variante interna de `efectivizacion`;
 - y volver a meter todo en una sola capa seria un error de arquitectura.

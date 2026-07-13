@@ -11,8 +11,10 @@ interface ReglasEfectivizacionTableProps {
   isLoading: boolean;
   page: number;
   totalPages: number;
+  pageSize: number;
   estados: Record<string, unknown>[] | null;
   onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
   onEdit: (item: Record<string, unknown>) => void;
   onSaveRow: (id: number, fields: Record<string, unknown>) => Promise<void>;
   onHistory: (id: number) => void;
@@ -30,8 +32,10 @@ export const ReglasEfectivizacionTable = ({
   isLoading,
   page,
   totalPages,
+  pageSize,
   estados,
   onPageChange,
+  onPageSizeChange,
   onEdit,
   onSaveRow,
   onHistory,
@@ -139,99 +143,114 @@ export const ReglasEfectivizacionTable = ({
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="overflow-x-auto rounded-lg border border-secondary">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-secondary bg-secondary">
-            <tr>
-              <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">ID</th>
-              <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Servicio</th>
-              <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Banco</th>
-              <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Comunidad</th>
-              <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Tipo Depósito</th>
-              <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Comisión %</th>
-              <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Comisión Mín. S/</th>
-              <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Monto Mín. Dep. S/</th>
-              <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Estado</th>
-              <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-secondary">
-            {data.map((row) => {
-              const rowId = row.id as number;
-              const draft = getDraft(row);
-              const changed = hasChanges(row);
+    <div className="overflow-x-auto rounded-lg border border-secondary">
+      <table className="w-full text-left text-sm">
+        <thead className="border-b border-secondary bg-secondary">
+          <tr>
+            <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">ID</th>
+            <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Servicio</th>
+            <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Banco</th>
+            <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Comunidad</th>
+            <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Tipo Depósito</th>
+            <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Comisión %</th>
+            <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Comisión Mín. S/</th>
+            <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Monto Mín. Dep. S/</th>
+            <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Estado</th>
+            <th className="px-4 py-3 text-xs font-medium text-tertiary uppercase">Acciones</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-secondary">
+          {data.map((row) => {
+            const rowId = row.id as number;
+            const draft = getDraft(row);
+            const changed = hasChanges(row);
 
-              return (
-                <tr key={rowId} className="transition duration-100 ease-linear hover:bg-primary_hover">
-                  <td className="px-4 py-3 text-primary">{rowId ?? "-"}</td>
-                  <td className="px-4 py-3 text-primary">{(row.codigo_servicio_nombre as string) ?? "-"}</td>
-                  <td className="px-4 py-3 text-primary">{(row.banco_nombre as string) ?? "-"}</td>
-                  <td className="px-4 py-3 text-primary">{(row.comunidad_nombre as string) ?? "-"}</td>
-                  <td className="px-4 py-3 text-primary">{row.tipo_deposito != null ? String(row.tipo_deposito) : "-"}</td>
-                  <td className="px-4 py-3 w-28">
-                    <Input size="sm" type="number" placeholder="% 0.0" className="w-full"
-                      value={draft.comision_servicio}
-                      onChange={(v) => updateDraft(rowId, "comision_servicio", v)} />
-                  </td>
-                  <td className="px-4 py-3 w-36">
-                    <Input size="sm" type="number" placeholder="S/ 0.00" className="w-full"
-                      value={draft.comision_minima_servicio}
-                      onChange={(v) => updateDraft(rowId, "comision_minima_servicio", v)} />
-                  </td>
-                  <td className="px-4 py-3 w-40">
-                    <Input size="sm" type="number" placeholder="S/ 0.00" className="w-full"
-                      value={draft.monto_minimo_deposito_servicio}
-                      onChange={(v) => updateDraft(rowId, "monto_minimo_deposito_servicio", v)} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <Select
-                      size="sm"
-                      placeholder={getEstadoNombre(row.id_estado)}
-                      items={estadoItems}
-                      selectedKey={draft.id_estado}
-                      onSelectionChange={(key) => {
-                        if (key !== null) updateDraft(rowId, "id_estado", Number(key));
-                      }}
-                    >
-                      {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
-                    </Select>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1">
-                      <Button
-                        size="xs"
-                        color="tertiary"
-                        iconLeading={Edit03}
-                        onClick={() => onEdit(row)}
-                      />
-                      <Button
-                        size="xs"
-                        color="tertiary"
-                        iconLeading={Save01}
-                        isDisabled={!changed}
-                        onClick={() => handleSave(row)}
-                      />
-                      <Button
-                        size="xs"
-                        color="tertiary"
-                        iconLeading={ClockRewind}
-                        onClick={() => onHistory(rowId)}
-                      />
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+            return (
+              <tr key={rowId} className="transition duration-100 ease-linear hover:bg-primary_hover">
+                <td className="px-4 py-3 text-primary">{rowId ?? "-"}</td>
+                <td className="px-4 py-3 text-primary">{(row.codigo_servicio_nombre as string) ?? "-"}</td>
+                <td className="px-4 py-3 text-primary">{(row.banco_nombre as string) ?? "-"}</td>
+                <td className="px-4 py-3 text-primary">{(row.comunidad_nombre as string) ?? "-"}</td>
+                <td className="px-4 py-3 text-primary">{row.tipo_deposito != null ? String(row.tipo_deposito) : "-"}</td>
+                <td className="px-4 py-3 w-28">
+                  <Input size="sm" type="number" placeholder="% 0.0" className="w-full"
+                    value={draft.comision_servicio}
+                    onChange={(v) => updateDraft(rowId, "comision_servicio", v)} />
+                </td>
+                <td className="px-4 py-3 w-36">
+                  <Input size="sm" type="number" placeholder="S/ 0.00" className="w-full"
+                    value={draft.comision_minima_servicio}
+                    onChange={(v) => updateDraft(rowId, "comision_minima_servicio", v)} />
+                </td>
+                <td className="px-4 py-3 w-40">
+                  <Input size="sm" type="number" placeholder="S/ 0.00" className="w-full"
+                    value={draft.monto_minimo_deposito_servicio}
+                    onChange={(v) => updateDraft(rowId, "monto_minimo_deposito_servicio", v)} />
+                </td>
+                <td className="px-4 py-3">
+                  <Select
+                    size="sm"
+                    placeholder={getEstadoNombre(row.id_estado)}
+                    items={estadoItems}
+                    selectedKey={draft.id_estado}
+                    onSelectionChange={(key) => {
+                      if (key !== null) updateDraft(rowId, "id_estado", Number(key));
+                    }}
+                  >
+                    {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                  </Select>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="xs"
+                      color="tertiary"
+                      iconLeading={Edit03}
+                      onClick={() => onEdit(row)}
+                    />
+                    <Button
+                      size="xs"
+                      color="tertiary"
+                      iconLeading={Save01}
+                      isDisabled={!changed}
+                      onClick={() => handleSave(row)}
+                    />
+                    <Button
+                      size="xs"
+                      color="tertiary"
+                      iconLeading={ClockRewind}
+                      onClick={() => onHistory(rowId)}
+                    />
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-tertiary">
-            Página {page} de {totalPages}
-          </p>
+      <div className="flex items-center justify-between gap-4 border-t border-secondary px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-tertiary">
+            Página {page} de {Math.max(1, totalPages)}
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <Select
+            size="sm"
+            placeholder="20 por página"
+            items={[
+              { id: 20, label: "20 por página" },
+              { id: 50, label: "50 por página" },
+              { id: 100, label: "100 por página" },
+            ]}
+            selectedKey={pageSize}
+            onSelectionChange={(key) => {
+              if (key !== null) onPageSizeChange(Number(key));
+            }}
+          >
+            {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+          </Select>
           <div className="flex items-center gap-1">
             <Button
               size="sm"
@@ -249,7 +268,7 @@ export const ReglasEfectivizacionTable = ({
             />
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };

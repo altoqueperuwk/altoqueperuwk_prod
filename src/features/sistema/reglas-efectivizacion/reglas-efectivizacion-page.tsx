@@ -27,18 +27,27 @@ export const ReglasEfectivizacionPage = () => {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyItemId, setHistoryItemId] = useState<number | null>(null);
 
-  const estadoItems = (estados || []).map((e) => ({
-    id: e.id as number,
-    label: e.nombre as string,
-  }));
-  const servicioItems = (codigosServicio || []).map((s) => ({
-    id: s.id as number,
-    label: s.nombre as string,
-  }));
-  const comunidadItems = (comunidades || []).map((c) => ({
-    id: c.id as number,
-    label: c.nombre as string,
-  }));
+  const estadoItems = [
+    { id: 0, label: "Todos" },
+    ...(estados || []).map((e) => ({
+      id: e.id as number,
+      label: e.nombre as string,
+    })),
+  ];
+  const servicioItems = [
+    { id: 0, label: "Todos" },
+    ...(codigosServicio || []).map((s) => ({
+      id: s.id as number,
+      label: s.nombre as string,
+    })),
+  ];
+  const comunidadItems = [
+    { id: 0, label: "Todos" },
+    ...(comunidades || []).map((c) => ({
+      id: c.id as number,
+      label: c.nombre as string,
+    })),
+  ];
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -81,27 +90,27 @@ export const ReglasEfectivizacionPage = () => {
           extraFilters={
             <>
               <div className="w-52">
-                <Select label="Servicio" placeholder="Todos" size="sm"
+                <Select label="Servicio" size="sm"
                   items={servicioItems}
-                  selectedKey={filterIdServicio || undefined}
+                  selectedKey={filterIdServicio}
                   onSelectionChange={(key) => setFilterIdServicio(key !== null ? Number(key) : 0)}
                 >
                   {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                 </Select>
               </div>
               <div className="w-52">
-                <Select label="Comunidad" placeholder="Todos" size="sm"
+                <Select label="Comunidad" size="sm"
                   items={comunidadItems}
-                  selectedKey={filterIdComunidad || undefined}
+                  selectedKey={filterIdComunidad}
                   onSelectionChange={(key) => setFilterIdComunidad(key !== null ? Number(key) : 0)}
                 >
                   {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
                 </Select>
               </div>
               <div className="w-44">
-                <Select label="Estado" placeholder="Todos" size="sm"
+                <Select label="Estado" size="sm"
                   items={estadoItems}
-                  selectedKey={filterEstado || undefined}
+                  selectedKey={filterEstado}
                   onSelectionChange={(key) => setFilterEstado(key !== null ? Number(key) : 0)}
                 >
                   {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
@@ -115,8 +124,10 @@ export const ReglasEfectivizacionPage = () => {
           isLoading={isLoading}
           page={page}
           totalPages={totalPages}
+          pageSize={pageSize}
           estados={estados}
           onPageChange={setPage}
+          onPageSizeChange={handlePageSizeChange}
           onEdit={handleEdit}
           onSaveRow={handleSaveRow}
           onHistory={handleHistory}

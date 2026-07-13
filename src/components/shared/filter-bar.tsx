@@ -33,10 +33,13 @@ export const FilterBar: FC<FilterBarProps> = ({
 }) => {
     const { estados } = useSessionCache();
 
-    const estadoItems = (estados || []).map((e) => ({
-        id: e.id as string | number,
-        label: e.nombre as string,
-    }));
+    const estadoItems = [
+        { id: 0, label: "Todos" },
+        ...(estados || []).map((e) => ({
+            id: e.id as string | number,
+            label: e.nombre as string,
+        })),
+    ];
 
     return (
         <motion.div
@@ -64,7 +67,7 @@ export const FilterBar: FC<FilterBarProps> = ({
                             placeholder="Todos"
                             size="sm"
                             items={estadoItems}
-                            selectedKey={filterEstado || undefined}
+                            selectedKey={filterEstado}
                             onSelectionChange={(key) => {
                                 if (onFilterEstadoChange) {
                                     onFilterEstadoChange(key !== null ? Number(key) : 0);

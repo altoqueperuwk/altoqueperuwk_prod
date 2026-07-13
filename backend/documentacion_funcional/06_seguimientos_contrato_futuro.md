@@ -23,6 +23,11 @@ Debe contemplar visualizaciones futuras de:
 - `efectivizacion-asistida`
 - `pago-deuda`
 
+En frontend compacto esto significa:
+
+- `efectivizacion-bancaria` y `efectivizacion-asistida` cuelgan de `features/operaciones/efectivizacion/`;
+- `pago-deuda` cuelga de `features/operaciones/pago-deuda/`.
+
 Por eso no debe inventar logica propia paralela; debe observar y presentar estados reales del backend.
 
 ## Estructura frontend sugerida

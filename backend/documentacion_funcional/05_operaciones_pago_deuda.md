@@ -48,6 +48,8 @@ El usuario que atiende:
 - `features/operaciones/pago-deuda/services/`
 - `features/operaciones/pago-deuda/schemas/`
 
+Esta familia si conserva modulo raiz propio porque su semantica y sus contratos no deben mezclarse con `efectivizacion`.
+
 ## Regla para otra IA
 
 Si la ruta:

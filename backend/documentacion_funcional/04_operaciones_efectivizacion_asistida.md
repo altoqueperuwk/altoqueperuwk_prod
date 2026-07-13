@@ -52,11 +52,17 @@ La documentacion debe dejar claro que:
 
 ## Estructura frontend sugerida
 
-- `features/operaciones/efectivizacion-asistida/pages/`
-- `features/operaciones/efectivizacion-asistida/components/`
-- `features/operaciones/efectivizacion-asistida/hooks/`
-- `features/operaciones/efectivizacion-asistida/services/`
-- `features/operaciones/efectivizacion-asistida/schemas/`
+Esta familia no debe vivir como un tercer modulo raiz. Debe implementarse dentro de:
+
+- `features/operaciones/efectivizacion/`
+
+Con desglose interno sugerido:
+
+- `features/operaciones/efectivizacion/asistida/pages/`
+- `features/operaciones/efectivizacion/asistida/components/`
+- `features/operaciones/efectivizacion/asistida/hooks/`
+- `features/operaciones/efectivizacion/asistida/services/`
+- `features/operaciones/efectivizacion/asistida/schemas/`
 
 ## Regla para otra IA
 

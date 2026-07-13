@@ -30,7 +30,7 @@ Reglas:
 - `/operaciones/interbank`
 - `/operaciones/safetypay`
 - `/operaciones/pos`
-- `/operaciones/viaweb`
+- `/operaciones/linkpago`
 - `/operaciones/deuda`
 
 ## Renombres aprobados
@@ -47,7 +47,7 @@ Reglas:
 - `Interbank`: `#00A757` y `#0039A6`
 - `SafetyPay`: `#06283D` y `#1363DF`
 - `POS`: `#6A1B9A`
-- `Via Web`: `#00E5FF`
+- `Link Pago`: `#00E5FF`
 - `Deuda`: `#2C3E50`
 
 ## Regla de tema

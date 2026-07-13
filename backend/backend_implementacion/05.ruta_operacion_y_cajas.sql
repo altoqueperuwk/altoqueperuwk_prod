@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS public.tb_ruta_operacion_caja (
   ruta character varying NOT NULL,
   id_empresa bigint NOT NULL,
   id_empresa_cuenta_bancaria bigint NOT NULL,
+  flag_caja_ingreso_principal boolean NOT NULL DEFAULT false,
   id_estado bigint NOT NULL DEFAULT 1,
   id_usuario bigint,
   fecha_registro timestamp with time zone NOT NULL DEFAULT now(),
@@ -24,8 +25,478 @@ CREATE TABLE IF NOT EXISTS public.tb_ruta_operacion_caja (
   CONSTRAINT tb_ruta_operacion_caja_fk_usuario FOREIGN KEY (id_usuario) REFERENCES public.tb_usuario(id)
 );
 
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'tb_ruta_operacion_caja'
+      AND column_name = 'flag_caja_ingreso_principal'
+  ) THEN
+    ALTER TABLE public.tb_ruta_operacion_caja
+    ADD COLUMN flag_caja_ingreso_principal boolean NOT NULL DEFAULT false;
+  END IF;
+END;
+$$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tb_ruta_operacion_caja_ingreso_principal
+  ON public.tb_ruta_operacion_caja (ruta)
+  WHERE flag_caja_ingreso_principal = true
+    AND id_estado = 1;
+
+/*
+Funcion: f_get_tb_ruta_operacion_caja
+Objetivo:
+  Consultar la configuracion operativa de empresas/cuentas habilitadas por ruta,
+  indicando ademas si una de ellas es la caja primaria de ingreso.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_caja(
+  p_id bigint DEFAULT NULL,
+  p_ruta character varying DEFAULT NULL,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_flag_caja_ingreso_principal boolean DEFAULT NULL,
+  p_id_estado bigint DEFAULT NULL
+)
+RETURNS TABLE (
+  id bigint,
+  ruta character varying,
+  id_empresa bigint,
+  nombre_empresa character varying,
+  id_empresa_cuenta_bancaria bigint,
+  id_banco bigint,
+  nombre_banco character varying,
+  id_caja bigint,
+  flag_caja_ingreso_principal boolean,
+  id_estado bigint,
+  nombre_estado character varying,
+  id_usuario bigint,
+  nombre_usuario character varying,
+  fecha_registro timestamp with time zone
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    rc.id,
+    rc.ruta,
+    rc.id_empresa,
+    e.nombre AS nombre_empresa,
+    rc.id_empresa_cuenta_bancaria,
+    ecb.id_banco,
+    b.nombre AS nombre_banco,
+    c.id AS id_caja,
+    rc.flag_caja_ingreso_principal,
+    rc.id_estado,
+    est.nombre AS nombre_estado,
+    rc.id_usuario,
+    u.nombre AS nombre_usuario,
+    rc.fecha_registro
+  FROM public.tb_ruta_operacion_caja rc
+  JOIN public.tb_empresa e ON e.id = rc.id_empresa
+  JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
+  JOIN public.tb_banco b ON b.id = ecb.id_banco
+  JOIN public.tb_estado est ON est.id = rc.id_estado
+  LEFT JOIN public.tb_usuario u ON u.id = rc.id_usuario
+  LEFT JOIN public.tb_caja_operativa c
+    ON c.id_empresa = rc.id_empresa
+   AND c.id_empresa_cuenta_bancaria = rc.id_empresa_cuenta_bancaria
+  WHERE (p_id IS NULL OR rc.id = p_id)
+    AND (p_ruta IS NULL OR rc.ruta = p_ruta)
+    AND (p_id_empresa IS NULL OR rc.id_empresa = p_id_empresa)
+    AND (p_id_empresa_cuenta_bancaria IS NULL OR rc.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria)
+    AND (p_flag_caja_ingreso_principal IS NULL OR rc.flag_caja_ingreso_principal = p_flag_caja_ingreso_principal)
+    AND (p_id_estado IS NULL OR rc.id_estado = p_id_estado)
+  ORDER BY rc.ruta, rc.flag_caja_ingreso_principal DESC, e.nombre, b.nombre, rc.id;
+END;
+$$;
+
+/*
+Funcion: f_get_tb_ruta_operacion_caja_ingreso_principal
+Objetivo:
+  Resolver la caja primaria de ingreso de una ruta bancaria. Esta funcion es la
+  fuente de verdad para congelar el contexto de ingreso de una operacion.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_caja_ingreso_principal(
+  p_ruta character varying
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_result jsonb;
+BEGIN
+  SELECT to_jsonb(x)
+  INTO v_result
+  FROM public.f_get_tb_ruta_operacion_caja(
+    p_ruta := p_ruta,
+    p_flag_caja_ingreso_principal := true,
+    p_id_estado := 1
+  ) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
 -- ============================================================================
--- 15. TB_CAJA_OPERATIVA
+-- 15. TB_RUTA_OPERACION_KPI
+-- ============================================================================
+
+/*
+Tabla: tb_ruta_operacion_kpi
+Objetivo:
+  Materializar los KPI principales de una ruta de Operaciones para que el
+  frontend no tenga que consultar sumatorias pesadas sobre cajas u operaciones.
+
+Responsabilidad:
+  - los KPI contables agregados de la ruta se sincronizan desde
+    `tb_caja_operativa`;
+  - los KPI operativos/comerciales de la ruta se actualizan por eventos desde
+    `tb_operacion_proceso`.
+*/
+CREATE TABLE IF NOT EXISTS public.tb_ruta_operacion_kpi (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  ruta character varying NOT NULL,
+  caja_inicial numeric NOT NULL DEFAULT 0,
+  caja_actual numeric NOT NULL DEFAULT 0,
+  total_recaudado numeric NOT NULL DEFAULT 0,
+  ingresos numeric NOT NULL DEFAULT 0,
+  salidas numeric NOT NULL DEFAULT 0,
+  gastos_operacionales numeric NOT NULL DEFAULT 0,
+  ganancias numeric NOT NULL DEFAULT 0,
+  ingresos_retenidos numeric NOT NULL DEFAULT 0,
+  pendiente_depositar numeric NOT NULL DEFAULT 0,
+  total_efectivizacion integer NOT NULL DEFAULT 0,
+  total_pago_deuda integer NOT NULL DEFAULT 0,
+  id_estado bigint NOT NULL DEFAULT 1,
+  id_usuario bigint,
+  fecha_registro timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT tb_ruta_operacion_kpi_pkey PRIMARY KEY (id),
+  CONSTRAINT tb_ruta_operacion_kpi_unique UNIQUE (ruta),
+  CONSTRAINT tb_ruta_operacion_kpi_fk_estado FOREIGN KEY (id_estado) REFERENCES public.tb_estado(id),
+  CONSTRAINT tb_ruta_operacion_kpi_fk_usuario FOREIGN KEY (id_usuario) REFERENCES public.tb_usuario(id)
+);
+
+/*
+Funcion: f_get_tb_ruta_operacion_kpi
+Objetivo:
+  Leer los KPI ya materializados por ruta. Esta funcion es la fuente de verdad
+  del bloque superior principal de Operaciones.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_kpi(
+  p_id bigint DEFAULT NULL,
+  p_ruta character varying DEFAULT NULL,
+  p_id_estado bigint DEFAULT NULL
+)
+RETURNS TABLE (
+  id bigint,
+  ruta character varying,
+  caja_inicial numeric,
+  caja_actual numeric,
+  total_recaudado numeric,
+  ingresos numeric,
+  salidas numeric,
+  gastos_operacionales numeric,
+  ganancias numeric,
+  ingresos_retenidos numeric,
+  pendiente_depositar numeric,
+  total_efectivizacion integer,
+  total_pago_deuda integer,
+  id_estado bigint,
+  nombre_estado character varying,
+  id_usuario bigint,
+  nombre_usuario character varying,
+  fecha_registro timestamp with time zone
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    k.id,
+    k.ruta,
+    k.caja_inicial,
+    k.caja_actual,
+    k.total_recaudado,
+    k.ingresos,
+    k.salidas,
+    k.gastos_operacionales,
+    k.ganancias,
+    k.ingresos_retenidos,
+    k.pendiente_depositar,
+    k.total_efectivizacion,
+    k.total_pago_deuda,
+    k.id_estado,
+    est.nombre AS nombre_estado,
+    k.id_usuario,
+    u.nombre AS nombre_usuario,
+    k.fecha_registro
+  FROM public.tb_ruta_operacion_kpi k
+  JOIN public.tb_estado est ON est.id = k.id_estado
+  LEFT JOIN public.tb_usuario u ON u.id = k.id_usuario
+  WHERE (p_id IS NULL OR k.id = p_id)
+    AND (p_ruta IS NULL OR k.ruta = p_ruta)
+    AND (p_id_estado IS NULL OR k.id_estado = p_id_estado)
+  ORDER BY k.ruta, k.id;
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_ruta_operacion_kpi_delta
+Objetivo:
+  Aplicar deltas operativos sobre los KPI de ruta sin recalcular toda la capa
+  de cajas. Se usa para pendientes y contadores de familias comerciales.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_ruta_operacion_kpi_delta(
+  p_ruta character varying,
+  p_delta_pendiente_depositar numeric DEFAULT 0,
+  p_delta_total_efectivizacion integer DEFAULT 0,
+  p_delta_total_pago_deuda integer DEFAULT 0,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_estado_activo_id bigint;
+  v_result jsonb;
+BEGIN
+  IF COALESCE(p_ruta, '') = '' THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT id
+  INTO v_estado_activo_id
+  FROM public.tb_estado
+  WHERE UPPER(nombre) = 'ACTIVO'
+  LIMIT 1;
+
+  v_estado_activo_id := COALESCE(v_estado_activo_id, 1);
+
+  INSERT INTO public.tb_ruta_operacion_kpi (
+    ruta,
+    id_estado,
+    id_usuario
+  )
+  VALUES (
+    p_ruta,
+    v_estado_activo_id,
+    p_id_usuario
+  )
+  ON CONFLICT (ruta) DO NOTHING;
+
+  UPDATE public.tb_ruta_operacion_kpi
+  SET pendiente_depositar = GREATEST(COALESCE(pendiente_depositar, 0) + COALESCE(p_delta_pendiente_depositar, 0), 0),
+      total_efectivizacion = GREATEST(COALESCE(total_efectivizacion, 0) + COALESCE(p_delta_total_efectivizacion, 0), 0),
+      total_pago_deuda = GREATEST(COALESCE(total_pago_deuda, 0) + COALESCE(p_delta_total_pago_deuda, 0), 0),
+      id_usuario = COALESCE(p_id_usuario, id_usuario)
+  WHERE ruta = p_ruta;
+
+  SELECT to_jsonb(x)
+  INTO v_result
+  FROM public.f_get_tb_ruta_operacion_kpi(p_ruta := p_ruta) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
+/*
+Funcion: f_sync_tb_ruta_operacion_kpi_operacion
+Objetivo:
+  Recalcular y materializar los KPI operativos/comerciales de una ruta a partir
+  del snapshot actual de `tb_operacion_proceso`.
+
+Uso:
+  - altas manuales
+  - cargas Excel
+  - cambios de estado
+  - derivaciones
+  - retenciones
+  - flujo Pago Deuda
+*/
+CREATE OR REPLACE FUNCTION public.f_sync_tb_ruta_operacion_kpi_operacion(
+  p_ruta character varying,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_estado_activo_id bigint;
+  v_result jsonb;
+BEGIN
+  IF COALESCE(p_ruta, '') = '' THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT id
+  INTO v_estado_activo_id
+  FROM public.tb_estado
+  WHERE UPPER(nombre) = 'ACTIVO'
+  LIMIT 1;
+
+  v_estado_activo_id := COALESCE(v_estado_activo_id, 1);
+
+  INSERT INTO public.tb_ruta_operacion_kpi (
+    ruta,
+    id_estado,
+    id_usuario
+  )
+  VALUES (
+    p_ruta,
+    v_estado_activo_id,
+    p_id_usuario
+  )
+  ON CONFLICT (ruta) DO NOTHING;
+
+  WITH totales AS (
+    SELECT
+      COALESCE(
+        SUM(
+          CASE
+            WHEN public.f_get_tb_operacion_proceso_flag_pendiente_kpi(op.nombre_estado, op.flag_retenido)
+            THEN COALESCE(op.monto_transferencia_cliente, 0)
+            ELSE 0
+          END
+        ),
+        0
+      ) AS pendiente_depositar,
+      COUNT(*) FILTER (
+        WHERE UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
+      )::integer AS total_efectivizacion,
+      COUNT(*) FILTER (
+        WHERE UPPER(COALESCE(op.tipo_servicio, '')) = 'PAGO DEUDA'
+      )::integer AS total_pago_deuda
+    FROM public.tb_operacion_proceso op
+    WHERE COALESCE(op.ruta_destino, op.ruta_origen) = p_ruta
+  )
+  UPDATE public.tb_ruta_operacion_kpi k
+  SET pendiente_depositar = t.pendiente_depositar,
+      total_efectivizacion = t.total_efectivizacion,
+      total_pago_deuda = t.total_pago_deuda,
+      id_usuario = COALESCE(p_id_usuario, k.id_usuario)
+  FROM totales t
+  WHERE k.ruta = p_ruta;
+
+  SELECT to_jsonb(x)
+  INTO v_result
+  FROM public.f_get_tb_ruta_operacion_kpi(p_ruta := p_ruta) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
+/*
+Funcion: f_sync_tb_ruta_operacion_kpi_caja
+Objetivo:
+  Recalcular y persistir los KPI contables agregados de una ruta a partir de
+  las cajas efectivamente asociadas a esa ruta.
+
+Nota:
+  Este calculo puede usar SUM en escritura porque su objetivo es materializar
+  los resultados para las lecturas futuras del frontend.
+*/
+CREATE OR REPLACE FUNCTION public.f_sync_tb_ruta_operacion_kpi_caja(
+  p_ruta character varying,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_estado_activo_id bigint;
+  v_result jsonb;
+BEGIN
+  IF COALESCE(p_ruta, '') = '' THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT id
+  INTO v_estado_activo_id
+  FROM public.tb_estado
+  WHERE UPPER(nombre) = 'ACTIVO'
+  LIMIT 1;
+
+  v_estado_activo_id := COALESCE(v_estado_activo_id, 1);
+
+  INSERT INTO public.tb_ruta_operacion_kpi (
+    ruta,
+    id_estado,
+    id_usuario
+  )
+  VALUES (
+    p_ruta,
+    v_estado_activo_id,
+    p_id_usuario
+  )
+  ON CONFLICT (ruta) DO NOTHING;
+
+  WITH cajas_ruta AS (
+    SELECT DISTINCT
+      c.id,
+      c.saldo_inicial,
+      c.saldo_actual,
+      c.total_recaudado,
+      c.ingresos,
+      c.ingresos_retenido,
+      c.gastos,
+      c.ganancia,
+      c.salida
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_caja_operativa c
+      ON c.id_empresa = rc.id_empresa
+     AND c.id_empresa_cuenta_bancaria = rc.id_empresa_cuenta_bancaria
+    WHERE rc.ruta = p_ruta
+      AND rc.id_estado = v_estado_activo_id
+      AND c.id_estado = v_estado_activo_id
+  ),
+  totales AS (
+    SELECT
+      COALESCE(SUM(cr.saldo_inicial), 0) AS caja_inicial,
+      COALESCE(SUM(cr.saldo_actual), 0) AS caja_actual,
+      COALESCE(SUM(cr.total_recaudado), 0) AS total_recaudado,
+      COALESCE(SUM(cr.ingresos), 0) AS ingresos,
+      COALESCE(SUM(cr.salida), 0) AS salidas,
+      COALESCE(SUM(cr.gastos), 0) AS gastos_operacionales,
+      COALESCE(SUM(cr.ganancia), 0) AS ganancias,
+      COALESCE(SUM(cr.ingresos_retenido), 0) AS ingresos_retenidos
+    FROM cajas_ruta cr
+  )
+  UPDATE public.tb_ruta_operacion_kpi k
+  SET caja_inicial = t.caja_inicial,
+      caja_actual = t.caja_actual,
+      total_recaudado = t.total_recaudado,
+      ingresos = t.ingresos,
+      salidas = t.salidas,
+      gastos_operacionales = t.gastos_operacionales,
+      ganancias = t.ganancias,
+      ingresos_retenidos = t.ingresos_retenidos,
+      id_usuario = COALESCE(p_id_usuario, k.id_usuario)
+  FROM totales t
+  WHERE k.ruta = p_ruta;
+
+  SELECT to_jsonb(x)
+  INTO v_result
+  FROM public.f_get_tb_ruta_operacion_kpi(p_ruta := p_ruta) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
+-- ============================================================================
+-- 16. TB_CAJA_OPERATIVA
 -- ============================================================================
 
 /*
@@ -48,6 +519,7 @@ CREATE TABLE IF NOT EXISTS public.tb_caja_operativa (
   id_empresa_cuenta_bancaria bigint NOT NULL,
   saldo_inicial numeric NOT NULL DEFAULT 0,
   saldo_actual numeric NOT NULL DEFAULT 0,
+  total_recaudado numeric NOT NULL DEFAULT 0,
   ingresos numeric NOT NULL DEFAULT 0,
   ingresos_retenido numeric NOT NULL DEFAULT 0,
   gastos numeric NOT NULL DEFAULT 0,
@@ -64,6 +536,7 @@ CREATE TABLE IF NOT EXISTS public.tb_caja_operativa (
   CONSTRAINT tb_caja_operativa_unique UNIQUE (id_empresa, id_empresa_cuenta_bancaria),
   CONSTRAINT tb_caja_operativa_saldo_inicial_check CHECK (saldo_inicial >= 0),
   CONSTRAINT tb_caja_operativa_saldo_actual_check CHECK (saldo_actual >= 0),
+  CONSTRAINT tb_caja_operativa_total_recaudado_check CHECK (total_recaudado >= 0),
   CONSTRAINT tb_caja_operativa_ingresos_check CHECK (ingresos >= 0),
   CONSTRAINT tb_caja_operativa_ingresos_retenido_check CHECK (ingresos_retenido >= 0),
   CONSTRAINT tb_caja_operativa_gastos_check CHECK (gastos >= 0),
@@ -76,6 +549,21 @@ CREATE TABLE IF NOT EXISTS public.tb_caja_operativa (
   CONSTRAINT tb_caja_operativa_fk_estado FOREIGN KEY (id_estado) REFERENCES public.tb_estado(id),
   CONSTRAINT tb_caja_operativa_fk_usuario FOREIGN KEY (id_usuario) REFERENCES public.tb_usuario(id)
 );
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'tb_caja_operativa'
+      AND column_name = 'total_recaudado'
+  ) THEN
+    ALTER TABLE public.tb_caja_operativa
+    ADD COLUMN total_recaudado numeric NOT NULL DEFAULT 0;
+  END IF;
+END;
+$$;
 
 /*
 Funcion: f_get_tb_caja_operativa
@@ -100,6 +588,7 @@ RETURNS TABLE (
   saldo_inicial numeric,
   saldo_total numeric,
   saldo_actual numeric,
+  total_recaudado numeric,
   ingresos numeric,
   ingresos_retenido numeric,
   gastos numeric,
@@ -130,6 +619,7 @@ BEGIN
     c.saldo_inicial,
     c.saldo_actual AS saldo_total,
     c.saldo_actual,
+    c.total_recaudado,
     c.ingresos,
     c.ingresos_retenido,
     c.gastos,
@@ -221,6 +711,7 @@ BEGIN
     id_empresa_cuenta_bancaria,
     saldo_inicial,
     saldo_actual,
+    total_recaudado,
     ingresos,
     ingresos_retenido,
     gastos,
@@ -238,6 +729,7 @@ BEGIN
     p_id_empresa_cuenta_bancaria,
     COALESCE(p_saldo_inicial, 0),
     COALESCE(p_saldo_actual, p_saldo_inicial, 0),
+    COALESCE(p_ingresos, 0) + COALESCE(p_ingresos_retenido, 0),
     COALESCE(p_ingresos, 0),
     COALESCE(p_ingresos_retenido, 0),
     COALESCE(p_gastos, 0),
@@ -256,6 +748,14 @@ BEGIN
   INTO v_result
   FROM public.f_get_tb_caja_operativa(p_id := v_new_id) AS x
   LIMIT 1;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(r.ruta, p_id_usuario)
+  FROM (
+    SELECT DISTINCT rc.ruta
+    FROM public.tb_ruta_operacion_caja rc
+    WHERE rc.id_empresa = p_id_empresa
+      AND rc.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria
+  ) r;
 
   RETURN v_result;
 END;
@@ -341,6 +841,7 @@ BEGIN
       id_empresa_cuenta_bancaria = v_cuenta_final,
       saldo_inicial = COALESCE(p_saldo_inicial, saldo_inicial),
       saldo_actual = COALESCE(p_saldo_actual, saldo_actual),
+      total_recaudado = COALESCE(p_ingresos, ingresos) + COALESCE(p_ingresos_retenido, ingresos_retenido),
       ingresos = COALESCE(p_ingresos, ingresos),
       ingresos_retenido = COALESCE(p_ingresos_retenido, ingresos_retenido),
       gastos = COALESCE(p_gastos, gastos),
@@ -359,12 +860,20 @@ BEGIN
   FROM public.f_get_tb_caja_operativa(p_id := p_id) AS x
   LIMIT 1;
 
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(r.ruta, COALESCE(p_id_usuario, v_actual.id_usuario))
+  FROM (
+    SELECT DISTINCT rc.ruta
+    FROM public.tb_ruta_operacion_caja rc
+    WHERE (rc.id_empresa = v_actual.id_empresa AND rc.id_empresa_cuenta_bancaria = v_actual.id_empresa_cuenta_bancaria)
+       OR (rc.id_empresa = v_empresa_final AND rc.id_empresa_cuenta_bancaria = v_cuenta_final)
+  ) r;
+
   RETURN v_result;
 END;
 $$;
 
 -- ============================================================================
--- 16. TB_ASIGNACION_CAJA_OPERATIVA
+-- 17. TB_ASIGNACION_CAJA_OPERATIVA
 -- ============================================================================
 
 /*
@@ -389,7 +898,7 @@ CREATE TABLE IF NOT EXISTS public.tb_asignacion_caja_operativa (
 );
 
 -- ============================================================================
--- 17. TB_CAJA_OPERATIVA_CIERRE
+-- 18. TB_CAJA_OPERATIVA_CIERRE
 -- ============================================================================
 
 /*
@@ -406,6 +915,7 @@ CREATE TABLE IF NOT EXISTS public.tb_caja_operativa_cierre (
   id_empresa_cuenta_bancaria bigint NOT NULL,
   saldo_inicial numeric NOT NULL DEFAULT 0,
   saldo_actual numeric NOT NULL DEFAULT 0,
+  total_recaudado numeric NOT NULL DEFAULT 0,
   ingresos numeric NOT NULL DEFAULT 0,
   ingresos_retenido numeric NOT NULL DEFAULT 0,
   gastos numeric NOT NULL DEFAULT 0,
@@ -426,6 +936,21 @@ CREATE TABLE IF NOT EXISTS public.tb_caja_operativa_cierre (
   CONSTRAINT tb_caja_operativa_cierre_fk_estado FOREIGN KEY (id_estado) REFERENCES public.tb_estado(id),
   CONSTRAINT tb_caja_operativa_cierre_fk_usuario FOREIGN KEY (id_usuario) REFERENCES public.tb_usuario(id)
 );
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'tb_caja_operativa_cierre'
+      AND column_name = 'total_recaudado'
+  ) THEN
+    ALTER TABLE public.tb_caja_operativa_cierre
+    ADD COLUMN total_recaudado numeric NOT NULL DEFAULT 0;
+  END IF;
+END;
+$$;
 
 /*
 Funcion: f_get_tb_caja_operativa_cierre
@@ -449,6 +974,7 @@ RETURNS TABLE (
   saldo_inicial numeric,
   saldo_total numeric,
   saldo_actual numeric,
+  total_recaudado numeric,
   ingresos numeric,
   ingresos_retenido numeric,
   gastos numeric,
@@ -481,6 +1007,7 @@ BEGIN
     ch.saldo_inicial,
     ch.saldo_actual AS saldo_total,
     ch.saldo_actual,
+    ch.total_recaudado,
     ch.ingresos,
     ch.ingresos_retenido,
     ch.gastos,
@@ -547,6 +1074,7 @@ BEGIN
     jsonb_build_object(
       'saldo_inicial', v_caja.saldo_inicial,
       'saldo_total', v_caja.saldo_actual,
+      'total_recaudado', COALESCE(v_caja.total_recaudado, 0),
       'ingresos', COALESCE(v_caja.ingresos, 0),
       'ingresos_retenido', COALESCE(v_caja.ingresos_retenido, 0),
       'gastos', COALESCE(v_caja.gastos, 0),
@@ -563,6 +1091,7 @@ BEGIN
     id_empresa_cuenta_bancaria,
     saldo_inicial,
     saldo_actual,
+    total_recaudado,
     ingresos,
     ingresos_retenido,
     gastos,
@@ -582,6 +1111,7 @@ BEGIN
     v_caja.id_empresa_cuenta_bancaria,
     v_caja.saldo_inicial,
     v_caja.saldo_actual,
+    COALESCE(v_caja.total_recaudado, 0),
     COALESCE(v_caja.ingresos, 0),
     COALESCE(v_caja.ingresos_retenido, 0),
     COALESCE(v_caja.gastos, 0),
@@ -599,6 +1129,7 @@ BEGIN
 
   UPDATE public.tb_caja_operativa
   SET saldo_inicial = saldo_actual,
+      total_recaudado = 0,
       ingresos = 0,
       ingresos_retenido = 0,
       gastos = 0,
@@ -614,6 +1145,14 @@ BEGIN
   INTO v_result
   FROM public.f_get_tb_caja_operativa_cierre(p_id := v_historial_id) AS x
   LIMIT 1;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(r.ruta, COALESCE(p_id_usuario, v_caja.id_usuario))
+  FROM (
+    SELECT DISTINCT rc.ruta
+    FROM public.tb_ruta_operacion_caja rc
+    WHERE rc.id_empresa = v_caja.id_empresa
+      AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
+  ) r;
 
   RETURN v_result;
 END;

@@ -100,7 +100,7 @@ Leer despues:
 
 Aqui se entiende:
 
-- que consolidaciones y descargas futuras existirán;
+- que consolidaciones y descargas futuras existiran;
 - y que este dominio cruza operaciones, cajas, seguimientos y resultados.
 
 ## Documentos de soporte tecnico
@@ -116,6 +116,26 @@ Despues de leer los dominios, continuar con:
 - `15_frontend_stack_y_supabase.md`
 - `16_fases_implementacion_frontend.md`
 
+## Capa tecnica nueva de Operaciones
+
+Cuando la implementacion llegue a `Operaciones`, leer obligatoriamente esta segunda capa:
+
+- `17_operaciones_frontend_shell_y_layout_base.md`
+- `18_operaciones_frontend_kpis_y_bloque_superior.md`
+- `19_operaciones_frontend_formularios_inline.md`
+- `20_operaciones_frontend_excel_y_carga_masiva.md`
+- `21_operaciones_frontend_tabs_y_bandejas_operativas.md`
+- `22_operaciones_frontend_contratos_por_tab.md`
+- `23_operaciones_frontend_mapeo_backend_y_rpc.md`
+
+Aqui se entiende:
+
+- el layout exacto congelado de `Webpage.png`;
+- el bloque inferior de bandejas congelado de `Webpage-2.png`;
+- como implementar `Operaciones` con `Untitled UI` puro;
+- que partes del frontend actual solo sirven como fuente de comportamiento;
+- y que RPC compactas gobiernan cada bloque del frontend nuevo.
+
 ## Regla de implementacion
 
 1. leer primero los dominios `01-08`;
@@ -123,4 +143,5 @@ Despues de leer los dominios, continuar con:
 3. tomar `../backend_implementacion/3.ddl_tablas_funciones_compactas.sql` como snapshot completo del backend nuevo;
 4. usar `../backend_implementacion/` para cambios puntuales por dominio;
 5. respetar `14_untitledui_setup_y_forma_de_trabajo.md` como referencia visual oficial;
-6. respetar `16_fases_implementacion_frontend.md` como orden obligatorio de construcción.
+6. respetar `16_fases_implementacion_frontend.md` como orden obligatorio de construccion;
+7. al iniciar `Operaciones`, dejar de improvisar el layout y seguir de forma obligatoria los documentos `17-23`.

@@ -61,11 +61,17 @@ Esta familia depende especialmente de:
 
 ## Estructura frontend sugerida
 
-- `features/operaciones/efectivizacion-bancaria/pages/`
-- `features/operaciones/efectivizacion-bancaria/components/`
-- `features/operaciones/efectivizacion-bancaria/hooks/`
-- `features/operaciones/efectivizacion-bancaria/services/`
-- `features/operaciones/efectivizacion-bancaria/schemas/`
+Esta familia debe implementarse dentro de:
+
+- `features/operaciones/efectivizacion/`
+
+Con desglose interno sugerido:
+
+- `features/operaciones/efectivizacion/bancaria/pages/`
+- `features/operaciones/efectivizacion/bancaria/components/`
+- `features/operaciones/efectivizacion/bancaria/hooks/`
+- `features/operaciones/efectivizacion/bancaria/services/`
+- `features/operaciones/efectivizacion/bancaria/schemas/`
 
 ## Regla para otra IA
 

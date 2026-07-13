@@ -383,8 +383,32 @@ $$;
 
 
 
---1. Antigua informacion a migrar hacia la nueva tabla de tb_reglas_efectivizacion
 
+/*
+1. Antigua informacion migrada hacia la nueva tabla compacta de tb_reglas_efectivizacion.
+   La tabla compacta mantiene solo:
+   - id_codigo_servicio
+   - id_banco
+   - id_comunidad
+   - tipo_deposito
+   - comision_servicio
+   - monto_minimo_deposito_servicio
+   - comision_minima_servicio
+   - id_estado
+   - id_usuario
+   - fecha_registro
+
+2. Mapeos aplicados:
+   - "Cod. Servicio BCP"         -> tb_codigo_servicio.nombre = 'BCP'
+   - "Cod. Servicio Scotiabank"  -> tb_codigo_servicio.nombre = 'Scotiabank'
+   - "Cod. Servicio Interbank"   -> tb_codigo_servicio.nombre = 'Interbank'
+   - "Cod. Servicio SafetyPay"   -> tb_codigo_servicio.nombre = 'SafetyPay'
+   - "Cod. Servicio Pago Deuda"  -> tb_codigo_servicio.nombre = 'Pago Deuda'
+
+3. Se inserta directo a tabla para preservar fecha_registro historica.
+*/
+
+/*
 id|id_codigo_servicio|codigo_servicio_nombre|id_banco|banco_nombre|id_itf_ingreso|itf_ingreso_nombre|id_comunidad|comunidad_nombre|id_tipo_deposito|tipo_deposito_nombre|comision_servicio|monto_minimo_deposito_servicio|comision_minima_servicio|id_itf_salida|itf_salida_nombre|id_estado|estado_nombre|id_usuario|fecha_registro
 145|1|Cod. Servicio BCP|2|BCP|1|ITF|1|ATK1|1|Mismo Día|1|1200|12|1|ITF|1|Activo|1|2026-06-09 11:11:42.138452 -05:00
 146|1|Cod. Servicio BCP|1|BBVA|1|ITF|1|ATK1|1|Mismo Día|1|1200|12|1|ITF|1|Activo|1|2026-06-09 11:11:42.636976 -05:00
@@ -484,19 +508,6 @@ id|nombre
 1|Activo
 2|Inactivo
 
-select * from tb_comunidad;
-id|nombre
-10|ATK1
-11|ATK05
-12|ATK035
-13|FK
-14|BETO30
-15|LUIS30
-16|MARTIN30
-17|CCFVIP
-18|REMY
-
-
 create table tb_reglas_efectivizacion
 (
     id                             bigint generated always as identity
@@ -512,131 +523,160 @@ create table tb_reglas_efectivizacion
     id_usuario                     bigint,
     fecha_registro                 timestamp with time zone default now() not null
 );
+*/
 
---3. Migracion de reglas de efectivizacion antiguas a la nueva tabla
---   Mapea por nombre (ILIKE) porque los IDs cambiaron entre BD legacy y compacta.
+--3. genera el insert en base a la nueva tabla tb_reglas_efectivizacion
 
 DO $$
 DECLARE
-  v_admin_id   bigint;
-  v_activo_id  bigint;
-  v_cs_id      bigint;
-  v_banco_id   bigint;
-  v_com_id     bigint;
-  v_rec        record;
+  v_insertados integer := 0;
 BEGIN
-  SELECT id INTO v_activo_id FROM public.tb_estado WHERE lower(nombre) = 'activo' LIMIT 1;
-  SELECT id INTO v_admin_id FROM public.tb_usuario WHERE lower(username) = 'johnsmendoza' LIMIT 1;
+  WITH datos_origen (
+    codigo_servicio_nombre,
+    banco_nombre,
+    id_comunidad,
+    tipo_deposito,
+    comision_servicio,
+    monto_minimo_deposito_servicio,
+    comision_minima_servicio,
+    estado_nombre,
+    id_usuario,
+    fecha_registro
+  ) AS (
+    VALUES
+      ('BCP', 'BCP', 1, 1, 1, 1200, 12, 'Activo', 1, '2026-06-09 11:11:42.138452 -05:00'::timestamptz),
+      ('BCP', 'BBVA', 1, 1, 1, 1200, 12, 'Activo', 1, '2026-06-09 11:11:42.636976 -05:00'::timestamptz),
+      ('BCP', 'BANBIF', 1, 1, 1, 1200, 12, 'Activo', 1, '2026-06-09 11:11:44.122255 -05:00'::timestamptz),
+      ('BCP', 'BCP', 2, 1, 0.5, 2400, 12, 'Activo', 1, '2026-06-09 11:11:46.528658 -05:00'::timestamptz),
+      ('BCP', 'BBVA', 2, 1, 0.5, 2400, 12, 'Activo', 1, '2026-06-09 11:11:47.022790 -05:00'::timestamptz),
+      ('BCP', 'BANBIF', 2, 1, 0.5, 2400, 12, 'Activo', 1, '2026-06-09 11:11:48.482987 -05:00'::timestamptz),
+      ('BCP', 'BCP', 3, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:11:50.880562 -05:00'::timestamptz),
+      ('BCP', 'BBVA', 3, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:11:51.359080 -05:00'::timestamptz),
+      ('BCP', 'BANBIF', 3, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:11:53.784873 -05:00'::timestamptz),
+      ('BCP', 'BCP', 4, 1, 0.5, 2400, 12, 'Activo', 1, '2026-06-09 11:11:56.529521 -05:00'::timestamptz),
+      ('BCP', 'BBVA', 4, 1, 0.5, 2400, 12, 'Activo', 1, '2026-06-09 11:11:56.996563 -05:00'::timestamptz),
+      ('BCP', 'BANBIF', 4, 1, 0.5, 2400, 12, 'Activo', 1, '2026-06-09 11:11:58.515082 -05:00'::timestamptz),
+      ('BCP', 'BCP', 5, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:00.970354 -05:00'::timestamptz),
+      ('BCP', 'BBVA', 5, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:01.452096 -05:00'::timestamptz),
+      ('BCP', 'BANBIF', 5, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:02.954524 -05:00'::timestamptz),
+      ('BCP', 'BCP', 6, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:05.353690 -05:00'::timestamptz),
+      ('BCP', 'BBVA', 6, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:05.842880 -05:00'::timestamptz),
+      ('BCP', 'BANBIF', 6, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:07.260926 -05:00'::timestamptz),
+      ('BCP', 'BCP', 7, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:09.620058 -05:00'::timestamptz),
+      ('BCP', 'BBVA', 7, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:10.099141 -05:00'::timestamptz),
+      ('BCP', 'BANBIF', 7, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:11.529585 -05:00'::timestamptz),
+      ('BCP', 'BCP', 8, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:13.904933 -05:00'::timestamptz),
+      ('BCP', 'BBVA', 8, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:14.369563 -05:00'::timestamptz),
+      ('BCP', 'BANBIF', 8, 1, 0.35, 3430, 12, 'Activo', 1, '2026-06-09 11:12:15.784489 -05:00'::timestamptz),
+      ('BCP', 'BCP', 9, 1, 1, 1200, 12, 'Activo', 1, '2026-06-27 10:04:11.453766 -05:00'::timestamptz),
+      ('BCP', 'BBVA', 9, 1, 1, 1200, 12, 'Activo', 1, '2026-06-27 10:04:11.453766 -05:00'::timestamptz),
+      ('BCP', 'BANBIF', 9, 1, 1, 1200, 12, 'Activo', 1, '2026-06-27 10:04:11.453766 -05:00'::timestamptz),
+      ('Interbank', 'INTERBANK', 1, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:11:44.609072 -05:00'::timestamptz),
+      ('Interbank', 'INTERBANK', 2, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:11:48.968172 -05:00'::timestamptz),
+      ('Interbank', 'INTERBANK', 3, 1, 1.5, 1500, 30, 'Activo', 2, '2026-06-09 11:11:54.629402 -05:00'::timestamptz),
+      ('Interbank', 'INTERBANK', 4, 1, 1.5, 1500, 30, 'Activo', 2, '2026-06-09 11:11:59.035310 -05:00'::timestamptz),
+      ('Interbank', 'INTERBANK', 5, 1, 1.5, 1500, 30, 'Activo', 2, '2026-06-09 11:12:03.417580 -05:00'::timestamptz),
+      ('Interbank', 'INTERBANK', 6, 1, 1.5, 1500, 30, 'Activo', 2, '2026-06-09 11:12:07.724529 -05:00'::timestamptz),
+      ('Interbank', 'INTERBANK', 7, 1, 1.5, 1500, 30, 'Activo', 2, '2026-06-09 11:12:12.011635 -05:00'::timestamptz),
+      ('Interbank', 'INTERBANK', 8, 1, 1.5, 1500, 30, 'Activo', 2, '2026-06-09 11:12:16.260980 -05:00'::timestamptz),
+      ('Interbank', 'INTERBANK', 9, 1, 2, 1500, 30, 'Activo', 2, '2026-06-27 10:04:11.453766 -05:00'::timestamptz),
+      ('Pago Deuda', 'BBVA', 1, 1, 1, 0, 0, 'Activo', 2, '2026-06-17 00:14:08.074680 -05:00'::timestamptz),
+      ('Pago Deuda', 'BCP', 1, 1, 1, 0, 0, 'Activo', 2, '2026-06-17 00:15:03.627061 -05:00'::timestamptz),
+      ('Pago Deuda', 'SCOTIABANK', 1, 1, 1.5, 0, 0, 'Activo', 2, '2026-06-17 00:16:13.565924 -05:00'::timestamptz),
+      ('Pago Deuda', 'BANBIF', 1, 1, 1, 0, 0, 'Activo', 2, '2026-06-17 00:17:33.366335 -05:00'::timestamptz),
+      ('Pago Deuda', 'INTERBANK', 1, 1, 2, 0, 0, 'Activo', 2, '2026-06-17 00:19:55.732019 -05:00'::timestamptz),
+      ('SafetyPay', 'SAFETYPAY', 1, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:11:45.083605 -05:00'::timestamptz),
+      ('SafetyPay', 'SAFETYPAY', 2, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:11:49.441426 -05:00'::timestamptz),
+      ('SafetyPay', 'SAFETYPAY', 3, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:11:55.103947 -05:00'::timestamptz),
+      ('SafetyPay', 'SAFETYPAY', 4, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:11:59.546235 -05:00'::timestamptz),
+      ('SafetyPay', 'SAFETYPAY', 5, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:12:03.922791 -05:00'::timestamptz),
+      ('SafetyPay', 'SAFETYPAY', 6, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:12:08.204287 -05:00'::timestamptz),
+      ('SafetyPay', 'SAFETYPAY', 7, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:12:12.482660 -05:00'::timestamptz),
+      ('SafetyPay', 'SAFETYPAY', 8, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:12:16.736062 -05:00'::timestamptz),
+      ('SafetyPay', 'SAFETYPAY', 9, 1, 2, 1500, 30, 'Activo', 2, '2026-06-27 10:04:11.453766 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 1, 1, 1.5, 2000, 20, 'Activo', 1, '2026-06-09 11:11:43.114014 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 1, 2, 1, 2000, 20, 'Activo', 1, '2026-06-09 11:11:43.630382 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 2, 1, 1, 4000, 20, 'Activo', 1, '2026-06-09 11:11:47.498763 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 2, 2, 0.5, 4000, 20, 'Activo', 1, '2026-06-09 11:11:47.980733 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 3, 1, 1, 5715, 20, 'Activo', 1, '2026-06-09 11:11:51.830287 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 3, 2, 0.35, 5715, 20, 'Activo', 1, '2026-06-09 11:11:52.694205 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 4, 1, 1, 4000, 20, 'Activo', 1, '2026-06-09 11:11:57.479048 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 4, 2, 0.5, 4000, 20, 'Activo', 1, '2026-06-09 11:11:57.958272 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 5, 1, 1, 5715, 20, 'Activo', 1, '2026-06-09 11:12:01.982190 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 5, 2, 0.35, 5715, 20, 'Activo', 1, '2026-06-09 11:12:02.480101 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 6, 1, 1, 5715, 20, 'Activo', 1, '2026-06-09 11:12:06.315742 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 6, 2, 0.35, 5715, 20, 'Activo', 1, '2026-06-09 11:12:06.786517 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 7, 1, 1, 5715, 20, 'Activo', 1, '2026-06-09 11:12:10.573175 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 7, 2, 0.35, 5715, 20, 'Activo', 1, '2026-06-09 11:12:11.064053 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 8, 1, 1, 5715, 20, 'Activo', 1, '2026-06-09 11:12:14.840756 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 8, 2, 0.35, 5715, 20, 'Activo', 1, '2026-06-09 11:12:15.305090 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 9, 1, 1.5, 2000, 20, 'Activo', 1, '2026-06-27 10:04:11.453766 -05:00'::timestamptz),
+      ('Scotiabank', 'SCOTIABANK', 9, 2, 1, 2000, 20, 'Activo', 1, '2026-06-27 10:04:11.453766 -05:00'::timestamptz)
+  ),
+  datos_resueltos AS (
+    SELECT
+      cs.id AS id_codigo_servicio,
+      b.id AS id_banco,
+      d.id_comunidad,
+      d.tipo_deposito,
+      d.comision_servicio,
+      d.monto_minimo_deposito_servicio,
+      d.comision_minima_servicio,
+      e.id AS id_estado,
+      d.id_usuario,
+      d.fecha_registro
+    FROM datos_origen d
+    JOIN public.tb_codigo_servicio cs
+      ON upper(cs.nombre) = upper(d.codigo_servicio_nombre)
+    JOIN public.tb_banco b
+      ON upper(b.nombre) = upper(d.banco_nombre)
+    JOIN public.tb_estado e
+      ON upper(e.nombre) = upper(d.estado_nombre)
+  ),
+  insertados AS (
+    INSERT INTO public.tb_reglas_efectivizacion (
+      id_codigo_servicio,
+      id_banco,
+      id_comunidad,
+      tipo_deposito,
+      comision_servicio,
+      monto_minimo_deposito_servicio,
+      comision_minima_servicio,
+      id_estado,
+      id_usuario,
+      fecha_registro
+    )
+    SELECT
+      r.id_codigo_servicio,
+      r.id_banco,
+      r.id_comunidad,
+      r.tipo_deposito,
+      r.comision_servicio,
+      r.monto_minimo_deposito_servicio,
+      r.comision_minima_servicio,
+      r.id_estado,
+      r.id_usuario,
+      r.fecha_registro
+    FROM datos_resueltos r
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM public.tb_reglas_efectivizacion t
+      WHERE t.id_codigo_servicio = r.id_codigo_servicio
+        AND t.id_banco = r.id_banco
+        AND t.id_comunidad = r.id_comunidad
+        AND t.tipo_deposito = r.tipo_deposito
+        AND t.comision_servicio = r.comision_servicio
+        AND t.monto_minimo_deposito_servicio = r.monto_minimo_deposito_servicio
+        AND t.comision_minima_servicio = r.comision_minima_servicio
+        AND t.id_estado = r.id_estado
+        AND coalesce(t.id_usuario, 0) = coalesce(r.id_usuario, 0)
+        AND t.fecha_registro = r.fecha_registro
+    )
+    RETURNING 1
+  )
+  SELECT count(*) INTO v_insertados
+  FROM insertados;
 
-  IF v_activo_id IS NULL OR v_admin_id IS NULL THEN
-    RAISE EXCEPTION 'Faltan: estado Activo o usuario admin.';
-  END IF;
-
-  FOR v_rec IN
-    SELECT * FROM (VALUES
-      -- BCP (cod_servicio='BCP') x BCP / BBVA / BanBif
-      ('BCP', 'BCP',     'ATK1',    'Mismo Día', 1,   1200, 12),
-      ('BCP', 'BBVA',    'ATK1',    'Mismo Día', 1,   1200, 12),
-      ('BCP', 'BanBif',  'ATK1',    'Mismo Día', 1,   1200, 12),
-      ('BCP', 'BCP',     'ATK05',   'Mismo Día', 0.5, 2400, 12),
-      ('BCP', 'BBVA',    'ATK05',   'Mismo Día', 0.5, 2400, 12),
-      ('BCP', 'BanBif',  'ATK05',   'Mismo Día', 0.5, 2400, 12),
-      ('BCP', 'BCP',     'ATK035',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BBVA',    'ATK035',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BanBif',  'ATK035',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BCP',     'FK',      'Mismo Día', 0.5,  2400, 12),
-      ('BCP', 'BBVA',    'FK',      'Mismo Día', 0.5,  2400, 12),
-      ('BCP', 'BanBif',  'FK',      'Mismo Día', 0.5,  2400, 12),
-      ('BCP', 'BCP',     'BETO30',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BBVA',    'BETO30',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BanBif',  'BETO30',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BCP',     'LUIS30',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BBVA',    'LUIS30',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BanBif',  'LUIS30',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BCP',     'MARTIN30','Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BBVA',    'MARTIN30','Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BanBif',  'MARTIN30','Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BCP',     'CCFVIP',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BBVA',    'CCFVIP',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BanBif',  'CCFVIP',  'Mismo Día', 0.35, 3430, 12),
-      ('BCP', 'BCP',     'REMY',    'Mismo Día', 1,   1200, 12),
-      ('BCP', 'BBVA',    'REMY',    'Mismo Día', 1,   1200, 12),
-      ('BCP', 'BanBif',  'REMY',    'Mismo Día', 1,   1200, 12),
-      -- Interbank
-      ('Interbank', 'Interbank', 'ATK1',    'Mismo Día', 2,   1500, 30),
-      ('Interbank', 'Interbank', 'ATK05',   'Mismo Día', 2,   1500, 30),
-      ('Interbank', 'Interbank', 'ATK035',  'Mismo Día', 1.5, 1500, 30),
-      ('Interbank', 'Interbank', 'FK',      'Mismo Día', 1.5, 1500, 30),
-      ('Interbank', 'Interbank', 'BETO30',  'Mismo Día', 1.5, 1500, 30),
-      ('Interbank', 'Interbank', 'LUIS30',  'Mismo Día', 1.5, 1500, 30),
-      ('Interbank', 'Interbank', 'MARTIN30','Mismo Día', 1.5, 1500, 30),
-      ('Interbank', 'Interbank', 'CCFVIP',  'Mismo Día', 1.5, 1500, 30),
-      ('Interbank', 'Interbank', 'REMY',    'Mismo Día', 2,   1500, 30),
-      -- Pago Deuda x todos los bancos
-      ('Pago Deuda', 'BBVA',      'ATK1',    'Mismo Día', 1,   0,    0),
-      ('Pago Deuda', 'BCP',       'ATK1',    'Mismo Día', 1,   0,    0),
-      ('Pago Deuda', 'Scotiabank','ATK1',    'Mismo Día', 1.5, 0,    0),
-      ('Pago Deuda', 'BanBif',    'ATK1',    'Mismo Día', 1,   0,    0),
-      ('Pago Deuda', 'Interbank', 'ATK1',    'Mismo Día', 2,   0,    0),
-      -- SafetyPay x todas las comunidades
-      ('SafetyPay', 'SafetyPay', 'ATK1',    'Mismo Día', 2,   1500, 30),
-      ('SafetyPay', 'SafetyPay', 'ATK05',   'Mismo Día', 2,   1500, 30),
-      ('SafetyPay', 'SafetyPay', 'ATK035',  'Mismo Día', 2,   1500, 30),
-      ('SafetyPay', 'SafetyPay', 'FK',      'Mismo Día', 2,   1500, 30),
-      ('SafetyPay', 'SafetyPay', 'BETO30',  'Mismo Día', 2,   1500, 30),
-      ('SafetyPay', 'SafetyPay', 'LUIS30',  'Mismo Día', 2,   1500, 30),
-      ('SafetyPay', 'SafetyPay', 'MARTIN30','Mismo Día', 2,   1500, 30),
-      ('SafetyPay', 'SafetyPay', 'CCFVIP',  'Mismo Día', 2,   1500, 30),
-      ('SafetyPay', 'SafetyPay', 'REMY',    'Mismo Día', 2,   1500, 30),
-      -- Scotiabank x todas las comunidades (Mismo Dia y Dia Siguiente)
-      ('Scotiabank','Scotiabank','ATK1',    'Mismo Día',     1.5, 2000, 20),
-      ('Scotiabank','Scotiabank','ATK1',    'Día Siguiente', 1,   2000, 20),
-      ('Scotiabank','Scotiabank','ATK05',   'Mismo Día',     1,   4000, 20),
-      ('Scotiabank','Scotiabank','ATK05',   'Día Siguiente', 0.5, 4000, 20),
-      ('Scotiabank','Scotiabank','ATK035',  'Mismo Día',     1,   5715, 20),
-      ('Scotiabank','Scotiabank','ATK035',  'Día Siguiente', 0.35,5715, 20),
-      ('Scotiabank','Scotiabank','FK',      'Mismo Día',     1,   4000, 20),
-      ('Scotiabank','Scotiabank','FK',      'Día Siguiente', 0.5, 4000, 20),
-      ('Scotiabank','Scotiabank','BETO30',  'Mismo Día',     1,   5715, 20),
-      ('Scotiabank','Scotiabank','BETO30',  'Día Siguiente', 0.35,5715, 20),
-      ('Scotiabank','Scotiabank','LUIS30',  'Mismo Día',     1,   5715, 20),
-      ('Scotiabank','Scotiabank','LUIS30',  'Día Siguiente', 0.35,5715, 20),
-      ('Scotiabank','Scotiabank','MARTIN30','Mismo Día',     1,   5715, 20),
-      ('Scotiabank','Scotiabank','MARTIN30','Día Siguiente', 0.35,5715, 20),
-      ('Scotiabank','Scotiabank','CCFVIP',  'Mismo Día',     1,   5715, 20),
-      ('Scotiabank','Scotiabank','CCFVIP',  'Día Siguiente', 0.35,5715, 20),
-      ('Scotiabank','Scotiabank','REMY',    'Mismo Día',     1.5, 2000, 20),
-      ('Scotiabank','Scotiabank','REMY',    'Día Siguiente', 1,   2000, 20)
-    ) AS t(cod_servicio, banco, comunidad, tipo_deposito, comision, monto_min, comision_min)
-  LOOP
-    SELECT id INTO v_cs_id FROM public.tb_codigo_servicio WHERE nombre ILIKE v_rec.cod_servicio LIMIT 1;
-    SELECT id INTO v_banco_id FROM public.tb_banco WHERE nombre ILIKE v_rec.banco LIMIT 1;
-    SELECT id INTO v_com_id FROM public.tb_comunidad WHERE nombre ILIKE v_rec.comunidad LIMIT 1;
-
-    IF v_cs_id IS NULL OR v_banco_id IS NULL OR v_com_id IS NULL THEN
-      RAISE WARNING 'Lookup fallido: cs=%, banco=%, comunidad=%', v_rec.cod_servicio, v_rec.banco, v_rec.comunidad;
-      CONTINUE;
-    END IF;
-
-    IF NOT EXISTS (
-      SELECT 1 FROM public.tb_reglas_efectivizacion
-      WHERE id_codigo_servicio = v_cs_id
-        AND id_banco = v_banco_id
-        AND id_comunidad = v_com_id
-        AND tipo_deposito = v_rec.tipo_deposito
-    ) THEN
-      PERFORM public.f_post_tb_reglas_efectivizacion(
-        p_id_codigo_servicio := v_cs_id,
-        p_id_banco           := v_banco_id,
-        p_id_comunidad       := v_com_id,
-        p_tipo_deposito      := v_rec.tipo_deposito,
-        p_comision_servicio  := v_rec.comision,
-        p_monto_minimo_deposito_servicio := v_rec.monto_min,
-        p_comision_minima_servicio       := v_rec.comision_min,
-        p_id_estado          := v_activo_id,
-        p_id_usuario         := v_admin_id
-      );
-    END IF;
-  END LOOP;
+  RAISE NOTICE 'tb_reglas_efectivizacion: % fila(s) insertada(s).', v_insertados;
 END;
 $$;

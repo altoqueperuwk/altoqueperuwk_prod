@@ -183,6 +183,9 @@ Snapshot:
   - `id_usuario` registra quien crea el registro
   - `id_usuario_solicitud` marca el origen de la solicitud
   - `id_usuario_gestor` marca el responsable actual de bandeja
+  - `ruta_origen` conserva el modulo donde nacio la solicitud
+  - `ruta_destino` queda disponible para congelar la ruta que finalmente la
+    atiende cuando se seleccione la salida
 */
 CREATE OR REPLACE FUNCTION public.f_post_tb_pago_deuda_solicitud(
   p_id_usuario bigint,
@@ -196,7 +199,9 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_pago_deuda_solicitud(
   p_id_usuario_gestor bigint DEFAULT NULL,
   p_nombre_usuario_gestor character varying DEFAULT NULL,
   p_id_usuario_solicitud bigint DEFAULT NULL,
-  p_nombre_usuario_solicitud character varying DEFAULT NULL
+  p_nombre_usuario_solicitud character varying DEFAULT NULL,
+  p_ruta_origen character varying DEFAULT NULL,
+  p_ruta_destino character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -219,6 +224,8 @@ DECLARE
   v_result jsonb;
   v_nombre_usuario_gestor character varying;
   v_nombre_usuario_solicitud character varying;
+  v_ruta_kpi_actual character varying;
+  v_ruta_kpi_final character varying;
 BEGIN
   SELECT valor, tipo
   INTO v_dni_parseado, v_tipo_doc
@@ -345,6 +352,8 @@ BEGIN
       nombre_usuario_gestor,
       id_usuario_solicitud,
       nombre_usuario_solicitud,
+      ruta_origen,
+      ruta_destino,
       fecha_pendiente
     )
     VALUES (
@@ -376,10 +385,20 @@ BEGIN
       COALESCE(v_nombre_usuario_gestor, v_username),
       COALESCE(p_id_usuario_solicitud, p_id_usuario),
       COALESCE(v_nombre_usuario_solicitud, v_username),
+      p_ruta_origen,
+      p_ruta_destino,
       NOW()
     )
     RETURNING id INTO v_new_id;
+
+    v_ruta_kpi_final := COALESCE(p_ruta_destino, p_ruta_origen);
   ELSE
+    SELECT COALESCE(op.ruta_destino, op.ruta_origen)
+    INTO v_ruta_kpi_actual
+    FROM public.tb_operacion_proceso op
+    WHERE op.id = p_id_operacion
+    LIMIT 1;
+
     UPDATE public.tb_operacion_proceso
     SET id_comunidad = v_regla.id_comunidad,
         nombre_comunidad = (SELECT nombre FROM public.tb_comunidad WHERE id = v_regla.id_comunidad LIMIT 1),
@@ -399,11 +418,19 @@ BEGIN
         id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
         nombre_usuario_gestor = COALESCE(v_nombre_usuario_gestor, nombre_usuario_gestor),
         id_usuario_solicitud = COALESCE(p_id_usuario_solicitud, id_usuario_solicitud),
-        nombre_usuario_solicitud = COALESCE(v_nombre_usuario_solicitud, nombre_usuario_solicitud)
+        nombre_usuario_solicitud = COALESCE(v_nombre_usuario_solicitud, nombre_usuario_solicitud),
+        ruta_origen = COALESCE(p_ruta_origen, ruta_origen),
+        ruta_destino = COALESCE(p_ruta_destino, ruta_destino)
     WHERE id = p_id_operacion;
 
     v_new_id := p_id_operacion;
+    v_ruta_kpi_final := COALESCE(p_ruta_destino, p_ruta_origen, v_ruta_kpi_actual);
   END IF;
+
+  IF v_ruta_kpi_actual IS NOT NULL THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi_actual, p_id_usuario);
+  END IF;
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi_final, p_id_usuario);
 
   SELECT x
   INTO v_result
@@ -418,14 +445,16 @@ $$;
 Funcion: f_patch_tb_pago_deuda_salida
 Objetivo:
   Asignar la empresa/cuenta de salida y congelar el snapshot de salida para
-  Pago Deuda, sin tocar caja ni movimientos contables.
+  Pago Deuda, sin tocar caja ni movimientos contables. En esta fase tambien
+  puede congelar la ruta operativa final que atendera la salida.
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_salida(
   p_id_operacion bigint,
   p_id_empresa_salida bigint,
   p_id_empresa_cuenta_salida bigint,
   p_id_usuario_gestor bigint DEFAULT NULL,
-  p_nombre_usuario_gestor character varying DEFAULT NULL
+  p_nombre_usuario_gestor character varying DEFAULT NULL,
+  p_ruta_destino character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -436,6 +465,8 @@ DECLARE
   v_cuenta record;
   v_calc_sal jsonb;
   v_result jsonb;
+  v_ruta_kpi_actual character varying;
+  v_ruta_kpi_final character varying;
 BEGIN
   SELECT *
   INTO v_op
@@ -446,6 +477,8 @@ BEGIN
   IF v_op.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Operacion no encontrada.');
   END IF;
+
+  v_ruta_kpi_actual := COALESCE(v_op.ruta_destino, v_op.ruta_origen);
 
   SELECT
     ecb.id,
@@ -490,9 +523,19 @@ BEGIN
       resultado_comision_banco_salida = (v_calc_sal->>'resultado_comision_banco_salida')::numeric,
       monto_transferencia_cliente = COALESCE(v_op.monto_deposito_cliente, 0),
       monto_itf_salida = COALESCE(v_cuenta.comision_itf_ingreso_salida, 0),
+      ruta_destino = COALESCE(p_ruta_destino, ruta_destino),
       id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = p_id_operacion;
+
+  v_ruta_kpi_final := COALESCE(p_ruta_destino, v_op.ruta_destino, v_op.ruta_origen);
+
+  IF v_ruta_kpi_actual IS NOT NULL THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi_actual, COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario));
+  END IF;
+  IF v_ruta_kpi_final IS DISTINCT FROM v_ruta_kpi_actual THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi_final, COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario));
+  END IF;
 
   SELECT x
   INTO v_result
@@ -615,7 +658,15 @@ DECLARE
   v_estado_pagado_id bigint;
   v_estado_pagado_nombre character varying;
   v_result jsonb;
+  v_op record;
+  v_ruta_kpi character varying;
 BEGIN
+  SELECT *
+  INTO v_op
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id_operacion
+  LIMIT 1;
+
   SELECT id, nombre
   INTO v_estado_pagado_id, v_estado_pagado_nombre
   FROM public.tb_estado
@@ -630,6 +681,9 @@ BEGIN
       id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = p_id_operacion;
+
+  v_ruta_kpi := COALESCE(v_op.ruta_destino, v_op.ruta_origen);
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario));
 
   SELECT x
   INTO v_result
