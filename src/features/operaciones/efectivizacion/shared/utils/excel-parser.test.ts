@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findExcelHeaderIndex, getExcelAliases, mapExcelRows, normalizeExcelHeader } from "./excel-parser";
+import { findExcelHeaderIndex, getExcelAliases, mapExcelRows, normalizeExcelHeader, parseBcpTxtRows } from "./excel-parser";
 
 describe("excel-parser", () => {
     it("normalizes accents, separators and spaces", () => {
@@ -41,6 +41,25 @@ describe("excel-parser", () => {
         expect(aliases.codigo_operacion).toContain("transaction id");
     });
 
+    it("maps BCP txt detail rows to the same backend contract", () => {
+        const content = [
+            "CC19107381361P202607090000000800000000431657500885TS0U02003003CP0000",
+            "DD1910738136100000044779896                              20260709        000000000060900000000000000000000000000000000111023848075EFECTIVO00000044779896    BM          075415             0184807500496406",
+        ].join("\n");
+
+        expect(parseBcpTxtRows(content)).toEqual([
+            {
+                dni: "EFECTIVO00000044779896",
+                monto: "609",
+                codigo_operacion: "848075",
+                fecha_pago: "2026-07-09 07:54:15",
+                hora_proceso: "075415",
+                nombre_cliente_banco_ingreso: "BCP",
+                estado: "BM",
+            },
+        ]);
+    });
+
     it("requires core columns before mapping rows", () => {
         const rows = [
             ["DNI", "Importe", "Fecha Pago"],
@@ -51,6 +70,6 @@ describe("excel-parser", () => {
     });
 
     it("throws when no compatible header exists", () => {
-        expect(() => mapExcelRows([["foo", "bar"]])).toThrow("No se encontro un encabezado compatible.");
+        expect(() => mapExcelRows([["foo", "bar"]])).toThrow("No se encontraron encabezados de columna en el archivo.");
     });
 });

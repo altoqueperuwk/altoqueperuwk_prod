@@ -2,7 +2,9 @@ import { supabase } from "@/lib/supabase";
 import type {
     CajaOperativa,
     CajaOperativaCierre,
+    OperacionBandejaBadge,
     OperacionCajaMovimiento,
+    OperacionEmpresaBadge,
     OperacionProceso,
     RutaOperacionCaja,
     RutaOperacionKpi,
@@ -27,11 +29,20 @@ export const operacionesRpcService = {
         });
     },
 
-    getRutaKpi(ruta: string) {
+    getRutaKpi(ruta: string, idEmpresa?: number | null) {
         return rpc<RutaOperacionKpi[]>("f_get_tb_ruta_operacion_kpi", {
             p_ruta: ruta,
+            p_id_empresa: idEmpresa ?? null,
             p_id_estado: 1,
         });
+    },
+
+    getOperacionBandejaBadges(params: Record<string, unknown>) {
+        return rpc<OperacionBandejaBadge[]>("f_get_tb_operacion_bandeja_badges", params);
+    },
+
+    getOperacionEmpresaBadges(params: Record<string, unknown>) {
+        return rpc<OperacionEmpresaBadge[]>("f_get_tb_operacion_empresa_badges", params);
     },
 
     getOperaciones(params: Record<string, unknown>) {
@@ -93,6 +104,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_reanudar", params);
     },
 
+    patchOperacionDirectoCaja(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_directo_caja", params);
+    },
+
     patchOperacionDerivacion(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_derivacion", params);
     },
@@ -107,6 +122,10 @@ export const operacionesRpcService = {
 
     patchOperacionRetencion(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_retencion", params);
+    },
+
+    confirmarOperacionRetencion(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_confirmar_retencion", params);
     },
 
     patchPagoDeudaSalida(params: Record<string, unknown>) {

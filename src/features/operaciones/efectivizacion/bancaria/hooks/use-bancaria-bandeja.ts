@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type {
     OperacionCajaMovimiento,
@@ -11,15 +11,15 @@ export type BancariaTab = "Efectivizacion" | "Pago Deuda" | "Derivados" | "POS" 
 export const tabContracts: Record<BancariaTab, { filters: string[]; actions: string[] }> = {
     Efectivizacion: {
         filters: ["Todos", "Pendientes", "Rechazados", "Pagados"],
-        actions: ["Empresa", "Reiniciar", "Pagar", "Derivar", "Reasignar"],
+        actions: ["Emp. Ingreso", "Emp. Salida", "Reiniciar", "Pagar", "Directo", "Derivar", "Reasignar"],
     },
     "Pago Deuda": {
-        filters: ["Todos", "Solicitado"],
-        actions: ["Transferencia", "Reiniciar"],
+        filters: ["Todos", "Pendientes", "Procesados", "Pagados"],
+        actions: ["Emp. Salida", "Transferencia", "Match", "Reiniciar", "Pagar"],
     },
     Derivados: {
         filters: ["Todos", "Pendientes", "Rechazados", "Pagados"],
-        actions: ["Reiniciar", "Pagar", "Derivar"],
+        actions: ["Emp. Salida", "Reiniciar", "Pagar", "Derivar"],
     },
     POS: {
         filters: ["Todos", "Solicitado", "Rechazados", "Pagados"],
@@ -40,25 +40,32 @@ const estadoByFilter: Record<string, string> = {
     Rechazados: "Rechazado",
     Pagados: "Pagado",
     Solicitado: "Solicitado",
+    Procesados: "Procesado",
 };
 
 const filterMovimientos = (rows: OperacionCajaMovimiento[], activeFilter: string) => {
-    if (activeFilter === "Todos") return rows;
+    const visibleRows = rows.filter((row) => (row.nombre_estado ?? "").trim().toUpperCase() !== "RETENIDO");
 
-    return rows.filter((row) => {
-        const service = (row.nombre_codigo_servicio ?? "").toUpperCase();
+    if (activeFilter === "Todos") return visibleRows;
+
+    return visibleRows.filter((row) => {
+        const service = (row.tipo_servicio ?? row.nombre_codigo_servicio ?? "").toUpperCase();
+        const serviceFallback = (row.nombre_codigo_servicio ?? "").toUpperCase();
         const origin = (row.tipo_origen ?? "").toUpperCase();
 
         if (activeFilter === "Efectivizacion") {
-            return service.includes("EFECTIVIZACION");
+            return service.includes("EFECTIVIZACION") || serviceFallback.includes("EFECTIVIZACION");
         }
 
         if (activeFilter === "Pago Deuda") {
-            return service.includes("PAGO") && service.includes("DEUDA");
+            return (service.includes("PAGO") && service.includes("DEUDA")) || (serviceFallback.includes("PAGO") && serviceFallback.includes("DEUDA"));
         }
 
         if (activeFilter === "Otros") {
-            return !service.includes("EFECTIVIZACION") && !(service.includes("PAGO") && service.includes("DEUDA")) && origin !== "";
+            const isEfectivizacion = service.includes("EFECTIVIZACION") || serviceFallback.includes("EFECTIVIZACION");
+            const isPagoDeuda = (service.includes("PAGO") && service.includes("DEUDA")) || (serviceFallback.includes("PAGO") && serviceFallback.includes("DEUDA"));
+
+            return !isEfectivizacion && !isPagoDeuda && origin !== "";
         }
 
         return true;
@@ -72,16 +79,29 @@ interface UseBancariaBandejaArgs {
     dateFrom?: string;
     dateTo?: string;
     dni: string;
+    historyDate?: string | null;
     refreshKey?: number;
     ruta: OperacionRutaBancaria;
     tab: BancariaTab;
 }
 
-export const useBancariaBandeja = ({ activeCompanyId, activeFilter, code = "", dateFrom = "", dateTo = "", dni, refreshKey = 0, ruta, tab }: UseBancariaBandejaArgs) => {
+export const useBancariaBandeja = ({
+    activeCompanyId,
+    activeFilter,
+    code = "",
+    dateFrom = "",
+    dateTo = "",
+    dni,
+    historyDate = null,
+    refreshKey = 0,
+    ruta,
+    tab,
+}: UseBancariaBandejaArgs) => {
     const [operaciones, setOperaciones] = useState<OperacionProceso[]>([]);
     const [movimientos, setMovimientos] = useState<OperacionCajaMovimiento[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [localRefreshKey, setLocalRefreshKey] = useState(0);
 
     const params = useMemo(() => {
         const base: Record<string, unknown> = {};
@@ -89,12 +109,15 @@ export const useBancariaBandeja = ({ activeCompanyId, activeFilter, code = "", d
         if (dni.trim()) base.p_dni_cliente = dni.trim();
         if (code.trim()) base.p_codigo_operacion_deposito_cliente = code.trim();
         if (activeFilter !== "Todos" && estadoByFilter[activeFilter]) base.p_nombre_estado = estadoByFilter[activeFilter];
+        if (historyDate) {
+            base.p_fecha_caja_cierre_desde = `${historyDate}T00:00:00`;
+            base.p_fecha_caja_cierre_hasta = `${historyDate}T23:59:59`;
+        }
 
         if (tab === "Efectivizacion") {
             base.p_tipo_servicio = "EFECTIVIZACION";
             base.p_ruta_destino = ruta;
             base.p_flag_derivado = false;
-            base.p_flag_retenido = false;
             if (dateFrom) base.p_fecha_deposito_desde = `${dateFrom}T00:00:00`;
             if (dateTo) base.p_fecha_deposito_hasta = `${dateTo}T23:59:59`;
             if (activeCompanyId) base.p_id_empresa_ingreso = activeCompanyId;
@@ -104,7 +127,6 @@ export const useBancariaBandeja = ({ activeCompanyId, activeFilter, code = "", d
             base.p_tipo_servicio = "PAGO DEUDA";
             base.p_ruta_destino = ruta;
             base.p_flag_retenido = false;
-            if (activeFilter === "Solicitado") base.p_nombre_estado = "Pendiente";
             if (activeCompanyId) base.p_id_empresa_salida = activeCompanyId;
         }
 
@@ -112,6 +134,7 @@ export const useBancariaBandeja = ({ activeCompanyId, activeFilter, code = "", d
             base.p_ruta_destino = ruta;
             base.p_flag_derivado = true;
             base.p_flag_retenido = false;
+            if (activeCompanyId) base.p_id_empresa_salida = activeCompanyId;
         }
 
         if (tab === "POS") {
@@ -123,12 +146,87 @@ export const useBancariaBandeja = ({ activeCompanyId, activeFilter, code = "", d
         if (tab === "Retenidos") {
             base.p_ruta_destino = ruta;
             base.p_flag_retenido = true;
-            if (dateFrom) base.p_fecha_retencion_desde = `${dateFrom}T00:00:00`;
-            if (dateTo) base.p_fecha_retencion_hasta = `${dateTo}T23:59:59`;
+            if (dateFrom) base.p_fecha_deposito_desde = `${dateFrom}T00:00:00`;
+            if (dateTo) base.p_fecha_deposito_hasta = `${dateTo}T23:59:59`;
         }
 
         return base;
-    }, [activeCompanyId, activeFilter, code, dateFrom, dateTo, dni, ruta, tab]);
+    }, [activeCompanyId, activeFilter, code, dateFrom, dateTo, dni, historyDate, ruta, tab]);
+
+    const matchesCurrentOperacionView = useCallback(
+        (row: OperacionProceso) => {
+            if (activeFilter !== "Todos" && estadoByFilter[activeFilter]) {
+                if ((row.nombre_estado ?? "").toUpperCase() !== estadoByFilter[activeFilter].toUpperCase()) return false;
+            }
+
+            if (tab === "Efectivizacion") {
+                return (
+                    (row.tipo_servicio ?? "").toUpperCase() === "EFECTIVIZACION" &&
+                    row.ruta_destino === ruta &&
+                    row.flag_derivado === false &&
+                    (!activeCompanyId || row.id_empresa_ingreso === activeCompanyId)
+                );
+            }
+
+            if (tab === "Pago Deuda") {
+                return (
+                    (row.tipo_servicio ?? "").toUpperCase() === "PAGO DEUDA" &&
+                    row.ruta_destino === ruta &&
+                    row.flag_retenido === false &&
+                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId)
+                );
+            }
+
+            if (tab === "Derivados") {
+                return (
+                    row.ruta_destino === ruta &&
+                    row.flag_derivado === true &&
+                    row.flag_retenido === false &&
+                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId)
+                );
+            }
+
+            if (tab === "POS") {
+                return row.ruta_origen === "pos" && row.ruta_destino === ruta && row.flag_retenido === false;
+            }
+
+            if (tab === "Retenidos") {
+                return row.ruta_destino === ruta && row.flag_retenido === true;
+            }
+
+            return true;
+        },
+        [activeCompanyId, activeFilter, ruta, tab],
+    );
+
+    const replaceOperaciones = useCallback(
+        (updatedRows: OperacionProceso[]) => {
+            if (!updatedRows.length) return;
+
+            const byId = new Map(updatedRows.map((row) => [row.id, row]));
+
+            setOperaciones((current) =>
+                current.flatMap((row) => {
+                    const updated = byId.get(row.id);
+                    if (!updated) return [row];
+                    return matchesCurrentOperacionView(updated) ? [updated] : [];
+                }),
+            );
+        },
+        [matchesCurrentOperacionView],
+    );
+
+    const replaceOperacion = useCallback((updated: OperacionProceso) => replaceOperaciones([updated]), [replaceOperaciones]);
+
+    const removeOperaciones = useCallback((ids: number[]) => {
+        if (!ids.length) return;
+        const idSet = new Set(ids);
+        setOperaciones((current) => current.filter((row) => !idSet.has(row.id)));
+    }, []);
+
+    const refreshBandeja = useCallback(() => {
+        setLocalRefreshKey((value) => value + 1);
+    }, []);
 
     useEffect(() => {
         let ignore = false;
@@ -141,6 +239,8 @@ export const useBancariaBandeja = ({ activeCompanyId, activeFilter, code = "", d
                 ? operacionesRpcService.getMovimientos({
                       p_id_empresa: activeCompanyId,
                       p_dni_cliente: dni.trim() || undefined,
+                      p_fecha_caja_cierre_desde: historyDate ? `${historyDate}T00:00:00` : undefined,
+                      p_fecha_caja_cierre_hasta: historyDate ? `${historyDate}T23:59:59` : undefined,
                   })
                 : operacionesRpcService.getOperaciones(params);
 
@@ -165,7 +265,16 @@ export const useBancariaBandeja = ({ activeCompanyId, activeFilter, code = "", d
         return () => {
             ignore = true;
         };
-    }, [activeCompanyId, activeFilter, dateFrom, dateTo, dni, params, refreshKey, tab]);
+    }, [activeCompanyId, activeFilter, dateFrom, dateTo, dni, historyDate, localRefreshKey, params, refreshKey, tab]);
 
-    return { error, isLoading, movimientos, operaciones };
+    return {
+        error,
+        isLoading,
+        movimientos,
+        operaciones,
+        refreshBandeja,
+        removeOperaciones,
+        replaceOperacion,
+        replaceOperaciones,
+    };
 };

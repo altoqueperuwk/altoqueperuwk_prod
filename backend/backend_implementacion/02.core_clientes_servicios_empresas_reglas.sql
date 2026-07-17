@@ -879,6 +879,7 @@ CREATE TABLE IF NOT EXISTS public.tb_empresa_cuenta_bancaria (
   id_empresa bigint NOT NULL,
   id_banco bigint NOT NULL,
   flag_por_sol_comision_banco_ingreso boolean NOT NULL DEFAULT false,
+  flag_retencion boolean NOT NULL DEFAULT false,
   comision_itf_ingreso_salida numeric NOT NULL DEFAULT 0,
   comision_banco_ingreso numeric NOT NULL DEFAULT 0,
   comision_minimo_banco_ingreso numeric NOT NULL DEFAULT 0,
@@ -905,6 +906,24 @@ BEGIN
 END;
 $$;
 
+-- ============================================================================
+-- ALTER TABLE: agregar flag_retencion a tb_empresa_cuenta_bancaria
+-- ============================================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_empresa_cuenta_bancaria' AND column_name = 'flag_retencion'
+  ) THEN
+    ALTER TABLE public.tb_empresa_cuenta_bancaria ADD COLUMN flag_retencion boolean NOT NULL DEFAULT false;
+  END IF;
+END;
+$$;
+
+CREATE TABLE IF NOT EXISTS public.tb_empresa_cuenta_bancaria_his AS
+TABLE public.tb_empresa_cuenta_bancaria
+WITH NO DATA;
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -916,9 +935,23 @@ BEGIN
 END;
 $$;
 
-CREATE TABLE IF NOT EXISTS public.tb_empresa_cuenta_bancaria_his AS
-TABLE public.tb_empresa_cuenta_bancaria
-WITH NO DATA;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_empresa_cuenta_bancaria_his' AND column_name = 'flag_retencion'
+  ) THEN
+    ALTER TABLE public.tb_empresa_cuenta_bancaria_his ADD COLUMN flag_retencion boolean NOT NULL DEFAULT false;
+  END IF;
+END;
+$$;
+
+UPDATE public.tb_empresa_cuenta_bancaria ecb
+SET flag_retencion = true
+FROM public.tb_banco b
+WHERE b.id = ecb.id_banco
+  AND ecb.flag_retencion = false
+  AND UPPER(COALESCE(b.nombre, '')) IN ('SCOTIABANK', 'BANBIF');
 
 DROP TRIGGER IF EXISTS trg_tb_empresa_cuenta_bancaria_his ON public.tb_empresa_cuenta_bancaria;
 CREATE TRIGGER trg_tb_empresa_cuenta_bancaria_his
@@ -936,6 +969,7 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_empresa_cuenta_bancaria(
   p_id_empresa bigint DEFAULT NULL,
   p_id_banco bigint DEFAULT NULL,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT NULL,
+  p_flag_retencion boolean DEFAULT NULL,
   p_comision_itf_ingreso_salida numeric DEFAULT NULL,
   p_comision_banco_ingreso numeric DEFAULT NULL,
   p_comision_minimo_banco_ingreso numeric DEFAULT NULL,
@@ -959,6 +993,7 @@ AS $$
     'id_banco', t.id_banco,
     'banco_nombre', b.nombre,
     'flag_por_sol_comision_banco_ingreso', t.flag_por_sol_comision_banco_ingreso,
+    'flag_retencion', t.flag_retencion,
     'comision_itf_ingreso_salida', t.comision_itf_ingreso_salida,
     'comision_banco_ingreso', t.comision_banco_ingreso,
     'comision_minimo_banco_ingreso', t.comision_minimo_banco_ingreso,
@@ -980,6 +1015,7 @@ AS $$
     AND (p_id_empresa IS NULL OR t.id_empresa = p_id_empresa)
     AND (p_id_banco IS NULL OR t.id_banco = p_id_banco)
     AND (p_flag_por_sol_comision_banco_ingreso IS NULL OR t.flag_por_sol_comision_banco_ingreso = p_flag_por_sol_comision_banco_ingreso)
+    AND (p_flag_retencion IS NULL OR t.flag_retencion = p_flag_retencion)
     AND (p_comision_itf_ingreso_salida IS NULL OR t.comision_itf_ingreso_salida = p_comision_itf_ingreso_salida)
     AND (p_comision_banco_ingreso IS NULL OR t.comision_banco_ingreso = p_comision_banco_ingreso)
     AND (p_comision_minimo_banco_ingreso IS NULL OR t.comision_minimo_banco_ingreso = p_comision_minimo_banco_ingreso)
@@ -998,6 +1034,7 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_empresa_cuenta_bancaria_his(
   p_id_empresa bigint DEFAULT NULL,
   p_id_banco bigint DEFAULT NULL,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT NULL,
+  p_flag_retencion boolean DEFAULT NULL,
   p_comision_itf_ingreso_salida numeric DEFAULT NULL,
   p_comision_banco_ingreso numeric DEFAULT NULL,
   p_comision_minimo_banco_ingreso numeric DEFAULT NULL,
@@ -1020,6 +1057,7 @@ AS $$
     AND (p_id_empresa IS NULL OR t.id_empresa = p_id_empresa)
     AND (p_id_banco IS NULL OR t.id_banco = p_id_banco)
     AND (p_flag_por_sol_comision_banco_ingreso IS NULL OR t.flag_por_sol_comision_banco_ingreso = p_flag_por_sol_comision_banco_ingreso)
+    AND (p_flag_retencion IS NULL OR t.flag_retencion = p_flag_retencion)
     AND (p_comision_itf_ingreso_salida IS NULL OR t.comision_itf_ingreso_salida = p_comision_itf_ingreso_salida)
     AND (p_comision_banco_ingreso IS NULL OR t.comision_banco_ingreso = p_comision_banco_ingreso)
     AND (p_comision_minimo_banco_ingreso IS NULL OR t.comision_minimo_banco_ingreso = p_comision_minimo_banco_ingreso)
@@ -1042,6 +1080,7 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_empresa_cuenta_bancaria(
   p_id_empresa bigint,
   p_id_banco bigint,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT false,
+  p_flag_retencion boolean DEFAULT NULL,
   p_comision_itf_ingreso_salida numeric DEFAULT 0,
   p_comision_banco_ingreso numeric DEFAULT 0,
   p_comision_minimo_banco_ingreso numeric DEFAULT 0,
@@ -1059,14 +1098,26 @@ DECLARE
   v_id bigint;
 BEGIN
   INSERT INTO public.tb_empresa_cuenta_bancaria (
-    id_empresa, id_banco, flag_por_sol_comision_banco_ingreso,
+    id_empresa, id_banco, flag_por_sol_comision_banco_ingreso, flag_retencion,
     comision_itf_ingreso_salida, comision_banco_ingreso,
     comision_minimo_banco_ingreso, comision_igv_banco_ingreso,
     comision_transf_banco_salida, comision_transf_inter_banco_salida,
     id_estado, id_usuario
   )
   VALUES (
-    p_id_empresa, p_id_banco, COALESCE(p_flag_por_sol_comision_banco_ingreso, false),
+    p_id_empresa,
+    p_id_banco,
+    COALESCE(p_flag_por_sol_comision_banco_ingreso, false),
+    COALESCE(
+      p_flag_retencion,
+      EXISTS (
+        SELECT 1
+        FROM public.tb_banco b
+        WHERE b.id = p_id_banco
+          AND UPPER(COALESCE(b.nombre, '')) IN ('SCOTIABANK', 'BANBIF')
+      ),
+      false
+    ),
     COALESCE(p_comision_itf_ingreso_salida, 0), COALESCE(p_comision_banco_ingreso, 0),
     COALESCE(p_comision_minimo_banco_ingreso, 0), COALESCE(p_comision_igv_banco_ingreso, 0),
     COALESCE(p_comision_transf_banco_salida, 0), COALESCE(p_comision_transf_inter_banco_salida, 0),
@@ -1092,6 +1143,7 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_empresa_cuenta_bancaria(
   p_id_empresa bigint DEFAULT NULL,
   p_id_banco bigint DEFAULT NULL,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT NULL,
+  p_flag_retencion boolean DEFAULT NULL,
   p_comision_itf_ingreso_salida numeric DEFAULT NULL,
   p_comision_banco_ingreso numeric DEFAULT NULL,
   p_comision_minimo_banco_ingreso numeric DEFAULT NULL,
@@ -1110,6 +1162,7 @@ BEGIN
   SET id_empresa = COALESCE(p_id_empresa, id_empresa),
       id_banco = COALESCE(p_id_banco, id_banco),
       flag_por_sol_comision_banco_ingreso = COALESCE(p_flag_por_sol_comision_banco_ingreso, flag_por_sol_comision_banco_ingreso),
+      flag_retencion = COALESCE(p_flag_retencion, flag_retencion),
       comision_itf_ingreso_salida = COALESCE(p_comision_itf_ingreso_salida, comision_itf_ingreso_salida),
       comision_banco_ingreso = COALESCE(p_comision_banco_ingreso, comision_banco_ingreso),
       comision_minimo_banco_ingreso = COALESCE(p_comision_minimo_banco_ingreso, comision_minimo_banco_ingreso),

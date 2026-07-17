@@ -24,7 +24,7 @@ interface CompactInlineSelectProps extends Omit<SelectHTMLAttributes<HTMLSelectE
     width?: string;
 }
 
-export const CompactInlineSelect = ({ className, options, width = "w-32", ...props }: CompactInlineSelectProps) => (
+export const CompactInlineSelect = ({ className, options, width, ...props }: CompactInlineSelectProps) => (
     <NativeSelect
         {...props}
         size="sm"
@@ -42,8 +42,10 @@ interface CompactMoneyCellProps {
 
 export const CompactMoneyCell = ({ className, secondary, value }: CompactMoneyCellProps) => (
     <div className={cx("text-right tabular-nums", className)}>
-        <div className="whitespace-nowrap text-sm font-semibold text-primary">{formatMoney(value)}</div>
-        {secondary ? <div className="mt-0.5 flex justify-end gap-1">{secondary}</div> : null}
+        <div className={cx("flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:justify-end", !secondary && "block")}>
+            <span className="whitespace-nowrap text-sm font-semibold text-primary">{formatMoney(value)}</span>
+            {secondary ? <span className="flex flex-wrap justify-end gap-1">{secondary}</span> : null}
+        </div>
     </div>
 );
 

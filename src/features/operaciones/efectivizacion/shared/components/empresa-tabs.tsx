@@ -5,10 +5,11 @@ import type { RutaOperacionCaja } from "@/features/operaciones/efectivizacion/sh
 interface EmpresaTabsProps {
     companies: RutaOperacionCaja[];
     activeCompanyId: number | null;
+    badges?: Record<number, number>;
     onChange: (id: number) => void;
 }
 
-export const EmpresaTabs = ({ companies, activeCompanyId, onChange }: EmpresaTabsProps) => {
+export const EmpresaTabs = ({ companies, activeCompanyId, badges = {}, onChange }: EmpresaTabsProps) => {
     if (!companies.length) {
         return (
             <div className="rounded-lg border border-secondary bg-primary px-3 py-2 text-sm text-tertiary">
@@ -22,7 +23,7 @@ export const EmpresaTabs = ({ companies, activeCompanyId, onChange }: EmpresaTab
             <Tabs selectedKey={String(activeCompanyId ?? companies[0].id_empresa)} onSelectionChange={(key) => onChange(Number(key))}>
                 <Tabs.List type="button-border" size="sm" aria-label="Empresas de ruta">
                     {companies.map((company) => (
-                        <Tabs.Item id={String(company.id_empresa)} key={company.id_empresa}>
+                        <Tabs.Item id={String(company.id_empresa)} key={company.id_empresa} badge={badges[company.id_empresa] || undefined}>
                             {company.nombre_empresa}
                         </Tabs.Item>
                     ))}

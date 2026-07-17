@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Copy01, Eye, RefreshCcw02 } from "@untitledui/icons";
+import { ChevronLeft, ChevronRight, Coins01, Copy01, Eye, Percent01, RefreshCcw02 } from "@untitledui/icons";
+import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
@@ -10,6 +11,7 @@ import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { reglasEfectivizacionService } from "@/services/reglas-efectivizacion.service";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
+import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 import {
     CompactBadgeLine,
     CompactCellText,
@@ -17,7 +19,7 @@ import {
     CompactMoneyCell,
     getSelectValue,
 } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
-import type { OperacionProceso, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import type { OperacionProceso, OperacionRutaBancaria, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { buildOperacionPagadoPayload, buildOperacionReanudarPayload } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
 import { cx } from "@/utils/cx";
@@ -31,6 +33,8 @@ interface UserRef {
     userId: number | null;
     userName: string | null;
 }
+
+type ManualCommissionType = "especial" | "extra";
 
 interface ReglaEfectivizacion {
     id: number;
@@ -52,8 +56,11 @@ interface BancariaEfectivizacionTableProps {
     estadoPendiente: EstadoRef | null;
     isLoading?: boolean;
     mode?: "efectivizacion" | "derivaciones";
+    onMetricsChanged: () => void;
     onRefresh: () => void;
+    onRowUpdated: (row: OperacionProceso) => void;
     onToggleRow?: (id: number) => void;
+    ruta: OperacionRutaBancaria;
     selectedIds?: number[];
     user: UserRef;
 }
@@ -66,6 +73,16 @@ const toOption = (value: unknown, label: unknown) => ({
     value: String(value ?? ""),
     label: String(label ?? ""),
 });
+
+const allowedCuentaClienteBanks = ["bcp", "bbva", "scotiabank", "scotibank", "interbank", "banbif"];
+const tipoDepositoVisibleRoutes: OperacionRutaBancaria[] = ["scotiabank", "banbif"];
+
+const normalizeBankName = (value: unknown) =>
+    String(value ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]/g, "")
+        .toLowerCase();
 
 const uniqueOptions = (options: { value: string; label: string }[]) => {
     const seen = new Set<string>();
@@ -118,19 +135,19 @@ const formatTime = (value?: string | null) => {
     return new Date(value).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
 };
 
-const columnHeaders = [
-    { label: "Facturacion", className: "w-[140px]" },
-    { label: "Cod. Op.", className: "w-[92px]" },
-    { label: "DNI", className: "w-[170px]" },
-    { label: "Comunidad", className: "w-[110px]" },
-    { label: "Empresa Salida", className: "w-[210px]" },
-    { label: "Banco Transf.", className: "w-[130px]" },
-    { label: "Monto", className: "w-[110px] text-right" },
-    { label: "Comision", className: "w-[110px] text-right" },
-    { label: "Transferencia", className: "w-[130px] text-right" },
-    { label: "Estado", className: "w-[118px]" },
-    { label: "Hora", className: "w-[92px]" },
-    { label: "Acciones", className: "w-[52px] text-center" },
+const getColumnHeaders = (showCuentaIngresoInDni: boolean) => [
+    { label: "Facturacion" },
+    { label: "Cod. Op." },
+    { label: "DNI", className: showCuentaIngresoInDni ? "w-[170px]" : undefined },
+    { label: "Comunidad" },
+    { label: "Cuenta Empresa", className: "w-32" },
+    { label: "Cuenta Cliente", className: "w-32" },
+    { label: "Monto", className: "text-right" },
+    { label: "Comision", className: "text-right" },
+    { label: "Transferencia", className: "text-right" },
+    { label: "Estado" },
+    { label: "Hora", className: "w-24" },
+    { label: "Acciones", className: "w-14 text-center" },
 ];
 
 export const BancariaEfectivizacionTable = ({
@@ -142,8 +159,11 @@ export const BancariaEfectivizacionTable = ({
     estadoPendiente,
     isLoading = false,
     mode = "efectivizacion",
+    onMetricsChanged,
     onRefresh,
+    onRowUpdated,
     onToggleRow,
+    ruta,
     selectedIds = [],
     user,
 }: BancariaEfectivizacionTableProps) => {
@@ -154,6 +174,12 @@ export const BancariaEfectivizacionTable = ({
     const [pageSize, setPageSize] = useState(20);
     const [savingIds, setSavingIds] = useState<number[]>([]);
     const [reglas, setReglas] = useState<ReglaEfectivizacion[]>([]);
+    const [manualCommission, setManualCommission] = useState<{
+        row: OperacionProceso;
+        type: ManualCommissionType;
+        value: string;
+    } | null>(null);
+    const [pagoDeudaMatches, setPagoDeudaMatches] = useState<Record<number, OperacionProceso[]>>({});
     const hasSelection = Boolean(onToggleRow);
     const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
 
@@ -195,11 +221,51 @@ export const BancariaEfectivizacionTable = ({
     const paginatedRows = useMemo(() => rows.slice((page - 1) * pageSize, page * pageSize), [page, pageSize, rows]);
     const visibleIds = paginatedRows.map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
-    const isDerivacion = mode === "derivaciones";
+    const showCuentaIngresoInDni = ruta === "safetypay";
+    const showTipoDeposito = tipoDepositoVisibleRoutes.includes(ruta);
+    const columnHeaders = useMemo(() => getColumnHeaders(showCuentaIngresoInDni), [showCuentaIngresoInDni]);
     const activeCompanyAccounts = useMemo(
         () => companies.filter((company) => !activeCompanyId || company.id_empresa === activeCompanyId),
         [activeCompanyId, companies],
     );
+    const cuentaClienteOptions = useMemo(
+        () =>
+            (bancos ?? [])
+                .filter((item) => {
+                    const bankName = normalizeBankName(item.nombre);
+                    return allowedCuentaClienteBanks.some((allowedBank) => bankName.includes(allowedBank));
+                })
+                .map((item) => toOption(item.id, item.nombre)),
+        [bancos],
+    );
+
+    useEffect(() => {
+        if (mode !== "efectivizacion" || !paginatedRows.length) {
+            setPagoDeudaMatches({});
+            return;
+        }
+
+        let ignore = false;
+
+        Promise.all(
+            paginatedRows.map(async (row) => {
+                if (isPagado(row) || row.tipo_flujo_pago_deuda) return [row.id, []] as const;
+                const matches = await pagoDeudaService.getMatches({ p_id_operacion_efectivizacion: row.id });
+                return [row.id, matches ?? []] as const;
+            }),
+        )
+            .then((entries) => {
+                if (ignore) return;
+                setPagoDeudaMatches(Object.fromEntries(entries));
+            })
+            .catch(() => {
+                if (!ignore) setPagoDeudaMatches({});
+            });
+
+        return () => {
+            ignore = true;
+        };
+    }, [mode, paginatedRows]);
 
     const tipoDepositoOptions = (row: OperacionProceso) => uniqueOptions([
         ...(row.nombre_tipo_deposito ? [toOption(row.nombre_tipo_deposito, row.nombre_tipo_deposito)] : []),
@@ -238,6 +304,8 @@ export const BancariaEfectivizacionTable = ({
 
             const saved = await operacionesRpcService.patchOperacionBase(payload);
             setRows((current) => current.map((row) => (row.id === saved.id ? saved : row)));
+            onRowUpdated(saved);
+            if (recalculate) onMetricsChanged();
             addToast("success", "Operacion actualizada.");
         } catch (err) {
             addToast("error", err instanceof Error ? err.message : "No se pudo guardar la operacion.");
@@ -264,7 +332,7 @@ export const BancariaEfectivizacionTable = ({
         }, true);
     };
 
-    const readOnlyIngreso = (row: OperacionProceso) => isPagado(row) || isDerivacion || savingIds.includes(row.id);
+    const readOnlyIngreso = (row: OperacionProceso) => isPagado(row) || savingIds.includes(row.id);
     const readOnlySalida = (row: OperacionProceso) => isPagado(row) || savingIds.includes(row.id);
 
     const handleToggleVisible = () => {
@@ -302,6 +370,60 @@ export const BancariaEfectivizacionTable = ({
         }, true);
     };
 
+    const openManualCommission = (row: OperacionProceso, type: ManualCommissionType) => {
+        if (isPagado(row) || savingIds.includes(row.id)) return;
+        setManualCommission({
+            row,
+            type,
+            value: String(type === "especial" ? row.comision_servicio ?? 0 : row.comision_monto_extra_servicio ?? 0),
+        });
+    };
+
+    const handleManualCommissionSave = async () => {
+        if (!manualCommission) return;
+
+        const value = Number(manualCommission.value);
+        if (!Number.isFinite(value) || value < 0) {
+            addToast("error", "Ingresa un valor mayor o igual a 0.");
+            return;
+        }
+
+        if (manualCommission.type === "extra" && !Number.isInteger(value)) {
+            addToast("error", "La comision extra debe ser un monto entero en soles.");
+            return;
+        }
+
+        const row = rows.find((item) => item.id === manualCommission.row.id) ?? manualCommission.row;
+
+        if (manualCommission.type === "especial") {
+            await persistRow(
+                {
+                    ...row,
+                    comision_servicio: value,
+                    monto_minimo_deposito_servicio: 0,
+                },
+                {
+                    p_comision_servicio: value,
+                    p_monto_minimo_deposito_servicio: 0,
+                },
+                true,
+            );
+        } else {
+            await persistRow(
+                {
+                    ...row,
+                    comision_monto_extra_servicio: value,
+                },
+                {
+                    p_comision_monto_extra_servicio: value,
+                },
+                true,
+            );
+        }
+
+        setManualCommission(null);
+    };
+
     const handleEstado = async (row: OperacionProceso, value: string) => {
         const estado = estados?.find((item) => String(item.id) === value);
         if (!estado) return;
@@ -313,8 +435,9 @@ export const BancariaEfectivizacionTable = ({
             try {
                 const saved = await operacionesRpcService.patchOperacionPagado(buildOperacionPagadoPayload(row.id, estadoPagado, user));
                 setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+                onRowUpdated(saved);
                 addToast("success", "Operacion pagada.");
-                onRefresh();
+                onMetricsChanged();
             } catch (err) {
                 addToast("error", err instanceof Error ? err.message : "No se pudo pagar la operacion.");
             } finally {
@@ -323,12 +446,83 @@ export const BancariaEfectivizacionTable = ({
             return;
         }
 
-        await operacionesRpcService.patchOperacionEstado({
+        const saved = await operacionesRpcService.patchOperacionEstado({
             p_id: row.id,
             p_id_estado: estadoRef.id,
             p_nombre_estado: estadoRef.nombre,
         });
-        onRefresh();
+        setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+        onRowUpdated(saved);
+        onMetricsChanged();
+    };
+
+    const handlePagoDeudaMatch = async (row: OperacionProceso) => {
+        const matches = pagoDeudaMatches[row.id] ?? [];
+        if (!matches.length) return;
+        if (matches.length > 1) {
+            addToast("error", "Hay mas de una coincidencia Pago Deuda. Usa Match desde el tab Pago Deuda.");
+            return;
+        }
+
+        setSavingIds((current) => [...current, row.id]);
+        try {
+            const saved = await pagoDeudaService.patchMatch({
+                p_id_pago_deuda: matches[0].id,
+                p_id_operacion_efectivizacion: row.id,
+                p_id_usuario_gestor: user.userId,
+                p_nombre_usuario_gestor: user.userName,
+            });
+            setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+            onRowUpdated(saved);
+            addToast("success", "Retorno Pago Deuda enlazado.");
+            onMetricsChanged();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo enlazar Pago Deuda.");
+        } finally {
+            setSavingIds((current) => current.filter((id) => id !== row.id));
+        }
+    };
+
+    const handlePagoDeudaDirecto = async (row: OperacionProceso) => {
+        if (!window.confirm("Clasificar esta operacion como Pago Deuda Directo.")) return;
+
+        setSavingIds((current) => [...current, row.id]);
+        try {
+            const saved = await pagoDeudaService.patchDirecto({
+                p_id_operacion_efectivizacion: row.id,
+                p_id_usuario_gestor: user.userId,
+                p_nombre_usuario_gestor: user.userName,
+            });
+            setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+            onRowUpdated(saved);
+            addToast("success", "Pago Deuda Directo registrado.");
+            onMetricsChanged();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo registrar Pago Deuda Directo.");
+        } finally {
+            setSavingIds((current) => current.filter((id) => id !== row.id));
+        }
+    };
+
+    const handleDirectoCaja = async (row: OperacionProceso) => {
+        if (!window.confirm("Clasificar esta operacion como Directo Caja.")) return;
+
+        setSavingIds((current) => [...current, row.id]);
+        try {
+            const saved = await operacionesRpcService.patchOperacionDirectoCaja({
+                p_id: row.id,
+                p_id_usuario_gestor: user.userId,
+                p_nombre_usuario_gestor: user.userName,
+            });
+            setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+            onRowUpdated(saved);
+            addToast("success", "Directo Caja registrado.");
+            onMetricsChanged();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo registrar Directo Caja.");
+        } finally {
+            setSavingIds((current) => current.filter((id) => id !== row.id));
+        }
     };
 
     const handleAction = async (row: OperacionProceso, action: string) => {
@@ -339,14 +533,32 @@ export const BancariaEfectivizacionTable = ({
         }
 
         if (action === "Reanudar" && estadoPendiente) {
-            await operacionesRpcService.patchOperacionReanudar(buildOperacionReanudarPayload(row.id, estadoPendiente, user));
+            const saved = await operacionesRpcService.patchOperacionReanudar(buildOperacionReanudarPayload(row.id, estadoPendiente, user));
+            setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+            onRowUpdated(saved);
             addToast("success", "Operacion reanudada.");
-            onRefresh();
+            onMetricsChanged();
             return;
         }
 
         if (action === "Pagado" && estadoPagado) {
             await handleEstado(row, String(estadoPagado.id));
+        }
+
+        if (action === "ComisionEspecial") {
+            openManualCommission(row, "especial");
+        }
+
+        if (action === "ComisionExtra") {
+            openManualCommission(row, "extra");
+        }
+
+        if (action === "PagoDeudaDirecto") {
+            await handlePagoDeudaDirecto(row);
+        }
+
+        if (action === "DirectoCaja") {
+            await handleDirectoCaja(row);
         }
     };
 
@@ -367,7 +579,7 @@ export const BancariaEfectivizacionTable = ({
     return (
         <div className="overflow-hidden border-t border-secondary" aria-busy={isLoading}>
             <div className="overflow-x-auto">
-                <table className="min-w-[1370px] table-fixed divide-y divide-secondary">
+                <table className="w-full min-w-max table-auto divide-y divide-secondary">
                     <thead className="bg-secondary">
                         <tr>
                             {hasSelection && (
@@ -400,7 +612,6 @@ export const BancariaEfectivizacionTable = ({
                                 const disabledSalida = readOnlySalida(row);
                                 const rowSaving = savingIds.includes(row.id);
                                 const tipoOptions = tipoDepositoOptions(row);
-                                const estadoColor = isPagado(row) ? "success" : row.nombre_estado?.toUpperCase() === "ERROR" ? "error" : "warning";
 
                                 return (
                                     <motion.tr key={row.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
@@ -429,17 +640,19 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <CompactCellText primary={row.codigo_operacion_deposito_cliente ?? "-"} />
-                                            {disabledIngreso || tipoOptions.length <= 1 ? (
-                                                <CompactBadgeLine color="gray" className="mt-1">{row.nombre_tipo_deposito ?? "Sin tipo"}</CompactBadgeLine>
-                                            ) : (
-                                                <CompactInlineSelect
-                                                    aria-label="Tipo deposito"
-                                                    className="mt-1"
-                                                    width="w-30"
-                                                    value={row.nombre_tipo_deposito ?? ""}
-                                                    onChange={(event) => void patchWithRule(row, { nombre_tipo_deposito: event.currentTarget.value }, { p_nombre_tipo_deposito: event.currentTarget.value })}
-                                                    options={tipoOptions}
-                                                />
+                                            {showTipoDeposito && (
+                                                disabledIngreso || tipoOptions.length <= 1 ? (
+                                                    <CompactBadgeLine color="gray" className="mt-1">{row.nombre_tipo_deposito ?? "Sin tipo"}</CompactBadgeLine>
+                                                ) : (
+                                                    <CompactInlineSelect
+                                                        aria-label="Tipo deposito"
+                                                        className="mt-1"
+                                                        width="w-30"
+                                                        value={row.nombre_tipo_deposito ?? ""}
+                                                        onChange={(event) => void patchWithRule(row, { nombre_tipo_deposito: event.currentTarget.value }, { p_nombre_tipo_deposito: event.currentTarget.value })}
+                                                        options={tipoOptions}
+                                                    />
+                                                )
                                             )}
                                         </td>
                                         <td className="px-2 py-2 align-top">
@@ -459,35 +672,37 @@ export const BancariaEfectivizacionTable = ({
                                                     }}
                                                 />
                                             )}
-                                            <CompactInlineSelect
-                                                aria-label="Cuenta ingreso"
-                                                className="mt-1"
-                                                width="w-40"
-                                                disabled={disabledIngreso || activeCompanyAccounts.length <= 1}
-                                                value={String(cuentaIngresoValue(row) ?? "")}
-                                                onChange={(event) => {
-                                                    const company = activeCompanyAccounts.find((item) => String(item.id) === event.currentTarget.value);
-                                                    if (!company) return;
-                                                    void patchWithRule(
-                                                        row,
-                                                        {
-                                                            id_empresa_ingreso: company.id_empresa,
-                                                            nombre_empresa_ingreso: company.nombre_empresa,
-                                                            id_empresa_cuenta_ingreso: company.id_empresa_cuenta_bancaria,
-                                                            id_banco_empresa_cuenta_ingreso: company.id_banco,
-                                                            nombre_banco_empresa_cuenta_ingreso: company.nombre_banco,
-                                                        },
-                                                        {
-                                                            p_id_empresa_ingreso: company.id_empresa,
-                                                            p_nombre_empresa_ingreso: company.nombre_empresa,
-                                                            p_id_empresa_cuenta_ingreso: company.id_empresa_cuenta_bancaria,
-                                                            p_id_banco_empresa_cuenta_ingreso: company.id_banco,
-                                                            p_nombre_banco_empresa_cuenta_ingreso: company.nombre_banco,
-                                                        },
-                                                    );
-                                                }}
-                                                options={accountOptions}
-                                            />
+                                            {showCuentaIngresoInDni && (
+                                                <CompactInlineSelect
+                                                    aria-label="Cuenta ingreso"
+                                                    className="mt-1"
+                                                    width="w-40"
+                                                    disabled={disabledIngreso || activeCompanyAccounts.length <= 1}
+                                                    value={String(cuentaIngresoValue(row) ?? "")}
+                                                    onChange={(event) => {
+                                                        const company = activeCompanyAccounts.find((item) => String(item.id) === event.currentTarget.value);
+                                                        if (!company) return;
+                                                        void patchWithRule(
+                                                            row,
+                                                            {
+                                                                id_empresa_ingreso: company.id_empresa,
+                                                                nombre_empresa_ingreso: company.nombre_empresa,
+                                                                id_empresa_cuenta_ingreso: company.id_empresa_cuenta_bancaria,
+                                                                id_banco_empresa_cuenta_ingreso: company.id_banco,
+                                                                nombre_banco_empresa_cuenta_ingreso: company.nombre_banco,
+                                                            },
+                                                            {
+                                                                p_id_empresa_ingreso: company.id_empresa,
+                                                                p_nombre_empresa_ingreso: company.nombre_empresa,
+                                                                p_id_empresa_cuenta_ingreso: company.id_empresa_cuenta_bancaria,
+                                                                p_id_banco_empresa_cuenta_ingreso: company.id_banco,
+                                                                p_nombre_banco_empresa_cuenta_ingreso: company.nombre_banco,
+                                                            },
+                                                        );
+                                                    }}
+                                                    options={accountOptions}
+                                                />
+                                            )}
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <CompactInlineSelect
@@ -509,8 +724,8 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <CompactInlineSelect
-                                                aria-label="Empresa salida"
-                                                width="w-48"
+                                                aria-label="Cuenta empresa"
+                                                width="w-32"
                                                 disabled={disabledSalida || activeCompanyAccounts.length <= 1}
                                                 value={String(empresaSalidaValue(row) ?? "")}
                                                 onChange={(event) => handleCompanySalida(row, event.currentTarget.value)}
@@ -519,8 +734,8 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <CompactInlineSelect
-                                                aria-label="Banco transferencia"
-                                                width="w-28"
+                                                aria-label="Cuenta cliente"
+                                                width="w-32"
                                                 disabled={disabledSalida}
                                                 value={String(row.id_banco_cliente_transferencia ?? "")}
                                                 onChange={(event) => {
@@ -536,22 +751,24 @@ export const BancariaEfectivizacionTable = ({
                                                         p_nombre_banco_cliente_transferencia: String(banco.nombre ?? ""),
                                                     }, true);
                                                 }}
-                                                options={(bancos ?? []).map((item) => toOption(item.id, item.nombre))}
+                                                options={cuentaClienteOptions}
                                             />
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <CompactMoneyCell value={row.monto_deposito_cliente} />
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            <CompactMoneyCell
-                                                value={row.resultado_comision_servicio}
-                                                secondary={
-                                                    <>
-                                                        <CompactBadgeLine>{toNumber(row.monto_deposito_cliente) > toNumber(row.monto_minimo_deposito_servicio) ? `${row.comision_servicio ?? 0}%` : formatMoney(row.comision_minima_servicio)}</CompactBadgeLine>
-                                                        {toNumber(row.comision_monto_extra_servicio) > 0 && <CompactBadgeLine color="warning">Extra {formatMoney(row.comision_monto_extra_servicio)}</CompactBadgeLine>}
-                                                    </>
-                                                }
-                                            />
+                                            <div className="text-right tabular-nums">
+                                                <div className="flex items-center justify-end gap-1">
+                                                    <span className="whitespace-nowrap text-sm font-semibold text-primary">{formatMoney(row.resultado_comision_servicio)}</span>
+                                                    <CompactBadgeLine>{toNumber(row.monto_deposito_cliente) > toNumber(row.monto_minimo_deposito_servicio) ? `${row.comision_servicio ?? 0}%` : formatMoney(row.comision_minima_servicio)}</CompactBadgeLine>
+                                                </div>
+                                                {toNumber(row.comision_monto_extra_servicio) > 0 && (
+                                                    <div className="mt-1 flex justify-end">
+                                                        <CompactBadgeLine color="warning">Extra {formatMoney(row.comision_monto_extra_servicio)}</CompactBadgeLine>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <div className="flex items-center justify-end gap-1">
@@ -560,37 +777,46 @@ export const BancariaEfectivizacionTable = ({
                                             </div>
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            {isPagado(row) ? (
-                                                <CompactBadgeLine color="success">{row.nombre_estado}</CompactBadgeLine>
-                                            ) : (
-                                                <CompactInlineSelect
-                                                    aria-label="Estado"
-                                                    width="w-28"
-                                                    disabled={rowSaving}
-                                                    value={String(row.id_estado ?? "")}
-                                                    onChange={(event) => void handleEstado(row, event.currentTarget.value)}
-                                                    options={(estados ?? []).map((item) => toOption(item.id, item.nombre))}
-                                                />
-                                            )}
-                                            {!isPagado(row) && row.nombre_estado && row.nombre_estado !== "Activo" && <CompactBadgeLine color={estadoColor} className="mt-1">{row.nombre_estado}</CompactBadgeLine>}
+                                            <Button
+                                                size="xs"
+                                                color={isPagado(row) ? "secondary" : "primary"}
+                                                isDisabled={rowSaving || isPagado(row) || !estadoPagado}
+                                                onClick={() => estadoPagado && void handleEstado(row, String(estadoPagado.id))}
+                                            >
+                                                {isPagado(row) ? "Pagado" : "Pendiente"}
+                                            </Button>
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <CompactCellText primary={formatTime(row.fecha_deposito_cliente) || "-"} secondary={formatDate(row.fecha_deposito_cliente)} />
                                         </td>
                                         <td className="px-2 py-2 text-center align-top">
+                                            <div className="flex items-center justify-center gap-1">
+                                                {mode === "efectivizacion" && (
+                                                    <Button
+                                                        size="xs"
+                                                        color="secondary"
+                                                        isDisabled={rowSaving || isPagado(row) || !(pagoDeudaMatches[row.id]?.length)}
+                                                        onClick={() => void handlePagoDeudaMatch(row)}
+                                                    >
+                                                        PD
+                                                    </Button>
+                                                )}
                                             <Dropdown.Root>
                                                 <Dropdown.DotsButton />
                                                 <Dropdown.Popover>
                                                     <Dropdown.Menu
                                                         onAction={(key) => void handleAction(row, String(key))}
                                                     >
-                                                        {!isPagado(row) && <Dropdown.Item id="Pagado" icon={RefreshCcw02}>Pagado</Dropdown.Item>}
                                                         {isPagado(row) && <Dropdown.Item id="Reanudar" icon={RefreshCcw02}>Reanudar</Dropdown.Item>}
+                                                        {!isPagado(row) && <Dropdown.Item id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
+                                                        {!isPagado(row) && <Dropdown.Item id="ComisionExtra" icon={Coins01}>Com. Extra</Dropdown.Item>}
+                                                        {!isPagado(row) && mode === "efectivizacion" && <Dropdown.Item id="PagoDeudaDirecto" icon={Coins01}>PD Directo</Dropdown.Item>}
+                                                        {!isPagado(row) && mode === "efectivizacion" && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo Caja</Dropdown.Item>}
                                                         <Dropdown.Item id="Visualizar" icon={Eye}>Visualizar</Dropdown.Item>
-                                                        <Dropdown.Item id="Copiar" icon={Copy01}>Copiar transferencia</Dropdown.Item>
                                                     </Dropdown.Menu>
                                                 </Dropdown.Popover>
                                             </Dropdown.Root>
+                                            </div>
                                             {rowSaving && <p className="mt-1 text-xs text-tertiary">Guardando...</p>}
                                         </td>
                                     </motion.tr>
@@ -631,6 +857,46 @@ export const BancariaEfectivizacionTable = ({
                     options={[{ label: "20", value: "20" }, { label: "50", value: "50" }, { label: "100", value: "100" }]}
                 />
             </div>
+            <ModalOverlay isOpen={manualCommission !== null} onOpenChange={(open) => !open && setManualCommission(null)}>
+                <Modal className="max-w-sm">
+                    <Dialog>
+                        <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                            <div>
+                                <h2 className="text-lg font-semibold text-primary">
+                                    {manualCommission?.type === "especial" ? "Com. Especial" : "Com. Extra"}
+                                </h2>
+                                <p className="mt-1 text-sm text-tertiary">
+                                    {manualCommission?.type === "especial" ? "Porcentaje manual para esta operacion." : "Monto adicional en soles para esta operacion."}
+                                </p>
+                            </div>
+
+                            <div className="mt-5">
+                                <Input
+                                    size="sm"
+                                    label={manualCommission?.type === "especial" ? "Porcentaje" : "Monto"}
+                                    type="number"
+                                    min={0}
+                                    step={manualCommission?.type === "especial" ? "0.01" : "1"}
+                                    value={manualCommission?.value ?? ""}
+                                    onChange={(value) => setManualCommission((current) => (current ? { ...current, value } : current))}
+                                />
+                            </div>
+
+                            <div className="mt-6 flex justify-end gap-2">
+                                <Button color="secondary" isDisabled={manualCommission ? savingIds.includes(manualCommission.row.id) : false} onClick={() => setManualCommission(null)}>
+                                    Cancelar
+                                </Button>
+                                <Button
+                                    isLoading={manualCommission ? savingIds.includes(manualCommission.row.id) : false}
+                                    onClick={() => void handleManualCommissionSave()}
+                                >
+                                    Guardar
+                                </Button>
+                            </div>
+                        </div>
+                    </Dialog>
+                </Modal>
+            </ModalOverlay>
         </div>
     );
 };

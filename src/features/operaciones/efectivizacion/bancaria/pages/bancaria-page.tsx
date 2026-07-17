@@ -12,7 +12,6 @@ import { operacionesRpcService } from "@/features/operaciones/efectivizacion/sha
 import type { OperacionRutaBancaria } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { BancariaExcelUpload } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-excel-upload";
-import { BancariaHistoryDrawer } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-history-drawer";
 import { BancariaInlineForms } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-inline-forms";
 import { BancariaKpiGrid } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-kpi-grid";
 import { BancariaOperationalTabs } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-operational-tabs";
@@ -25,16 +24,23 @@ interface BancariaPageProps {
 
 export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const [refreshKey, setRefreshKey] = useState(0);
+    const [metricsRefreshKey, setMetricsRefreshKey] = useState(0);
     const [downloadKey, setDownloadKey] = useState(0);
     const [isConfigOpen, setIsConfigOpen] = useState(false);
-    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
     const [isClosing, setIsClosing] = useState(false);
+    const [selectedHistoryDate, setSelectedHistoryDate] = useState<string | null>(null);
+    const [isHistoryDateAvailable, setIsHistoryDateAvailable] = useState(true);
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const routeLabel = getRutaLabel(ruta);
     const { data: cajas, error: companiesError, isLoading: isLoadingCompanies } = useRouteCompanies(ruta);
     const { activeCompany, activeCompanyCajas, activeCompanyId, companies, setActiveCompanyId } = useActiveCompany(cajas);
-    const { data: kpi, error: kpiError, isLoading: isLoadingKpis } = useBancariaKpis(ruta, refreshKey);
+    const { data: kpi, error: kpiError, isLoading: isLoadingKpis } = useBancariaKpis(
+        ruta,
+        activeCompanyId,
+        selectedHistoryDate,
+        refreshKey + metricsRefreshKey,
+    );
     const activeCajaIds = useMemo(
         () => activeCompanyCajas.map((caja) => caja.id_caja).filter((idCaja): idCaja is number => Boolean(idCaja)),
         [activeCompanyCajas],
@@ -42,6 +48,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
 
     const companyName = activeCompany?.nombre_empresa ?? "Empresa";
     const userId = businessUser?.id ? Number(businessUser.id) : null;
+    const selectedHistoryDateLabel = selectedHistoryDate ? selectedHistoryDate.split("-").reverse().join("/") : "";
 
     const handleCloseRoute = async () => {
         const cajasToClose = activeCompanyCajas.filter((caja) => caja.id_caja);
@@ -97,11 +104,15 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <EmpresaTabs companies={companies} activeCompanyId={activeCompanyId} onChange={setActiveCompanyId} />
                     <BancariaTopActions
+                        activeCajaIds={activeCajaIds}
+                        activeCompany={activeCompany}
                         isClosing={isClosing}
+                        selectedHistoryDate={selectedHistoryDate}
                         onOpenConfig={() => setIsConfigOpen(true)}
                         onCloseRoute={handleCloseRoute}
+                        onHistoryDateChange={setSelectedHistoryDate}
+                        onHistoryDateAvailabilityChange={setIsHistoryDateAvailable}
                         onDownload={() => setDownloadKey((value) => value + 1)}
-                        onOpenHistory={() => setIsHistoryOpen(true)}
                     />
                     {isLoadingCompanies && <span className="text-sm text-tertiary">Cargando empresas...</span>}
                 </div>
@@ -112,11 +123,18 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     </div>
                 )}
 
+                {selectedHistoryDate && !isHistoryDateAvailable && (
+                    <div className="rounded-lg border border-warning_subtle bg-warning-primary px-4 py-3 text-sm text-warning-primary">
+                        {activeCompany?.nombre_empresa ?? "La empresa"} no tiene cierre de caja para el {selectedHistoryDateLabel}.
+                    </div>
+                )}
+
                 <BancariaKpiGrid isLoading={isLoadingKpis} kpi={kpi} />
 
                 <BancariaInlineForms
                     activeCompany={activeCompany}
                     activeCompanyCajas={activeCompanyCajas}
+                    routeCajas={cajas}
                     onSaved={() => setRefreshKey((value) => value + 1)}
                     ruta={ruta}
                 />
@@ -132,6 +150,9 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     activeCompanyId={activeCompanyId}
                     companies={companies}
                     downloadKey={downloadKey}
+                    historyDate={selectedHistoryDate}
+                    onChanged={() => setRefreshKey((value) => value + 1)}
+                    onMetricsChanged={() => setMetricsRefreshKey((value) => value + 1)}
                     onCompanyChange={setActiveCompanyId}
                     refreshKey={refreshKey}
                     ruta={ruta}
@@ -145,12 +166,6 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     ruta={ruta}
                 />
 
-                <BancariaHistoryDrawer
-                    activeCajaIds={activeCajaIds}
-                    activeCompany={activeCompany}
-                    isOpen={isHistoryOpen}
-                    onClose={() => setIsHistoryOpen(false)}
-                />
             </div>
         </AppLayout>
     );

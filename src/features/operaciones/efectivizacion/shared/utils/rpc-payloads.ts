@@ -35,11 +35,10 @@ export const buildOperacionReanudarPayload = (id: number, estado: EstadoRef, use
     p_nombre_usuario_gestor: user.userName,
 });
 
-export const buildOperacionRetencionConfirmPayload = (id: number, estadoPendiente: EstadoRef) => ({
+export const buildOperacionRetencionConfirmPayload = (id: number, user: UserContext) => ({
     p_id: id,
-    p_flag_retenido: false,
-    p_id_estado: estadoPendiente.id,
-    p_nombre_estado: estadoPendiente.nombre,
+    p_id_usuario_gestor: user.userId,
+    p_nombre_usuario_gestor: user.userName,
 });
 
 export const buildOperacionDerivacionPayload = (
@@ -79,6 +78,30 @@ export const buildOperacionEmpresaPayload = (id: number, company: RutaOperacionC
     p_nombre_usuario_gestor: user.userName,
 });
 
+export const buildOperacionEmpresaIngresoPayload = (id: number, company: RutaOperacionCaja, user: UserContext) => ({
+    p_id: id,
+    p_id_empresa_ingreso: company.id_empresa,
+    p_nombre_empresa_ingreso: company.nombre_empresa,
+    p_id_empresa_cuenta_ingreso: company.id_empresa_cuenta_bancaria,
+    p_id_banco_empresa_cuenta_ingreso: company.id_banco,
+    p_nombre_banco_empresa_cuenta_ingreso: company.nombre_banco,
+    p_id_usuario_gestor: user.userId,
+    p_nombre_usuario_gestor: user.userName,
+});
+
+export const buildOperacionEmpresaSalidaPayload = (id: number, company: RutaOperacionCaja, user: UserContext) => ({
+    p_id: id,
+    p_id_empresa_salida: company.id_empresa,
+    p_nombre_empresa_salida: company.nombre_empresa,
+    p_id_empresa_cuenta_salida: company.id_empresa_cuenta_bancaria,
+    p_id_banco_empresa_cuenta_salida: company.id_banco,
+    p_nombre_banco_empresa_cuenta_salida: company.nombre_banco,
+    p_id_banco_cliente_transferencia: company.id_banco,
+    p_nombre_banco_cliente_transferencia: company.nombre_banco,
+    p_id_usuario_gestor: user.userId,
+    p_nombre_usuario_gestor: user.userName,
+});
+
 export const buildPagoDeudaSalidaPayload = (
     id: number,
     company: RutaOperacionCaja,
@@ -113,7 +136,6 @@ export const buildExcelPayload = ({
     p_nombre_codigo_servicio: service.nombre,
     p_id_comunidad: selectedCommunity.id,
     p_nombre_comunidad: selectedCommunity.nombre,
-    p_id_tipo_deposito: null,
     p_nombre_tipo_deposito: null,
     p_id_empresa_ingreso: activeCompany.id_empresa,
     p_nombre_empresa_ingreso: activeCompany.nombre_empresa,

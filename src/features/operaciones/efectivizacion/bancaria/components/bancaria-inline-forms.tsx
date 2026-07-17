@@ -1,8 +1,14 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { Save01, XClose } from "@untitledui/icons";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
+import { Input } from "@/components/base/input/input";
+import { NativeSelect } from "@/components/base/select/select-native";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { codigoServicioService } from "@/services/codigo-servicio.service";
 import { comunidadService } from "@/services/comunidad.service";
+import { empresaCuentaBancariaService } from "@/services/empresa-cuenta-bancaria.service";
 import { estadoService } from "@/services/estado.service";
 import { InlineFormCard } from "@/features/operaciones/efectivizacion/shared/components/inline-form-card";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
@@ -10,11 +16,13 @@ import type {
     OperacionRutaBancaria,
     RutaOperacionCaja,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import { findCodigoServicioForRuta } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { cx } from "@/utils/cx";
 
 interface BancariaInlineFormsProps {
     activeCompany: RutaOperacionCaja | null;
     activeCompanyCajas: RutaOperacionCaja[];
+    routeCajas: RutaOperacionCaja[];
     onSaved: () => void;
     ruta: OperacionRutaBancaria;
 }
@@ -23,6 +31,14 @@ interface CatalogItem {
     id: number;
     nombre: string;
     tipo?: string;
+}
+
+interface EmpresaCuentaActiva {
+    id: number;
+    id_empresa: number;
+    empresa_nombre: string;
+    id_banco: number;
+    banco_nombre: string;
 }
 
 const getCajaSelectionKey = (caja: RutaOperacionCaja) => String(caja.id_caja ?? caja.id_empresa_cuenta_bancaria);
@@ -34,48 +50,55 @@ const Field = ({ children, className, label }: { children: ReactNode; className?
     </label>
 );
 
-const compactControlClass =
-    "h-8 w-full rounded-lg border border-primary bg-primary px-3 text-sm font-normal text-primary outline-hidden transition duration-100 placeholder:text-placeholder focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:cursor-not-allowed disabled:opacity-60";
-
 const CompactInput = ({
     disabled,
+    inputClassName,
     onChange,
     placeholder,
     type = "text",
     value,
 }: {
     disabled?: boolean;
+    inputClassName?: string;
     onChange?: (value: string) => void;
     placeholder?: string;
     type?: string;
     value: string;
 }) => (
-    <input
-        className={compactControlClass}
-        disabled={disabled}
+    <Input
+        className="w-full"
+        inputClassName={cx("text-sm", inputClassName)}
+        isDisabled={disabled}
         placeholder={placeholder}
+        size="sm"
         type={type}
         value={value}
-        onChange={(event) => onChange?.(event.currentTarget.value)}
+        onChange={onChange}
     />
 );
 
 const CompactSelect = ({
+    disabled,
     onChange,
     options,
+    selectClassName,
     value,
 }: {
+    disabled?: boolean;
     onChange: (value: string) => void;
     options: { label: string; value: string }[];
+    selectClassName?: string;
     value: string;
 }) => (
-    <select className={cx(compactControlClass, "appearance-none")} value={value} onChange={(event) => onChange(event.currentTarget.value)}>
-        {options.map((option) => (
-            <option key={option.value} value={option.value}>
-                {option.label}
-            </option>
-        ))}
-    </select>
+    <NativeSelect
+        className="w-full"
+        disabled={disabled}
+        options={options}
+        selectClassName={cx("w-full font-normal", selectClassName)}
+        size="sm"
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+    />
 );
 
 const SegmentedControl = ({
@@ -92,26 +115,26 @@ const SegmentedControl = ({
     if (!options.length) return null;
 
     return (
-        <div className={cx("inline-grid h-9 grid-flow-col overflow-hidden rounded-xl border border-primary bg-primary", className)}>
+        <ButtonGroup
+            className={cx("grid w-full grid-flow-col [&>*]:w-full [&>*]:justify-center", className)}
+            selectedKeys={selectedKey ? [selectedKey] : []}
+            size="sm"
+            onSelectionChange={(keys) => {
+                const next = Array.from(keys)[0];
+                if (next) onChange?.(String(next));
+            }}
+        >
             {options.map((option) => {
-                const isSelected = option.value === selectedKey;
-
                 return (
-                    <button
+                    <ButtonGroupItem
+                        id={option.value}
                         key={option.value}
-                        type="button"
-                        className={cx(
-                            "flex min-w-16 items-center justify-center px-4 text-center text-sm font-normal text-primary transition duration-100",
-                            "border-l border-primary first:border-l-0",
-                            isSelected && "bg-secondary shadow-xs",
-                        )}
-                        onClick={() => onChange?.(option.value)}
                     >
                         {option.label}
-                    </button>
+                    </ButtonGroupItem>
                 );
             })}
-        </div>
+        </ButtonGroup>
     );
 };
 
@@ -125,22 +148,28 @@ const FormActions = ({
     onSave: () => void;
 }) => (
     <div className="mt-auto grid grid-cols-2 gap-3 pt-4">
-        <button
+        <Button
             type="button"
-            className="h-8 rounded-lg border border-primary bg-primary px-3 text-sm font-normal text-primary transition duration-100 hover:bg-primary_hover disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={isSaving}
+            color="primary"
+            iconLeading={Save01}
+            isDisabled={isSaving}
+            isLoading={isSaving}
+            showTextWhileLoading
+            size="sm"
             onClick={onSave}
         >
             {isSaving ? "Guardando..." : "Guardar"}
-        </button>
-        <button
+        </Button>
+        <Button
             type="button"
-            className="h-8 rounded-lg border border-primary bg-primary px-3 text-sm font-normal text-primary transition duration-100 hover:bg-primary_hover disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={isSaving}
+            color="secondary"
+            iconLeading={XClose}
+            isDisabled={isSaving}
+            size="sm"
             onClick={onCancel}
         >
             Cancelar
-        </button>
+        </Button>
     </div>
 );
 
@@ -150,24 +179,11 @@ const cuentaOptions = (cajas: RutaOperacionCaja[]) =>
         value: getCajaSelectionKey(caja),
     }));
 
-const CuentaTabs = ({
-    cajas,
-    onChange,
-    selectedKey,
-}: {
-    cajas: RutaOperacionCaja[];
-    onChange?: (key: string) => void;
-    selectedKey?: string;
-}) => {
-    if (!cajas.length) return null;
-
-    return <SegmentedControl options={cuentaOptions(cajas)} selectedKey={selectedKey ?? getCajaSelectionKey(cajas[0])} onChange={onChange} />;
-};
-
-export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, onSaved, ruta }: BancariaInlineFormsProps) => {
+export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCajas, onSaved, ruta }: BancariaInlineFormsProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [transferOriginKey, setTransferOriginKey] = useState("");
+    const [transferDestinationCompanyId, setTransferDestinationCompanyId] = useState("");
     const [transferDestinationKey, setTransferDestinationKey] = useState("");
     const [transferAmount, setTransferAmount] = useState("");
     const [isSavingTransfer, setIsSavingTransfer] = useState(false);
@@ -182,29 +198,75 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, onSaved
     const [manualCommunityId, setManualCommunityId] = useState("");
     const [isSavingManual, setIsSavingManual] = useState(false);
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
-    const [codigoEfectivizacion, setCodigoEfectivizacion] = useState<CatalogItem | null>(null);
+    const [codigoItems, setCodigoItems] = useState<CatalogItem[]>([]);
     const [estadoPendiente, setEstadoPendiente] = useState<CatalogItem | null>(null);
+    const [cuentasActivas, setCuentasActivas] = useState<EmpresaCuentaActiva[]>([]);
 
     const companyName = activeCompany?.nombre_empresa ?? "Empresa";
     const firstCuenta = activeCompanyCajas[0];
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
     const transferOrigin = activeCompanyCajas.find((caja) => getCajaSelectionKey(caja) === transferOriginKey) ?? firstCuenta ?? null;
-    const transferDestination = activeCompanyCajas.find((caja) => getCajaSelectionKey(caja) === transferDestinationKey) ?? null;
+    const transferCompanies = useMemo(() => {
+        const byId = new Map<number, { label: string; value: string }>();
+        cuentasActivas.forEach((cuenta) => {
+            if (!byId.has(cuenta.id_empresa)) {
+                byId.set(cuenta.id_empresa, { label: cuenta.empresa_nombre, value: String(cuenta.id_empresa) });
+            }
+        });
+
+        return Array.from(byId.values()).sort((a, b) => a.label.localeCompare(b.label));
+    }, [cuentasActivas]);
+    const transferDestinationAccounts = useMemo(
+        () =>
+            cuentasActivas
+                .filter((cuenta) => String(cuenta.id_empresa) === transferDestinationCompanyId)
+                .sort((a, b) => a.banco_nombre.localeCompare(b.banco_nombre)),
+        [cuentasActivas, transferDestinationCompanyId],
+    );
+    const transferDestinationAccount = transferDestinationAccounts.find((cuenta) => String(cuenta.id) === transferDestinationKey) ?? null;
+    const transferDestination = transferDestinationAccount
+        ? routeCajas.find(
+              (caja) =>
+                  caja.id_empresa === transferDestinationAccount.id_empresa &&
+                  caja.id_empresa_cuenta_bancaria === transferDestinationAccount.id &&
+                  caja.id_caja,
+          ) ?? null
+        : null;
+    const transferDestinationAccountOptions = transferDestinationAccounts.map((cuenta) => ({
+        label: cuenta.banco_nombre,
+        value: String(cuenta.id),
+    }));
     const movementAccount = activeCompanyCajas.find((caja) => getCajaSelectionKey(caja) === movementAccountKey) ?? firstCuenta ?? null;
     const selectedCommunity = useMemo(
         () => comunidades.find((item) => String(item.id) === manualCommunityId) ?? null,
         [comunidades, manualCommunityId],
     );
+    const codigoEfectivizacion = useMemo(() => findCodigoServicioForRuta(codigoItems, ruta), [codigoItems, ruta]);
+    const originCuentaOptions = activeCompanyCajas.length ? cuentaOptions(activeCompanyCajas) : [{ label: "Sin cuentas", value: "" }];
+    const lockedCuentaName = firstCuenta?.nombre_banco ?? "";
+    const placeholderOption = { label: "Seleccionar", value: "" };
+    const renderOriginCompanyInput = () => (
+        <CompactInput disabled inputClassName="text-center font-semibold text-primary" value={companyName} />
+    );
 
     useEffect(() => {
         const first = activeCompanyCajas[0];
-        const second = activeCompanyCajas[1];
 
         setTransferOriginKey(first ? getCajaSelectionKey(first) : "");
-        setTransferDestinationKey(second ? getCajaSelectionKey(second) : "");
         setMovementAccountKey(first ? getCajaSelectionKey(first) : "");
     }, [activeCompanyCajas]);
+
+    useEffect(() => {
+        setTransferDestinationCompanyId("");
+        setTransferDestinationKey("");
+    }, [activeCompany?.id_empresa]);
+
+    useEffect(() => {
+        setTransferDestinationKey((current) =>
+            current && transferDestinationAccounts.some((cuenta) => String(cuenta.id) === current) ? current : "",
+        );
+    }, [transferDestinationAccounts]);
 
     useEffect(() => {
         let ignore = false;
@@ -213,8 +275,9 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, onSaved
             comunidadService.getList({ p_id_estado: 1 }),
             codigoServicioService.getList({ p_id_estado: 1 }),
             estadoService.getList({}),
+            empresaCuentaBancariaService.getList({ p_id_estado: 1 }),
         ])
-            .then(([comunidadRows, codigoRows, estadoRows]) => {
+            .then(([comunidadRows, codigoRows, estadoRows, cuentaRows]) => {
                 if (ignore) return;
 
                 const comunidadItems = comunidadRows.map((row) => ({
@@ -230,14 +293,20 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, onSaved
                     id: Number(row.id),
                     nombre: String(row.nombre ?? ""),
                 }));
+                const cuentaItems = cuentaRows
+                    .map((row) => ({
+                        id: Number(row.id),
+                        id_empresa: Number(row.id_empresa),
+                        empresa_nombre: String(row.empresa_nombre ?? ""),
+                        id_banco: Number(row.id_banco),
+                        banco_nombre: String(row.banco_nombre ?? ""),
+                    }))
+                    .filter((cuenta) => cuenta.id && cuenta.id_empresa && cuenta.empresa_nombre && cuenta.banco_nombre);
 
                 setComunidades(comunidadItems);
-                setCodigoEfectivizacion(
-                    codigoItems.find((item) => item.tipo?.toUpperCase() === "EFECTIVIZACION") ??
-                        codigoItems.find((item) => item.nombre.toUpperCase().includes("EFECTIVIZACION")) ??
-                        null,
-                );
+                setCodigoItems(codigoItems);
                 setEstadoPendiente(estadoItems.find((item) => item.nombre.toUpperCase() === "PENDIENTE") ?? null);
+                setCuentasActivas(cuentaItems);
 
                 if (!manualCommunityId && comunidadItems[0]) {
                     setManualCommunityId(String(comunidadItems[0].id));
@@ -248,7 +317,7 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, onSaved
         return () => {
             ignore = true;
         };
-    }, [addToast]);
+    }, [addToast, manualCommunityId]);
 
     const handleSaveTransfer = async () => {
         const amount = Number(transferAmount.replace(",", "."));
@@ -258,8 +327,13 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, onSaved
             return;
         }
 
+        if (!transferDestinationAccount) {
+            addToast("error", "Selecciona una empresa y cuenta destino.");
+            return;
+        }
+
         if (!transferDestination?.id_caja) {
-            addToast("error", "Selecciona una cuenta destino con caja configurada.");
+            addToast("error", "La cuenta destino seleccionada no tiene caja operativa configurada.");
             return;
         }
 
@@ -280,7 +354,7 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, onSaved
                 p_id_caja_origen: transferOrigin.id_caja,
                 p_id_caja_destino: transferDestination.id_caja,
                 p_monto: amount,
-                p_detalle: `Mover saldo ${companyName}`,
+                p_detalle: `Mover saldo ${companyName} a ${transferDestinationAccount.empresa_nombre}`,
                 p_id_usuario: userId,
                 p_nombre_usuario: userName,
             });
@@ -345,7 +419,7 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, onSaved
         const amount = Number(manualAmount.replace(",", "."));
 
         if (!codigoEfectivizacion) {
-            addToast("error", "No se encontró el servicio de efectivización.");
+            addToast("error", `No se encontro el codigo de servicio para ${ruta}.`);
             return;
         }
 
@@ -425,17 +499,36 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, onSaved
 
     return (
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <InlineFormCard
-                title={`Mover Saldo: ${companyName}`}
-                actions={<CuentaTabs cajas={activeCompanyCajas} selectedKey={transferOriginKey} onChange={setTransferOriginKey} />}
-            >
-                <div className="flex min-h-36 flex-col">
-                    <div className="grid grid-cols-2 gap-3">
+            <InlineFormCard title="Mover Saldo">
+                <div className="flex min-h-64 flex-col">
+                    <div className="grid grid-cols-2 gap-4">
                         <Field label="Empresa">
-                            <CompactInput disabled value={companyName} />
+                            {renderOriginCompanyInput()}
                         </Field>
                         <Field label="Cuenta">
-                            <CompactSelect options={cuentaOptions(activeCompanyCajas)} value={transferDestinationKey} onChange={setTransferDestinationKey} />
+                            <CompactSelect
+                                options={originCuentaOptions}
+                                selectClassName="text-center font-semibold"
+                                value={transferOriginKey}
+                                onChange={setTransferOriginKey}
+                            />
+                        </Field>
+                        <Field label="Empresa Destino">
+                            <CompactSelect
+                                options={[placeholderOption, ...transferCompanies]}
+                                selectClassName={transferDestinationCompanyId ? "text-center font-semibold" : "text-center"}
+                                value={transferDestinationCompanyId}
+                                onChange={setTransferDestinationCompanyId}
+                            />
+                        </Field>
+                        <Field label="Cuenta Destino">
+                            <CompactSelect
+                                disabled={!transferDestinationCompanyId}
+                                options={[placeholderOption, ...transferDestinationAccountOptions]}
+                                selectClassName={transferDestinationKey ? "text-center font-semibold" : "text-center"}
+                                value={transferDestinationKey}
+                                onChange={setTransferDestinationKey}
+                            />
                         </Field>
                         <Field className="col-span-1" label="Monto a Depositar">
                             <CompactInput placeholder="S/ 0.00" value={transferAmount} onChange={setTransferAmount} />
@@ -445,12 +538,20 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, onSaved
                 </div>
             </InlineFormCard>
 
-            <InlineFormCard
-                title={`Ingreso y Salidas: ${companyName}`}
-                actions={<CuentaTabs cajas={activeCompanyCajas} selectedKey={movementAccountKey} onChange={setMovementAccountKey} />}
-            >
-                <div className="flex min-h-36 flex-col">
-                    <div className="grid grid-cols-2 gap-3">
+            <InlineFormCard title="Ingreso y Salidas">
+                <div className="flex min-h-64 flex-col">
+                    <div className="grid grid-cols-2 gap-4">
+                        <Field label="Empresa">
+                            {renderOriginCompanyInput()}
+                        </Field>
+                        <Field label="Cuenta">
+                            <CompactSelect
+                                options={originCuentaOptions}
+                                selectClassName="text-center font-semibold"
+                                value={movementAccountKey}
+                                onChange={setMovementAccountKey}
+                            />
+                        </Field>
                         <Field label="Movimiento">
                             <SegmentedControl
                                 className="w-full grid-cols-2 rounded-lg"
@@ -480,9 +581,15 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, onSaved
                 </div>
             </InlineFormCard>
 
-            <InlineFormCard title={`Operacion Efectivizacion: ${companyName}`} actions={<CuentaTabs cajas={activeCompanyCajas} />}>
-                <div className="flex min-h-36 flex-col">
-                    <div className="grid grid-cols-2 gap-3">
+            <InlineFormCard title="Operacion Efectivizacion">
+                <div className="flex min-h-64 flex-col">
+                    <div className="grid grid-cols-2 gap-4">
+                        <Field label="Empresa">
+                            {renderOriginCompanyInput()}
+                        </Field>
+                        <Field label="Cuenta">
+                            <CompactInput disabled inputClassName="text-center font-semibold text-primary" value={lockedCuentaName} />
+                        </Field>
                         <Field label="Codigo Operacion">
                             <CompactInput value={manualCode} onChange={setManualCode} />
                         </Field>

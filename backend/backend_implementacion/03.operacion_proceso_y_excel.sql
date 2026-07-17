@@ -45,7 +45,6 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
   tipo_servicio character varying,
   id_comunidad bigint,
   nombre_comunidad character varying,
-  id_tipo_deposito bigint,
   nombre_tipo_deposito character varying,
   id_cliente bigint,
   dni_cliente character varying,
@@ -93,6 +92,9 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
   nombre_usuario_reasignado character varying,
   id_usuario_solicitud bigint,
   nombre_usuario_solicitud character varying,
+  id_operacion_padre bigint,
+  id_operacion_match bigint,
+  tipo_flujo_pago_deuda character varying,
   ruta_origen character varying,
   ruta_destino character varying,
   flag_derivado boolean NOT NULL DEFAULT false,
@@ -109,6 +111,8 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
   error_motivo character varying,
   observacion_tiempo text,
   tipo_facturacion character varying DEFAULT 'Boleta',
+  id_caja_cierre bigint,
+  fecha_caja_cierre timestamp with time zone,
   fecha_registro timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT tb_operacion_proceso_pkey PRIMARY KEY (id)
 );
@@ -210,6 +214,61 @@ BEGIN
   ) THEN
     ALTER TABLE public.tb_operacion_proceso ADD COLUMN motivo_retencion text;
   END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'id_caja_cierre'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN id_caja_cierre bigint;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'fecha_caja_cierre'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN fecha_caja_cierre timestamp with time zone;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'id_operacion_padre'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN id_operacion_padre bigint;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'id_operacion_match'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN id_operacion_match bigint;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'tipo_flujo_pago_deuda'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN tipo_flujo_pago_deuda character varying;
+  END IF;
+END;
+$$;
+
+-- ALTER TABLE: id_tipo_deposito ya no se usa; el tipo aplicado se congela en nombre_tipo_deposito.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'tb_operacion_proceso'
+      AND column_name = 'id_tipo_deposito'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso DROP COLUMN id_tipo_deposito;
+  END IF;
 END;
 $$;
 
@@ -254,7 +313,6 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_proceso(
   p_tipo_servicio character varying DEFAULT NULL,
   p_id_comunidad bigint DEFAULT NULL,
   p_nombre_comunidad character varying DEFAULT NULL,
-  p_id_tipo_deposito bigint DEFAULT NULL,
   p_nombre_tipo_deposito character varying DEFAULT NULL,
   p_id_cliente bigint DEFAULT NULL,
   p_dni_cliente character varying DEFAULT NULL,
@@ -314,7 +372,11 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_proceso(
   p_observacion_tiempo character varying DEFAULT NULL,
   p_tipo_facturacion character varying DEFAULT NULL,
   p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL
+  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL,
+  p_id_caja_cierre bigint DEFAULT NULL,
+  p_fecha_caja_cierre_desde timestamp with time zone DEFAULT NULL,
+  p_fecha_caja_cierre_hasta timestamp with time zone DEFAULT NULL,
+  p_incluir_cerradas boolean DEFAULT false
 )
 RETURNS SETOF jsonb
 LANGUAGE sql
@@ -329,7 +391,6 @@ AS $$
     AND (p_tipo_servicio IS NULL OR COALESCE(t.tipo_servicio, '') ILIKE '%' || p_tipo_servicio || '%')
     AND (p_id_comunidad IS NULL OR t.id_comunidad = p_id_comunidad)
     AND (p_nombre_comunidad IS NULL OR t.nombre_comunidad ILIKE '%' || p_nombre_comunidad || '%')
-    AND (p_id_tipo_deposito IS NULL OR t.id_tipo_deposito = p_id_tipo_deposito)
     AND (p_nombre_tipo_deposito IS NULL OR t.nombre_tipo_deposito ILIKE '%' || p_nombre_tipo_deposito || '%')
     AND (p_id_cliente IS NULL OR t.id_cliente = p_id_cliente)
     AND (p_dni_cliente IS NULL OR t.dni_cliente ILIKE '%' || p_dni_cliente || '%')
@@ -390,6 +451,50 @@ AS $$
     AND (p_tipo_facturacion IS NULL OR t.tipo_facturacion ILIKE '%' || p_tipo_facturacion || '%')
     AND (p_fecha_registro_desde IS NULL OR t.fecha_registro >= p_fecha_registro_desde)
     AND (p_fecha_registro_hasta IS NULL OR t.fecha_registro <= p_fecha_registro_hasta)
+    AND (p_fecha_caja_cierre_desde IS NULL OR t.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+    AND (p_fecha_caja_cierre_hasta IS NULL OR t.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+    AND (
+      p_id IS NOT NULL
+      OR NOT (
+        COALESCE(p_flag_retenido, false) = true
+        AND (
+          p_fecha_caja_cierre_desde IS NOT NULL
+          OR p_fecha_caja_cierre_hasta IS NOT NULL
+        )
+      )
+    )
+    AND (
+      p_id IS NOT NULL
+      OR p_flag_retenido IS NOT NULL
+      OR p_tipo_servicio IS NULL
+      OR p_fecha_caja_cierre_desde IS NOT NULL
+      OR p_fecha_caja_cierre_hasta IS NOT NULL
+      OR COALESCE(p_incluir_cerradas, false)
+      OR NOT (
+        COALESCE(t.flag_retenido, false) = true
+        AND UPPER(BTRIM(COALESCE(t.nombre_estado, ''))) = 'PAGADO'
+        AND UPPER(COALESCE(p_tipo_servicio, '')) LIKE '%EFECTIVIZACION%'
+      )
+    )
+    AND (
+      p_id IS NOT NULL
+      OR
+      (p_id_caja_cierre IS NOT NULL AND t.id_caja_cierre = p_id_caja_cierre)
+      OR (
+        (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
+        AND t.id_caja_cierre IS NOT NULL
+      )
+      OR (
+        p_id_caja_cierre IS NULL
+        AND p_fecha_caja_cierre_desde IS NULL
+        AND p_fecha_caja_cierre_hasta IS NULL
+        AND (
+          COALESCE(p_incluir_cerradas, false)
+          OR t.id_caja_cierre IS NULL
+          OR COALESCE(p_flag_retenido, false) = true
+        )
+      )
+    )
   ORDER BY t.id DESC;
 $$;
 
@@ -440,7 +545,6 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso(
   p_tipo_servicio character varying DEFAULT NULL,
   p_id_comunidad bigint DEFAULT NULL,
   p_nombre_comunidad character varying DEFAULT NULL,
-  p_id_tipo_deposito bigint DEFAULT NULL,
   p_nombre_tipo_deposito character varying DEFAULT NULL,
   p_id_cliente bigint DEFAULT NULL,
   p_dni_cliente character varying DEFAULT NULL,
@@ -694,7 +798,6 @@ BEGIN
     tipo_servicio,
     id_comunidad,
     nombre_comunidad,
-    id_tipo_deposito,
     nombre_tipo_deposito,
     id_cliente,
     dni_cliente,
@@ -765,7 +868,6 @@ BEGIN
     v_tipo_servicio,
     p_id_comunidad,
     p_nombre_comunidad,
-    p_id_tipo_deposito,
     p_nombre_tipo_deposito,
     v_cliente_id,
     p_dni_cliente,
@@ -835,7 +937,7 @@ BEGIN
   v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
     p_id_operacion_proceso := v_id,
     p_tipo_origen := 'OPERACION_PROCESO',
-    p_tipo_movimiento := NULL,
+    p_tipo_movimiento := 'INGRESO',
     p_id_usuario := p_id_usuario,
     p_nombre_usuario := p_nombre_usuario,
     p_id_estado := p_id_estado
@@ -843,6 +945,21 @@ BEGIN
 
   IF v_caja_result ? 'error' THEN
     RETURN v_caja_result;
+  END IF;
+
+  IF UPPER(COALESCE(p_nombre_estado, '')) = 'PAGADO' THEN
+    v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
+      p_id_operacion_proceso := v_id,
+      p_tipo_origen := 'OPERACION_PROCESO',
+      p_tipo_movimiento := 'SALIDA',
+      p_id_usuario := p_id_usuario,
+      p_nombre_usuario := p_nombre_usuario,
+      p_id_estado := p_id_estado
+    );
+
+    IF v_caja_result ? 'error' THEN
+      RETURN v_caja_result;
+    END IF;
   END IF;
 
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, p_id_usuario);
@@ -875,7 +992,6 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_base(
   p_tipo_servicio character varying DEFAULT NULL,
   p_id_comunidad bigint DEFAULT NULL,
   p_nombre_comunidad character varying DEFAULT NULL,
-  p_id_tipo_deposito bigint DEFAULT NULL,
   p_nombre_tipo_deposito character varying DEFAULT NULL,
   p_id_cliente bigint DEFAULT NULL,
   p_dni_cliente character varying DEFAULT NULL,
@@ -940,6 +1056,8 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_actual record;
+  v_actualizada record;
+  v_sync_result jsonb;
   v_ruta_actual character varying;
   v_ruta_final character varying;
 BEGIN
@@ -953,7 +1071,6 @@ BEGIN
   SET tipo_servicio = COALESCE(p_tipo_servicio, tipo_servicio),
       id_comunidad = COALESCE(p_id_comunidad, id_comunidad),
       nombre_comunidad = COALESCE(p_nombre_comunidad, nombre_comunidad),
-      id_tipo_deposito = COALESCE(p_id_tipo_deposito, id_tipo_deposito),
       nombre_tipo_deposito = COALESCE(p_nombre_tipo_deposito, nombre_tipo_deposito),
       id_cliente = COALESCE(p_id_cliente, id_cliente),
       dni_cliente = COALESCE(p_dni_cliente, dni_cliente),
@@ -1015,6 +1132,46 @@ BEGIN
 
   v_ruta_actual := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
   v_ruta_final := COALESCE(p_ruta_destino, p_ruta_origen, v_actual.ruta_destino, v_actual.ruta_origen);
+
+  SELECT *
+  INTO v_actualizada
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id
+  LIMIT 1;
+
+  v_sync_result := public.f_post_tb_operacion_caja_desde_proceso(
+    p_id_operacion_proceso := p_id,
+    p_tipo_origen := NULL,
+    p_tipo_movimiento := 'INGRESO',
+    p_id_usuario := COALESCE(p_id_usuario_gestor, p_id_usuario, v_actualizada.id_usuario_gestor, v_actualizada.id_usuario),
+    p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, p_nombre_usuario, v_actualizada.nombre_usuario_gestor, v_actualizada.nombre_usuario),
+    p_id_estado := v_actualizada.id_estado
+  );
+
+  IF v_sync_result ? 'error' THEN
+    RETURN v_sync_result;
+  END IF;
+
+  IF UPPER(COALESCE(v_actualizada.nombre_estado, '')) = 'PAGADO'
+     OR EXISTS (
+       SELECT 1
+       FROM public.tb_operacion_caja c
+       WHERE c.id_operacion_proceso = p_id
+         AND c.tipo_movimiento = 'SALIDA'
+     ) THEN
+    v_sync_result := public.f_post_tb_operacion_caja_desde_proceso(
+      p_id_operacion_proceso := p_id,
+      p_tipo_origen := NULL,
+      p_tipo_movimiento := 'SALIDA',
+      p_id_usuario := COALESCE(p_id_usuario_gestor, p_id_usuario, v_actualizada.id_usuario_gestor, v_actualizada.id_usuario),
+      p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, p_nombre_usuario, v_actualizada.nombre_usuario_gestor, v_actualizada.nombre_usuario),
+      p_id_estado := v_actualizada.id_estado
+    );
+
+    IF v_sync_result ? 'error' THEN
+      RETURN v_sync_result;
+    END IF;
+  END IF;
 
   IF v_ruta_actual IS NOT NULL THEN
     PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(
@@ -1207,6 +1364,10 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_actual record;
+  v_destino_cuenta record;
+  v_tiene_cuenta_destino boolean := false;
+  v_calc_salida jsonb;
+  v_resultado_comision_banco_salida numeric;
   v_ruta_actual character varying;
   v_ruta_final character varying;
 BEGIN
@@ -1216,9 +1377,60 @@ BEGIN
   WHERE id = p_id
   LIMIT 1;
 
+  IF v_actual.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion no existe.');
+  END IF;
+
+  v_ruta_actual := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
+  v_ruta_final := COALESCE(p_ruta_destino, p_ruta_origen, v_actual.ruta_destino, v_actual.ruta_origen);
+
+  IF COALESCE(p_ruta_destino, '') <> '' THEN
+    SELECT
+      rc.id_empresa,
+      e.nombre AS nombre_empresa,
+      rc.id_empresa_cuenta_bancaria,
+      ecb.id_banco,
+      b.nombre AS nombre_banco
+    INTO v_destino_cuenta
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_empresa e ON e.id = rc.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
+    WHERE rc.ruta = p_ruta_destino
+      AND rc.id_estado = 1
+      AND ecb.id_estado = 1
+    ORDER BY rc.flag_caja_ingreso_principal DESC, rc.id ASC
+    LIMIT 1;
+
+    v_tiene_cuenta_destino := FOUND;
+  END IF;
+
+  IF v_tiene_cuenta_destino THEN
+    v_calc_salida := public.f_get_tb_operacion_calculo_comision_banco_salida(
+      COALESCE(v_actual.monto_transferencia_cliente, 0),
+      COALESCE(v_actual.comision_transf_banco_salida, 0),
+      COALESCE(v_actual.comision_transf_inter_banco_salida, 0),
+      COALESCE(v_actual.monto_itf_salida, 0),
+      v_destino_cuenta.id_empresa,
+      v_destino_cuenta.id_empresa_cuenta_bancaria,
+      v_destino_cuenta.id_banco,
+      v_destino_cuenta.id_banco
+    );
+
+    v_resultado_comision_banco_salida := (v_calc_salida->>'resultado_comision_banco_salida')::numeric;
+  END IF;
+
   UPDATE public.tb_operacion_proceso
   SET ruta_origen = COALESCE(p_ruta_origen, ruta_origen),
       ruta_destino = COALESCE(p_ruta_destino, ruta_destino),
+      id_empresa_salida = CASE WHEN v_tiene_cuenta_destino THEN v_destino_cuenta.id_empresa ELSE id_empresa_salida END,
+      nombre_empresa_salida = CASE WHEN v_tiene_cuenta_destino THEN v_destino_cuenta.nombre_empresa ELSE nombre_empresa_salida END,
+      id_empresa_cuenta_salida = CASE WHEN v_tiene_cuenta_destino THEN v_destino_cuenta.id_empresa_cuenta_bancaria ELSE id_empresa_cuenta_salida END,
+      id_banco_empresa_cuenta_salida = CASE WHEN v_tiene_cuenta_destino THEN v_destino_cuenta.id_banco ELSE id_banco_empresa_cuenta_salida END,
+      nombre_banco_empresa_cuenta_salida = CASE WHEN v_tiene_cuenta_destino THEN v_destino_cuenta.nombre_banco ELSE nombre_banco_empresa_cuenta_salida END,
+      id_banco_cliente_transferencia = CASE WHEN v_tiene_cuenta_destino THEN v_destino_cuenta.id_banco ELSE id_banco_cliente_transferencia END,
+      nombre_banco_cliente_transferencia = CASE WHEN v_tiene_cuenta_destino THEN v_destino_cuenta.nombre_banco ELSE nombre_banco_cliente_transferencia END,
+      resultado_comision_banco_salida = CASE WHEN v_tiene_cuenta_destino THEN COALESCE(v_resultado_comision_banco_salida, resultado_comision_banco_salida) ELSE resultado_comision_banco_salida END,
       flag_derivado = COALESCE(p_flag_derivado, flag_derivado),
       fecha_derivacion = COALESCE(p_fecha_derivacion, fecha_derivacion, now()),
       id_usuario_deriva = COALESCE(p_id_usuario_deriva, id_usuario_deriva),
@@ -1226,9 +1438,6 @@ BEGIN
       id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = p_id;
-
-  v_ruta_actual := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
-  v_ruta_final := COALESCE(p_ruta_destino, p_ruta_origen, v_actual.ruta_destino, v_actual.ruta_origen);
 
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_actual, COALESCE(p_id_usuario_gestor, p_id_usuario_deriva, v_actual.id_usuario_gestor, v_actual.id_usuario));
   IF v_ruta_final IS DISTINCT FROM v_ruta_actual THEN
@@ -1393,8 +1602,9 @@ Objetivo:
   Marcar una operacion como pagada y asegurar el impacto de caja.
 
 Regla de fase:
-  - registra el movimiento de caja si aun no existe
-  - la funcion de caja es idempotente por id_operacion_proceso
+  - asegura el movimiento INGRESO si aun no existe
+  - crea o sincroniza el movimiento SALIDA al marcar pagado
+  - la funcion de caja es idempotente por id_operacion_proceso + tipo_movimiento
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_pagado(
   p_id bigint,
@@ -1411,12 +1621,21 @@ AS $$
 DECLARE
   v_actual record;
   v_ruta_kpi character varying;
-  v_caja_result jsonb;
+  v_ingreso_result jsonb;
+  v_salida_result jsonb;
+  v_estado_retenido_id bigint;
+  v_tiene_ingreso boolean := false;
 BEGIN
   SELECT *
   INTO v_actual
   FROM public.tb_operacion_proceso
   WHERE id = p_id
+  LIMIT 1;
+
+  SELECT id
+  INTO v_estado_retenido_id
+  FROM public.tb_estado
+  WHERE UPPER(nombre) = 'RETENIDO'
   LIMIT 1;
 
   UPDATE public.tb_operacion_proceso
@@ -1427,17 +1646,140 @@ BEGIN
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = p_id;
 
-  v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja c
+    WHERE c.id_operacion_proceso = p_id
+      AND c.tipo_movimiento = 'INGRESO'
+      AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+  )
+  INTO v_tiene_ingreso;
+
+  IF COALESCE(v_actual.flag_retenido, false) THEN
+    IF NOT v_tiene_ingreso THEN
+      v_ingreso_result := public.f_post_tb_operacion_caja_desde_proceso(
+        p_id_operacion_proceso := p_id,
+        p_tipo_origen := 'EXCEL',
+        p_tipo_movimiento := 'INGRESO',
+        p_id_usuario := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario),
+        p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_actual.nombre_usuario_gestor, v_actual.nombre_usuario),
+        p_id_estado := COALESCE(v_estado_retenido_id, p_id_estado)
+      );
+
+      IF v_ingreso_result ? 'error' THEN
+        RETURN v_ingreso_result;
+      END IF;
+    END IF;
+  ELSE
+    v_ingreso_result := public.f_post_tb_operacion_caja_desde_proceso(
+      p_id_operacion_proceso := p_id,
+      p_tipo_origen := 'OPERACION_PROCESO',
+      p_tipo_movimiento := 'INGRESO',
+      p_id_usuario := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario),
+      p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_actual.nombre_usuario_gestor, v_actual.nombre_usuario),
+      p_id_estado := p_id_estado
+    );
+
+    IF v_ingreso_result ? 'error' THEN
+      RETURN v_ingreso_result;
+    END IF;
+  END IF;
+
+  v_salida_result := public.f_post_tb_operacion_caja_desde_proceso(
     p_id_operacion_proceso := p_id,
     p_tipo_origen := 'OPERACION_PROCESO',
-    p_tipo_movimiento := NULL,
+    p_tipo_movimiento := 'SALIDA',
     p_id_usuario := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario),
     p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_actual.nombre_usuario_gestor, v_actual.nombre_usuario),
     p_id_estado := p_id_estado
   );
 
-  IF v_caja_result ? 'error' THEN
-    RETURN v_caja_result;
+  IF v_salida_result ? 'error' THEN
+    RETURN v_salida_result;
+  END IF;
+
+  v_ruta_kpi := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario));
+
+  RETURN (
+    SELECT x
+    FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
+    LIMIT 1
+  );
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_operacion_proceso_directo_caja
+Objetivo:
+  Clasificar una operacion de efectivizacion como ingreso directo a caja.
+
+Regla:
+  - marca la operacion como Pagado
+  - genera/sincroniza solo el INGRESO
+  - no genera SALIDA ni ganancia normal de efectivizacion
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_directo_caja(
+  p_id bigint,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actual record;
+  v_estado_pagado_id bigint;
+  v_estado_pagado_nombre character varying;
+  v_ruta_kpi character varying;
+  v_ingreso_result jsonb;
+BEGIN
+  SELECT *
+  INTO v_actual
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id
+  LIMIT 1;
+
+  IF v_actual.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion no existe.');
+  END IF;
+
+  IF v_actual.id_caja_cierre IS NOT NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion ya pertenece a un cierre de caja.');
+  END IF;
+
+  SELECT id, nombre
+  INTO v_estado_pagado_id, v_estado_pagado_nombre
+  FROM public.tb_estado
+  WHERE UPPER(nombre) = 'PAGADO'
+  LIMIT 1;
+
+  IF v_estado_pagado_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro el estado Pagado.');
+  END IF;
+
+  UPDATE public.tb_operacion_proceso
+  SET tipo_flujo_pago_deuda = 'DIRECTO_CAJA',
+      id_estado = v_estado_pagado_id,
+      nombre_estado = v_estado_pagado_nombre,
+      fecha_pagado = COALESCE(fecha_pagado, NOW()),
+      monto_transferencia_cliente = monto_deposito_cliente,
+      id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+      nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+  WHERE id = p_id;
+
+  v_ingreso_result := public.f_post_tb_operacion_caja_desde_proceso(
+    p_id_operacion_proceso := p_id,
+    p_tipo_origen := 'OTROS',
+    p_tipo_movimiento := 'INGRESO',
+    p_id_usuario := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario),
+    p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_actual.nombre_usuario_gestor, v_actual.nombre_usuario),
+    p_id_estado := v_estado_pagado_id
+  );
+
+  IF v_ingreso_result ? 'error' THEN
+    RETURN v_ingreso_result;
   END IF;
 
   v_ruta_kpi := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
@@ -1844,7 +2186,6 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso_excel(
   p_nombre_codigo_servicio character varying,
   p_id_comunidad bigint,
   p_nombre_comunidad character varying,
-  p_id_tipo_deposito bigint,
   p_nombre_tipo_deposito character varying,
   p_id_empresa_ingreso bigint,
   p_nombre_empresa_ingreso character varying,
@@ -1865,6 +2206,11 @@ DECLARE
   v_estado_error_id bigint;
   v_id_empresa_cuenta_ingreso bigint;
   v_itf_cuenta numeric := 0;
+  v_flag_por_sol_comision_banco_ingreso boolean := false;
+  v_comision_banco_ingreso numeric := 0;
+  v_comision_minimo_banco_ingreso numeric := 0;
+  v_comision_igv_banco_ingreso numeric := 0;
+  v_flag_retencion_cuenta boolean := false;
   v_regla record;
   v_regla_cliente record;
   v_dni_parseado character varying;
@@ -2039,10 +2385,20 @@ BEGIN
 
   SELECT
     ecb.id,
-    ecb.comision_itf_ingreso_salida
+    ecb.comision_itf_ingreso_salida,
+    ecb.flag_por_sol_comision_banco_ingreso,
+    ecb.flag_retencion,
+    ecb.comision_banco_ingreso,
+    ecb.comision_minimo_banco_ingreso,
+    ecb.comision_igv_banco_ingreso
   INTO
     v_id_empresa_cuenta_ingreso,
-    v_itf_cuenta
+    v_itf_cuenta,
+    v_flag_por_sol_comision_banco_ingreso,
+    v_flag_retencion_cuenta,
+    v_comision_banco_ingreso,
+    v_comision_minimo_banco_ingreso,
+    v_comision_igv_banco_ingreso
   FROM public.tb_empresa_cuenta_bancaria ecb
   WHERE ecb.id_empresa = v_id_empresa_ingreso_final
     AND ecb.id_banco = v_id_banco_ingreso_final
@@ -2236,11 +2592,11 @@ BEGIN
     );
 
     v_calc_ing := public.f_get_tb_operacion_calculo_comision_banco_ingreso(
-      false,
+      v_flag_por_sol_comision_banco_ingreso,
       v_monto,
-      0,
-      0,
-      0,
+      v_comision_banco_ingreso,
+      v_comision_minimo_banco_ingreso,
+      v_comision_igv_banco_ingreso,
       v_itf_cuenta
     );
 
@@ -2261,7 +2617,6 @@ BEGIN
       tipo_servicio,
       id_comunidad,
       nombre_comunidad,
-      id_tipo_deposito,
       nombre_tipo_deposito,
       id_cliente,
       dni_cliente,
@@ -2309,6 +2664,10 @@ BEGIN
       ruta_destino,
       flag_derivado,
       flag_retenido,
+      fecha_retencion,
+      id_usuario_retiene,
+      nombre_usuario_retiene,
+      motivo_retencion,
       fecha_pendiente,
       tipo_facturacion
     )
@@ -2318,8 +2677,7 @@ BEGIN
       v_excel_tipo_servicio,
       COALESCE(v_cliente_comunidad, p_id_comunidad),
       COALESCE((SELECT nombre FROM public.tb_comunidad WHERE id = COALESCE(v_cliente_comunidad, p_id_comunidad) LIMIT 1), p_nombre_comunidad),
-      p_id_tipo_deposito,
-      p_nombre_tipo_deposito,
+      v_regla.tipo_deposito,
       v_cliente_id,
       v_dni_parseado,
       COALESCE(v_cliente_nombre, ''),
@@ -2333,10 +2691,10 @@ BEGIN
       v_id_empresa_cuenta_ingreso,
       v_id_banco_ingreso_final,
       COALESCE(v_nombre_banco_ingreso_final, (SELECT nombre FROM public.tb_banco WHERE id = v_id_banco_ingreso_final LIMIT 1)),
-      false,
-      0,
-      0,
-      0,
+      v_flag_por_sol_comision_banco_ingreso,
+      v_comision_banco_ingreso,
+      v_comision_minimo_banco_ingreso,
+      v_comision_igv_banco_ingreso,
       (v_calc_ing->>'resultado_comision_banco_ingreso')::numeric,
       v_itf_cuenta,
       v_regla.comision_servicio,
@@ -2365,7 +2723,15 @@ BEGIN
       p_ruta_actual,
       COALESCE(p_ruta_actual, NULL),
       false,
-      false,
+      COALESCE(v_flag_retencion_cuenta, false),
+      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN NOW() ELSE NULL END,
+      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN p_id_usuario ELSE NULL END,
+      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN v_username ELSE NULL END,
+      CASE
+        WHEN COALESCE(v_flag_retencion_cuenta, false)
+          THEN 'Retencion automatica por cuenta bancaria'
+        ELSE NULL
+      END,
       NOW(),
       'Boleta'
     )
@@ -2430,7 +2796,6 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso_excel_ganancia(
   p_nombre_codigo_servicio character varying,
   p_id_comunidad bigint,
   p_nombre_comunidad character varying,
-  p_id_tipo_deposito bigint,
   p_nombre_tipo_deposito character varying,
   p_id_empresa_ingreso bigint,
   p_nombre_empresa_ingreso character varying,
@@ -2457,6 +2822,12 @@ DECLARE
   v_cliente_nombre character varying;
   v_dup_id bigint;
   v_id_empresa_cuenta_ingreso bigint;
+  v_itf_cuenta numeric := 0;
+  v_flag_por_sol_comision_banco_ingreso boolean := false;
+  v_comision_banco_ingreso numeric := 0;
+  v_comision_minimo_banco_ingreso numeric := 0;
+  v_comision_igv_banco_ingreso numeric := 0;
+  v_calc_ing jsonb;
   v_new_id bigint;
   v_detalle jsonb := '[]'::jsonb;
   v_filas_procesadas integer := 0;
@@ -2606,8 +2977,20 @@ BEGIN
     END IF;
   END IF;
 
-  SELECT ecb.id
-  INTO v_id_empresa_cuenta_ingreso
+  SELECT
+    ecb.id,
+    ecb.comision_itf_ingreso_salida,
+    ecb.flag_por_sol_comision_banco_ingreso,
+    ecb.comision_banco_ingreso,
+    ecb.comision_minimo_banco_ingreso,
+    ecb.comision_igv_banco_ingreso
+  INTO
+    v_id_empresa_cuenta_ingreso,
+    v_itf_cuenta,
+    v_flag_por_sol_comision_banco_ingreso,
+    v_comision_banco_ingreso,
+    v_comision_minimo_banco_ingreso,
+    v_comision_igv_banco_ingreso
   FROM public.tb_empresa_cuenta_bancaria ecb
   WHERE ecb.id_empresa = v_id_empresa_ingreso_final
     AND ecb.id_banco = v_id_banco_ingreso_final
@@ -2712,13 +3095,21 @@ BEGIN
       CONTINUE;
     END IF;
 
+    v_calc_ing := public.f_get_tb_operacion_calculo_comision_banco_ingreso(
+      v_flag_por_sol_comision_banco_ingreso,
+      v_monto,
+      v_comision_banco_ingreso,
+      v_comision_minimo_banco_ingreso,
+      v_comision_igv_banco_ingreso,
+      v_itf_cuenta
+    );
+
     INSERT INTO public.tb_operacion_proceso (
       id_codigo_servicio,
       nombre_codigo_servicio,
       tipo_servicio,
       id_comunidad,
       nombre_comunidad,
-      id_tipo_deposito,
       nombre_tipo_deposito,
       id_cliente,
       dni_cliente,
@@ -2733,7 +3124,12 @@ BEGIN
       id_empresa_cuenta_ingreso,
       id_banco_empresa_cuenta_ingreso,
       nombre_banco_empresa_cuenta_ingreso,
+      flag_por_sol_comision_banco_ingreso,
+      comision_banco_ingreso,
+      comision_minimo_banco_ingreso,
+      comision_igv_banco_ingreso,
       resultado_comision_banco_ingreso,
+      monto_itf_ingreso,
       comision_servicio,
       monto_minimo_deposito_servicio,
       comision_minima_servicio,
@@ -2767,7 +3163,6 @@ BEGIN
       v_excel_tipo_servicio,
       p_id_comunidad,
       p_nombre_comunidad,
-      p_id_tipo_deposito,
       p_nombre_tipo_deposito,
       v_cliente_id,
       v_dni_parseado,
@@ -2782,12 +3177,17 @@ BEGIN
       v_id_empresa_cuenta_ingreso,
       v_id_banco_ingreso_final,
       COALESCE(v_nombre_banco_ingreso_final, (SELECT nombre FROM public.tb_banco WHERE id = v_id_banco_ingreso_final LIMIT 1)),
+      v_flag_por_sol_comision_banco_ingreso,
+      v_comision_banco_ingreso,
+      v_comision_minimo_banco_ingreso,
+      v_comision_igv_banco_ingreso,
+      (v_calc_ing->>'resultado_comision_banco_ingreso')::numeric,
+      v_itf_cuenta,
       0,
       0,
       0,
       0,
       0,
-      v_monto,
       v_id_empresa_ingreso_final,
       v_nombre_empresa_ingreso_final,
       v_id_empresa_cuenta_ingreso,
@@ -2833,6 +3233,27 @@ BEGIN
       CONTINUE;
     END IF;
 
+    v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
+      p_id_operacion_proceso := v_new_id,
+      p_tipo_origen := 'EXCEL_GANANCIA',
+      p_tipo_movimiento := 'SALIDA',
+      p_id_usuario := p_id_usuario,
+      p_nombre_usuario := v_username,
+      p_id_estado := v_estado_pagado_id
+    );
+
+    IF v_caja_result ? 'error' THEN
+      v_detalle := v_detalle || jsonb_build_object(
+        'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
+        'codigo_operacion', v_fila.codigo_operacion,
+        'estado', 'ERROR',
+        'id_operacion', v_new_id,
+        'motivo', v_caja_result->>'error'
+      );
+      v_filas_error := v_filas_error + 1;
+      CONTINUE;
+    END IF;
+
     v_detalle := v_detalle || jsonb_build_object(
       'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
       'codigo_operacion', v_fila.codigo_operacion,
@@ -2860,9 +3281,9 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_post_tb_operacion_proceso',
+  'f_get_tb_operacion_proceso',
   'f_patch_tb_operacion_proceso_pagado',
-  'f_post_tb_operacion_proceso_excel',
-  'f_post_tb_operacion_proceso_excel_ganancia'
+  'f_patch_tb_operacion_proceso_directo_caja',
+  'f_post_tb_operacion_proceso_excel'
 )
 ORDER BY n.nspname, p.proname;

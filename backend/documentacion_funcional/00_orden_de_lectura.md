@@ -127,6 +127,10 @@ Cuando la implementacion llegue a `Operaciones`, leer obligatoriamente esta segu
 - `21_operaciones_frontend_tabs_y_bandejas_operativas.md`
 - `22_operaciones_frontend_contratos_por_tab.md`
 - `23_operaciones_frontend_mapeo_backend_y_rpc.md`
+- `28_operaciones_flujo_negocio_actual.md`
+- `29_operaciones_frontend_interaccion_actual.md`
+- `30_operaciones_pruebas_retenciones_y_cierres.md`
+- `31_contexto_general_recuperacion_proyecto.md`
 
 Aqui se entiende:
 
@@ -134,7 +138,9 @@ Aqui se entiende:
 - el bloque inferior de bandejas congelado de `Webpage-2.png`;
 - como implementar `Operaciones` con `Untitled UI` puro;
 - que partes del frontend actual solo sirven como fuente de comportamiento;
-- y que RPC compactas gobiernan cada bloque del frontend nuevo.
+- que RPC compactas gobiernan cada bloque del frontend nuevo;
+- cual es el flujo de negocio vigente despues de retenciones, Pago Deuda, cierres y actualizacion parcial de filas;
+- y que archivos frontend/backend se deben restaurar primero si se corrompe el proyecto.
 
 ## Regla de implementacion
 
@@ -144,4 +150,6 @@ Aqui se entiende:
 4. usar `../backend_implementacion/` para cambios puntuales por dominio;
 5. respetar `14_untitledui_setup_y_forma_de_trabajo.md` como referencia visual oficial;
 6. respetar `16_fases_implementacion_frontend.md` como orden obligatorio de construccion;
-7. al iniciar `Operaciones`, dejar de improvisar el layout y seguir de forma obligatoria los documentos `17-23`.
+7. al iniciar `Operaciones`, dejar de improvisar el layout y seguir de forma obligatoria los documentos `17-23`;
+8. para cambios actuales de negocio, leer siempre `28-30` porque reflejan la implementacion vigente;
+9. para recuperar contexto general o reconstruir archivos criticos, leer `31_contexto_general_recuperacion_proyecto.md`.

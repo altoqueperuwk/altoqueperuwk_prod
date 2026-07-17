@@ -19,20 +19,36 @@ export const isBancariaActionDisabled = ({
 }: IsBancariaActionDisabledArgs) => {
     if (isApplyingAction) return true;
 
-    if (action === "Pagar" || action === "Derivar") {
+    if (action === "Pagar") {
+        return !["Efectivizacion", "Pago Deuda", "Derivados", "POS"].includes(activeTab) || !hasSelection;
+    }
+
+    if (action === "Derivar") {
         return !["Efectivizacion", "Derivados", "POS"].includes(activeTab) || !hasSelection;
+    }
+
+    if (action === "Directo") {
+        return activeTab !== "Efectivizacion" || !hasSelection;
     }
 
     if (action === "Reiniciar") {
         return !procesoActionTabs.includes(activeTab) || !hasSelection;
     }
 
-    if (action === "Empresa") {
+    if (action === "Emp. Ingreso") {
         return activeTab !== "Efectivizacion" || !hasSelection || companyCount === 0;
+    }
+
+    if (action === "Emp. Salida") {
+        return !["Efectivizacion", "Pago Deuda", "Derivados"].includes(activeTab) || !hasSelection || companyCount === 0;
     }
 
     if (action === "Transferencia") {
         return activeTab !== "Pago Deuda" || !hasSelection || companyCount === 0;
+    }
+
+    if (action === "Match") {
+        return activeTab !== "Pago Deuda" || !hasSelection;
     }
 
     if (action === "Reasignar") {

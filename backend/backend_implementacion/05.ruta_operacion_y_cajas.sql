@@ -422,6 +422,7 @@ Objetivo:
 CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_kpi(
   p_id bigint DEFAULT NULL,
   p_ruta character varying DEFAULT NULL,
+  p_id_empresa bigint DEFAULT NULL,
   p_id_estado bigint DEFAULT NULL
 )
 RETURNS TABLE (
@@ -448,6 +449,107 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
+  IF p_id_empresa IS NOT NULL THEN
+    RETURN QUERY
+    WITH base AS (
+      SELECT
+        k.id,
+        k.ruta,
+        k.id_estado,
+        est.nombre AS nombre_estado,
+        k.id_usuario,
+        u.nombre AS nombre_usuario,
+        k.fecha_registro
+      FROM public.tb_ruta_operacion_kpi k
+      JOIN public.tb_estado est ON est.id = k.id_estado
+      LEFT JOIN public.tb_usuario u ON u.id = k.id_usuario
+      WHERE (p_id IS NULL OR k.id = p_id)
+        AND (p_ruta IS NULL OR k.ruta = p_ruta)
+        AND (p_id_estado IS NULL OR k.id_estado = p_id_estado)
+    ),
+    caja_totales AS (
+      SELECT
+        rc.ruta,
+        COALESCE(SUM(c.saldo_inicial), 0) AS caja_inicial,
+        COALESCE(SUM(c.saldo_actual), 0) AS caja_actual,
+        COALESCE(SUM(c.total_recaudado), 0) AS total_recaudado,
+        COALESCE(SUM(c.ingresos), 0) AS ingresos,
+        COALESCE(SUM(c.salida), 0) AS salidas,
+        COALESCE(SUM(c.gastos), 0) AS gastos_operacionales,
+        COALESCE(SUM(c.ganancia), 0) AS ganancias,
+        COALESCE(SUM(c.ingresos_retenido), 0) AS ingresos_retenidos
+      FROM base b
+      JOIN public.tb_ruta_operacion_caja rc
+        ON rc.ruta = b.ruta
+       AND rc.id_estado = b.id_estado
+      JOIN public.tb_caja_operativa c
+        ON c.id_empresa = rc.id_empresa
+       AND c.id_empresa_cuenta_bancaria = rc.id_empresa_cuenta_bancaria
+       AND c.id_estado = b.id_estado
+      WHERE rc.id_empresa = p_id_empresa
+      GROUP BY rc.ruta
+    ),
+    operacion_totales AS (
+      SELECT
+        COALESCE(op.ruta_destino, op.ruta_origen) AS ruta,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN public.f_get_tb_operacion_proceso_flag_pendiente_kpi(op.nombre_estado, op.flag_retenido)
+                AND (
+                  op.id_empresa_ingreso = p_id_empresa
+                  OR op.id_empresa_salida = p_id_empresa
+                )
+              THEN COALESCE(op.monto_transferencia_cliente, 0)
+              ELSE 0
+            END
+          ),
+          0
+        ) AS pendiente_depositar,
+        COUNT(*) FILTER (
+          WHERE UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
+            AND op.id_empresa_ingreso = p_id_empresa
+            AND NOT (
+              COALESCE(op.flag_retenido, false) = true
+              AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+            )
+        )::integer AS total_efectivizacion,
+        COUNT(*) FILTER (
+          WHERE UPPER(COALESCE(op.tipo_servicio, '')) = 'PAGO DEUDA'
+            AND op.id_empresa_salida = p_id_empresa
+        )::integer AS total_pago_deuda
+      FROM public.tb_operacion_proceso op
+      JOIN base b ON b.ruta = COALESCE(op.ruta_destino, op.ruta_origen)
+      WHERE op.id_caja_cierre IS NULL
+      GROUP BY COALESCE(op.ruta_destino, op.ruta_origen)
+    )
+    SELECT
+      b.id,
+      b.ruta,
+      COALESCE(ct.caja_inicial, 0),
+      COALESCE(ct.caja_actual, 0),
+      COALESCE(ct.total_recaudado, 0),
+      COALESCE(ct.ingresos, 0),
+      COALESCE(ct.salidas, 0),
+      COALESCE(ct.gastos_operacionales, 0),
+      COALESCE(ct.ganancias, 0),
+      COALESCE(ct.ingresos_retenidos, 0),
+      COALESCE(ot.pendiente_depositar, 0),
+      COALESCE(ot.total_efectivizacion, 0),
+      COALESCE(ot.total_pago_deuda, 0),
+      b.id_estado,
+      b.nombre_estado,
+      b.id_usuario,
+      b.nombre_usuario,
+      b.fecha_registro
+    FROM base b
+    LEFT JOIN caja_totales ct ON ct.ruta = b.ruta
+    LEFT JOIN operacion_totales ot ON ot.ruta = b.ruta
+    ORDER BY b.ruta, b.id;
+
+    RETURN;
+  END IF;
+
   RETURN QUERY
   SELECT
     k.id,
@@ -603,12 +705,17 @@ BEGIN
       ) AS pendiente_depositar,
       COUNT(*) FILTER (
         WHERE UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
+          AND NOT (
+            COALESCE(op.flag_retenido, false) = true
+            AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+          )
       )::integer AS total_efectivizacion,
       COUNT(*) FILTER (
         WHERE UPPER(COALESCE(op.tipo_servicio, '')) = 'PAGO DEUDA'
       )::integer AS total_pago_deuda
     FROM public.tb_operacion_proceso op
     WHERE COALESCE(op.ruta_destino, op.ruta_origen) = p_ruta
+      AND op.id_caja_cierre IS NULL
   )
   UPDATE public.tb_ruta_operacion_kpi k
   SET pendiente_depositar = t.pendiente_depositar,
@@ -625,6 +732,222 @@ BEGIN
 
   RETURN v_result;
 END;
+$$;
+
+/*
+Funcion: f_get_tb_operacion_bandeja_badges
+Objetivo:
+  Devolver conteos pendientes por bandeja operativa para mostrar badges en tabs.
+
+Reglas:
+  - retenidos cuenta operaciones con flag_retenido=true sin depender del estado;
+  - en ciclo actual cuenta solo operaciones sin cierre de caja;
+  - en historial cuenta solo operaciones congeladas dentro del rango de cierre;
+  - los conteos son por ruta y empresa activa.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_bandeja_badges(
+  p_ruta character varying,
+  p_id_empresa bigint DEFAULT NULL,
+  p_fecha_caja_cierre_desde timestamp with time zone DEFAULT NULL,
+  p_fecha_caja_cierre_hasta timestamp with time zone DEFAULT NULL
+)
+RETURNS TABLE (
+  tab character varying,
+  cantidad integer
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH base AS (
+    SELECT op.*
+    FROM public.tb_operacion_proceso op
+    WHERE COALESCE(op.ruta_destino, op.ruta_origen) = p_ruta
+      AND (
+        (
+          p_fecha_caja_cierre_desde IS NULL
+          AND p_fecha_caja_cierre_hasta IS NULL
+          AND (
+            op.id_caja_cierre IS NULL
+            OR COALESCE(op.flag_retenido, false) = true
+          )
+        )
+        OR (
+          (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
+          AND op.id_caja_cierre IS NOT NULL
+          AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+          AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+        )
+      )
+  ),
+  conteos AS (
+    SELECT
+      COUNT(*) FILTER (
+        WHERE UPPER(COALESCE(tipo_servicio, '')) = 'EFECTIVIZACION'
+          AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
+          AND COALESCE(flag_derivado, false) = false
+          AND (p_id_empresa IS NULL OR id_empresa_ingreso = p_id_empresa)
+      )::integer AS efectivizacion,
+      COUNT(*) FILTER (
+        WHERE UPPER(COALESCE(tipo_servicio, '')) = 'PAGO DEUDA'
+          AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
+          AND COALESCE(flag_retenido, false) = false
+          AND (p_id_empresa IS NULL OR id_empresa_salida = p_id_empresa)
+      )::integer AS pago_deuda,
+      COUNT(*) FILTER (
+        WHERE COALESCE(flag_derivado, false) = true
+          AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
+          AND COALESCE(flag_retenido, false) = false
+          AND (
+            p_id_empresa IS NULL
+            OR id_empresa_ingreso = p_id_empresa
+            OR id_empresa_salida = p_id_empresa
+          )
+      )::integer AS derivados,
+      COUNT(*) FILTER (
+        WHERE LOWER(COALESCE(ruta_origen, '')) = 'pos'
+          AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
+          AND COALESCE(flag_retenido, false) = false
+          AND (
+            p_id_empresa IS NULL
+            OR id_empresa_ingreso = p_id_empresa
+            OR id_empresa_salida = p_id_empresa
+          )
+      )::integer AS pos,
+      COUNT(*) FILTER (
+        WHERE COALESCE(flag_retenido, false) = true
+          AND p_fecha_caja_cierre_desde IS NULL
+          AND p_fecha_caja_cierre_hasta IS NULL
+          AND (
+            p_id_empresa IS NULL
+            OR id_empresa_ingreso = p_id_empresa
+            OR id_empresa_salida = p_id_empresa
+          )
+      )::integer AS retenidos
+    FROM base
+  )
+  SELECT 'Efectivizacion'::character varying, efectivizacion FROM conteos
+  UNION ALL
+  SELECT 'Pago Deuda'::character varying, pago_deuda FROM conteos
+  UNION ALL
+  SELECT 'Derivados'::character varying, derivados FROM conteos
+  UNION ALL
+  SELECT 'POS'::character varying, pos FROM conteos
+  UNION ALL
+  SELECT 'Retenidos'::character varying, retenidos FROM conteos;
+$$;
+
+/*
+Funcion: f_get_tb_operacion_empresa_badges
+Objetivo:
+  Devolver conteos pendientes por bandeja y empresa para mostrar badges en la
+  fila de empresas de la ruta bancaria.
+
+Reglas:
+  - retenidos cuenta operaciones con flag_retenido=true sin depender del estado;
+  - las demas bandejas usan el universo pendiente de f_get_tb_operacion_bandeja_badges;
+  - en ciclo actual cuenta solo operaciones sin cierre de caja;
+  - en historial cuenta solo operaciones congeladas dentro del rango de cierre;
+  - derivados se agrupa por empresa de salida porque la ruta destino atiende
+    la operacion.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_empresa_badges(
+  p_ruta character varying,
+  p_fecha_caja_cierre_desde timestamp with time zone DEFAULT NULL,
+  p_fecha_caja_cierre_hasta timestamp with time zone DEFAULT NULL
+)
+RETURNS TABLE (
+  tab character varying,
+  id_empresa bigint,
+  cantidad integer
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH base AS (
+    SELECT op.*
+    FROM public.tb_operacion_proceso op
+    WHERE COALESCE(op.ruta_destino, op.ruta_origen) = p_ruta
+      AND (
+        (
+          p_fecha_caja_cierre_desde IS NULL
+          AND p_fecha_caja_cierre_hasta IS NULL
+          AND (
+            op.id_caja_cierre IS NULL
+            OR COALESCE(op.flag_retenido, false) = true
+          )
+        )
+        OR (
+          (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
+          AND op.id_caja_cierre IS NOT NULL
+          AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+          AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+        )
+      )
+  ),
+  empresa_rows AS (
+    SELECT
+      'Efectivizacion'::character varying AS tab,
+      id_empresa_ingreso AS id_empresa
+    FROM base
+    WHERE UPPER(COALESCE(tipo_servicio, '')) = 'EFECTIVIZACION'
+      AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
+      AND COALESCE(flag_derivado, false) = false
+      AND id_empresa_ingreso IS NOT NULL
+
+    UNION ALL
+
+    SELECT
+      'Pago Deuda'::character varying AS tab,
+      id_empresa_salida AS id_empresa
+    FROM base
+    WHERE UPPER(COALESCE(tipo_servicio, '')) = 'PAGO DEUDA'
+      AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
+      AND COALESCE(flag_retenido, false) = false
+      AND id_empresa_salida IS NOT NULL
+
+    UNION ALL
+
+    SELECT
+      'Derivados'::character varying AS tab,
+      id_empresa_salida AS id_empresa
+    FROM base
+    WHERE COALESCE(flag_derivado, false) = true
+      AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
+      AND COALESCE(flag_retenido, false) = false
+      AND id_empresa_salida IS NOT NULL
+
+    UNION ALL
+
+    SELECT
+      'POS'::character varying AS tab,
+      COALESCE(id_empresa_salida, id_empresa_ingreso) AS id_empresa
+    FROM base
+    WHERE LOWER(COALESCE(ruta_origen, '')) = 'pos'
+      AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
+      AND COALESCE(flag_retenido, false) = false
+      AND COALESCE(id_empresa_salida, id_empresa_ingreso) IS NOT NULL
+
+    UNION ALL
+
+    SELECT
+      'Retenidos'::character varying AS tab,
+      COALESCE(id_empresa_ingreso, id_empresa_salida) AS id_empresa
+    FROM base
+    WHERE COALESCE(flag_retenido, false) = true
+      AND p_fecha_caja_cierre_desde IS NULL
+      AND p_fecha_caja_cierre_hasta IS NULL
+      AND COALESCE(id_empresa_ingreso, id_empresa_salida) IS NOT NULL
+  )
+  SELECT
+    empresa_rows.tab,
+    empresa_rows.id_empresa,
+    COUNT(*)::integer AS cantidad
+  FROM empresa_rows
+  GROUP BY empresa_rows.tab, empresa_rows.id_empresa
+  HAVING COUNT(*) > 0
+  ORDER BY empresa_rows.tab, empresa_rows.id_empresa;
 $$;
 
 /*
@@ -678,7 +1001,7 @@ BEGIN
       c.id,
       c.saldo_inicial,
       c.saldo_actual,
-      c.total_recaudado,
+      COALESCE(c.total_recaudado, 0) AS total_recaudado,
       c.ingresos,
       c.ingresos_retenido,
       c.gastos,
@@ -924,7 +1247,7 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_caja_operativa(
   p_ganancia_retenido numeric DEFAULT 0,
   p_salida numeric DEFAULT 0,
   p_operaciones integer DEFAULT 0,
-  p_flag_retencion boolean DEFAULT false,
+  p_flag_retencion boolean DEFAULT NULL,
   p_id_estado bigint DEFAULT NULL,
   p_id_usuario bigint DEFAULT NULL,
   p_fecha_apertura timestamp with time zone DEFAULT now()
@@ -940,7 +1263,8 @@ DECLARE
 BEGIN
   SELECT
     ecb.id,
-    ecb.id_empresa
+    ecb.id_empresa,
+    ecb.flag_retencion
   INTO v_cuenta
   FROM public.tb_empresa_cuenta_bancaria ecb
   WHERE ecb.id = p_id_empresa_cuenta_bancaria
@@ -988,7 +1312,7 @@ BEGIN
     COALESCE(p_saldo_inicial, 0),
     COALESCE(p_saldo_actual, p_saldo_inicial, 0),
     COALESCE(p_saldo_actual, p_saldo_inicial, 0),
-    COALESCE(p_ingresos, 0) + COALESCE(p_ingresos_retenido, 0),
+    COALESCE(p_ingresos, 0),
     COALESCE(p_ingresos, 0),
     COALESCE(p_ingresos_retenido, 0),
     COALESCE(p_gastos, 0),
@@ -996,7 +1320,7 @@ BEGIN
     COALESCE(p_ganancia_retenido, 0),
     COALESCE(p_salida, 0),
     COALESCE(p_operaciones, 0),
-    COALESCE(p_flag_retencion, false),
+    COALESCE(p_flag_retencion, v_cuenta.flag_retencion, false),
     p_id_estado,
     p_id_usuario,
     COALESCE(p_fecha_apertura, now())
@@ -1071,7 +1395,8 @@ BEGIN
 
   SELECT
     ecb.id,
-    ecb.id_empresa
+    ecb.id_empresa,
+    ecb.flag_retencion
   INTO v_cuenta
   FROM public.tb_empresa_cuenta_bancaria ecb
   WHERE ecb.id = v_cuenta_final
@@ -1101,7 +1426,7 @@ BEGIN
       saldo_inicial = COALESCE(p_saldo_inicial, saldo_inicial),
       saldo_total = COALESCE(p_saldo_actual, saldo_total),
       saldo_actual = COALESCE(p_saldo_actual, saldo_actual),
-      total_recaudado = COALESCE(p_ingresos, ingresos) + COALESCE(p_ingresos_retenido, ingresos_retenido),
+      total_recaudado = COALESCE(p_ingresos, ingresos),
       ingresos = COALESCE(p_ingresos, ingresos),
       ingresos_retenido = COALESCE(p_ingresos_retenido, ingresos_retenido),
       gastos = COALESCE(p_gastos, gastos),
@@ -1109,7 +1434,7 @@ BEGIN
       ganancia_retenido = COALESCE(p_ganancia_retenido, ganancia_retenido),
       salida = COALESCE(p_salida, salida),
       operaciones = COALESCE(p_operaciones, operaciones),
-      flag_retencion = COALESCE(p_flag_retencion, flag_retencion),
+      flag_retencion = COALESCE(p_flag_retencion, v_cuenta.flag_retencion, flag_retencion),
       id_estado = COALESCE(p_id_estado, id_estado),
       id_usuario = COALESCE(p_id_usuario, id_usuario),
       fecha_apertura = COALESCE(p_fecha_apertura, fecha_apertura)
@@ -1333,6 +1658,13 @@ DECLARE
   v_historial_id bigint;
   v_result jsonb;
   v_kpi_snapshot jsonb;
+  v_fecha_cierre timestamp with time zone := now();
+  v_operaciones_congeladas integer := 0;
+  v_movimientos_congelados integer := 0;
+  v_movimientos_confirmados integer := 0;
+  v_movimientos_salida_retenidos integer := 0;
+  v_ingresos_retenidos_abiertos numeric := 0;
+  v_ganancia_retenida_abierta numeric := 0;
 BEGIN
   SELECT *
   INTO v_caja
@@ -1399,20 +1731,104 @@ BEGIN
     COALESCE(p_id_estado, v_caja.id_estado),
     COALESCE(p_id_usuario, v_caja.id_usuario),
     v_caja.fecha_apertura,
-    now(),
+    v_fecha_cierre,
     v_kpi_snapshot
   )
   RETURNING id INTO v_historial_id;
+
+  UPDATE public.tb_operacion_proceso op
+  SET id_caja_cierre = v_historial_id,
+      fecha_caja_cierre = v_fecha_cierre
+  WHERE op.id_caja_cierre IS NULL
+    AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+    AND (
+      (
+        op.id_empresa_ingreso = v_caja.id_empresa
+        AND op.id_empresa_cuenta_ingreso = v_caja.id_empresa_cuenta_bancaria
+      )
+      OR (
+        op.id_empresa_salida = v_caja.id_empresa
+        AND op.id_empresa_cuenta_salida = v_caja.id_empresa_cuenta_bancaria
+      )
+    );
+
+  GET DIAGNOSTICS v_operaciones_congeladas = ROW_COUNT;
+
+  UPDATE public.tb_operacion_caja oc
+  SET id_caja_cierre = v_historial_id,
+      fecha_caja_cierre = v_fecha_cierre
+  FROM public.tb_operacion_proceso op
+  WHERE oc.id_caja_cierre IS NULL
+    AND oc.id_caja = p_id_caja
+    AND oc.id_operacion_proceso = op.id
+    AND op.id_caja_cierre = v_historial_id
+    AND NOT (
+      COALESCE(op.flag_retenido, false) = true
+      AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
+    );
+
+  GET DIAGNOSTICS v_movimientos_congelados = ROW_COUNT;
+
+  UPDATE public.tb_operacion_caja oc
+  SET id_caja_cierre = v_historial_id,
+      fecha_caja_cierre = v_fecha_cierre
+  WHERE oc.id_caja_cierre IS NULL
+    AND oc.id_caja = p_id_caja
+    AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) = 'CONFIRMADO';
+
+  GET DIAGNOSTICS v_movimientos_confirmados = ROW_COUNT;
+  v_movimientos_congelados := v_movimientos_congelados + v_movimientos_confirmados;
+
+  UPDATE public.tb_operacion_caja oc
+  SET id_estado = COALESCE((
+        SELECT est.id
+        FROM public.tb_estado est
+        WHERE UPPER(BTRIM(COALESCE(est.nombre, ''))) = 'RETENIDO'
+        LIMIT 1
+      ), oc.id_estado),
+      nombre_estado = 'Retenido',
+      id_caja_cierre = NULL,
+      fecha_caja_cierre = NULL
+  FROM public.tb_operacion_proceso op
+  WHERE oc.id_caja = p_id_caja
+    AND oc.id_operacion_proceso = op.id
+    AND COALESCE(op.flag_retenido, false) = true
+    AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO';
+
+  UPDATE public.tb_operacion_caja oc
+  SET id_caja_cierre = v_historial_id,
+      fecha_caja_cierre = v_fecha_cierre
+  FROM public.tb_operacion_proceso op
+  WHERE oc.id_caja_cierre IS NULL
+    AND oc.id_caja = p_id_caja
+    AND oc.id_operacion_proceso = op.id
+    AND COALESCE(op.flag_retenido, false) = true
+    AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+    AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'SALIDA'
+    AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) = 'PAGADO';
+
+  GET DIAGNOSTICS v_movimientos_salida_retenidos = ROW_COUNT;
+  v_movimientos_congelados := v_movimientos_congelados + v_movimientos_salida_retenidos;
+
+  SELECT
+    COALESCE(SUM(COALESCE(oc.monto_ingreso, 0)), 0),
+    COALESCE(SUM(COALESCE(oc.monto_ganancia, 0)), 0)
+  INTO v_ingresos_retenidos_abiertos, v_ganancia_retenida_abierta
+  FROM public.tb_operacion_caja oc
+  WHERE oc.id_caja = p_id_caja
+    AND oc.id_caja_cierre IS NULL
+    AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
+    AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) = 'RETENIDO';
 
   UPDATE public.tb_caja_operativa
   SET saldo_inicial = saldo_actual,
       saldo_total = saldo_actual,
       total_recaudado = 0,
       ingresos = 0,
-      ingresos_retenido = 0,
+      ingresos_retenido = v_ingresos_retenidos_abiertos,
       gastos = 0,
       ganancia = 0,
-      ganancia_retenido = 0,
+      ganancia_retenido = v_ganancia_retenida_abierta,
       salida = 0,
       operaciones = 0,
       id_usuario = COALESCE(p_id_usuario, id_usuario),
@@ -1432,7 +1848,10 @@ BEGIN
       AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
   ) r;
 
-  RETURN v_result;
+  RETURN COALESCE(v_result, '{}'::jsonb) || jsonb_build_object(
+    'operaciones_congeladas', v_operaciones_congeladas,
+    'movimientos_congelados', v_movimientos_congelados
+  );
 END;
 $$;
 
@@ -1473,6 +1892,7 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_categoria_operacion_caja(
 RETURNS SETOF jsonb
 LANGUAGE sql
 STABLE
+SECURITY DEFINER
 AS $$
   SELECT jsonb_build_object(
     'id', t.id,
@@ -1615,6 +2035,8 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_caja (
   id_usuario bigint,
   nombre_usuario character varying,
   tipo_facturacion character varying DEFAULT 'Boleta',
+  id_caja_cierre bigint,
+  fecha_caja_cierre timestamp with time zone,
   fecha_registro timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT tb_operacion_caja_pkey PRIMARY KEY (id),
   CONSTRAINT tb_operacion_caja_tipo_mov_check CHECK (UPPER(tipo_movimiento) IN ('INGRESO', 'SALIDA')),
@@ -1631,6 +2053,26 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_caja (
   CONSTRAINT tb_operacion_caja_fk_estado FOREIGN KEY (id_estado) REFERENCES public.tb_estado(id),
   CONSTRAINT tb_operacion_caja_fk_usuario FOREIGN KEY (id_usuario) REFERENCES public.tb_usuario(id)
 );
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_caja' AND column_name = 'id_caja_cierre'
+  ) THEN
+    ALTER TABLE public.tb_operacion_caja ADD COLUMN id_caja_cierre bigint;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_caja' AND column_name = 'fecha_caja_cierre'
+  ) THEN
+    ALTER TABLE public.tb_operacion_caja ADD COLUMN fecha_caja_cierre timestamp with time zone;
+  END IF;
+END;
+$$;
 
 /*
 Funcion: f_get_tb_operacion_caja
@@ -1650,10 +2092,15 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_caja(
   p_codigo_operacion character varying DEFAULT NULL,
   p_dni_cliente character varying DEFAULT NULL,
   p_fecha_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_hasta timestamp with time zone DEFAULT NULL
+  p_fecha_hasta timestamp with time zone DEFAULT NULL,
+  p_id_caja_cierre bigint DEFAULT NULL,
+  p_fecha_caja_cierre_desde timestamp with time zone DEFAULT NULL,
+  p_fecha_caja_cierre_hasta timestamp with time zone DEFAULT NULL,
+  p_incluir_cerradas boolean DEFAULT false
 )
 RETURNS SETOF jsonb
 LANGUAGE sql
+SECURITY DEFINER
 STABLE
 AS $$
   SELECT jsonb_build_object(
@@ -1663,6 +2110,7 @@ AS $$
     'id_operacion_proceso', t.id_operacion_proceso,
     'tipo_origen', t.tipo_origen,
     'tipo_movimiento', t.tipo_movimiento,
+    'tipo_servicio', op.tipo_servicio,
     'id_codigo_servicio', t.id_codigo_servicio,
     'nombre_codigo_servicio', t.nombre_codigo_servicio,
     'dni_cliente', t.dni_cliente,
@@ -1690,9 +2138,12 @@ AS $$
     'id_usuario', t.id_usuario,
     'nombre_usuario', t.nombre_usuario,
     'tipo_facturacion', t.tipo_facturacion,
+    'id_caja_cierre', t.id_caja_cierre,
+    'fecha_caja_cierre', t.fecha_caja_cierre,
     'fecha_registro', t.fecha_registro
   )
   FROM public.tb_operacion_caja t
+  LEFT JOIN public.tb_operacion_proceso op ON op.id = t.id_operacion_proceso
   WHERE (p_id IS NULL OR t.id = p_id)
     AND (p_id_caja IS NULL OR t.id_caja = p_id_caja)
     AND (p_id_empresa IS NULL OR t.id_empresa = p_id_empresa)
@@ -1705,6 +2156,32 @@ AS $$
     AND (p_dni_cliente IS NULL OR COALESCE(t.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
     AND (p_fecha_desde IS NULL OR t.fecha_registro >= p_fecha_desde)
     AND (p_fecha_hasta IS NULL OR t.fecha_registro <= p_fecha_hasta)
+    AND (p_fecha_caja_cierre_desde IS NULL OR t.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+    AND (p_fecha_caja_cierre_hasta IS NULL OR t.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+    AND (
+      p_id IS NOT NULL
+      OR p_id_operacion_proceso IS NOT NULL
+      OR p_id_estado IS NOT NULL
+      OR NOT (
+        UPPER(COALESCE(t.tipo_movimiento, '')) = 'INGRESO'
+        AND COALESCE(op.flag_retenido, false) = true
+      )
+    )
+    AND (
+      p_id IS NOT NULL
+      OR
+      (p_id_caja_cierre IS NOT NULL AND t.id_caja_cierre = p_id_caja_cierre)
+      OR (
+        (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
+        AND t.id_caja_cierre IS NOT NULL
+      )
+      OR (
+        p_id_caja_cierre IS NULL
+        AND p_fecha_caja_cierre_desde IS NULL
+        AND p_fecha_caja_cierre_hasta IS NULL
+        AND (COALESCE(p_incluir_cerradas, false) OR t.id_caja_cierre IS NULL)
+      )
+    )
   ORDER BY t.fecha_registro DESC, t.id DESC;
 $$;
 
@@ -1761,6 +2238,7 @@ DECLARE
   v_saldo_nuevo numeric;
   v_delta_ingresos numeric := 0;
   v_delta_ingresos_retenido numeric := 0;
+  v_delta_total_recaudado numeric := 0;
   v_delta_gastos numeric := 0;
   v_delta_ganancia numeric := 0;
   v_delta_ganancia_retenido numeric := 0;
@@ -1796,8 +2274,19 @@ BEGIN
   ELSE
     SELECT id, nombre INTO v_estado_id, v_estado_nombre
     FROM public.tb_estado
-    WHERE UPPER(nombre) = 'CONFIRMADO'
+    WHERE UPPER(BTRIM(nombre)) IN ('CONFIRMADO', 'PAGADO', 'PROCESADO', 'ACTIVO')
+    ORDER BY CASE UPPER(BTRIM(nombre))
+      WHEN 'CONFIRMADO' THEN 1
+      WHEN 'PAGADO' THEN 2
+      WHEN 'PROCESADO' THEN 3
+      WHEN 'ACTIVO' THEN 4
+      ELSE 5
+    END
     LIMIT 1;
+  END IF;
+
+  IF v_estado_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro un estado valido para registrar el movimiento de caja.');
   END IF;
 
   SELECT id INTO v_estado_retenido_id
@@ -1824,6 +2313,7 @@ BEGIN
     ELSE
       v_saldo_nuevo := v_saldo_anterior + COALESCE(p_monto_ingreso, 0) - COALESCE(p_monto_gasto, 0);
       v_delta_ingresos := COALESCE(p_monto_ingreso, 0);
+      v_delta_total_recaudado := COALESCE(p_monto_ingreso, 0);
       v_delta_ganancia := COALESCE(p_monto_ganancia, 0);
     END IF;
     v_delta_gastos := COALESCE(p_monto_gasto, 0);
@@ -1916,6 +2406,7 @@ BEGIN
   UPDATE public.tb_caja_operativa
   SET saldo_actual = v_saldo_nuevo,
       saldo_total = v_saldo_nuevo,
+      total_recaudado = COALESCE(total_recaudado, 0) + v_delta_total_recaudado,
       ingresos = COALESCE(ingresos, 0) + v_delta_ingresos,
       ingresos_retenido = COALESCE(ingresos_retenido, 0) + v_delta_ingresos_retenido,
       gastos = COALESCE(gastos, 0) + v_delta_gastos,
@@ -1926,11 +2417,121 @@ BEGIN
       id_usuario = COALESCE(p_id_usuario, id_usuario)
   WHERE id = p_id_caja;
 
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario)
+  FROM public.tb_ruta_operacion_caja rc
+  WHERE rc.id_empresa = v_caja.id_empresa
+    AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
+    AND rc.id_estado = 1;
+
   RETURN (
     SELECT x
     FROM public.f_get_tb_operacion_caja(p_id := v_new_id) AS x
     LIMIT 1
   );
+END;
+$$;
+
+/*
+Funcion: f_apply_tb_operacion_caja_delta
+Objetivo:
+  Aplicar o revertir en tb_caja_operativa el impacto financiero de un movimiento
+  de caja, usando la misma semantica de f_post_tb_operacion_caja.
+*/
+CREATE OR REPLACE FUNCTION public.f_apply_tb_operacion_caja_delta(
+  p_id_caja bigint,
+  p_tipo_movimiento character varying,
+  p_nombre_estado character varying DEFAULT NULL,
+  p_monto_ingreso numeric DEFAULT 0,
+  p_monto_gasto numeric DEFAULT 0,
+  p_monto_ganancia numeric DEFAULT 0,
+  p_monto_salida numeric DEFAULT 0,
+  p_flag_contabiliza_operacion boolean DEFAULT true,
+  p_factor integer DEFAULT 1,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS numeric
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_caja record;
+  v_tipo_movimiento character varying;
+  v_nombre_estado character varying;
+  v_saldo_delta numeric := 0;
+  v_delta_ingresos numeric := 0;
+  v_delta_ingresos_retenido numeric := 0;
+  v_delta_total_recaudado numeric := 0;
+  v_delta_gastos numeric := 0;
+  v_delta_ganancia numeric := 0;
+  v_delta_ganancia_retenido numeric := 0;
+  v_delta_salida numeric := 0;
+  v_delta_operaciones integer := 0;
+  v_saldo_nuevo numeric;
+BEGIN
+  SELECT c.id, c.saldo_actual, c.id_empresa, c.id_empresa_cuenta_bancaria
+  INTO v_caja
+  FROM public.tb_caja_operativa c
+  WHERE c.id = p_id_caja
+  LIMIT 1;
+
+  IF v_caja.id IS NULL THEN
+    RAISE EXCEPTION 'La caja no existe.';
+  END IF;
+
+  v_tipo_movimiento := UPPER(COALESCE(p_tipo_movimiento, ''));
+  v_nombre_estado := UPPER(COALESCE(p_nombre_estado, ''));
+
+  IF v_tipo_movimiento = 'INGRESO' THEN
+    IF v_nombre_estado = 'RETENIDO' THEN
+      v_saldo_delta := -COALESCE(p_monto_gasto, 0);
+      v_delta_ingresos_retenido := COALESCE(p_monto_ingreso, 0);
+      v_delta_ganancia_retenido := COALESCE(p_monto_ganancia, 0);
+    ELSE
+      v_saldo_delta := COALESCE(p_monto_ingreso, 0) - COALESCE(p_monto_gasto, 0);
+      v_delta_ingresos := COALESCE(p_monto_ingreso, 0);
+      v_delta_total_recaudado := COALESCE(p_monto_ingreso, 0);
+      v_delta_ganancia := COALESCE(p_monto_ganancia, 0);
+    END IF;
+    v_delta_gastos := COALESCE(p_monto_gasto, 0);
+  ELSIF v_tipo_movimiento = 'SALIDA' THEN
+    v_saldo_delta := -COALESCE(p_monto_salida, 0) - COALESCE(p_monto_gasto, 0);
+    v_delta_gastos := COALESCE(p_monto_gasto, 0);
+    v_delta_salida := COALESCE(p_monto_salida, 0);
+  ELSE
+    RAISE EXCEPTION 'tipo_movimiento debe ser INGRESO o SALIDA.';
+  END IF;
+
+  IF COALESCE(p_flag_contabiliza_operacion, true) THEN
+    v_delta_operaciones := 1;
+  END IF;
+
+  v_saldo_nuevo := COALESCE(v_caja.saldo_actual, 0) + (COALESCE(p_factor, 1) * v_saldo_delta);
+
+  IF v_saldo_nuevo < 0 THEN
+    RAISE EXCEPTION 'La operacion deja la caja con saldo negativo.';
+  END IF;
+
+  UPDATE public.tb_caja_operativa
+  SET saldo_actual = v_saldo_nuevo,
+      saldo_total = v_saldo_nuevo,
+      total_recaudado = GREATEST(COALESCE(total_recaudado, 0) + (COALESCE(p_factor, 1) * v_delta_total_recaudado), 0),
+      ingresos = GREATEST(COALESCE(ingresos, 0) + (COALESCE(p_factor, 1) * v_delta_ingresos), 0),
+      ingresos_retenido = GREATEST(COALESCE(ingresos_retenido, 0) + (COALESCE(p_factor, 1) * v_delta_ingresos_retenido), 0),
+      gastos = GREATEST(COALESCE(gastos, 0) + (COALESCE(p_factor, 1) * v_delta_gastos), 0),
+      ganancia = GREATEST(COALESCE(ganancia, 0) + (COALESCE(p_factor, 1) * v_delta_ganancia), 0),
+      ganancia_retenido = GREATEST(COALESCE(ganancia_retenido, 0) + (COALESCE(p_factor, 1) * v_delta_ganancia_retenido), 0),
+      salida = GREATEST(COALESCE(salida, 0) + (COALESCE(p_factor, 1) * v_delta_salida), 0),
+      operaciones = GREATEST(COALESCE(operaciones, 0) + (COALESCE(p_factor, 1) * v_delta_operaciones), 0),
+      id_usuario = COALESCE(p_id_usuario, id_usuario)
+  WHERE id = p_id_caja;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario)
+  FROM public.tb_ruta_operacion_caja rc
+  WHERE rc.id_empresa = v_caja.id_empresa
+    AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
+    AND rc.id_estado = 1;
+
+  RETURN v_saldo_nuevo;
 END;
 $$;
 
@@ -1941,9 +2542,10 @@ Objetivo:
   de caja, usando f_post_tb_operacion_caja como unico punto que modifica saldos.
 
 Reglas:
-  - idempotente por id_operacion_proceso: no duplica impactos de caja;
-  - Efectivizacion y Excel registran INGRESO neto en la caja de ingreso;
-  - Pago Deuda registra SALIDA en la caja de salida;
+  - idempotente por id_operacion_proceso + tipo_movimiento;
+  - Efectivizacion y Excel registran INGRESO en la caja de ingreso;
+  - al pagar se registra SALIDA en la caja de salida;
+  - Pago Deuda usa la misma semantica de INGRESO + SALIDA cuando aplique;
   - la caja se resuelve desde empresa + cuenta congeladas en la operacion.
 */
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_caja_desde_proceso(
@@ -1960,26 +2562,32 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_op record;
+  v_mov record;
+  v_caja_destino record;
   v_existente jsonb;
+  v_relacionada jsonb;
   v_tipo_movimiento character varying;
   v_id_caja bigint;
+  v_id_movimiento bigint;
+  v_id_relacionada bigint;
+  v_estado_id bigint;
+  v_estado_nombre character varying;
+  v_estado_retenido_id bigint;
+  v_estado_retenido_nombre character varying;
+  v_nombre_usuario character varying;
+  v_saldo_anterior_nuevo numeric;
+  v_saldo_actual_nuevo numeric;
   v_monto_ingreso numeric := 0;
   v_monto_transferencia numeric := 0;
   v_monto_gasto numeric := 0;
   v_monto_ganancia numeric := 0;
   v_monto_salida numeric := 0;
   v_tipo_servicio character varying;
+  v_tipo_flujo_pago_deuda character varying;
+  v_flag_retencion boolean := false;
   v_detalle character varying;
+  v_result jsonb;
 BEGIN
-  SELECT x
-  INTO v_existente
-  FROM public.f_get_tb_operacion_caja(p_id_operacion_proceso := p_id_operacion_proceso) AS x
-  LIMIT 1;
-
-  IF v_existente IS NOT NULL THEN
-    RETURN v_existente || jsonb_build_object('idempotente', true);
-  END IF;
-
   SELECT *
   INTO v_op
   FROM public.tb_operacion_proceso
@@ -1991,6 +2599,7 @@ BEGIN
   END IF;
 
   v_tipo_servicio := UPPER(COALESCE(v_op.tipo_servicio, v_op.nombre_codigo_servicio, ''));
+  v_tipo_flujo_pago_deuda := UPPER(COALESCE(v_op.tipo_flujo_pago_deuda, ''));
   v_tipo_movimiento := UPPER(
     COALESCE(
       p_tipo_movimiento,
@@ -2001,48 +2610,136 @@ BEGIN
     )
   );
 
+  SELECT to_jsonb(c)
+  INTO v_existente
+  FROM public.tb_operacion_caja c
+  WHERE c.id_operacion_proceso = p_id_operacion_proceso
+    AND c.tipo_movimiento = v_tipo_movimiento
+    AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+  ORDER BY c.id
+  LIMIT 1;
+
+  SELECT to_jsonb(c)
+  INTO v_relacionada
+  FROM public.tb_operacion_caja c
+  WHERE c.id_operacion_proceso = p_id_operacion_proceso
+    AND c.tipo_movimiento = CASE WHEN v_tipo_movimiento = 'INGRESO' THEN 'SALIDA' ELSE 'INGRESO' END
+    AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+  ORDER BY c.id
+  LIMIT 1;
+
+  v_estado_id := COALESCE(p_id_estado, v_op.id_estado);
+  v_estado_nombre := v_op.nombre_estado;
+
+  IF v_estado_id IS NOT NULL THEN
+    SELECT nombre
+    INTO v_estado_nombre
+    FROM public.tb_estado
+    WHERE id = v_estado_id
+    LIMIT 1;
+  END IF;
+
+  SELECT id, nombre
+  INTO v_estado_retenido_id, v_estado_retenido_nombre
+  FROM public.tb_estado
+  WHERE UPPER(nombre) = 'RETENIDO'
+  LIMIT 1;
+
+  IF p_nombre_usuario IS NOT NULL THEN
+    v_nombre_usuario := p_nombre_usuario;
+  ELSIF p_id_usuario IS NOT NULL THEN
+    SELECT nombre
+    INTO v_nombre_usuario
+    FROM public.tb_usuario
+    WHERE id = p_id_usuario
+    LIMIT 1;
+  ELSE
+    v_nombre_usuario := COALESCE(v_op.nombre_usuario_gestor, v_op.nombre_usuario);
+  END IF;
+
   IF v_tipo_movimiento = 'INGRESO' THEN
-    SELECT c.id
-    INTO v_id_caja
+    SELECT
+      c.id,
+      c.saldo_actual,
+      c.id_empresa,
+      e.nombre AS nombre_empresa,
+      c.id_empresa_cuenta_bancaria,
+      ecb.id_banco,
+      b.nombre AS nombre_banco,
+      (COALESCE(ecb.flag_retencion, false) OR COALESCE(c.flag_retencion, false)) AS flag_retencion
+    INTO v_caja_destino
     FROM public.tb_caja_operativa c
+    JOIN public.tb_empresa e ON e.id = c.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = c.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
     WHERE c.id_empresa = v_op.id_empresa_ingreso
       AND c.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_ingreso
     LIMIT 1;
 
-    IF v_id_caja IS NULL THEN
+    IF v_caja_destino.id IS NULL THEN
       RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de ingreso de la operacion.');
     END IF;
 
+    v_id_caja := v_caja_destino.id;
+    v_flag_retencion := COALESCE(v_op.flag_retenido, false)
+      OR (v_existente IS NULL AND COALESCE(v_caja_destino.flag_retencion, false));
+    IF v_flag_retencion AND v_estado_retenido_id IS NOT NULL THEN
+      v_estado_id := v_estado_retenido_id;
+      v_estado_nombre := v_estado_retenido_nombre;
+    END IF;
     v_monto_ingreso := COALESCE(v_op.monto_deposito_cliente, 0);
-    v_monto_transferencia := COALESCE(
-      v_op.monto_transferencia_cliente,
-      GREATEST(COALESCE(v_op.monto_deposito_cliente, 0) - COALESCE(v_op.resultado_comision_servicio, 0), 0),
-      0
-    );
-    v_monto_gasto :=
-      v_monto_transferencia +
-      COALESCE(v_op.resultado_comision_banco_ingreso, 0) +
-      COALESCE(v_op.resultado_comision_banco_salida, 0) +
-      COALESCE(v_op.monto_itf_ingreso, 0) +
-      COALESCE(v_op.monto_itf_salida, 0);
-    v_monto_ganancia := GREATEST(v_monto_ingreso - v_monto_gasto, 0);
-    v_detalle := 'Operacion comercial de ingreso';
+    IF v_tipo_flujo_pago_deuda IN ('RETORNO', 'RETORNO_DIRECTO', 'DIRECTO_CAJA') THEN
+      v_monto_transferencia := 0;
+    ELSE
+      v_monto_transferencia := COALESCE(
+        v_op.monto_transferencia_cliente,
+        GREATEST(COALESCE(v_op.monto_deposito_cliente, 0) - COALESCE(v_op.resultado_comision_servicio, 0), 0),
+        0
+      );
+    END IF;
+    v_monto_gasto := COALESCE(v_op.resultado_comision_banco_ingreso, 0);
+    IF v_tipo_flujo_pago_deuda IN ('RETORNO', 'RETORNO_DIRECTO', 'DIRECTO_CAJA') THEN
+      v_monto_ganancia := 0;
+      v_detalle := CASE
+        WHEN v_tipo_flujo_pago_deuda = 'DIRECTO_CAJA' THEN 'Ingreso directo a caja'
+        WHEN v_tipo_flujo_pago_deuda = 'RETORNO_DIRECTO' THEN 'Retorno directo Pago Deuda'
+        ELSE 'Retorno Pago Deuda'
+      END;
+    ELSE
+      v_monto_ganancia := GREATEST(
+        v_monto_ingreso -
+        v_monto_transferencia -
+        v_monto_gasto -
+        COALESCE(v_op.resultado_comision_banco_salida, 0),
+        0
+      );
+      v_detalle := 'Operacion comercial de ingreso';
+    END IF;
   ELSIF v_tipo_movimiento = 'SALIDA' THEN
-    SELECT c.id
-    INTO v_id_caja
+    SELECT
+      c.id,
+      c.saldo_actual,
+      c.id_empresa,
+      e.nombre AS nombre_empresa,
+      c.id_empresa_cuenta_bancaria,
+      ecb.id_banco,
+      b.nombre AS nombre_banco
+    INTO v_caja_destino
     FROM public.tb_caja_operativa c
+    JOIN public.tb_empresa e ON e.id = c.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = c.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
     WHERE c.id_empresa = v_op.id_empresa_salida
       AND c.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_salida
     LIMIT 1;
 
-    IF v_id_caja IS NULL THEN
+    IF v_caja_destino.id IS NULL THEN
       RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida de la operacion.');
     END IF;
 
+    v_id_caja := v_caja_destino.id;
     v_monto_salida := COALESCE(v_op.monto_transferencia_cliente, v_op.monto_deposito_cliente, 0);
-    v_monto_gasto :=
-      COALESCE(v_op.resultado_comision_banco_salida, 0) +
-      COALESCE(v_op.monto_itf_salida, 0);
+    v_monto_gasto := COALESCE(v_op.resultado_comision_banco_salida, 0);
     v_detalle := 'Operacion comercial de salida';
   ELSE
     RETURN jsonb_build_object('error', 'tipo_movimiento debe ser INGRESO o SALIDA.');
@@ -2056,7 +2753,111 @@ BEGIN
     RETURN jsonb_build_object('error', 'La operacion no tiene monto de salida para caja.');
   END IF;
 
-  RETURN public.f_post_tb_operacion_caja(
+  IF v_existente IS NOT NULL THEN
+    v_id_movimiento := (v_existente->>'id')::bigint;
+    v_id_relacionada := NULLIF(v_relacionada->>'id', '')::bigint;
+
+    SELECT *
+    INTO v_mov
+    FROM public.tb_operacion_caja
+    WHERE id = v_id_movimiento
+    FOR UPDATE;
+
+    IF v_mov.id_caja_cierre IS NOT NULL THEN
+      RETURN v_existente || jsonb_build_object('idempotente', true, 'cerrado', true);
+    END IF;
+
+    PERFORM public.f_apply_tb_operacion_caja_delta(
+      p_id_caja := v_mov.id_caja,
+      p_tipo_movimiento := v_mov.tipo_movimiento,
+      p_nombre_estado := v_mov.nombre_estado,
+      p_monto_ingreso := v_mov.monto_ingreso,
+      p_monto_gasto := v_mov.monto_gasto,
+      p_monto_ganancia := v_mov.monto_ganancia,
+      p_monto_salida := v_mov.monto_salida,
+      p_flag_contabiliza_operacion := v_mov.flag_contabiliza_operacion,
+      p_factor := -1,
+      p_id_usuario := COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario)
+    );
+
+    SELECT saldo_actual
+    INTO v_saldo_anterior_nuevo
+    FROM public.tb_caja_operativa
+    WHERE id = v_id_caja
+    LIMIT 1;
+
+    v_saldo_actual_nuevo := public.f_apply_tb_operacion_caja_delta(
+      p_id_caja := v_id_caja,
+      p_tipo_movimiento := v_tipo_movimiento,
+      p_nombre_estado := COALESCE(v_estado_nombre, v_op.nombre_estado, v_mov.nombre_estado),
+      p_monto_ingreso := v_monto_ingreso,
+      p_monto_gasto := v_monto_gasto,
+      p_monto_ganancia := v_monto_ganancia,
+      p_monto_salida := v_monto_salida,
+      p_flag_contabiliza_operacion := COALESCE(v_mov.flag_contabiliza_operacion, true),
+      p_factor := 1,
+      p_id_usuario := COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario)
+    );
+
+    UPDATE public.tb_operacion_caja
+    SET id_caja = v_id_caja,
+        id_operacion_caja_relacionada = v_id_relacionada,
+        tipo_origen = CASE
+          WHEN v_tipo_movimiento = 'INGRESO' AND v_flag_retencion THEN tipo_origen
+          ELSE COALESCE(p_tipo_origen, tipo_origen)
+        END,
+        id_codigo_servicio = v_op.id_codigo_servicio,
+        nombre_codigo_servicio = v_op.nombre_codigo_servicio,
+        dni_cliente = v_op.dni_cliente,
+        nombre_cliente = v_op.nombre_cliente,
+        codigo_operacion = v_op.codigo_operacion_deposito_cliente,
+        detalle = v_detalle,
+        id_empresa = v_caja_destino.id_empresa,
+        nombre_empresa = v_caja_destino.nombre_empresa,
+        id_empresa_cuenta_bancaria = v_caja_destino.id_empresa_cuenta_bancaria,
+        id_banco = v_caja_destino.id_banco,
+        nombre_banco = v_caja_destino.nombre_banco,
+        id_banco_tercero = COALESCE(v_op.id_banco_cliente_transferencia, v_op.id_banco_cliente),
+        nombre_banco_tercero = COALESCE(v_op.nombre_banco_cliente_transferencia, v_op.nombre_banco_cliente),
+        monto_ingreso = v_monto_ingreso,
+        monto_gasto = v_monto_gasto,
+        monto_ganancia = v_monto_ganancia,
+        monto_salida = v_monto_salida,
+        saldo_anterior = v_saldo_anterior_nuevo,
+        saldo_actual = v_saldo_actual_nuevo,
+        id_estado = COALESCE(v_estado_id, id_estado),
+        nombre_estado = COALESCE(v_estado_nombre, nombre_estado),
+        id_usuario = COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario, id_usuario),
+        nombre_usuario = COALESCE(v_nombre_usuario, nombre_usuario),
+        tipo_facturacion = COALESCE(v_op.tipo_facturacion, 'Boleta')
+    WHERE id = v_id_movimiento;
+
+    IF v_id_relacionada IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1
+         FROM public.tb_operacion_caja c
+         WHERE c.id = v_id_relacionada
+           AND c.id_caja_cierre IS NOT NULL
+       ) THEN
+      PERFORM public.f_patch_tb_operacion_caja(
+        p_id := v_id_relacionada,
+        p_id_operacion_caja_relacionada := v_id_movimiento,
+        p_id_estado := p_id_estado,
+        p_id_usuario := COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario),
+        p_nombre_usuario := COALESCE(p_nombre_usuario, v_op.nombre_usuario_gestor, v_op.nombre_usuario),
+        p_tipo_facturacion := COALESCE(v_op.tipo_facturacion, 'Boleta')
+      );
+    END IF;
+
+    SELECT x
+    INTO v_result
+    FROM public.f_get_tb_operacion_caja(p_id := v_id_movimiento) AS x
+    LIMIT 1;
+
+    RETURN v_result || jsonb_build_object('idempotente', true);
+  END IF;
+
+  v_result := public.f_post_tb_operacion_caja(
     p_id_caja := v_id_caja,
     p_tipo_origen := COALESCE(p_tipo_origen, 'OPERACION_PROCESO'),
     p_tipo_movimiento := v_tipo_movimiento,
@@ -2074,11 +2875,46 @@ BEGIN
     p_monto_ganancia := v_monto_ganancia,
     p_monto_salida := v_monto_salida,
     p_flag_contabiliza_operacion := true,
-    p_id_estado := COALESCE(p_id_estado, v_op.id_estado),
+    p_id_estado := COALESCE(v_estado_id, p_id_estado, v_op.id_estado),
     p_id_usuario := COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario),
     p_nombre_usuario := COALESCE(p_nombre_usuario, v_op.nombre_usuario_gestor, v_op.nombre_usuario),
     p_tipo_facturacion := COALESCE(v_op.tipo_facturacion, 'Boleta')
   );
+
+  IF v_result ? 'error' THEN
+    RETURN v_result;
+  END IF;
+
+  v_id_movimiento := (v_result->>'id')::bigint;
+  v_id_relacionada := NULLIF(v_relacionada->>'id', '')::bigint;
+
+  IF v_id_relacionada IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1
+       FROM public.tb_operacion_caja c
+       WHERE c.id = v_id_relacionada
+         AND c.id_caja_cierre IS NOT NULL
+     ) THEN
+    v_result := public.f_patch_tb_operacion_caja(
+      p_id := v_id_movimiento,
+      p_id_operacion_caja_relacionada := v_id_relacionada,
+      p_id_estado := p_id_estado,
+      p_id_usuario := COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario),
+      p_nombre_usuario := COALESCE(p_nombre_usuario, v_op.nombre_usuario_gestor, v_op.nombre_usuario),
+      p_tipo_facturacion := COALESCE(v_op.tipo_facturacion, 'Boleta')
+    );
+
+    PERFORM public.f_patch_tb_operacion_caja(
+      p_id := v_id_relacionada,
+      p_id_operacion_caja_relacionada := v_id_movimiento,
+      p_id_estado := p_id_estado,
+      p_id_usuario := COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario),
+      p_nombre_usuario := COALESCE(p_nombre_usuario, v_op.nombre_usuario_gestor, v_op.nombre_usuario),
+      p_tipo_facturacion := COALESCE(v_op.tipo_facturacion, 'Boleta')
+    );
+  END IF;
+
+  RETURN v_result;
 END;
 $$;
 
@@ -2186,6 +3022,7 @@ DECLARE
   v_ingreso jsonb;
   v_id_salida bigint;
   v_id_ingreso bigint;
+  v_estado_id bigint;
 BEGIN
   IF p_id_caja_origen = p_id_caja_destino THEN
     RETURN jsonb_build_object('error', 'La caja origen y destino no pueden ser la misma.');
@@ -2213,6 +3050,31 @@ BEGIN
     RETURN jsonb_build_object('error', 'No se encontraron las cajas de origen y destino.');
   END IF;
 
+  IF p_id_estado IS NOT NULL THEN
+    SELECT id
+    INTO v_estado_id
+    FROM public.tb_estado
+    WHERE id = p_id_estado
+    LIMIT 1;
+  ELSE
+    SELECT id
+    INTO v_estado_id
+    FROM public.tb_estado
+    WHERE UPPER(BTRIM(nombre)) IN ('CONFIRMADO', 'PAGADO', 'PROCESADO', 'ACTIVO')
+    ORDER BY CASE UPPER(BTRIM(nombre))
+      WHEN 'CONFIRMADO' THEN 1
+      WHEN 'PAGADO' THEN 2
+      WHEN 'PROCESADO' THEN 3
+      WHEN 'ACTIVO' THEN 4
+      ELSE 5
+    END
+    LIMIT 1;
+  END IF;
+
+  IF v_estado_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro un estado valido para registrar la transferencia interna.');
+  END IF;
+
   v_salida := public.f_post_tb_operacion_caja(
     p_id_caja := p_id_caja_origen,
     p_tipo_origen := 'TRANSFERENCIA_INTERNA',
@@ -2224,7 +3086,7 @@ BEGIN
     p_nombre_banco_tercero := v_destino.nombre_banco,
     p_monto_salida := p_monto,
     p_flag_contabiliza_operacion := true,
-    p_id_estado := p_id_estado,
+    p_id_estado := v_estado_id,
     p_id_usuario := p_id_usuario,
     p_nombre_usuario := p_nombre_usuario
   );
@@ -2247,7 +3109,7 @@ BEGIN
     p_nombre_banco_tercero := v_origen.nombre_banco,
     p_monto_ingreso := p_monto,
     p_flag_contabiliza_operacion := true,
-    p_id_estado := p_id_estado,
+    p_id_estado := v_estado_id,
     p_id_usuario := p_id_usuario,
     p_nombre_usuario := p_nombre_usuario
   );
@@ -2312,6 +3174,18 @@ BEGIN
     RETURN jsonb_build_object('error', 'Solo se pueden confirmar retenciones de tipo INGRESO.');
   END IF;
 
+  IF v_mov.id_caja_cierre IS NOT NULL THEN
+    RETURN jsonb_build_object('error', 'No se puede confirmar una retencion con caja cerrada.');
+  END IF;
+
+  IF UPPER(COALESCE(v_mov.nombre_estado, '')) <> 'RETENIDO' THEN
+    RETURN (
+      SELECT x
+      FROM public.f_get_tb_operacion_caja(p_id := p_id) AS x
+      LIMIT 1
+    ) || jsonb_build_object('idempotente', true);
+  END IF;
+
   SELECT id, nombre INTO v_estado_confirmado_id, v_estado_confirmado_nombre
   FROM public.tb_estado
   WHERE UPPER(nombre) = 'CONFIRMADO'
@@ -2335,6 +3209,7 @@ BEGIN
   UPDATE public.tb_caja_operativa
   SET saldo_actual = v_nuevo_saldo,
       saldo_total = v_nuevo_saldo,
+      total_recaudado = COALESCE(total_recaudado, 0) + COALESCE(v_mov.monto_ingreso, 0),
       ingresos = COALESCE(ingresos, 0) + COALESCE(v_mov.monto_ingreso, 0),
       ingresos_retenido = GREATEST(COALESCE(ingresos_retenido, 0) - COALESCE(v_mov.monto_ingreso, 0), 0),
       ganancia = COALESCE(ganancia, 0) + COALESCE(v_mov.monto_ganancia, 0),
@@ -2350,9 +3225,135 @@ BEGIN
       nombre_usuario = COALESCE(v_nombre_usuario, nombre_usuario)
   WHERE id = p_id;
 
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario)
+  FROM public.tb_ruta_operacion_caja rc
+  WHERE rc.id_empresa = v_mov.id_empresa
+    AND rc.id_empresa_cuenta_bancaria = v_mov.id_empresa_cuenta_bancaria
+    AND rc.id_estado = 1;
+
   RETURN (
     SELECT x
     FROM public.f_get_tb_operacion_caja(p_id := p_id) AS x
+    LIMIT 1
+  );
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_operacion_proceso_confirmar_retencion
+Objetivo:
+  Confirmar una operacion retenida liberando su movimiento de INGRESO retenido
+  hacia caja y apagando la bandera operativa de retencion.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_confirmar_retencion(
+  p_id bigint,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_op record;
+  v_mov record;
+  v_estado_pendiente_id bigint;
+  v_estado_pendiente_nombre character varying;
+  v_nombre_usuario character varying;
+  v_caja_result jsonb;
+  v_sync_result jsonb;
+BEGIN
+  SELECT *
+  INTO v_op
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id
+  LIMIT 1;
+
+  IF v_op.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Operacion no encontrada.');
+  END IF;
+
+  SELECT id, nombre
+  INTO v_estado_pendiente_id, v_estado_pendiente_nombre
+  FROM public.tb_estado
+  WHERE UPPER(nombre) = 'PENDIENTE'
+  LIMIT 1;
+
+  IF p_nombre_usuario_gestor IS NOT NULL THEN
+    v_nombre_usuario := p_nombre_usuario_gestor;
+  ELSIF p_id_usuario_gestor IS NOT NULL THEN
+    SELECT nombre
+    INTO v_nombre_usuario
+    FROM public.tb_usuario
+    WHERE id = p_id_usuario_gestor
+    LIMIT 1;
+  ELSE
+    v_nombre_usuario := COALESCE(v_op.nombre_usuario_gestor, v_op.nombre_usuario);
+  END IF;
+
+  SELECT *
+  INTO v_mov
+  FROM public.tb_operacion_caja c
+  WHERE c.id_operacion_proceso = p_id
+    AND c.tipo_movimiento = 'INGRESO'
+    AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+  ORDER BY c.id
+  LIMIT 1;
+
+  IF v_mov.id IS NULL THEN
+    v_sync_result := public.f_post_tb_operacion_caja_desde_proceso(
+      p_id_operacion_proceso := p_id,
+      p_tipo_origen := 'EXCEL',
+      p_tipo_movimiento := 'INGRESO',
+      p_id_usuario := COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario),
+      p_nombre_usuario := v_nombre_usuario,
+      p_id_estado := v_op.id_estado
+    );
+
+    IF v_sync_result ? 'error' THEN
+      RETURN v_sync_result;
+    END IF;
+
+    SELECT *
+    INTO v_mov
+    FROM public.tb_operacion_caja c
+    WHERE c.id_operacion_proceso = p_id
+      AND c.tipo_movimiento = 'INGRESO'
+      AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+    ORDER BY c.id
+    LIMIT 1;
+  END IF;
+
+  IF v_mov.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro el movimiento de ingreso retenido.');
+  END IF;
+
+  v_caja_result := public.f_patch_tb_operacion_caja_confirmar_retencion(
+    p_id := v_mov.id,
+    p_id_usuario := COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario),
+    p_nombre_usuario := v_nombre_usuario
+  );
+
+  IF v_caja_result ? 'error' THEN
+    RETURN v_caja_result;
+  END IF;
+
+  UPDATE public.tb_operacion_proceso
+  SET flag_retenido = false,
+      id_estado = COALESCE(v_estado_pendiente_id, id_estado),
+      nombre_estado = COALESCE(v_estado_pendiente_nombre, nombre_estado),
+      id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+      nombre_usuario_gestor = COALESCE(v_nombre_usuario, nombre_usuario_gestor)
+  WHERE id = p_id;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(
+    COALESCE(v_op.ruta_destino, v_op.ruta_origen),
+    COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario)
+  );
+
+  RETURN (
+    SELECT x
+    FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
     LIMIT 1
   );
 END;
@@ -2365,15 +3366,19 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_post_tb_ruta_operacion_caja',
-  'f_patch_tb_ruta_operacion_caja',
-  'f_get_tb_caja_operativa',
-  'f_post_tb_caja_operativa',
+  'f_apply_tb_operacion_caja_delta',
+  'f_get_tb_ruta_operacion_kpi',
+  'f_get_tb_operacion_bandeja_badges',
+  'f_get_tb_operacion_empresa_badges',
+  'f_get_tb_operacion_caja',
+  'f_patch_tb_operacion_caja_confirmar_retencion',
+  'f_patch_tb_operacion_proceso_confirmar_retencion',
   'f_patch_tb_caja_operativa',
-  'f_get_tb_caja_operativa_cierre',
+  'f_post_tb_caja_operativa',
   'f_post_tb_caja_operativa_cierre',
   'f_post_tb_operacion_caja',
-  'f_post_tb_operacion_caja_desde_proceso',
-  'f_patch_tb_operacion_caja_confirmar_retencion'
+  'f_post_tb_operacion_caja_transferencia',
+  'f_sync_tb_ruta_operacion_kpi_caja',
+  'f_post_tb_operacion_caja_desde_proceso'
 )
 ORDER BY n.nspname, p.proname;

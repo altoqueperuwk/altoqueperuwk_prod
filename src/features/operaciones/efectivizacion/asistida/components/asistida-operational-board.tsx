@@ -152,22 +152,25 @@ export const AsistidaOperationalBoard = ({ companies, refreshKey = 0, ruta }: As
         setIsApplyingAction(true);
 
         try {
+            const updatedRows: OperacionProceso[] = [];
             for (const id of selectedIds) {
                 if (action === "Pagar" && estadoPagado) {
-                    await operacionesRpcService.patchOperacionPagado(
+                    const saved = await operacionesRpcService.patchOperacionPagado(
                         buildOperacionPagadoPayload(id, estadoPagado, { userId, userName }),
                     );
+                    updatedRows.push(saved);
                 }
 
                 if (action === "Reiniciar" && estadoPendiente) {
-                    await operacionesRpcService.patchOperacionReanudar(
+                    const saved = await operacionesRpcService.patchOperacionReanudar(
                         buildOperacionReanudarPayload(id, estadoPendiente, { userId, userName }),
                     );
+                    updatedRows.push(saved);
                 }
             }
 
             setSelectedIds([]);
-            setActionRefreshKey((value) => value + 1);
+            setOperaciones((current) => current.map((row) => updatedRows.find((item) => item.id === row.id) ?? row));
             addToast("success", `Solicitudes actualizadas: ${selectedIds.length}`);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Error al actualizar solicitudes.";
@@ -181,15 +184,17 @@ export const AsistidaOperationalBoard = ({ companies, refreshKey = 0, ruta }: As
         setIsApplyingAction(true);
 
         try {
+            const updatedRows: OperacionProceso[] = [];
             for (const id of selectedIds) {
-                await operacionesRpcService.patchOperacionDerivacion(
+                const saved = await operacionesRpcService.patchOperacionDerivacion(
                     buildOperacionDerivacionPayload(id, ruta, value, { userId, userName }),
                 );
+                updatedRows.push(saved);
             }
 
             setIsDerivarOpen(false);
             setSelectedIds([]);
-            setActionRefreshKey((value) => value + 1);
+            setOperaciones((current) => current.map((row) => updatedRows.find((item) => item.id === row.id) ?? row));
             addToast("success", `Solicitudes derivadas: ${selectedIds.length}`);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Error al derivar solicitudes.";

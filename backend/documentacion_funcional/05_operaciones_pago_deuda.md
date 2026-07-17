@@ -1,5 +1,31 @@
 # 05. Operaciones: Pago Deuda
 
+## Estado vigente
+
+Pago Deuda se divide en cuatro pasos:
+
+1. Solicitud.
+2. Transferencia al cliente.
+3. Retorno/devolucion.
+4. Comision separada.
+
+La comision ya no se crea automaticamente en el match. Se registra por accion separada y usa la empresa/cuenta seleccionada para comision.
+
+Flujos internos:
+
+- `SOLICITUD`: solicitud raiz.
+- `BANCO`: operacion bancaria hija.
+- `RETORNO`: retorno enlazado por match.
+- `RETORNO_DIRECTO`: retorno directo sin solicitud.
+
+Reglas:
+
+- `Transferencia` confirma la salida al cliente.
+- `Match` enlaza retorno compatible.
+- `PD Directo` clasifica la efectivizacion como retorno directo.
+- `Comision` registra un ingreso separado con origen `PAGO_DEUDA_COMISION`.
+- En `/operaciones/pagodeuda`, empresa/cuenta corresponden al destino de comision.
+
 ## Alcance
 
 `pago-deuda` es una familia propia dentro de `operaciones`. No debe documentarse como una simple variante de `efectivizacion-bancaria`, porque su naturaleza es de solicitud y atencion, no de caja bancaria completa.

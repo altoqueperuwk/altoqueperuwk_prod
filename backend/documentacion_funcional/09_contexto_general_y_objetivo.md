@@ -1,5 +1,22 @@
 # 01. Contexto General y Objetivo
 
+## Estado vigente del proyecto
+
+La implementacion de `Operaciones` ya avanzo mas alla de la etapa exploratoria. Para recuperar el contexto actual, leer:
+
+- `28_operaciones_flujo_negocio_actual.md`
+- `29_operaciones_frontend_interaccion_actual.md`
+- `30_operaciones_pruebas_retenciones_y_cierres.md`
+- `31_contexto_general_recuperacion_proyecto.md`
+
+Puntos vigentes:
+
+- `Operaciones` ya tiene flujo bancario, Pago Deuda, retenciones, cierre de caja y movimientos.
+- El frontend usa `features/operaciones/efectivizacion/` y `features/operaciones/pago-deuda/`.
+- El backend por dominio vive en `backend/backend_implementacion/`.
+- El indice tecnico backend actualizado es `backend/backend_implementacion/00.indice_backend_implementacion.md`.
+- Si se corrompen archivos, usar `31_contexto_general_recuperacion_proyecto.md` como mapa de reconstruccion.
+
 ## Objetivo del proyecto
 
 Se esta construyendo un sistema nuevo, con frontend nuevo y backend compacto, orientado principalmente al dominio de:

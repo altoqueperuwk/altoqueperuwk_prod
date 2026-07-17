@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { ChevronLeft, ChevronRight } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { NativeSelect } from "@/components/base/select/select-native";
+import { cx } from "@/utils/cx";
 
 interface Column<T> {
     key: keyof T | string;
     label: string;
     render?: (row: T) => ReactNode;
+    headerClassName?: string;
+    cellClassName?: string;
 }
 
 interface OperationTableProps<T extends { id: number }> {
@@ -19,6 +22,35 @@ interface OperationTableProps<T extends { id: number }> {
     onToggleRow?: (id: number) => void;
     selectedIds?: number[];
 }
+
+const getColumnClasses = <T extends { id: number }>(column: Column<T>) => {
+    const key = String(column.key).toLowerCase();
+    const label = column.label.toLowerCase();
+    const token = `${key} ${label}`;
+
+    if (key.includes("monto") || key.includes("comision") || key.includes("resultado_comision")) {
+        return { header: "text-right", cell: "text-right tabular-nums" };
+    }
+
+    if (token.includes("cuenta empresa") || token.includes("cuenta cliente")) return { header: "w-32", cell: "max-w-32 truncate" };
+    if (token.includes("hora")) return { header: "w-24", cell: "" };
+    if (token.includes("acciones")) return { header: "w-14 text-center", cell: "text-center" };
+    if (token.includes("codigo") || token.includes("cod.") || token.includes("dni")) return { header: "", cell: "font-medium text-primary" };
+    if (token.includes("cliente") || token.includes("motivo")) return { header: "", cell: "max-w-56 truncate" };
+    if (
+        token.includes("empresa") ||
+        token.includes("banco") ||
+        token.includes("solicita") ||
+        token.includes("gestor") ||
+        token.includes("deriva") ||
+        token.includes("retiene") ||
+        token.includes("origen") ||
+        token.includes("destino") ||
+        token.includes("movimiento")
+    ) return { header: "", cell: "max-w-40 truncate" };
+
+    return { header: "", cell: "" };
+};
 
 export const OperationTable = <T extends { id: number }>({
     columns,
@@ -64,7 +96,7 @@ export const OperationTable = <T extends { id: number }>({
     return (
         <div className="overflow-hidden border-t border-secondary" aria-busy={isLoading}>
             <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-secondary">
+                <table className="w-full min-w-max table-auto divide-y divide-secondary">
                     <thead className="bg-secondary">
                         <tr>
                             {hasSelection && (
@@ -77,11 +109,18 @@ export const OperationTable = <T extends { id: number }>({
                                     />
                                 </th>
                             )}
-                            {columns.map((column) => (
-                                <th key={String(column.key)} className="px-2 py-2 text-left text-xs font-semibold text-tertiary">
-                                    {column.label}
-                                </th>
-                            ))}
+                            {columns.map((column) => {
+                                const classes = getColumnClasses(column);
+
+                                return (
+                                    <th
+                                        key={String(column.key)}
+                                        className={cx("whitespace-nowrap px-2 py-2 text-left text-xs font-semibold text-tertiary", classes.header, column.headerClassName)}
+                                    >
+                                        {column.label}
+                                    </th>
+                                );
+                            })}
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-secondary bg-primary">
@@ -95,35 +134,43 @@ export const OperationTable = <T extends { id: number }>({
                                     )}
                                     {columns.map((column, columnIndex) => (
                                         <td key={`${String(column.key)}-${columnIndex}`} className="px-2 py-2">
-                                            <div className="h-4 w-24 animate-pulse rounded bg-secondary" />
+                                            <div className="h-4 w-full min-w-16 max-w-32 animate-pulse rounded bg-secondary" />
                                         </td>
                                     ))}
                                 </tr>
                             ))
                         ) : data.length ? (
-                            paginatedData.map((row) => (
-                                <motion.tr
-                                    key={row.id}
-                                    initial={{ opacity: 0, y: 4 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ duration: 0.2 }}
-                                >
-                                    {hasSelection && (
-                                        <td className="px-2 py-2 align-middle">
-                                            <Checkbox
-                                                aria-label={`Seleccionar ${row.id}`}
-                                                isSelected={selectedIds.includes(row.id)}
-                                                onChange={() => onToggleRow?.(row.id)}
-                                            />
-                                        </td>
-                                    )}
-                                    {columns.map((column) => (
-                                        <td key={String(column.key)} className="whitespace-nowrap px-2 py-2 text-sm text-secondary">
-                                            {column.render ? column.render(row) : String(row[column.key as keyof T] ?? "")}
-                                        </td>
-                                    ))}
-                                </motion.tr>
-                            ))
+                            <AnimatePresence initial={false}>
+                                {paginatedData.map((row) => (
+                                    <motion.tr
+                                        key={row.id}
+                                        layout
+                                        initial={{ opacity: 0, y: 4 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                        transition={{ duration: 0.2 }}
+                                    >
+                                        {hasSelection && (
+                                            <td className="px-2 py-2 align-middle">
+                                                <Checkbox
+                                                    aria-label={`Seleccionar ${row.id}`}
+                                                    isSelected={selectedIds.includes(row.id)}
+                                                    onChange={() => onToggleRow?.(row.id)}
+                                                />
+                                            </td>
+                                        )}
+                                        {columns.map((column) => {
+                                            const classes = getColumnClasses(column);
+
+                                            return (
+                                                <td key={String(column.key)} className={cx("whitespace-nowrap px-2 py-2 text-sm text-secondary", classes.cell, column.cellClassName)}>
+                                                    {column.render ? column.render(row) : String(row[column.key as keyof T] ?? "")}
+                                                </td>
+                                            );
+                                        })}
+                                    </motion.tr>
+                                ))}
+                            </AnimatePresence>
                         ) : (
                             <tr>
                                 <td colSpan={columns.length + (hasSelection ? 1 : 0)} className="px-4 py-10 text-center text-sm text-tertiary">

@@ -623,10 +623,53 @@ No usar animacion invasiva en celdas porque la tabla es operativa y debe leerse 
 
 ### Estado
 
-- Seleccionar `Pagado` y validar que abre confirmacion.
+- Presionar boton `Pendiente` y validar que abre confirmacion para pasar a `Pagado`.
 - Confirmar pagado y verificar refresco.
 - Reanudar operacion pagada.
 - Rechazar o volver a pendiente segun estados permitidos.
+
+## Funcionalidad Oculta Temporalmente
+
+### Dropdown de Estado
+
+En los tabs `Efectivizacion` y `Derivados`, el dropdown inline de la columna `Estado` queda oculto temporalmente.
+
+Motivo:
+
+- El flujo operativo actual solo necesita dos estados visibles en fila: `Pendiente` y `Pagado`.
+- La accion principal del usuario es marcar una operacion pendiente como pagada.
+- Otros estados del dropdown se revisaran despues para decidir si se eliminan, se reubican o vuelven como accion avanzada.
+
+Comportamiento temporal:
+
+- Operacion pendiente: muestra boton `Pendiente`.
+- Click en `Pendiente`: ejecuta el flujo actual de pagado con confirmacion.
+- Operacion pagada: muestra boton `Pagado` deshabilitado.
+- La funcionalidad anterior del dropdown no se elimina del todo en esta etapa; queda reemplazada visualmente para validar el flujo operativo simplificado.
+
+### Dropdown de Acciones por Fila
+
+En el dropdown de acciones por fila quedan ocultas temporalmente:
+
+- `Pagado`, porque el cambio a pagado ahora se hace desde el boton `Pendiente`.
+- `Copiar transferencia`, porque la copia ya no forma parte de las acciones principales del dropdown.
+
+Cambios visibles:
+
+- `Pago Deuda Directo` se muestra como `PD Directo`.
+- `Directo Caja` se agrega solo en el tab `Efectivizacion`.
+- `Directo Caja` marca la operacion como pagada y genera solo ingreso de caja con gasto bancario de ingreso.
+
+### Origen en Movimientos
+
+La columna `Origen` de Movimientos usa etiquetas operativas normalizadas:
+
+- `EXCEL`, `OPERACION_PROCESO`, `EXCEL_GANANCIA`, `MANUAL` -> `EFECTIVIZACION`.
+- `PAGO_DEUDA` -> `PAGO DEUDA DEPOSITO`.
+- `PAGO_DEUDA_RETORNO`, `PAGO_DEUDA_DIRECTO` -> `PAGO DEUDA DEVOLUCION`.
+- `PAGO_DEUDA_COMISION` -> `PAGO DEUDA COMISION`.
+- `OTROS` -> `OTROS`, reservado para el modal de Ingresos y Salidas.
+- `TRANSFERENCIA_INTERNA` -> `TRANSFERENCIA INTERNA`.
 
 ### Acciones por lote
 

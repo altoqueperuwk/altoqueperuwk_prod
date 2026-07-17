@@ -1,5 +1,26 @@
 # 20. Operaciones Frontend: Excel y Carga Masiva
 
+## Estado vigente
+
+El bloque de carga actualmente soporta archivos bancarios:
+
+- `.xlsx`
+- `.xls`
+- `.html`
+- `.htm`
+- `.txt` para BCP cuando el banco entrega el nuevo formato plano.
+
+Reglas vigentes:
+
+- El detalle visual de la carga se oculta para evitar fatiga visual.
+- No se muestran las dos tablas de preview/procesamiento como bloque operativo principal.
+- En BCP TXT se toma el codigo de operacion corto.
+- La fecha operacional del deposito es `fecha_deposito_cliente`.
+- Para Pago Deuda, el match automatico usa la fecha operacional del deposito, no la fecha de carga ni `CURRENT_DATE`.
+- Scotiabank y Banbif pueden retener ingresos si la cuenta bancaria tiene `flag_retencion = true`.
+
+La seccion antigua de tipos soportados queda reemplazada por esta lista vigente.
+
 ## Objetivo
 
 Congelar el bloque de carga masiva de `efectivizacion-bancaria`, usando `Webpage.png` como contrato visual y el frontend actual como fuente técnica del proceso de parsing, validación y ejecución.

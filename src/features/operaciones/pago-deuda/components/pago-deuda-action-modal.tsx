@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
+import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type {
@@ -12,7 +13,7 @@ import { bancariaRouteKeys, getRutaLabel } from "@/features/operaciones/efectivi
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 
-type PagoDeudaAction = "Transferencia" | "Match";
+type PagoDeudaAction = "Transferencia" | "Match" | "Comision";
 
 interface PagoDeudaActionModalProps {
     action: PagoDeudaAction | null;
@@ -36,6 +37,7 @@ export const PagoDeudaActionModal = ({
     const [routeValue, setRouteValue] = useState<OperacionRutaBancaria>("bcp");
     const [companyValue, setCompanyValue] = useState("");
     const [matchValue, setMatchValue] = useState("");
+    const [amountValue, setAmountValue] = useState("");
     const [companies, setCompanies] = useState<RutaOperacionCaja[]>([]);
     const [matches, setMatches] = useState<OperacionProceso[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -45,6 +47,7 @@ export const PagoDeudaActionModal = ({
         if (!isOpen) {
             setCompanyValue("");
             setMatchValue("");
+            setAmountValue("");
             setCompanies([]);
             setMatches([]);
             setError(null);
@@ -115,8 +118,9 @@ export const PagoDeudaActionModal = ({
         if (isLoading || isSaving) return false;
         if (action === "Transferencia") return Boolean(companyValue);
         if (action === "Match") return Boolean(matchValue);
+        if (action === "Comision") return Number(amountValue) > 0;
         return false;
-    }, [action, companyValue, isLoading, isSaving, matchValue]);
+    }, [action, amountValue, companyValue, isLoading, isSaving, matchValue]);
 
     return (
         <ModalOverlay isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -148,6 +152,18 @@ export const PagoDeudaActionModal = ({
                                         options={companyOptions}
                                     />
                                 </>
+                            )}
+
+                            {action === "Comision" && (
+                                <Input
+                                    size="sm"
+                                    label="Monto comision"
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    value={amountValue}
+                                    onChange={setAmountValue}
+                                />
                             )}
 
                             {action === "Match" && (
@@ -184,6 +200,7 @@ export const PagoDeudaActionModal = ({
                                         companies.find((company) => String(company.id) === companyValue),
                                     );
                                     if (action === "Match") onSubmit(matchValue);
+                                    if (action === "Comision") onSubmit(amountValue);
                                 }}
                             >
                                 Aplicar

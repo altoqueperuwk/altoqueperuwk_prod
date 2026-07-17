@@ -92,6 +92,8 @@ const routeToPath = (route: ExcelParserRoute): `/operaciones/${OperacionRutaBanc
     return `/operaciones/${route}` as `/operaciones/${OperacionRutaBancaria}`;
 };
 
+const isBcpRoute = (route: ExcelParserRoute) => routeToPath(route) === "/operaciones/bcp";
+
 export const getExcelConfig = (route: ExcelParserRoute): HeaderAliasConfig | null => {
     const path = routeToPath(route);
     if (path === "default") return defaultHeaderConfig;
@@ -329,6 +331,64 @@ const normalizeDateToIsoSafetyPay = (value: unknown): string => {
     return normalizeDateToIso(value);
 };
 
+const formatBcpTxtDateTime = (fechaRaw: string, horaRaw: string) => {
+    const fecha = fechaRaw.trim();
+    const hora = horaRaw.trim();
+    const date = fecha.match(/^(\d{4})(\d{2})(\d{2})$/);
+    const time = hora.match(/^(\d{2})(\d{2})(\d{2})$/);
+
+    if (!date) return normalizeDateToIso(fecha);
+
+    return `${date[1]}-${date[2]}-${date[3]} ${time?.[1] ?? "00"}:${time?.[2] ?? "00"}:${time?.[3] ?? "00"}`;
+};
+
+export const parseBcpTxtRows = (content: string): ExcelRow[] => {
+    const rows: ExcelRow[] = [];
+
+    for (const line of content.split(/\r?\n/)) {
+        const trimmed = line.trimEnd();
+        if (!trimmed.startsWith("DD")) continue;
+
+        const parts = trimmed.split(/\s+/).filter(Boolean);
+        const headerToken = parts[0] ?? "";
+        const fechaRaw = parts[1] ?? "";
+        const payload = parts[2] ?? "";
+        const canal = parts[3] ?? "";
+        const horaRaw = parts[4] ?? "";
+        const referencia = parts[5] ?? "";
+
+        if (!/^DD\d+$/.test(headerToken) || !/^\d{8}$/.test(fechaRaw) || payload.length < 16) continue;
+
+        const montoRaw = payload.slice(0, 15);
+        const descripcionIndex = payload.indexOf("EFECTIVO");
+        const descripcion = descripcionIndex >= 0 ? payload.slice(descripcionIndex) : "";
+        const codigoCorto =
+            descripcionIndex >= 0
+                ? payload
+                      .slice(15, descripcionIndex)
+                      .replace(/\D/g, "")
+                      .slice(-6)
+                : "";
+        const dniRaw = descripcion.match(/EFECTIVO0*(\d+)$/)?.[1] ?? headerToken.slice(-8);
+        const dni = dniRaw.padStart(8, "0");
+        const monto = Number(montoRaw) / 100;
+
+        if (!Number.isFinite(monto) || monto <= 0 || !dni.trim()) continue;
+
+        rows.push({
+            dni: descripcion || `EFECTIVO000000${dni}`,
+            monto: String(monto),
+            codigo_operacion: codigoCorto || referencia,
+            fecha_pago: formatBcpTxtDateTime(fechaRaw, horaRaw),
+            hora_proceso: horaRaw,
+            nombre_cliente_banco_ingreso: "BCP",
+            estado: canal,
+        });
+    }
+
+    return rows;
+};
+
 export const buildExcelRowsFromMatrix = (matrix: unknown[][], match: HeaderMatch | null, route: ExcelParserRoute): ExcelRow[] => {
     if (!match) return [];
 
@@ -401,6 +461,18 @@ export const readExcelRowsFromFile = async (file: File, route: ExcelParserRoute)
     if (!config) throw new Error("No hay configuracion de columnas para esta ruta.");
 
     const buffer = await file.arrayBuffer();
+    const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+
+    if (extension === "txt") {
+        if (!isBcpRoute(route)) throw new Error("El formato .txt solo esta soportado para BCP.");
+
+        const text = new TextDecoder("latin1", { fatal: false }).decode(buffer);
+        const txtRows = parseBcpTxtRows(text);
+        if (!txtRows.length) throw new Error("No se encontraron movimientos BCP en el TXT.");
+
+        return txtRows;
+    }
+
     const matrix = readMatrix(buffer, config, file.name);
     if (!matrix || matrix.length < 2) throw new Error("No se pudo leer el archivo o esta vacio.");
 

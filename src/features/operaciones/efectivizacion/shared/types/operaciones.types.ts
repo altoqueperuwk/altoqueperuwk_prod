@@ -48,13 +48,23 @@ export interface RutaOperacionKpi {
     fecha_registro: string;
 }
 
+export interface OperacionBandejaBadge {
+    tab: string;
+    cantidad: number;
+}
+
+export interface OperacionEmpresaBadge {
+    tab: string;
+    id_empresa: number;
+    cantidad: number;
+}
+
 export interface OperacionProceso {
     id: number;
     id_codigo_servicio?: number | null;
     tipo_servicio?: string | null;
     id_comunidad?: number | null;
     nombre_comunidad?: string | null;
-    id_tipo_deposito?: number | null;
     nombre_tipo_deposito?: string | null;
     id_cliente?: number | null;
     dni_cliente: string | null;
@@ -91,12 +101,18 @@ export interface OperacionProceso {
     nombre_banco_empresa_cuenta_ingreso: string | null;
     nombre_banco_empresa_cuenta_salida: string | null;
     id_banco_cliente_transferencia?: number | null;
+    nombre_banco_cliente?: string | null;
     nombre_banco_cliente_transferencia?: string | null;
     tipo_facturacion?: string | null;
     nombre_usuario_gestor?: string | null;
     nombre_usuario_solicitud?: string | null;
     nombre_usuario_deriva?: string | null;
     nombre_usuario_retiene?: string | null;
+    id_operacion_padre?: number | null;
+    id_operacion_match?: number | null;
+    id_operacion_banco?: number | null;
+    flag_comision_registrada?: boolean | null;
+    tipo_flujo_pago_deuda?: string | null;
     ruta_origen: string | null;
     ruta_destino: string | null;
     flag_derivado: boolean;
@@ -115,6 +131,7 @@ export interface OperacionCajaMovimiento {
     id_caja: number;
     tipo_origen: string;
     tipo_movimiento: string;
+    tipo_servicio?: string | null;
     nombre_codigo_servicio: string | null;
     dni_cliente: string | null;
     codigo_operacion: string | null;

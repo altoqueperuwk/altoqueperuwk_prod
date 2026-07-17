@@ -29,8 +29,24 @@ export const pagoDeudaService = {
         return rpc<OperacionProceso>("f_patch_tb_pago_deuda_salida", params);
     },
 
+    patchEmpresa(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_pago_deuda_empresa", params);
+    },
+
+    patchComisionCuenta(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_pago_deuda_comision_cuenta", params);
+    },
+
     patchMatch(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_pago_deuda_match", params);
+    },
+
+    patchDirecto(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_pago_deuda_directo", params);
+    },
+
+    postComision(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_post_tb_pago_deuda_comision", params);
     },
 
     patchPagado(params: Record<string, unknown>) {

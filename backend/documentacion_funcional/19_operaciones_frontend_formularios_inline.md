@@ -1,5 +1,78 @@
 # 19. Operaciones Frontend: Formularios Inline
 
+## Estado vigente
+
+La implementacion actual ya no usa titulos con empresa ni tabs rapidos de cuenta en el encabezado de cada card.
+
+Orden actual:
+
+1. `Mover Saldo`
+2. `Ingreso y Salidas`
+3. `Operacion Efectivizacion`
+
+Los tres formularios usan componentes base Untitled UI:
+
+- `Input`
+- `NativeSelect`
+- `Button`
+- `ButtonGroup`
+- `InlineFormCard`
+
+### Mover Saldo vigente
+
+Campos:
+
+- `Empresa`: bloqueado con la empresa activa.
+- `Cuenta`: dropdown con las cuentas de la empresa activa.
+- `Empresa Destino`: dropdown con placeholder `Seleccionar`.
+- `Cuenta Destino`: dropdown con placeholder `Seleccionar`, filtrado por empresa destino.
+- `Monto a Depositar`.
+
+Reglas:
+
+- La cuenta origen debe tener caja operativa.
+- La empresa/cuenta destino se lista desde cuentas bancarias activas.
+- Para ejecutar la transferencia, la cuenta destino debe tener caja operativa configurada.
+- Si la cuenta destino no tiene caja operativa, la UI muestra error y no ejecuta RPC.
+
+### Ingreso y Salidas vigente
+
+Campos:
+
+- `Empresa`: bloqueado con la empresa activa.
+- `Cuenta`: dropdown con las cuentas de la empresa activa.
+- `Movimiento`: segmentado `Ingreso` / `Salida`.
+- `Monto`.
+- `Concepto`.
+
+Reglas:
+
+- `Concepto` es obligatorio.
+- La cuenta seleccionada debe tener caja operativa.
+- Estos movimientos se diferencian de Excel, Pago Deuda y Transferencia Interna.
+
+### Operacion Efectivizacion vigente
+
+Campos:
+
+- `Empresa`: bloqueado con la empresa activa.
+- `Cuenta`: bloqueado con la cuenta principal disponible de la empresa activa.
+- `Codigo Operacion`.
+- `DNI`.
+- `Monto`.
+- `Comunidad`.
+
+Reglas:
+
+- Registra una operacion manual de efectivizacion.
+- Usa el codigo de servicio correspondiente a la ruta bancaria.
+- Crea la operacion como `Pendiente`.
+- La atencion posterior ocurre desde el tab `Efectivizacion`.
+
+### Nota sobre el contenido historico
+
+Las secciones antiguas de este documento pueden mencionar `Mover Saldo: [Empresa]`, tabs rapidos de cuenta o empresa en titulo. Eso queda reemplazado por esta seccion vigente.
+
 ## Objetivo
 
 Congelar los tres formularios inline del bloque medio de `efectivizacion-bancaria`, tomando como contrato visual `Webpage.png` y como fuente funcional el frontend actual de `src/features/operaciones/`.
