@@ -875,8 +875,6 @@ export const BancariaEfectivizacionTable = ({
                                     size="sm"
                                     label={manualCommission?.type === "especial" ? "Porcentaje" : "Monto"}
                                     type="number"
-                                    min={0}
-                                    step={manualCommission?.type === "especial" ? "0.01" : "1"}
                                     value={manualCommission?.value ?? ""}
                                     onChange={(value) => setManualCommission((current) => (current ? { ...current, value } : current))}
                                 />

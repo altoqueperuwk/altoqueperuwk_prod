@@ -447,7 +447,7 @@ export const BancariaOperationalTabs = ({
             try {
                 const updatedRows: OperacionProceso[] = [];
                 for (const id of selectedIds) {
-                    const saved = await operacionesRpcService.confirmarOperacionRetencion(buildOperacionRetencionConfirmPayload(id, userContext));
+                    const saved = await operacionesRpcService.confirmarOperacionRetencion(buildOperacionRetencionConfirmPayload(id, { userId, userName }));
                     updatedRows.push(saved);
                 }
 

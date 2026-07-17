@@ -44,7 +44,7 @@ const getClosureDates = (items: CajaOperativaCierre[]) => {
     }
 
     return Array.from(uniqueDates.entries())
-        .map(([dateKey, item]) => ({ id: dateKey, label: formatClosureDate(dateKey), raw: item }))
+        .map(([dateKey]) => ({ id: dateKey, label: formatClosureDate(dateKey) }))
         .sort((a, b) => b.id.localeCompare(a.id));
 };
 
@@ -64,7 +64,7 @@ export const BancariaHistoryDropdown = ({
         const options = [...dateOptions];
 
         if (selectedDate && !options.some((item) => item.id === selectedDate)) {
-            options.unshift({ id: selectedDate, label: formatClosureDate(selectedDate), raw: null });
+            options.unshift({ id: selectedDate, label: formatClosureDate(selectedDate) });
         }
 
         return [{ id: "hoy", label: "Hoy" }, ...options];

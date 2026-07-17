@@ -159,8 +159,6 @@ export const PagoDeudaActionModal = ({
                                     size="sm"
                                     label="Monto comision"
                                     type="number"
-                                    min={0}
-                                    step="0.01"
                                     value={amountValue}
                                     onChange={setAmountValue}
                                 />
