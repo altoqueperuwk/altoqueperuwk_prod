@@ -24,15 +24,9 @@ Esto incluye:
 
 No se debe asumir que solo las funciones mutadoras lo necesitan. Las funciones de lectura tambien deben llevar `SECURITY DEFINER` para evitar rebotes por permisos al consumirlas desde frontend.
 
-## Archivo fuente final
+## Fuente backend vigente
 
-La fuente de verdad compilable es:
-
-- `../backend_implementacion/3.ddl_tablas_funciones_compactas.sql`
-
-## Carpeta de trabajo por dominio
-
-Para mantenimiento, lectura y cambios puntuales, el backend tambien esta separado por responsabilidad en:
+La fuente de verdad operativa vive separada por responsabilidad en:
 
 - `../backend_implementacion/`
 
@@ -43,7 +37,8 @@ Indice de esa carpeta:
 Regla de uso:
 
 - para entender o tocar un dominio puntual, usar los `.sql` separados;
-- para snapshot completo o compilacion total, usar `3.ddl_tablas_funciones_compactas.sql`.
+- aplicar cambios por orden numerico cuando corresponda;
+- `10.retenciones_scotiabank_banbif.sql` contiene solo consultas/badges de retenciones para Scotiabank y Banbif.
 
 ## Tablas core compactadas
 
@@ -102,6 +97,15 @@ Contrato minimo aprobado:
 - mantiene KPIs materializados;
 - soporta movimientos manuales, transferencias, retenciones y cierres;
 - no depende del frontend para recalcular saldos globales.
+
+### 4.1 Retenciones Scotiabank/Banbif
+
+- La marca automatica nace desde `tb_empresa_cuenta_bancaria.flag_retencion`.
+- La carga Excel/TXT crea operacion retenida y movimiento `INGRESO RETENIDO`.
+- El ingreso retenido no sube caja disponible ni ingresos confirmados.
+- Las bandejas y badges de Scotiabank/Banbif usan RPCs separadas de `10.retenciones_scotiabank_banbif.sql`.
+- Confirmar retencion libera el movimiento retenido y apaga `flag_retenido`, pero no cambia el estado comercial de la operacion.
+- Los bancos sin retencion usan los GET generales sin excepciones de retencion.
 
 ### 5. Asignacion de caja
 

@@ -455,29 +455,6 @@ AS $$
     AND (p_fecha_caja_cierre_hasta IS NULL OR t.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
     AND (
       p_id IS NOT NULL
-      OR NOT (
-        COALESCE(p_flag_retenido, false) = true
-        AND (
-          p_fecha_caja_cierre_desde IS NOT NULL
-          OR p_fecha_caja_cierre_hasta IS NOT NULL
-        )
-      )
-    )
-    AND (
-      p_id IS NOT NULL
-      OR p_flag_retenido IS NOT NULL
-      OR p_tipo_servicio IS NULL
-      OR p_fecha_caja_cierre_desde IS NOT NULL
-      OR p_fecha_caja_cierre_hasta IS NOT NULL
-      OR COALESCE(p_incluir_cerradas, false)
-      OR NOT (
-        COALESCE(t.flag_retenido, false) = true
-        AND UPPER(BTRIM(COALESCE(t.nombre_estado, ''))) = 'PAGADO'
-        AND UPPER(COALESCE(p_tipo_servicio, '')) LIKE '%EFECTIVIZACION%'
-      )
-    )
-    AND (
-      p_id IS NOT NULL
       OR
       (p_id_caja_cierre IS NOT NULL AND t.id_caja_cierre = p_id_caja_cierre)
       OR (

@@ -137,6 +137,21 @@ Al seleccionar retenidos y confirmar:
 7. `Ingresos Retenidos` baja.
 8. KPI y badges se refrescan.
 
+Regla importante:
+
+- Confirmar retencion no cambia el estado comercial de `tb_operacion_proceso`.
+- Si la operacion estaba `Pagado`, queda `Pagado`.
+- Si estaba `Pendiente`, queda `Pendiente`.
+- La confirmacion solo apaga `flag_retenido` y confirma el movimiento de caja retenido.
+
+Prueba masiva:
+
+1. Seleccionar varias filas en `Retenidos`.
+2. Ejecutar `Confirmar`.
+3. Verificar que ninguna RPC falle por `id_estado` nulo.
+4. Verificar que todas las filas confirmadas salgan de `Retenidos`.
+5. Verificar que las operaciones pagadas no vuelvan a `Pendiente`.
+
 ## Validaciones SQL sugeridas
 
 ### Retenidos abiertos
@@ -193,4 +208,3 @@ ORDER BY op.fecha_deposito_cliente, op.id;
 - Para reparar pruebas usar:
   - `backend/backend_pruebas/11.reparar_retenciones_kpi_caja.sql`
 - Mantener `ROLLBACK` por defecto en scripts de prueba.
-

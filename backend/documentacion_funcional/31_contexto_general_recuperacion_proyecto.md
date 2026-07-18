@@ -37,6 +37,7 @@ Archivos SQL por dominio:
 - `07.respuesta_consultas_selects.sql`
 - `08.backfill_operacion_caja_ingreso_salida.sql`
 - `09.rollback_operaciones_para_pruebas.sql`
+- `10.retenciones_scotiabank_banbif.sql`
 
 Scripts de prueba relacionados:
 
@@ -369,9 +370,13 @@ Regla:
 
 - Fuente: `tb_empresa_cuenta_bancaria.flag_retencion`.
 - Aplica a Scotiabank y Banbif.
-- La operacion retenida aparece en `Efectivizacion` si esta pendiente.
+- La operacion retenida aparece en `Efectivizacion` mientras pertenece al flujo operativo.
+- Si la operacion retenida esta `Pagado`, sigue visible en `Efectivizacion > Todos` y `Efectivizacion > Pagados`.
 - La retencion aparece en `Retenidos` hasta confirmacion.
 - Los ingresos retenidos no suben caja disponible hasta confirmarse.
+- Confirmar retencion no cambia el estado comercial; solo apaga `flag_retenido`.
+- Las consultas operativas de estas rutas se separaron en `backend/backend_implementacion/10.retenciones_scotiabank_banbif.sql`.
+- Los bancos sin retencion usan los GETs generales sin reglas especiales de retenidos.
 
 ### Cierre de caja
 
@@ -414,6 +419,7 @@ Regla:
    - `03`
    - `04`
    - `05`
+   - `10`
    - `06` si se necesita bootstrap.
 10. Ejecutar `npm exec tsc -- --noEmit`.
 11. Ejecutar pruebas unitarias relevantes si se tocaron parsers/utils.
@@ -452,4 +458,3 @@ rg "/operaciones|/sistema" src/main.tsx src/components/application
 - `29_operaciones_frontend_interaccion_actual.md`
 - `30_operaciones_pruebas_retenciones_y_cierres.md`
 - `backend/backend_implementacion/00.indice_backend_implementacion.md`
-

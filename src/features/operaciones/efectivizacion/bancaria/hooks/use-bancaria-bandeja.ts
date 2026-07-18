@@ -7,6 +7,7 @@ import type {
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
 export type BancariaTab = "Efectivizacion" | "Pago Deuda" | "Derivados" | "POS" | "Movimientos" | "Retenidos";
+const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif"]);
 
 export const tabContracts: Record<BancariaTab, { filters: string[]; actions: string[] }> = {
     Efectivizacion: {
@@ -153,6 +154,26 @@ export const useBancariaBandeja = ({
         return base;
     }, [activeCompanyId, activeFilter, code, dateFrom, dateTo, dni, historyDate, ruta, tab]);
 
+    const retentionParams = useMemo(() => {
+        const payload: Record<string, unknown> = {
+            p_tab: tab,
+            p_ruta: ruta,
+            p_id_empresa: activeCompanyId,
+            p_filtro_estado: activeFilter === "Todos" ? "Todos" : estadoByFilter[activeFilter] ?? activeFilter,
+        };
+
+        if (dni.trim()) payload.p_dni_cliente = dni.trim();
+        if (code.trim()) payload.p_codigo_operacion = code.trim();
+        if (dateFrom) payload.p_fecha_deposito_desde = `${dateFrom}T00:00:00`;
+        if (dateTo) payload.p_fecha_deposito_hasta = `${dateTo}T23:59:59`;
+        if (historyDate) {
+            payload.p_fecha_caja_cierre_desde = `${historyDate}T00:00:00`;
+            payload.p_fecha_caja_cierre_hasta = `${historyDate}T23:59:59`;
+        }
+
+        return payload;
+    }, [activeCompanyId, activeFilter, code, dateFrom, dateTo, dni, historyDate, ruta, tab]);
+
     const matchesCurrentOperacionView = useCallback(
         (row: OperacionProceso) => {
             if (activeFilter !== "Todos" && estadoByFilter[activeFilter]) {
@@ -234,15 +255,16 @@ export const useBancariaBandeja = ({
         setIsLoading(true);
         setError(null);
 
-        const request =
-            tab === "Movimientos"
-                ? operacionesRpcService.getMovimientos({
-                      p_id_empresa: activeCompanyId,
-                      p_dni_cliente: dni.trim() || undefined,
-                      p_fecha_caja_cierre_desde: historyDate ? `${historyDate}T00:00:00` : undefined,
-                      p_fecha_caja_cierre_hasta: historyDate ? `${historyDate}T23:59:59` : undefined,
-                  })
-                : operacionesRpcService.getOperaciones(params);
+        const request = tab === "Movimientos"
+            ? operacionesRpcService.getMovimientos({
+                  p_id_empresa: activeCompanyId,
+                  p_dni_cliente: dni.trim() || undefined,
+                  p_fecha_caja_cierre_desde: historyDate ? `${historyDate}T00:00:00` : undefined,
+                  p_fecha_caja_cierre_hasta: historyDate ? `${historyDate}T23:59:59` : undefined,
+              })
+            : retentionRoutes.has(ruta)
+              ? operacionesRpcService.getOperacionesRetencionBandeja(retentionParams)
+              : operacionesRpcService.getOperaciones(params);
 
         request
             .then((result) => {
@@ -265,7 +287,7 @@ export const useBancariaBandeja = ({
         return () => {
             ignore = true;
         };
-    }, [activeCompanyId, activeFilter, dateFrom, dateTo, dni, historyDate, localRefreshKey, params, refreshKey, tab]);
+    }, [activeCompanyId, activeFilter, dateFrom, dateTo, dni, historyDate, localRefreshKey, params, refreshKey, retentionParams, ruta, tab]);
 
     return {
         error,

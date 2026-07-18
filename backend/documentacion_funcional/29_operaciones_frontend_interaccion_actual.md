@@ -133,6 +133,15 @@ No aparece para:
 - `/operaciones/interbank`
 - `/operaciones/safetypay`
 
+Para Scotiabank y Banbif, las bandejas operativas no usan directamente el GET generico `f_get_tb_operacion_proceso`.
+Usan funciones separadas de retencion:
+
+- `f_get_tb_operacion_retencion_bandeja`
+- `f_get_tb_operacion_retencion_bandeja_badges`
+- `f_get_tb_operacion_retencion_empresa_badges`
+
+Esto evita que reglas de cierre, historial y retenciones se mezclen con bancos que no retienen.
+
 ## Badges
 
 ### Badges de tabs
@@ -143,6 +152,8 @@ Muestran conteos por bandeja:
 - Derivados: pendientes derivados.
 - Pago Deuda: solicitudes/pendientes segun flujo.
 - Retenidos: operaciones con retencion abierta, sin depender del estado comercial.
+
+En Scotiabank/Banbif, `Efectivizacion` puede contar operaciones retenidas `Pendiente`, `Rechazado` o `Pagado`, porque retencion y estado comercial son conceptos paralelos.
 
 ### Badges por empresa
 
@@ -167,6 +178,13 @@ La tabla permite:
 - reasignar;
 - ejecutar PD directo;
 - ejecutar Directo Caja.
+
+Regla para retenciones:
+
+- una operacion `flag_retenido=true` marcada como `Pagado` permanece visible en `Efectivizacion > Todos`;
+- tambien aparece en `Efectivizacion > Pagados`;
+- sigue apareciendo en `Retenidos` hasta confirmar la retencion;
+- confirmar la retencion no cambia `nombre_estado`; solo apaga `flag_retenido`.
 
 Estado actual:
 
@@ -261,4 +279,3 @@ Uso esperado:
 - salida de filas cuando dejan el filtro actual;
 - highlight temporal de filas actualizadas;
 - sin animaciones invasivas en tablas operativas.
-

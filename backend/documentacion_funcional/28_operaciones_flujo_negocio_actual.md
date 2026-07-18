@@ -65,13 +65,16 @@ La fuente de verdad es:
 Comportamiento:
 
 - Al cargar Excel/TXT en una cuenta con `flag_retencion = true`, la operacion queda con `flag_retenido = true`.
-- La operacion sigue apareciendo en `Efectivizacion` si esta pendiente.
+- La operacion sigue apareciendo en `Efectivizacion` mientras sea parte del flujo operativo.
+- Si la operacion retenida se marca como `Pagado`, no desaparece de `Efectivizacion > Todos` y tambien aparece en `Efectivizacion > Pagados`.
 - Tambien aparece en `Retenidos` hasta que se confirme manualmente.
 - El ingreso retenido no aumenta `ingresos`, `total_recaudado` ni `caja_actual`.
 - El monto retenido se muestra separado en `Ingresos Retenidos`.
 - Los movimientos retenidos no aparecen por defecto en `Movimientos`.
 - El cierre de caja excluye el ingreso retenido pendiente.
 - Confirmar una retencion mueve el ingreso retenido a ingreso confirmado y recien suma a caja.
+- Confirmar una retencion solo apaga `flag_retenido`; no cambia el estado comercial de la operacion.
+- Las consultas operativas de Scotiabank/Banbif usan funciones separadas en `10.retenciones_scotiabank_banbif.sql`.
 
 ### Trabajo real con retenciones
 
@@ -193,4 +196,3 @@ Los KPI deben separar dinero confirmado de dinero retenido:
 - `Ingresos Retenidos`: monto retenido abierto.
 
 `Ingresos Retenidos` puede venir de dias anteriores y seguir visible hoy, porque es dinero pendiente de liberar.
-

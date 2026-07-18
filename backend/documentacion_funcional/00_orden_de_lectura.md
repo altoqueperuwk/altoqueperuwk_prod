@@ -146,8 +146,8 @@ Aqui se entiende:
 
 1. leer primero los dominios `01-08`;
 2. usar `10_backend_y_contrato_fuente_de_verdad.md` como puente entre negocio y SQL;
-3. tomar `../backend_implementacion/3.ddl_tablas_funciones_compactas.sql` como snapshot completo del backend nuevo;
-4. usar `../backend_implementacion/` para cambios puntuales por dominio;
+3. tomar `../backend_implementacion/00.indice_backend_implementacion.md` como mapa tecnico vigente del backend;
+4. usar `../backend_implementacion/` para cambios por dominio, incluyendo `10.retenciones_scotiabank_banbif.sql` para consultas especiales de Scotiabank/Banbif;
 5. respetar `14_untitledui_setup_y_forma_de_trabajo.md` como referencia visual oficial;
 6. respetar `16_fases_implementacion_frontend.md` como orden obligatorio de construccion;
 7. al iniciar `Operaciones`, dejar de improvisar el layout y seguir de forma obligatoria los documentos `17-23`;

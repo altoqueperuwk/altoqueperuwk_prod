@@ -13,6 +13,7 @@ const emptyBadges: BadgeMap = {
     POS: 0,
     Retenidos: 0,
 };
+const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif"]);
 
 export const useBancariaTabBadges = (
     ruta: OperacionRutaBancaria,
@@ -57,8 +58,11 @@ export const useBancariaTabBadges = (
         let ignore = false;
         setError(null);
 
-        operacionesRpcService
-            .getOperacionBandejaBadges(params)
+        const request = retentionRoutes.has(ruta)
+            ? operacionesRpcService.getOperacionRetencionBandejaBadges(params)
+            : operacionesRpcService.getOperacionBandejaBadges(params);
+
+        request
             .then((rows) => {
                 if (ignore) return;
 
@@ -75,7 +79,7 @@ export const useBancariaTabBadges = (
         return () => {
             ignore = true;
         };
-    }, [focusRefreshKey, params, refreshKey]);
+    }, [focusRefreshKey, params, refreshKey, ruta]);
 
     return { data, error };
 };
@@ -129,8 +133,11 @@ export const useBancariaEmpresaBadges = (
             };
         }
 
-        operacionesRpcService
-            .getOperacionEmpresaBadges(params)
+        const request = retentionRoutes.has(ruta)
+            ? operacionesRpcService.getOperacionRetencionEmpresaBadges(params)
+            : operacionesRpcService.getOperacionEmpresaBadges(params);
+
+        request
             .then((rows) => {
                 if (ignore) return;
 
@@ -149,7 +156,7 @@ export const useBancariaEmpresaBadges = (
         return () => {
             ignore = true;
         };
-    }, [activeTab, focusRefreshKey, params, refreshKey]);
+    }, [activeTab, focusRefreshKey, params, refreshKey, ruta]);
 
     return { data, error };
 };

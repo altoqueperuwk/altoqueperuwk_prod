@@ -740,10 +740,10 @@ Objetivo:
   Devolver conteos pendientes por bandeja operativa para mostrar badges en tabs.
 
 Reglas:
-  - retenidos cuenta operaciones con flag_retenido=true sin depender del estado;
   - en ciclo actual cuenta solo operaciones sin cierre de caja;
   - en historial cuenta solo operaciones congeladas dentro del rango de cierre;
   - los conteos son por ruta y empresa activa.
+  - Retenidos de Scotiabank/Banbif se consultan en 10.retenciones_scotiabank_banbif.sql.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_bandeja_badges(
   p_ruta character varying,
@@ -767,10 +767,7 @@ AS $$
         (
           p_fecha_caja_cierre_desde IS NULL
           AND p_fecha_caja_cierre_hasta IS NULL
-          AND (
-            op.id_caja_cierre IS NULL
-            OR COALESCE(op.flag_retenido, false) = true
-          )
+          AND op.id_caja_cierre IS NULL
         )
         OR (
           (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
@@ -815,14 +812,7 @@ AS $$
           )
       )::integer AS pos,
       COUNT(*) FILTER (
-        WHERE COALESCE(flag_retenido, false) = true
-          AND p_fecha_caja_cierre_desde IS NULL
-          AND p_fecha_caja_cierre_hasta IS NULL
-          AND (
-            p_id_empresa IS NULL
-            OR id_empresa_ingreso = p_id_empresa
-            OR id_empresa_salida = p_id_empresa
-          )
+        WHERE false
       )::integer AS retenidos
     FROM base
   )
@@ -844,12 +834,12 @@ Objetivo:
   fila de empresas de la ruta bancaria.
 
 Reglas:
-  - retenidos cuenta operaciones con flag_retenido=true sin depender del estado;
   - las demas bandejas usan el universo pendiente de f_get_tb_operacion_bandeja_badges;
   - en ciclo actual cuenta solo operaciones sin cierre de caja;
   - en historial cuenta solo operaciones congeladas dentro del rango de cierre;
   - derivados se agrupa por empresa de salida porque la ruta destino atiende
     la operacion.
+  - Retenidos de Scotiabank/Banbif se consultan en 10.retenciones_scotiabank_banbif.sql.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_empresa_badges(
   p_ruta character varying,
@@ -873,10 +863,7 @@ AS $$
         (
           p_fecha_caja_cierre_desde IS NULL
           AND p_fecha_caja_cierre_hasta IS NULL
-          AND (
-            op.id_caja_cierre IS NULL
-            OR COALESCE(op.flag_retenido, false) = true
-          )
+          AND op.id_caja_cierre IS NULL
         )
         OR (
           (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
@@ -935,10 +922,7 @@ AS $$
       'Retenidos'::character varying AS tab,
       COALESCE(id_empresa_ingreso, id_empresa_salida) AS id_empresa
     FROM base
-    WHERE COALESCE(flag_retenido, false) = true
-      AND p_fecha_caja_cierre_desde IS NULL
-      AND p_fecha_caja_cierre_hasta IS NULL
-      AND COALESCE(id_empresa_ingreso, id_empresa_salida) IS NOT NULL
+    WHERE false
   )
   SELECT
     empresa_rows.tab,
@@ -3188,8 +3172,19 @@ BEGIN
 
   SELECT id, nombre INTO v_estado_confirmado_id, v_estado_confirmado_nombre
   FROM public.tb_estado
-  WHERE UPPER(nombre) = 'CONFIRMADO'
+  WHERE UPPER(BTRIM(nombre)) IN ('CONFIRMADO', 'PAGADO', 'PROCESADO', 'ACTIVO')
+  ORDER BY CASE UPPER(BTRIM(nombre))
+    WHEN 'CONFIRMADO' THEN 1
+    WHEN 'PAGADO' THEN 2
+    WHEN 'PROCESADO' THEN 3
+    WHEN 'ACTIVO' THEN 4
+    ELSE 5
+  END
   LIMIT 1;
+
+  IF v_estado_confirmado_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro un estado valido para confirmar la retencion.');
+  END IF;
 
   IF p_nombre_usuario IS NOT NULL THEN
     v_nombre_usuario := p_nombre_usuario;
@@ -3257,8 +3252,6 @@ AS $$
 DECLARE
   v_op record;
   v_mov record;
-  v_estado_pendiente_id bigint;
-  v_estado_pendiente_nombre character varying;
   v_nombre_usuario character varying;
   v_caja_result jsonb;
   v_sync_result jsonb;
@@ -3272,12 +3265,6 @@ BEGIN
   IF v_op.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Operacion no encontrada.');
   END IF;
-
-  SELECT id, nombre
-  INTO v_estado_pendiente_id, v_estado_pendiente_nombre
-  FROM public.tb_estado
-  WHERE UPPER(nombre) = 'PENDIENTE'
-  LIMIT 1;
 
   IF p_nombre_usuario_gestor IS NOT NULL THEN
     v_nombre_usuario := p_nombre_usuario_gestor;
@@ -3340,8 +3327,6 @@ BEGIN
 
   UPDATE public.tb_operacion_proceso
   SET flag_retenido = false,
-      id_estado = COALESCE(v_estado_pendiente_id, id_estado),
-      nombre_estado = COALESCE(v_estado_pendiente_nombre, nombre_estado),
       id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
       nombre_usuario_gestor = COALESCE(v_nombre_usuario, nombre_usuario_gestor)
   WHERE id = p_id;
@@ -3359,6 +3344,7 @@ BEGIN
 END;
 $$;
 
+
 SELECT 'DROP FUNCTION IF EXISTS ' ||
        n.nspname || '.' ||
        p.proname || '(' ||
@@ -3366,19 +3352,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_apply_tb_operacion_caja_delta',
-  'f_get_tb_ruta_operacion_kpi',
-  'f_get_tb_operacion_bandeja_badges',
-  'f_get_tb_operacion_empresa_badges',
-  'f_get_tb_operacion_caja',
-  'f_patch_tb_operacion_caja_confirmar_retencion',
-  'f_patch_tb_operacion_proceso_confirmar_retencion',
-  'f_patch_tb_caja_operativa',
-  'f_post_tb_caja_operativa',
-  'f_post_tb_caja_operativa_cierre',
-  'f_post_tb_operacion_caja',
-  'f_post_tb_operacion_caja_transferencia',
-  'f_sync_tb_ruta_operacion_kpi_caja',
-  'f_post_tb_operacion_caja_desde_proceso'
+
 )
 ORDER BY n.nspname, p.proname;

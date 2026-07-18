@@ -88,8 +88,24 @@ Uso:
 
 - efectivizacion
 - derivados
-- retenidos
 - lectura transversal de operaciones snapshot
+
+Excepcion para rutas con retencion:
+
+- `/operaciones/scotiabank`
+- `/operaciones/banbif`
+
+Estas rutas usan RPCs dedicadas para bandejas operativas:
+
+- `f_get_tb_operacion_retencion_bandeja`
+- `f_get_tb_operacion_retencion_bandeja_badges`
+- `f_get_tb_operacion_retencion_empresa_badges`
+
+Motivo:
+
+- `Retenidos` usa `flag_retenido=true` y no depende del estado comercial.
+- Una operacion retenida puede estar `Pagado` y seguir visible en `Efectivizacion`.
+- Las reglas de cierre/historial no deben contaminar bancos sin retencion.
 
 ### Carga Excel
 

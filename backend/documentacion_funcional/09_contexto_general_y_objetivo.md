@@ -38,15 +38,15 @@ La meta es que:
 - el menu, permisos, rutas, maestros, cajas, operaciones y reglas salgan desde backend;
 - y el frontend solo orqueste experiencia visual y consumo de contrato.
 
-## Archivo SQL final
+## Backend vigente
 
-La compilacion final de la migracion debe salir desde un unico archivo:
-
-- `../backend_implementacion/3.ddl_tablas_funciones_compactas.sql`
-
-Adicionalmente, existe una separacion por dominios dentro de:
+El backend operativo vigente se mantiene separado por dominios dentro de:
 
 - `../backend_implementacion/`
+
+El indice tecnico de esa carpeta es:
+
+- `../backend_implementacion/00.indice_backend_implementacion.md`
 
 Esa carpeta sirve para:
 
@@ -54,7 +54,7 @@ Esa carpeta sirve para:
 - modificar un dominio puntual;
 - y trabajar sin depender de un archivo gigante.
 
-El punto final de compilacion sigue siendo el snapshot completo.
+La separacion actual llega hasta `10.retenciones_scotiabank_banbif.sql`, que concentra las consultas operativas especiales de retenciones para Scotiabank/Banbif.
 
 ## Dominios incluidos
 
@@ -62,6 +62,7 @@ El punto final de compilacion sigue siendo el snapshot completo.
 - operacion proceso;
 - pago deuda;
 - ruta operacion caja;
+- retenciones Scotiabank/Banbif;
 - asignacion caja operativa;
 - caja operativa;
 - cierre de caja operativa;

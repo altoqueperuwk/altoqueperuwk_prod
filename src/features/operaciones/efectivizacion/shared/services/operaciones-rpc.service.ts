@@ -41,12 +41,24 @@ export const operacionesRpcService = {
         return rpc<OperacionBandejaBadge[]>("f_get_tb_operacion_bandeja_badges", params);
     },
 
+    getOperacionRetencionBandejaBadges(params: Record<string, unknown>) {
+        return rpc<OperacionBandejaBadge[]>("f_get_tb_operacion_retencion_bandeja_badges", params);
+    },
+
     getOperacionEmpresaBadges(params: Record<string, unknown>) {
         return rpc<OperacionEmpresaBadge[]>("f_get_tb_operacion_empresa_badges", params);
     },
 
+    getOperacionRetencionEmpresaBadges(params: Record<string, unknown>) {
+        return rpc<OperacionEmpresaBadge[]>("f_get_tb_operacion_retencion_empresa_badges", params);
+    },
+
     getOperaciones(params: Record<string, unknown>) {
         return rpc<OperacionProceso[]>("f_get_tb_operacion_proceso", params);
+    },
+
+    getOperacionesRetencionBandeja(params: Record<string, unknown>) {
+        return rpc<OperacionProceso[]>("f_get_tb_operacion_retencion_bandeja", params);
     },
 
     getMovimientos(params: Record<string, unknown>) {
