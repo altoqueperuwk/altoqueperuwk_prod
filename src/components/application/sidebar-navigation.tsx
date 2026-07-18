@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { AnimatePresence, motion } from "motion/react";
 import type { FC } from "react";
 import {
     LayoutGrid01,
@@ -24,6 +25,7 @@ import {
     BarChart03,
     File07,
     Link01,
+    XClose,
 } from "@untitledui/icons";
 import { UntitledLogoMinimal } from "@/components/foundations/logo/untitledui-logo-minimal";
 import { Button } from "@/components/base/buttons/button";
@@ -93,7 +95,12 @@ const resolveNavAccent = (href?: string | null) => href ? operationAccentByRoute
 
 const SIDEBAR_WIDTH = 280;
 
-export const SidebarNavigation = () => {
+interface SidebarNavigationProps {
+    isOpen: boolean;
+    onToggle: () => void;
+}
+
+export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) => {
     const location = useLocation();
     const { theme, setTheme } = useTheme();
     const { navegacion, isLoading } = useSessionCache();
@@ -123,7 +130,7 @@ export const SidebarNavigation = () => {
     if (isLoading && !navegacion) {
         return (
             <aside
-                className="fixed inset-y-0 left-0 z-40 flex h-full flex-col border-r border-secondary bg-primary"
+                className="hidden min-[1920px]:flex fixed inset-y-0 left-0 z-40 h-full flex-col border-r border-secondary bg-primary"
                 style={{ width: SIDEBAR_WIDTH }}
             >
                 <div className="flex flex-1 items-center justify-center">
@@ -136,14 +143,11 @@ export const SidebarNavigation = () => {
         );
     }
 
-    return (
-        <aside
-            className="fixed inset-y-0 left-0 z-40 flex h-full flex-col justify-between overflow-auto border-r border-secondary bg-primary pt-4 lg:pt-5"
-            style={{ width: SIDEBAR_WIDTH }}
-        >
-            <div className="flex flex-col gap-5 px-4 lg:px-5">
+    const sidebarContent = (
+        <div className="flex h-full flex-col justify-between overflow-auto">
+            <div className="flex flex-col gap-5 px-4 min-[1920px]:px-5">
                 <button
-                    onClick={() => navigate("/")}
+                    onClick={() => { navigate("/"); onToggle(); }}
                     className="flex w-fit items-center gap-2"
                 >
                     <UntitledLogoMinimal className="size-6" />
@@ -155,7 +159,7 @@ export const SidebarNavigation = () => {
 
             <NavList activeUrl={activeUrl} items={menuItems} />
 
-            <div className="mt-auto flex flex-col gap-3 px-4 py-4 lg:py-5">
+            <div className="mt-auto flex flex-col gap-3 px-4 py-4 min-[1920px]:py-5">
                 <div className="flex flex-col gap-1">
                     <Button
                         size="sm"
@@ -201,6 +205,53 @@ export const SidebarNavigation = () => {
                     </div>
                 </div>
             </div>
-        </aside>
+        </div>
+    );
+
+    return (
+        <>
+            {/* Desktop sidebar — always visible on lg+ */}
+            <aside
+                className="hidden min-[1920px]:flex fixed inset-y-0 left-0 z-40 h-full flex-col border-r border-secondary bg-primary pt-4 min-[1920px]:pt-5"
+                style={{ width: SIDEBAR_WIDTH }}
+            >
+                {sidebarContent}
+            </aside>
+
+            {/* Mobile overlay */}
+            <AnimatePresence>
+                {isOpen && (
+                    <>
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="fixed inset-0 z-30 bg-black/50 min-[1920px]:hidden"
+                            onClick={onToggle}
+                        />
+                        <motion.aside
+                            initial={{ x: -SIDEBAR_WIDTH }}
+                            animate={{ x: 0 }}
+                            exit={{ x: -SIDEBAR_WIDTH }}
+                            transition={{ duration: 0.2 }}
+                            className="fixed inset-y-0 left-0 z-40 flex h-full flex-col border-r border-secondary bg-primary pt-4 min-[1920px]:hidden"
+                            style={{ width: SIDEBAR_WIDTH }}
+                        >
+                            <div className="flex justify-end px-4 pb-2 min-[1920px]:hidden">
+                                <Button
+                                    size="sm"
+                                    color="tertiary"
+                                    iconLeading={XClose}
+                                    aria-label="Cerrar menu"
+                                    onClick={onToggle}
+                                />
+                            </div>
+                            {sidebarContent}
+                        </motion.aside>
+                    </>
+                )}
+            </AnimatePresence>
+        </>
     );
 };
