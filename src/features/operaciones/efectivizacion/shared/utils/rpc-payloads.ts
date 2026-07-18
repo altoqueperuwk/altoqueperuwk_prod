@@ -85,6 +85,13 @@ export const buildOperacionEmpresaIngresoPayload = (id: number, company: RutaOpe
     p_id_empresa_cuenta_ingreso: company.id_empresa_cuenta_bancaria,
     p_id_banco_empresa_cuenta_ingreso: company.id_banco,
     p_nombre_banco_empresa_cuenta_ingreso: company.nombre_banco,
+    p_id_empresa_salida: company.id_empresa,
+    p_nombre_empresa_salida: company.nombre_empresa,
+    p_id_empresa_cuenta_salida: company.id_empresa_cuenta_bancaria,
+    p_id_banco_empresa_cuenta_salida: company.id_banco,
+    p_nombre_banco_empresa_cuenta_salida: company.nombre_banco,
+    p_id_banco_cliente_transferencia: company.id_banco,
+    p_nombre_banco_cliente_transferencia: company.nombre_banco,
     p_id_usuario_gestor: user.userId,
     p_nombre_usuario_gestor: user.userName,
 });

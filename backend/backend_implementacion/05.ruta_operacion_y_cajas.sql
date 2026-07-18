@@ -783,7 +783,7 @@ AS $$
         WHERE UPPER(COALESCE(tipo_servicio, '')) = 'EFECTIVIZACION'
           AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
           AND COALESCE(flag_derivado, false) = false
-          AND (p_id_empresa IS NULL OR id_empresa_ingreso = p_id_empresa)
+          AND (p_id_empresa IS NULL OR id_empresa_salida = p_id_empresa)
       )::integer AS efectivizacion,
       COUNT(*) FILTER (
         WHERE UPPER(COALESCE(tipo_servicio, '')) = 'PAGO DEUDA'
@@ -876,12 +876,12 @@ AS $$
   empresa_rows AS (
     SELECT
       'Efectivizacion'::character varying AS tab,
-      id_empresa_ingreso AS id_empresa
+      id_empresa_salida AS id_empresa
     FROM base
     WHERE UPPER(COALESCE(tipo_servicio, '')) = 'EFECTIVIZACION'
       AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
       AND COALESCE(flag_derivado, false) = false
-      AND id_empresa_ingreso IS NOT NULL
+      AND id_empresa_salida IS NOT NULL
 
     UNION ALL
 
@@ -2534,7 +2534,7 @@ Reglas:
 */
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_caja_desde_proceso(
   p_id_operacion_proceso bigint,
-  p_tipo_origen character varying DEFAULT 'OPERACION_PROCESO',
+  p_tipo_origen character varying DEFAULT 'EFECTIVIZACION',
   p_tipo_movimiento character varying DEFAULT NULL,
   p_id_usuario bigint DEFAULT NULL,
   p_nombre_usuario character varying DEFAULT NULL,
@@ -2843,7 +2843,7 @@ BEGIN
 
   v_result := public.f_post_tb_operacion_caja(
     p_id_caja := v_id_caja,
-    p_tipo_origen := COALESCE(p_tipo_origen, 'OPERACION_PROCESO'),
+    p_tipo_origen := COALESCE(p_tipo_origen, 'EFECTIVIZACION'),
     p_tipo_movimiento := v_tipo_movimiento,
     p_id_operacion_proceso := v_op.id,
     p_id_codigo_servicio := v_op.id_codigo_servicio,
@@ -3061,7 +3061,7 @@ BEGIN
 
   v_salida := public.f_post_tb_operacion_caja(
     p_id_caja := p_id_caja_origen,
-    p_tipo_origen := 'TRANSFERENCIA_INTERNA',
+    p_tipo_origen := 'TRANSFERENCIA INTERNA',
     p_tipo_movimiento := 'SALIDA',
     p_id_categoria_movimiento := p_id_categoria_movimiento,
     p_nombre_categoria_movimiento := p_nombre_categoria_movimiento,
@@ -3084,7 +3084,7 @@ BEGIN
   v_ingreso := public.f_post_tb_operacion_caja(
     p_id_caja := p_id_caja_destino,
     p_id_operacion_caja_relacionada := v_id_salida,
-    p_tipo_origen := 'TRANSFERENCIA_INTERNA',
+    p_tipo_origen := 'TRANSFERENCIA INTERNA',
     p_tipo_movimiento := 'INGRESO',
     p_id_categoria_movimiento := p_id_categoria_movimiento,
     p_nombre_categoria_movimiento := p_nombre_categoria_movimiento,
@@ -3290,7 +3290,7 @@ BEGIN
   IF v_mov.id IS NULL THEN
     v_sync_result := public.f_post_tb_operacion_caja_desde_proceso(
       p_id_operacion_proceso := p_id,
-      p_tipo_origen := 'EXCEL',
+      p_tipo_origen := 'EFECTIVIZACION',
       p_tipo_movimiento := 'INGRESO',
       p_id_usuario := COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario),
       p_nombre_usuario := v_nombre_usuario,
@@ -3352,6 +3352,10 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-
+  'f_post_tb_operacion_caja_desde_proceso',
+  'f_patch_tb_operacion_proceso_confirmar_retencion',
+  'f_post_tb_operacion_caja_transferencia',
+  'f_get_tb_operacion_bandeja_badges',
+  'f_get_tb_operacion_empresa_badges'
 )
 ORDER BY n.nspname, p.proname;

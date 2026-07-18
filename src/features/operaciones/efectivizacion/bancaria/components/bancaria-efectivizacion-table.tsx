@@ -142,9 +142,9 @@ const getColumnHeaders = (showCuentaIngresoInDni: boolean) => [
     { label: "Comunidad" },
     { label: "Cuenta Empresa", className: "w-32" },
     { label: "Cuenta Cliente", className: "w-32" },
-    { label: "Monto", className: "text-right" },
-    { label: "Comision", className: "text-right" },
-    { label: "Transferencia", className: "text-right" },
+    { label: "Monto" },
+    { label: "Comision" },
+    { label: "Transferencia" },
     { label: "Estado" },
     { label: "Hora", className: "w-24" },
     { label: "Acciones", className: "w-14 text-center" },
@@ -293,13 +293,20 @@ export const BancariaEfectivizacionTable = ({
 
             if (recalculate) {
                 const calc = await operacionesRpcService.calcularOperacion(getCalculationPayload(draft));
-                payload = {
-                    ...payload,
-                    p_resultado_comision_servicio: calc.resultado_comision_servicio,
-                    p_monto_transferencia_cliente: calc.monto_transferencia_cliente,
-                    p_resultado_comision_banco_ingreso: calc.resultado_comision_banco_ingreso,
-                    p_resultado_comision_banco_salida: calc.resultado_comision_banco_salida,
-                };
+                if (isDerivaciones) {
+                    payload = {
+                        ...payload,
+                        p_resultado_comision_banco_salida: calc.resultado_comision_banco_salida,
+                    };
+                } else {
+                    payload = {
+                        ...payload,
+                        p_resultado_comision_servicio: calc.resultado_comision_servicio,
+                        p_monto_transferencia_cliente: calc.monto_transferencia_cliente,
+                        p_resultado_comision_banco_ingreso: calc.resultado_comision_banco_ingreso,
+                        p_resultado_comision_banco_salida: calc.resultado_comision_banco_salida,
+                    };
+                }
             }
 
             const saved = await operacionesRpcService.patchOperacionBase(payload);
@@ -332,7 +339,8 @@ export const BancariaEfectivizacionTable = ({
         }, true);
     };
 
-    const readOnlyIngreso = (row: OperacionProceso) => isPagado(row) || savingIds.includes(row.id);
+    const isDerivaciones = mode === "derivaciones";
+    const readOnlyIngreso = (row: OperacionProceso) => isDerivaciones || isPagado(row) || savingIds.includes(row.id);
     const readOnlySalida = (row: OperacionProceso) => isPagado(row) || savingIds.includes(row.id);
 
     const handleToggleVisible = () => {
@@ -758,20 +766,20 @@ export const BancariaEfectivizacionTable = ({
                                             <CompactMoneyCell value={row.monto_deposito_cliente} />
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            <div className="text-right tabular-nums">
-                                                <div className="flex items-center justify-end gap-1">
+                                            <div className="tabular-nums">
+                                                <div className="flex items-center gap-1">
                                                     <span className="whitespace-nowrap text-sm font-semibold text-primary">{formatMoney(row.resultado_comision_servicio)}</span>
                                                     <CompactBadgeLine>{toNumber(row.monto_deposito_cliente) > toNumber(row.monto_minimo_deposito_servicio) ? `${row.comision_servicio ?? 0}%` : formatMoney(row.comision_minima_servicio)}</CompactBadgeLine>
                                                 </div>
                                                 {toNumber(row.comision_monto_extra_servicio) > 0 && (
-                                                    <div className="mt-1 flex justify-end">
+                                                    <div className="mt-1 flex">
                                                         <CompactBadgeLine color="warning">Extra {formatMoney(row.comision_monto_extra_servicio)}</CompactBadgeLine>
                                                     </div>
                                                 )}
                                             </div>
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            <div className="flex items-center justify-end gap-1">
+                                            <div className="flex items-center gap-1">
                                                 <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-primary">{formatMoney(row.monto_transferencia_cliente)}</span>
                                                 <Button size="xs" color="tertiary" iconLeading={Copy01} onClick={() => void handleAction(row, "Copiar")} />
                                             </div>

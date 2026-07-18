@@ -610,6 +610,17 @@ DECLARE
   v_nombre_banco_empresa_cuenta_ingreso_final character varying;
   v_ruta_kpi character varying;
   v_caja_result jsonb;
+  v_id_ecb_ingreso bigint;
+  v_itf_cuenta numeric := 0;
+  v_flag_por_sol_comision_banco_ingreso_val boolean := false;
+  v_flag_retencion_cuenta_val boolean := false;
+  v_comision_banco_ingreso_val numeric := 0;
+  v_comision_minimo_banco_ingreso_val numeric := 0;
+  v_comision_igv_banco_ingreso_val numeric := 0;
+  v_regla record;
+  v_calc_serv jsonb;
+  v_calc_ing jsonb;
+  v_calc_sal jsonb;
 BEGIN
   v_cliente_id := p_id_cliente;
   v_cliente_nombre := p_nombre_cliente;
@@ -769,6 +780,78 @@ BEGIN
     END IF;
   END IF;
 
+  SELECT
+    ecb.id,
+    ecb.comision_itf_ingreso_salida,
+    ecb.flag_por_sol_comision_banco_ingreso,
+    ecb.flag_retencion,
+    ecb.comision_banco_ingreso,
+    ecb.comision_minimo_banco_ingreso,
+    ecb.comision_igv_banco_ingreso
+  INTO
+    v_id_ecb_ingreso,
+    v_itf_cuenta,
+    v_flag_por_sol_comision_banco_ingreso_val,
+    v_flag_retencion_cuenta_val,
+    v_comision_banco_ingreso_val,
+    v_comision_minimo_banco_ingreso_val,
+    v_comision_igv_banco_ingreso_val
+  FROM public.tb_empresa_cuenta_bancaria ecb
+  WHERE ecb.id_empresa = v_id_empresa_ingreso_final
+    AND ecb.id_banco   = v_id_banco_empresa_cuenta_ingreso_final
+    AND ecb.id_estado  = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
+  LIMIT 1;
+
+  IF v_id_ecb_ingreso IS NULL THEN
+    RETURN jsonb_build_object(
+      'error', 'No existe una cuenta bancaria activa de ingreso para la empresa y banco de la ruta.'
+    );
+  END IF;
+
+  SELECT r.*
+  INTO v_regla
+  FROM public.tb_reglas_efectivizacion r
+  WHERE r.id_codigo_servicio = p_id_codigo_servicio
+    AND r.id_banco   = v_id_banco_empresa_cuenta_ingreso_final
+    AND r.id_comunidad = p_id_comunidad
+    AND (p_nombre_tipo_deposito IS NULL OR r.tipo_deposito = p_nombre_tipo_deposito)
+    AND r.id_estado  = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
+  LIMIT 1;
+
+  IF v_regla.id IS NULL THEN
+    RETURN jsonb_build_object(
+      'error', 'No se encontro una regla activa de efectivizacion para la combinacion seleccionada.'
+    );
+  END IF;
+
+  v_calc_serv := public.f_get_tb_operacion_calculo_comision_servicio(
+    COALESCE(p_monto_deposito_cliente, 0),
+    v_regla.comision_servicio,
+    v_regla.monto_minimo_deposito_servicio,
+    v_regla.comision_minima_servicio,
+    0
+  );
+
+  v_calc_ing := public.f_get_tb_operacion_calculo_comision_banco_ingreso(
+    v_flag_por_sol_comision_banco_ingreso_val,
+    COALESCE(p_monto_deposito_cliente, 0),
+    v_comision_banco_ingreso_val,
+    v_comision_minimo_banco_ingreso_val,
+    v_comision_igv_banco_ingreso_val,
+    v_itf_cuenta
+  );
+
+  v_calc_sal := public.f_get_tb_operacion_calculo_comision_banco_salida(
+    (v_calc_serv->>'monto_transferencia_cliente')::numeric,
+    0,
+    0,
+    v_itf_cuenta,
+    v_id_empresa_ingreso_final,
+    v_id_empresa_cuenta_ingreso_final,
+    v_id_banco_empresa_cuenta_ingreso_final,
+    v_id_banco_empresa_cuenta_ingreso_final
+  );
+
   INSERT INTO public.tb_operacion_proceso (
     id_codigo_servicio,
     nombre_codigo_servicio,
@@ -845,12 +928,12 @@ BEGIN
     v_tipo_servicio,
     p_id_comunidad,
     p_nombre_comunidad,
-    p_nombre_tipo_deposito,
+    v_regla.tipo_deposito,
     v_cliente_id,
     p_dni_cliente,
     COALESCE(v_cliente_nombre, p_nombre_cliente),
-    p_id_banco_cliente,
-    p_nombre_banco_cliente,
+    v_id_banco_empresa_cuenta_ingreso_final,
+    v_nombre_banco_empresa_cuenta_ingreso_final,
     p_monto_deposito_cliente,
     p_codigo_operacion_deposito_cliente,
     p_fecha_deposito_cliente,
@@ -859,29 +942,29 @@ BEGIN
     v_id_empresa_cuenta_ingreso_final,
     v_id_banco_empresa_cuenta_ingreso_final,
     v_nombre_banco_empresa_cuenta_ingreso_final,
-    p_flag_por_sol_comision_banco_ingreso,
-    p_comision_banco_ingreso,
-    p_comision_minimo_banco_ingreso,
-    p_comision_igv_banco_ingreso,
-    p_resultado_comision_banco_ingreso,
-    p_monto_itf_ingreso,
-    p_comision_servicio,
-    p_monto_minimo_deposito_servicio,
-    p_comision_minima_servicio,
-    p_comision_monto_extra_servicio,
-    p_resultado_comision_servicio,
-    p_id_empresa_salida,
-    p_nombre_empresa_salida,
-    p_id_empresa_cuenta_salida,
-    p_id_banco_empresa_cuenta_salida,
-    p_nombre_banco_empresa_cuenta_salida,
-    p_comision_transf_banco_salida,
-    p_comision_transf_inter_banco_salida,
-    p_resultado_comision_banco_salida,
-    p_monto_transferencia_cliente,
-    p_monto_itf_salida,
-    p_id_banco_cliente_transferencia,
-    p_nombre_banco_cliente_transferencia,
+    v_flag_por_sol_comision_banco_ingreso_val,
+    v_comision_banco_ingreso_val,
+    v_comision_minimo_banco_ingreso_val,
+    v_comision_igv_banco_ingreso_val,
+    (v_calc_ing->>'resultado_comision_banco_ingreso')::numeric,
+    v_itf_cuenta,
+    v_regla.comision_servicio,
+    v_regla.monto_minimo_deposito_servicio,
+    v_regla.comision_minima_servicio,
+    0,
+    (v_calc_serv->>'resultado_comision_servicio')::numeric,
+    v_id_empresa_ingreso_final,
+    v_nombre_empresa_ingreso_final,
+    v_id_empresa_cuenta_ingreso_final,
+    v_id_banco_empresa_cuenta_ingreso_final,
+    v_nombre_banco_empresa_cuenta_ingreso_final,
+    0,
+    0,
+    (v_calc_sal->>'resultado_comision_banco_salida')::numeric,
+    (v_calc_serv->>'monto_transferencia_cliente')::numeric,
+    v_itf_cuenta,
+    v_id_banco_empresa_cuenta_ingreso_final,
+    v_nombre_banco_empresa_cuenta_ingreso_final,
     p_id_estado,
     p_nombre_estado,
     p_id_usuario,
@@ -898,8 +981,8 @@ BEGIN
     p_fecha_derivacion,
     p_id_usuario_deriva,
     p_nombre_usuario_deriva,
-    COALESCE(p_flag_retenido, false),
-    p_fecha_retencion,
+    CASE WHEN v_flag_retencion_cuenta_val THEN true ELSE COALESCE(p_flag_retenido, false) END,
+    CASE WHEN v_flag_retencion_cuenta_val THEN now() ELSE p_fecha_retencion END,
     p_id_usuario_retiene,
     p_nombre_usuario_retiene,
     p_motivo_retencion,
@@ -913,7 +996,7 @@ BEGIN
 
   v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
     p_id_operacion_proceso := v_id,
-    p_tipo_origen := 'OPERACION_PROCESO',
+    p_tipo_origen := 'EFECTIVIZACION',
     p_tipo_movimiento := 'INGRESO',
     p_id_usuario := p_id_usuario,
     p_nombre_usuario := p_nombre_usuario,
@@ -927,7 +1010,7 @@ BEGIN
   IF UPPER(COALESCE(p_nombre_estado, '')) = 'PAGADO' THEN
     v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
       p_id_operacion_proceso := v_id,
-      p_tipo_origen := 'OPERACION_PROCESO',
+      p_tipo_origen := 'EFECTIVIZACION',
       p_tipo_movimiento := 'SALIDA',
       p_id_usuario := p_id_usuario,
       p_nombre_usuario := p_nombre_usuario,
@@ -1636,7 +1719,7 @@ BEGIN
     IF NOT v_tiene_ingreso THEN
       v_ingreso_result := public.f_post_tb_operacion_caja_desde_proceso(
         p_id_operacion_proceso := p_id,
-        p_tipo_origen := 'EXCEL',
+        p_tipo_origen := 'EFECTIVIZACION',
         p_tipo_movimiento := 'INGRESO',
         p_id_usuario := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario),
         p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_actual.nombre_usuario_gestor, v_actual.nombre_usuario),
@@ -1650,7 +1733,7 @@ BEGIN
   ELSE
     v_ingreso_result := public.f_post_tb_operacion_caja_desde_proceso(
       p_id_operacion_proceso := p_id,
-      p_tipo_origen := 'OPERACION_PROCESO',
+      p_tipo_origen := 'EFECTIVIZACION',
       p_tipo_movimiento := 'INGRESO',
       p_id_usuario := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario),
       p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_actual.nombre_usuario_gestor, v_actual.nombre_usuario),
@@ -1664,7 +1747,7 @@ BEGIN
 
   v_salida_result := public.f_post_tb_operacion_caja_desde_proceso(
     p_id_operacion_proceso := p_id,
-    p_tipo_origen := 'OPERACION_PROCESO',
+    p_tipo_origen := 'EFECTIVIZACION',
     p_tipo_movimiento := 'SALIDA',
     p_id_usuario := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario),
     p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_actual.nombre_usuario_gestor, v_actual.nombre_usuario),
@@ -2716,7 +2799,7 @@ BEGIN
 
     v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
       p_id_operacion_proceso := v_new_id,
-      p_tipo_origen := 'EXCEL',
+      p_tipo_origen := 'EFECTIVIZACION',
       p_tipo_movimiento := 'INGRESO',
       p_id_usuario := p_id_usuario,
       p_nombre_usuario := v_username,
@@ -3191,7 +3274,7 @@ BEGIN
 
     v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
       p_id_operacion_proceso := v_new_id,
-      p_tipo_origen := 'EXCEL_GANANCIA',
+      p_tipo_origen := 'EFECTIVIZACION',
       p_tipo_movimiento := 'INGRESO',
       p_id_usuario := p_id_usuario,
       p_nombre_usuario := v_username,
@@ -3212,7 +3295,7 @@ BEGIN
 
     v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
       p_id_operacion_proceso := v_new_id,
-      p_tipo_origen := 'EXCEL_GANANCIA',
+      p_tipo_origen := 'EFECTIVIZACION',
       p_tipo_movimiento := 'SALIDA',
       p_id_usuario := p_id_usuario,
       p_nombre_usuario := v_username,
@@ -3261,6 +3344,8 @@ WHERE p.proname IN (
   'f_get_tb_operacion_proceso',
   'f_patch_tb_operacion_proceso_pagado',
   'f_patch_tb_operacion_proceso_directo_caja',
-  'f_post_tb_operacion_proceso_excel'
+  'f_post_tb_operacion_proceso',
+  'f_post_tb_operacion_proceso_excel',
+  'f_post_tb_operacion_proceso_excel_ganancia'
 )
 ORDER BY n.nspname, p.proname;

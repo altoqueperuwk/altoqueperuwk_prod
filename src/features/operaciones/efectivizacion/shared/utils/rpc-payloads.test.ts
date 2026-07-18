@@ -85,7 +85,7 @@ describe("rpc-payloads", () => {
         });
     });
 
-    it("builds empresa ingreso payload without salida fields", () => {
+    it("builds empresa ingreso payload with both ingreso and salida fields", () => {
         expect(buildOperacionEmpresaIngresoPayload(7, company, user)).toEqual({
             p_id: 7,
             p_id_empresa_ingreso: 1,
@@ -93,6 +93,13 @@ describe("rpc-payloads", () => {
             p_id_empresa_cuenta_ingreso: 2,
             p_id_banco_empresa_cuenta_ingreso: 3,
             p_nombre_banco_empresa_cuenta_ingreso: "BCP",
+            p_id_empresa_salida: 1,
+            p_nombre_empresa_salida: "Empresa A",
+            p_id_empresa_cuenta_salida: 2,
+            p_id_banco_empresa_cuenta_salida: 3,
+            p_nombre_banco_empresa_cuenta_salida: "BCP",
+            p_id_banco_cliente_transferencia: 3,
+            p_nombre_banco_cliente_transferencia: "BCP",
             p_id_usuario_gestor: 99,
             p_nombre_usuario_gestor: "Operador",
         });

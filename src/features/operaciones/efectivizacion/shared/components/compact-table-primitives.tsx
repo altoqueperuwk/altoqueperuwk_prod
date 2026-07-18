@@ -41,7 +41,7 @@ interface CompactMoneyCellProps {
 }
 
 export const CompactMoneyCell = ({ className, secondary, value }: CompactMoneyCellProps) => (
-    <div className={cx("text-right tabular-nums", className)}>
+    <div className={cx("tabular-nums", className)}>
         <div className={cx("flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:justify-end", !secondary && "block")}>
             <span className="whitespace-nowrap text-sm font-semibold text-primary">{formatMoney(value)}</span>
             {secondary ? <span className="flex flex-wrap justify-end gap-1">{secondary}</span> : null}

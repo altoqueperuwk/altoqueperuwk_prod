@@ -29,7 +29,7 @@ const getColumnClasses = <T extends { id: number }>(column: Column<T>) => {
     const token = `${key} ${label}`;
 
     if (key.includes("monto") || key.includes("comision") || key.includes("resultado_comision")) {
-        return { header: "text-right", cell: "text-right tabular-nums" };
+        return { header: "", cell: "tabular-nums" };
     }
 
     if (token.includes("cuenta empresa") || token.includes("cuenta cliente")) return { header: "w-32", cell: "max-w-32 truncate" };

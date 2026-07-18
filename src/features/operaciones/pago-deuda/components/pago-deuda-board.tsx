@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Check } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { estadoService } from "@/services/estado.service";
@@ -17,9 +16,7 @@ import {
     getSelectValue,
 } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import type { OperacionProceso } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
-import { buildOperacionReanudarPayload } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
-import { PagoDeudaActionModal } from "@/features/operaciones/pago-deuda/components/pago-deuda-action-modal";
 import { cx } from "@/utils/cx";
 
 interface PagoDeudaBoardProps {
@@ -34,8 +31,8 @@ interface EmpresaCuentaActiva {
     banco_nombre: string;
 }
 
-const filters = ["Todos", "Solicitado"];
-const actions = ["Transferencia", "Match", "Comision", "Reiniciar", "Pagar"];
+const filters = ["Todos", "Pendiente Transferencia", "Pendiente Devolución", "Pendiente Comisión"];
+const actions = ["Confirmar Comision"];
 
 const formatDate = (value?: string | null) => {
     if (!value) return "";
@@ -57,13 +54,13 @@ const getEstadoColor = (estado?: string | null): "gray" | "brand" | "error" | "w
     return "warning";
 };
 
-const PagoDeudaSteps = ({ row }: { row: OperacionProceso }) => {
+export const PagoDeudaSteps = ({ row }: { row: OperacionProceso }) => {
     const estado = getEstadoToken(row.nombre_estado);
     const completed = [
         true,
         estado === "PROCESADO" || estado === "PAGADO",
         Boolean(row.id_operacion_match) || estado === "PAGADO",
-        Boolean(row.flag_comision_registrada),
+        Boolean(row.flag_comision_registrada) || (estado === "PAGADO" && Boolean(row.id_operacion_match)),
     ];
 
     return (
@@ -91,8 +88,6 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
     const { addToast } = useToast();
     const [dni, setDni] = useState("");
     const [estadoPagado, setEstadoPagado] = useState<{ id: number; nombre: string } | null>(null);
-    const [estadoPendiente, setEstadoPendiente] = useState<{ id: number; nombre: string } | null>(null);
-    const [estadoSolicitado, setEstadoSolicitado] = useState<{ id: number; nombre: string } | null>(null);
     const [activeFilter, setActiveFilter] = useState("Todos");
     const [solicitudes, setSolicitudes] = useState<OperacionProceso[]>([]);
     const [cuentasActivas, setCuentasActivas] = useState<EmpresaCuentaActiva[]>([]);
@@ -102,16 +97,14 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
     const [isApplyingAction, setIsApplyingAction] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [actionRefreshKey, setActionRefreshKey] = useState(0);
-    const [pendingAction, setPendingAction] = useState<"Transferencia" | "Match" | "Comision" | null>(null);
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
 
     const params = useMemo(() => {
         const values: Record<string, unknown> = {};
         if (dni.trim()) values.p_dni_cliente = dni.trim();
-        if (activeFilter === "Solicitado" && estadoSolicitado) values.p_id_estado = estadoSolicitado.id;
         return values;
-    }, [activeFilter, dni, estadoSolicitado]);
+    }, [dni]);
 
     const empresasActivas = useMemo(() => {
         const byId = new Map<number, { label: string; value: string }>();
@@ -132,12 +125,6 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
                 if (ignore) return;
                 const estados = rows.map((row) => ({ id: Number(row.id), nombre: String(row.nombre ?? "") }));
                 setEstadoPagado(estados.find((item) => item.nombre.toUpperCase() === "PAGADO") ?? null);
-                setEstadoPendiente(estados.find((item) => item.nombre.toUpperCase() === "PENDIENTE") ?? null);
-                setEstadoSolicitado(
-                    estados.find((item) => item.nombre.toUpperCase() === "SOLICITADO") ??
-                        estados.find((item) => item.nombre.toUpperCase() === "PENDIENTE") ??
-                        null,
-                );
             })
             .catch(() => addToast("error", "Error al cargar estados."));
 
@@ -157,6 +144,17 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             })
             .catch(() => addToast("error", "Error al cargar cuentas bancarias."));
 
+        operacionesRpcService
+            .getCajaOperativa({ p_id_estado: 1 })
+            .then((cajas) => {
+                if (ignore) return;
+                const setCajas = new Set((cajas ?? []).map((c) => `${c.id_empresa}-${c.id_empresa_cuenta_bancaria}`));
+                setCuentasActivas((current) =>
+                    current.filter((cuenta) => setCajas.has(`${cuenta.id_empresa}-${cuenta.id}`)),
+                );
+            })
+            .catch(() => addToast("error", "Error al cargar cajas operativas."));
+
         return () => {
             ignore = true;
         };
@@ -166,6 +164,22 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         setSelectedIds([]);
     }, [activeFilter, dni, refreshKey]);
 
+    const filterSolicitudes = (rows: OperacionProceso[]) => {
+        if (activeFilter === "Todos") return rows;
+
+        return rows.filter((row) => {
+            const estado = getEstadoToken(row.nombre_estado);
+            const isProcesado = estado === "PROCESADO" || estado === "PAGADO";
+            const hasMatch = Boolean(row.id_operacion_match);
+            const hasComision = Boolean(row.flag_comision_registrada);
+
+            if (activeFilter === "Pendiente Transferencia") return !isProcesado;
+            if (activeFilter === "Pendiente Devolución") return isProcesado && !hasMatch;
+            if (activeFilter === "Pendiente Comisión") return hasMatch && !hasComision;
+            return true;
+        });
+    };
+
     useEffect(() => {
         let ignore = false;
         setIsLoading(true);
@@ -174,7 +188,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         pagoDeudaService
             .getSolicitudes(params)
             .then((result) => {
-                if (!ignore) setSolicitudes(result ?? []);
+                if (!ignore) setSolicitudes(filterSolicitudes(result ?? []));
             })
             .catch((err) => {
                 if (!ignore) setError(err instanceof Error ? err.message : "No se pudo cargar Pago Deuda.");
@@ -187,6 +201,12 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             ignore = true;
         };
     }, [actionRefreshKey, params, refreshKey]);
+
+    useEffect(() => {
+        const handleFocus = () => setActionRefreshKey((value) => value + 1);
+        window.addEventListener("focus", handleFocus);
+        return () => window.removeEventListener("focus", handleFocus);
+    }, []);
 
     const handleToggleRow = (id: number) => {
         setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
@@ -235,140 +255,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         void persistComisionCuenta(row, cuenta);
     };
 
-    const handleOpenTransferencia = () => {
-        if (!selectedIds.length) {
-            addToast("error", "Selecciona al menos una solicitud.");
-            return;
-        }
-
-        setPendingAction("Transferencia");
-    };
-
-    const handleOpenMatch = () => {
-        if (selectedIds.length !== 1) {
-            addToast("error", "Selecciona una sola solicitud para hacer match.");
-            return;
-        }
-
-        setPendingAction("Match");
-    };
-
-    const handleModalSubmit = async (value: string, extraValue?: string, selectedCompany?: { id_empresa: number; id_empresa_cuenta_bancaria: number }) => {
-        if (!pendingAction) return;
-
-        setIsApplyingAction(true);
-
-        try {
-            const updatedRows: OperacionProceso[] = [];
-
-            if (pendingAction === "Transferencia") {
-                if (!selectedCompany) {
-                    throw new Error("No se encontro la empresa/cuenta de salida.");
-                }
-
-                for (const id of selectedIds) {
-                    const result = await pagoDeudaService.patchSalida({
-                        p_id_operacion: id,
-                        p_id_empresa_salida: selectedCompany.id_empresa,
-                        p_id_empresa_cuenta_salida: selectedCompany.id_empresa_cuenta_bancaria,
-                        p_id_usuario_gestor: userId,
-                        p_nombre_usuario_gestor: userName,
-                        p_ruta_destino: extraValue,
-                    });
-
-                    if (result && "error" in result) {
-                        throw new Error(String((result as Record<string, unknown>).error));
-                    }
-
-                    updatedRows.push(result);
-                }
-            }
-
-            if (pendingAction === "Match") {
-                const result = await pagoDeudaService.patchMatch({
-                    p_id_pago_deuda: selectedIds[0],
-                    p_id_operacion_efectivizacion: Number(value),
-                    p_id_usuario_gestor: userId,
-                    p_nombre_usuario_gestor: userName,
-                });
-
-                if (result && "error" in result) {
-                    throw new Error(String((result as Record<string, unknown>).error));
-                }
-
-                updatedRows.push(result);
-            }
-
-            if (pendingAction === "Comision") {
-                for (const id of selectedIds) {
-                    const row = solicitudes.find((item) => item.id === id);
-                    if (!row?.id_empresa_ingreso || !row.id_empresa_cuenta_ingreso) {
-                        throw new Error("Selecciona empresa y cuenta de comision antes de registrar el ingreso.");
-                    }
-
-                    await pagoDeudaService.postComision({
-                        p_id_operacion: id,
-                        p_id_empresa_ingreso: row.id_empresa_ingreso,
-                        p_id_empresa_cuenta_ingreso: row.id_empresa_cuenta_ingreso,
-                        p_monto_comision: Number(value),
-                        p_id_usuario: userId,
-                        p_nombre_usuario: userName,
-                    });
-                }
-            }
-
-            const updated = selectedIds.length;
-            setPendingAction(null);
-            setSelectedIds([]);
-            if (updatedRows.length) {
-                setSolicitudes((current) => current.map((row) => updatedRows.find((item) => item.id === row.id) ?? row));
-            } else {
-                setActionRefreshKey((current) => current + 1);
-            }
-            addToast("success", `Solicitudes actualizadas: ${updated}`);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : "Error al actualizar Pago Deuda.";
-            addToast("error", message);
-        } finally {
-            setIsApplyingAction(false);
-        }
-    };
-
-    const handleReiniciar = async () => {
-        if (!selectedIds.length) {
-            addToast("error", "Selecciona al menos una solicitud.");
-            return;
-        }
-
-        if (!estadoPendiente) {
-            addToast("error", "No se encontro el estado Pendiente.");
-            return;
-        }
-
-        setIsApplyingAction(true);
-
-        try {
-            const updatedRows: OperacionProceso[] = [];
-            for (const id of selectedIds) {
-                const saved = await operacionesRpcService.patchOperacionReanudar(
-                    buildOperacionReanudarPayload(id, estadoPendiente, { userId, userName }),
-                );
-                updatedRows.push(saved);
-            }
-
-            setSelectedIds([]);
-            setActiveFilter("Todos");
-            setSolicitudes((current) => current.map((row) => updatedRows.find((item) => item.id === row.id) ?? row));
-            addToast("success", `Solicitudes reiniciadas: ${selectedIds.length}`);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : "Error al reiniciar Pago Deuda.";
-            addToast("error", message);
-        } finally {
-            setIsApplyingAction(false);
-        }
-    };
-
-    const handlePagado = async () => {
+    const handleConfirmarComision = async () => {
         if (!selectedIds.length) {
             addToast("error", "Selecciona al menos una solicitud.");
             return;
@@ -379,13 +266,21 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             return;
         }
 
+        const eligible = solicitudes.filter(
+            (row) => selectedIds.includes(row.id) && Boolean(row.id_operacion_match) && !Boolean(row.flag_comision_registrada),
+        );
+        if (!eligible.length) {
+            addToast("error", "Las solicitudes seleccionadas no tienen devolucion confirmada o ya tienen comision.");
+            return;
+        }
+
         setIsApplyingAction(true);
 
         try {
             const updatedRows: OperacionProceso[] = [];
-            for (const id of selectedIds) {
+            for (const row of eligible) {
                 const saved = await pagoDeudaService.patchPagado({
-                    p_id_operacion: id,
+                    p_id_operacion: row.id,
                     p_id_usuario_gestor: userId,
                     p_nombre_usuario_gestor: userName,
                 });
@@ -395,9 +290,9 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             setSelectedIds([]);
             setActiveFilter("Todos");
             setSolicitudes((current) => current.map((row) => updatedRows.find((item) => item.id === row.id) ?? row));
-            addToast("success", `Solicitudes pagadas: ${selectedIds.length}`);
+            addToast("success", `Comisiones confirmadas: ${eligible.length}`);
         } catch (err) {
-            const message = err instanceof Error ? err.message : "Error al marcar Pago Deuda.";
+            const message = err instanceof Error ? err.message : "Error al confirmar comision.";
             addToast("error", message);
         } finally {
             setIsApplyingAction(false);
@@ -405,18 +300,16 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
     };
 
     const handleAction = (action: string) => {
-        if (action === "Transferencia") handleOpenTransferencia();
-        if (action === "Match") handleOpenMatch();
-        if (action === "Comision") setPendingAction("Comision");
-        if (action === "Reiniciar") void handleReiniciar();
-        if (action === "Pagar") void handlePagado();
+        if (action === "Confirmar Comision") void handleConfirmarComision();
     };
 
     const isActionDisabled = (action: string) => {
         if (isApplyingAction || isLoading || !selectedIds.length) return true;
-        if (action === "Match") return selectedIds.length !== 1;
-        if (action === "Reiniciar") return !estadoPendiente;
-        if (action === "Pagar") return !estadoPagado;
+        if (action === "Confirmar Comision") {
+            return !solicitudes.some(
+                (row) => selectedIds.includes(row.id) && Boolean(row.id_operacion_match) && !Boolean(row.flag_comision_registrada),
+            );
+        }
         return false;
     };
 
@@ -449,7 +342,14 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         {
             key: "resultado_comision_servicio",
             label: "Comision",
-            render: (row: OperacionProceso) => <CompactMoneyCell value={row.resultado_comision_servicio} />,
+            render: (row: OperacionProceso) => (
+                <div className="tabular-nums">
+                    <div className="flex items-center gap-1">
+                        <CompactMoneyCell value={row.resultado_comision_servicio} />
+                        <CompactBadgeLine>{row.comision_servicio != null ? `${row.comision_servicio}%` : "-"}</CompactBadgeLine>
+                    </div>
+                </div>
+            ),
         },
         {
             key: "empresa_comision",
@@ -459,7 +359,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
                     aria-label="Empresa de comision"
                     width="w-52"
                     value={row.id_empresa_ingreso ? String(row.id_empresa_ingreso) : ""}
-                    disabled={savingCuentaIds.includes(row.id)}
+                    disabled={savingCuentaIds.includes(row.id) || !row.id_operacion_match}
                     onChange={(event) => handleEmpresaChange(row, getSelectValue(event))}
                     options={[{ label: "Empresa", value: "" }, ...empresasActivas]}
                 />
@@ -478,19 +378,12 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
                         aria-label="Cuenta de comision"
                         width="w-36"
                         value={row.id_empresa_cuenta_ingreso ? String(row.id_empresa_cuenta_ingreso) : ""}
-                        disabled={savingCuentaIds.includes(row.id) || !row.id_empresa_ingreso}
+                        disabled={savingCuentaIds.includes(row.id) || !row.id_empresa_ingreso || !row.id_operacion_match}
                         onChange={(event) => handleCuentaChange(row, getSelectValue(event))}
                         options={[{ label: "Cuenta", value: "" }, ...cuentaOptions]}
                     />
                 );
             },
-        },
-        {
-            key: "nombre_estado",
-            label: "Estado",
-            render: (row: OperacionProceso) => (
-                <CompactBadgeLine color={getEstadoColor(row.nombre_estado)}>{row.nombre_estado ?? "-"}</CompactBadgeLine>
-            ),
         },
         {
             key: "fecha_registro",
@@ -508,21 +401,6 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             transition={{ duration: 0.2 }}
             className="overflow-hidden rounded-lg border border-secondary bg-primary shadow-xs"
         >
-            <div className="flex justify-end border-b border-secondary p-4">
-                <div className="flex flex-wrap justify-end gap-2">
-                    <Button
-                        size="sm"
-                        color="secondary"
-                        onClick={() => {
-                            setDni("");
-                            setActiveFilter("Todos");
-                        }}
-                    >
-                        Limpiar
-                    </Button>
-                </div>
-            </div>
-
             <OperationToolbar
                 activeFilter={activeFilter}
                 actions={actions}
@@ -543,16 +421,6 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
                 isLoading={isLoading}
                 selectedIds={selectedIds}
                 onToggleRow={handleToggleRow}
-            />
-
-            <PagoDeudaActionModal
-                action={pendingAction}
-                isOpen={pendingAction !== null}
-                isSaving={isApplyingAction}
-                selectedCount={selectedIds.length}
-                selectedId={selectedIds[0] ?? null}
-                onClose={() => setPendingAction(null)}
-                onSubmit={handleModalSubmit}
             />
         </motion.section>
     );

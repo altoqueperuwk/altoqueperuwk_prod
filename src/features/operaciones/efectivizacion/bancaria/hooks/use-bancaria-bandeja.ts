@@ -9,6 +9,84 @@ import type {
 export type BancariaTab = "Efectivizacion" | "Pago Deuda" | "Derivados" | "POS" | "Movimientos" | "Retenidos";
 const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif"]);
 
+export interface MovimientoMerged {
+    id: number;
+    tipo_origen: string;
+    movimientos: string[];
+    tipo_servicio: string;
+    nombre_codigo_servicio: string;
+    dni_cliente: string;
+    codigo_operacion: string;
+    nombre_empresa: string;
+    monto_ingreso: number;
+    monto_salida: number;
+    monto_gasto: number;
+    monto_ganancia: number;
+    tipo_facturacion: string;
+    fecha_registro: string;
+}
+
+const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] => {
+    const byProceso = new Map<number, OperacionCajaMovimiento[]>();
+    const standalone: OperacionCajaMovimiento[] = [];
+
+    for (const row of rows) {
+        if (row.id_operacion_proceso != null) {
+            const group = byProceso.get(row.id_operacion_proceso) ?? [];
+            group.push(row);
+            byProceso.set(row.id_operacion_proceso, group);
+        } else {
+            standalone.push(row);
+        }
+    }
+
+    const merged: MovimientoMerged[] = [];
+
+    for (const [, group] of byProceso) {
+        const ingreso = group.find((r) => r.tipo_movimiento.toUpperCase() === "INGRESO");
+        const salida = group.find((r) => r.tipo_movimiento.toUpperCase() === "SALIDA");
+        const primary = ingreso ?? group[0];
+
+        merged.push({
+            id: primary.id,
+            tipo_origen: primary.tipo_origen,
+            movimientos: group.map((r) => r.tipo_movimiento),
+            tipo_servicio: primary.tipo_servicio ?? primary.nombre_codigo_servicio ?? "",
+            nombre_codigo_servicio: primary.nombre_codigo_servicio ?? "",
+            dni_cliente: primary.dni_cliente ?? "",
+            codigo_operacion: primary.codigo_operacion ?? "",
+            nombre_empresa: primary.nombre_empresa,
+            monto_ingreso: ingreso?.monto_ingreso ?? 0,
+            monto_salida: salida?.monto_salida ?? 0,
+            monto_gasto: (ingreso?.monto_gasto ?? 0) + (salida?.monto_gasto ?? 0),
+            monto_ganancia: ingreso?.monto_ganancia ?? 0,
+            tipo_facturacion: primary.tipo_facturacion ?? "Boleta",
+            fecha_registro: primary.fecha_registro,
+        });
+    }
+
+    for (const row of standalone) {
+        merged.push({
+            id: row.id,
+            tipo_origen: row.tipo_origen,
+            movimientos: [row.tipo_movimiento],
+            tipo_servicio: row.tipo_servicio ?? row.nombre_codigo_servicio ?? "",
+            nombre_codigo_servicio: row.nombre_codigo_servicio ?? "",
+            dni_cliente: row.dni_cliente ?? "",
+            codigo_operacion: row.codigo_operacion ?? "",
+            nombre_empresa: row.nombre_empresa,
+            monto_ingreso: row.monto_ingreso,
+            monto_salida: row.monto_salida,
+            monto_gasto: row.monto_gasto,
+            monto_ganancia: row.monto_ganancia,
+            tipo_facturacion: row.tipo_facturacion ?? "Boleta",
+            fecha_registro: row.fecha_registro,
+        });
+    }
+
+    return merged.sort((a, b) => b.fecha_registro.localeCompare(a.fecha_registro));
+};
+
 export const tabContracts: Record<BancariaTab, { filters: string[]; actions: string[] }> = {
     Efectivizacion: {
         filters: ["Todos", "Pendientes", "Rechazados", "Pagados"],
@@ -44,15 +122,12 @@ const estadoByFilter: Record<string, string> = {
     Procesados: "Procesado",
 };
 
-const filterMovimientos = (rows: OperacionCajaMovimiento[], activeFilter: string) => {
-    const visibleRows = rows.filter((row) => (row.nombre_estado ?? "").trim().toUpperCase() !== "RETENIDO");
+const filterMovimientos = (rows: MovimientoMerged[], activeFilter: string) => {
+    if (activeFilter === "Todos") return rows;
 
-    if (activeFilter === "Todos") return visibleRows;
-
-    return visibleRows.filter((row) => {
-        const service = (row.tipo_servicio ?? row.nombre_codigo_servicio ?? "").toUpperCase();
-        const serviceFallback = (row.nombre_codigo_servicio ?? "").toUpperCase();
-        const origin = (row.tipo_origen ?? "").toUpperCase();
+    return rows.filter((row) => {
+        const service = row.tipo_servicio.toUpperCase();
+        const serviceFallback = row.nombre_codigo_servicio.toUpperCase();
 
         if (activeFilter === "Efectivizacion") {
             return service.includes("EFECTIVIZACION") || serviceFallback.includes("EFECTIVIZACION");
@@ -65,8 +140,7 @@ const filterMovimientos = (rows: OperacionCajaMovimiento[], activeFilter: string
         if (activeFilter === "Otros") {
             const isEfectivizacion = service.includes("EFECTIVIZACION") || serviceFallback.includes("EFECTIVIZACION");
             const isPagoDeuda = (service.includes("PAGO") && service.includes("DEUDA")) || (serviceFallback.includes("PAGO") && serviceFallback.includes("DEUDA"));
-
-            return !isEfectivizacion && !isPagoDeuda && origin !== "";
+            return !isEfectivizacion && !isPagoDeuda;
         }
 
         return true;
@@ -99,7 +173,7 @@ export const useBancariaBandeja = ({
     tab,
 }: UseBancariaBandejaArgs) => {
     const [operaciones, setOperaciones] = useState<OperacionProceso[]>([]);
-    const [movimientos, setMovimientos] = useState<OperacionCajaMovimiento[]>([]);
+    const [movimientos, setMovimientos] = useState<MovimientoMerged[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [localRefreshKey, setLocalRefreshKey] = useState(0);
@@ -121,7 +195,7 @@ export const useBancariaBandeja = ({
             base.p_flag_derivado = false;
             if (dateFrom) base.p_fecha_deposito_desde = `${dateFrom}T00:00:00`;
             if (dateTo) base.p_fecha_deposito_hasta = `${dateTo}T23:59:59`;
-            if (activeCompanyId) base.p_id_empresa_ingreso = activeCompanyId;
+            if (activeCompanyId) base.p_id_empresa_salida = activeCompanyId;
         }
 
         if (tab === "Pago Deuda") {
@@ -185,7 +259,7 @@ export const useBancariaBandeja = ({
                     (row.tipo_servicio ?? "").toUpperCase() === "EFECTIVIZACION" &&
                     row.ruta_destino === ruta &&
                     row.flag_derivado === false &&
-                    (!activeCompanyId || row.id_empresa_ingreso === activeCompanyId)
+                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId)
                 );
             }
 
@@ -194,6 +268,7 @@ export const useBancariaBandeja = ({
                     (row.tipo_servicio ?? "").toUpperCase() === "PAGO DEUDA" &&
                     row.ruta_destino === ruta &&
                     row.flag_retenido === false &&
+                    (row.tipo_flujo_pago_deuda ?? "").toUpperCase() !== "RETORNO" &&
                     (!activeCompanyId || row.id_empresa_salida === activeCompanyId)
                 );
             }
@@ -270,7 +345,10 @@ export const useBancariaBandeja = ({
             .then((result) => {
                 if (ignore) return;
                 if (tab === "Movimientos") {
-                    setMovimientos(filterMovimientos((result ?? []) as OperacionCajaMovimiento[], activeFilter));
+                    const raw = (result ?? []) as OperacionCajaMovimiento[];
+                    const visible = raw.filter((row) => (row.nombre_estado ?? "").trim().toUpperCase() !== "RETENIDO");
+                    const merged = mergeMovimientos(visible);
+                    setMovimientos(filterMovimientos(merged, activeFilter));
                     setOperaciones([]);
                 } else {
                     setOperaciones((result ?? []) as OperacionProceso[]);

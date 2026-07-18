@@ -15,6 +15,7 @@ import type {
     OperacionRutaBancaria,
     RutaOperacionCaja,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { downloadCsv } from "@/features/operaciones/efectivizacion/shared/utils/csv";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
@@ -31,12 +32,13 @@ import {
 } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
 import { BancariaActionModal } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-action-modal";
 import { BancariaEfectivizacionTable } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-efectivizacion-table";
-import { type BancariaTab, tabContracts, useBancariaBandeja } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
+import { type BancariaTab, type MovimientoMerged, tabContracts, useBancariaBandeja } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
 import {
     useBancariaEmpresaBadges,
     useBancariaTabBadges,
 } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-tab-badges";
 import { PagoDeudaActionModal } from "@/features/operaciones/pago-deuda/components/pago-deuda-action-modal";
+import { PagoDeudaSteps } from "@/features/operaciones/pago-deuda/components/pago-deuda-board";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 
 const tabs: BancariaTab[] = ["Efectivizacion", "Pago Deuda", "Derivados", "POS", "Movimientos", "Retenidos"];
@@ -67,13 +69,16 @@ const baseOperationColumns = [
 const operationColumnsByTab: Record<Exclude<BancariaTab, "Movimientos">, typeof baseOperationColumns> = {
     Efectivizacion: baseOperationColumns,
     "Pago Deuda": [
+        { key: "pasos", label: "Pasos", render: (row: OperacionProceso) => <PagoDeudaSteps row={row} /> },
         { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
         { key: "dni_cliente", label: "DNI" },
-        { key: "nombre_cliente", label: "Cliente" },
-        { key: "nombre_estado", label: "Estado" },
-        { key: "monto_deposito_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_deposito_cliente) },
-        { key: "nombre_empresa_salida", label: "Cuenta Empresa" },
-        { key: "nombre_usuario_solicitud", label: "Solicita" },
+        { key: "nombre_cliente", label: "Cliente", render: (row: OperacionProceso) => row.nombre_cliente || "-" },
+        { key: "nombre_empresa_salida", label: "Empresa Salida", render: (row: OperacionProceso) => row.nombre_empresa_salida || "-" },
+        { key: "nombre_banco_empresa_cuenta_salida", label: "Cuenta", render: (row: OperacionProceso) => row.nombre_banco_empresa_cuenta_salida || "-" },
+        { key: "monto_transferencia_cliente", label: "Monto Transferencia", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
+        { key: "nombre_empresa_ingreso", label: "Empresa Ingreso", render: (row: OperacionProceso) => row.nombre_empresa_ingreso || "-" },
+        { key: "nombre_banco_empresa_cuenta_ingreso", label: "Cuenta Ingreso", render: (row: OperacionProceso) => row.nombre_banco_empresa_cuenta_ingreso || "-" },
+        { key: "monto_deposito_cliente", label: "Monto Devolución", render: (row: OperacionProceso) => formatMoney(row.monto_deposito_cliente) },
         { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
     ],
     Derivados: [
@@ -104,33 +109,32 @@ const operationColumnsByTab: Record<Exclude<BancariaTab, "Movimientos">, typeof 
         { key: "monto_transferencia_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
         { key: "nombre_usuario_retiene", label: "Retiene" },
         { key: "motivo_retencion", label: "Motivo" },
-        { key: "fecha_deposito_cliente", label: "Deposito", render: (row: OperacionProceso) => row.fecha_deposito_cliente ? new Date(row.fecha_deposito_cliente).toLocaleDateString("es-PE") : "" },
+    { key: "fecha_deposito_cliente", label: "Deposito", render: (row: OperacionProceso) => row.fecha_deposito_cliente ? new Date(row.fecha_deposito_cliente).toLocaleDateString("es-PE") : "" },
     ],
 };
 
-const formatMovimientoOrigen = (value?: string | null) => {
-    const token = String(value ?? "").trim().toUpperCase();
-
-    if (["EXCEL", "OPERACION_PROCESO", "EXCEL_GANANCIA", "MANUAL"].includes(token)) return "EFECTIVIZACION";
-    if (token === "PAGO_DEUDA") return "PAGO DEUDA DEPOSITO";
-    if (token === "PAGO_DEUDA_RETORNO" || token === "PAGO_DEUDA_DIRECTO") return "PAGO DEUDA DEVOLUCION";
-    if (token === "PAGO_DEUDA_COMISION") return "PAGO DEUDA COMISION";
-    if (token === "OTROS") return "OTROS";
-    if (token === "TRANSFERENCIA_INTERNA") return "TRANSFERENCIA INTERNA";
-
-    return token || "-";
-};
-
 const movementColumns = [
-    { key: "tipo_origen", label: "Origen", render: (row: OperacionCajaMovimiento) => formatMovimientoOrigen(row.tipo_origen) },
-    { key: "tipo_movimiento", label: "Movimiento" },
-    { key: "dni_cliente", label: "DNI" },
-    { key: "codigo_operacion", label: "Codigo" },
-    { key: "nombre_empresa", label: "Empresa" },
+    { key: "tipo_origen", label: "Origen", render: (row: MovimientoMerged) => <CompactBadgeLine color="brand">{row.tipo_origen}</CompactBadgeLine> },
+    {
+        key: "movimientos",
+        label: "Movimiento",
+        render: (row: MovimientoMerged) => (
+            <div className="flex flex-wrap gap-1">
+                {row.movimientos.map((mov) => (
+                    <CompactBadgeLine key={mov} color={mov.toUpperCase() === "INGRESO" ? "success" : "error"}>
+                        {mov}
+                    </CompactBadgeLine>
+                ))}
+            </div>
+        ),
+    },
+    { key: "dni_cliente", label: "DNI", render: (row: MovimientoMerged) => row.dni_cliente || "-" },
+    { key: "codigo_operacion", label: "Codigo", render: (row: MovimientoMerged) => row.codigo_operacion || "-" },
+    { key: "nombre_empresa", label: "Empresa", render: (row: MovimientoMerged) => row.nombre_empresa },
     {
         key: "monto_ingreso",
         label: "Ingreso",
-        render: (row: OperacionCajaMovimiento) => (
+        render: (row: MovimientoMerged) => (
             <span className={row.monto_ingreso ? "font-medium text-concept-ingreso" : "text-concept-zero"}>
                 {formatMoney(row.monto_ingreso)}
             </span>
@@ -139,13 +143,40 @@ const movementColumns = [
     {
         key: "monto_salida",
         label: "Salida",
-        render: (row: OperacionCajaMovimiento) => (
+        render: (row: MovimientoMerged) => (
             <span className={row.monto_salida ? "font-medium text-concept-salida" : "text-concept-zero"}>
                 {formatMoney(row.monto_salida)}
             </span>
         ),
     },
-    { key: "fecha_registro", label: "Fecha", render: (row: OperacionCajaMovimiento) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
+    {
+        key: "monto_gasto",
+        label: "Gasto",
+        render: (row: MovimientoMerged) => (
+            <span className={row.monto_gasto ? "font-medium text-concept-gasto" : "text-concept-zero"}>
+                {formatMoney(row.monto_gasto)}
+            </span>
+        ),
+    },
+    {
+        key: "monto_ganancia",
+        label: "Ganancia",
+        render: (row: MovimientoMerged) => (
+            <span className={row.monto_ganancia ? "font-medium text-concept-ganancia" : "text-concept-zero"}>
+                {formatMoney(row.monto_ganancia)}
+            </span>
+        ),
+    },
+    {
+        key: "tipo_facturacion",
+        label: "Facturacion",
+        render: (row: MovimientoMerged) => (
+            <CompactBadgeLine color={row.tipo_facturacion === "Sin Boleta" ? "gray" : "brand"}>
+                {row.tipo_facturacion}
+            </CompactBadgeLine>
+        ),
+    },
+    { key: "fecha_registro", label: "Fecha", render: (row: MovimientoMerged) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
 ];
 
 const getExportValue = <T extends { id: number }>(
@@ -156,6 +187,7 @@ const getExportValue = <T extends { id: number }>(
     if (typeof rendered === "string" || typeof rendered === "number") return rendered;
 
     const raw = row[column.key as keyof T];
+    if (Array.isArray(raw)) return raw.join(", ");
     return raw ?? "";
 };
 
@@ -598,16 +630,27 @@ export const BancariaOperationalTabs = ({
                             id_banco_cliente_transferencia: company.id_banco,
                             nombre_banco_cliente_transferencia: company.nombre_banco,
                         };
-                        const calc = await operacionesRpcService.calcularOperacion(getCalculationPayload(draft));
 
-                        const saved = await operacionesRpcService.patchOperacionBase({
-                            ...buildOperacionEmpresaSalidaPayload(id, company, { userId, userName }),
-                            p_resultado_comision_servicio: calc.resultado_comision_servicio,
-                            p_monto_transferencia_cliente: calc.monto_transferencia_cliente,
-                            p_resultado_comision_banco_ingreso: calc.resultado_comision_banco_ingreso,
-                            p_resultado_comision_banco_salida: calc.resultado_comision_banco_salida,
-                        });
-                        updatedRows.push(saved);
+                        if (activeTab === "Derivados") {
+                            const calc = await operacionesRpcService.calcularOperacion(getCalculationPayload(draft));
+
+                            const saved = await operacionesRpcService.patchOperacionBase({
+                                ...buildOperacionEmpresaSalidaPayload(id, company, { userId, userName }),
+                                p_resultado_comision_banco_salida: calc.resultado_comision_banco_salida,
+                            });
+                            updatedRows.push(saved);
+                        } else {
+                            const calc = await operacionesRpcService.calcularOperacion(getCalculationPayload(draft));
+
+                            const saved = await operacionesRpcService.patchOperacionBase({
+                                ...buildOperacionEmpresaSalidaPayload(id, company, { userId, userName }),
+                                p_resultado_comision_servicio: calc.resultado_comision_servicio,
+                                p_monto_transferencia_cliente: calc.monto_transferencia_cliente,
+                                p_resultado_comision_banco_ingreso: calc.resultado_comision_banco_ingreso,
+                                p_resultado_comision_banco_salida: calc.resultado_comision_banco_salida,
+                            });
+                            updatedRows.push(saved);
+                        }
                     }
                 }
 

@@ -129,6 +129,8 @@ export interface OperacionProceso {
 export interface OperacionCajaMovimiento {
     id: number;
     id_caja: number;
+    id_operacion_caja_relacionada: number | null;
+    id_operacion_proceso: number | null;
     tipo_origen: string;
     tipo_movimiento: string;
     tipo_servicio?: string | null;
@@ -143,6 +145,7 @@ export interface OperacionCajaMovimiento {
     monto_ganancia: number;
     monto_salida: number;
     nombre_estado: string;
+    tipo_facturacion: string | null;
     fecha_registro: string;
 }
 

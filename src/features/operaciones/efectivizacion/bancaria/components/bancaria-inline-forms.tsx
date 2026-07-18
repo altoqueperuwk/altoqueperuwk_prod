@@ -13,6 +13,7 @@ import { estadoService } from "@/services/estado.service";
 import { InlineFormCard } from "@/features/operaciones/efectivizacion/shared/components/inline-form-card";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type {
+    CajaOperativa,
     OperacionRutaBancaria,
     RutaOperacionCaja,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
@@ -201,6 +202,7 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
     const [codigoItems, setCodigoItems] = useState<CatalogItem[]>([]);
     const [estadoPendiente, setEstadoPendiente] = useState<CatalogItem | null>(null);
     const [cuentasActivas, setCuentasActivas] = useState<EmpresaCuentaActiva[]>([]);
+    const [cajasOperativas, setCajasOperativas] = useState<CajaOperativa[]>([]);
 
     const companyName = activeCompany?.nombre_empresa ?? "Empresa";
     const firstCuenta = activeCompanyCajas[0];
@@ -225,13 +227,18 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
         [cuentasActivas, transferDestinationCompanyId],
     );
     const transferDestinationAccount = transferDestinationAccounts.find((cuenta) => String(cuenta.id) === transferDestinationKey) ?? null;
+    const cajaMap = useMemo(() => {
+        const map = new Map<string, CajaOperativa>();
+        cajasOperativas.forEach((caja) => {
+            map.set(`${caja.id_empresa}-${caja.id_empresa_cuenta_bancaria}`, caja);
+        });
+        return map;
+    }, [cajasOperativas]);
     const transferDestination = transferDestinationAccount
-        ? routeCajas.find(
-              (caja) =>
-                  caja.id_empresa === transferDestinationAccount.id_empresa &&
-                  caja.id_empresa_cuenta_bancaria === transferDestinationAccount.id &&
-                  caja.id_caja,
-          ) ?? null
+        ? (() => {
+              const caja = cajaMap.get(`${transferDestinationAccount.id_empresa}-${transferDestinationAccount.id}`);
+              return caja ? { id_caja: caja.id } : null;
+          })()
         : null;
     const transferDestinationAccountOptions = transferDestinationAccounts.map((cuenta) => ({
         label: cuenta.banco_nombre,
@@ -276,8 +283,9 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
             codigoServicioService.getList({ p_id_estado: 1 }),
             estadoService.getList({}),
             empresaCuentaBancariaService.getList({ p_id_estado: 1 }),
+            operacionesRpcService.getCajaOperativa({ p_id_estado: 1 }),
         ])
-            .then(([comunidadRows, codigoRows, estadoRows, cuentaRows]) => {
+            .then(([comunidadRows, codigoRows, estadoRows, cuentaRows, cajaRows]) => {
                 if (ignore) return;
 
                 const comunidadItems = comunidadRows.map((row) => ({
@@ -307,6 +315,7 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
                 setCodigoItems(codigoItems);
                 setEstadoPendiente(estadoItems.find((item) => item.nombre.toUpperCase() === "PENDIENTE") ?? null);
                 setCuentasActivas(cuentaItems);
+                setCajasOperativas((cajaRows ?? []) as CajaOperativa[]);
 
                 if (!manualCommunityId && comunidadItems[0]) {
                     setManualCommunityId(String(comunidadItems[0].id));
@@ -393,7 +402,7 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
         try {
             await operacionesRpcService.postMovimientoCaja({
                 p_id_caja: movementAccount.id_caja,
-                p_tipo_origen: "MANUAL",
+                p_tipo_origen: "EFECTIVIZACION",
                 p_tipo_movimiento: movementType.toUpperCase(),
                 p_detalle: movementConcept.trim(),
                 p_monto_ingreso: movementType === "Ingreso" ? amount : 0,
@@ -465,7 +474,6 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
                 p_nombre_comunidad: selectedCommunity.nombre,
                 p_dni_cliente: manualDni.trim(),
                 p_monto_deposito_cliente: amount,
-                p_monto_transferencia_cliente: amount,
                 p_codigo_operacion_deposito_cliente: manualCode.trim(),
                 p_fecha_deposito_cliente: now,
                 p_id_empresa_ingreso: activeCompany.id_empresa,

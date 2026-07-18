@@ -148,7 +148,7 @@ BEGIN
     FROM public.tb_operacion_proceso op
     WHERE op.dni_cliente = v_dni_cliente
       AND op.monto_deposito_cliente = v_monto_deposito_cliente
-      AND op.id_banco_cliente = v_banco_cliente
+      AND (op.id_banco_cliente = v_banco_cliente OR op.id_banco_cliente IS NULL)
       AND UPPER(COALESCE(op.tipo_servicio, '')) LIKE '%PAGO%DEUDA%'
       AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'BANCO'
       AND UPPER(COALESCE(op.nombre_estado, '')) = 'PROCESADO'
@@ -604,7 +604,7 @@ BEGIN
   END IF;
 
   IF p_id_operacion IS NULL THEN
-    v_codigo_operacion := LPAD(FLOOR(RANDOM() * 100000)::text, 5, '0');
+    v_codigo_operacion := NULL;
 
     INSERT INTO public.tb_operacion_proceso (
       codigo_operacion_deposito_cliente, id_codigo_servicio, nombre_codigo_servicio, tipo_servicio,
@@ -1136,6 +1136,8 @@ BEGIN
   UPDATE public.tb_operacion_proceso
   SET codigo_operacion_deposito_cliente = v_op_efect.codigo_operacion_deposito_cliente,
       fecha_deposito_cliente = v_op_efect.fecha_deposito_cliente,
+      id_banco_cliente = v_op_efect.id_banco_empresa_cuenta_ingreso,
+      nombre_banco_cliente = v_op_efect.nombre_banco_empresa_cuenta_ingreso,
       id_empresa_ingreso = v_op_efect.id_empresa_ingreso,
       nombre_empresa_ingreso = v_op_efect.nombre_empresa_ingreso,
       id_empresa_cuenta_ingreso = v_op_efect.id_empresa_cuenta_ingreso,
@@ -1167,7 +1169,7 @@ BEGIN
 
   v_ingreso_result := public.f_post_tb_operacion_caja_desde_proceso(
     p_id_operacion_proceso := v_op_efect.id,
-    p_tipo_origen := 'PAGO_DEUDA_RETORNO',
+    p_tipo_origen := 'PAGO_DEUDA_DEVOLUCION',
     p_tipo_movimiento := 'INGRESO',
     p_id_usuario := COALESCE(p_id_usuario_gestor, v_op_efect.id_usuario_gestor, v_op_efect.id_usuario),
     p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_op_efect.nombre_usuario_gestor, v_op_efect.nombre_usuario),
@@ -1218,6 +1220,7 @@ DECLARE
   v_op record;
   v_ruta_kpi character varying;
   v_salida_result jsonb;
+  v_comision_result jsonb;
 BEGIN
   SELECT *
   INTO v_input
@@ -1314,6 +1317,20 @@ BEGIN
     RETURN v_salida_result;
   END IF;
 
+  v_comision_result := public.f_sync_tb_pago_deuda_comision_caja(
+    p_id_operacion := v_op.id_operacion_padre,
+    p_id_estado := v_estado_pagado_id,
+    p_id_usuario := COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario),
+    p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_op.nombre_usuario_gestor, v_op.nombre_usuario),
+    p_id_empresa_ingreso := v_op.id_empresa_ingreso,
+    p_id_empresa_cuenta_ingreso := v_op.id_empresa_cuenta_ingreso,
+    p_monto_comision := v_op.resultado_comision_servicio
+  );
+
+  IF v_comision_result ? 'error' THEN
+    RETURN v_comision_result;
+  END IF;
+
   v_ruta_kpi := COALESCE(v_op.ruta_destino, v_op.ruta_origen);
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario));
 
@@ -1378,7 +1395,7 @@ BEGIN
 
   v_caja_result := public.f_post_tb_operacion_caja_desde_proceso(
     p_id_operacion_proceso := v_op.id,
-    p_tipo_origen := 'PAGO_DEUDA_DIRECTO',
+    p_tipo_origen := 'PAGO_DEUDA_DEVOLUCION',
     p_tipo_movimiento := 'INGRESO',
     p_id_usuario := COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario),
     p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_op.nombre_usuario_gestor, v_op.nombre_usuario),
@@ -1455,7 +1472,12 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_tb_pago_deuda',
-  'f_patch_tb_pago_deuda_comision_cuenta'
+  'f_get_tb_pago_deuda_match',
+  'f_patch_tb_pago_deuda_match',
+  'f_patch_tb_pago_deuda_comision_cuenta',
+  'f_patch_tb_pago_deuda_directo',
+  'f_patch_tb_pago_deuda_pagado',
+  'f_post_tb_pago_deuda_solicitud'
 )
 ORDER BY n.nspname, p.proname;
 
