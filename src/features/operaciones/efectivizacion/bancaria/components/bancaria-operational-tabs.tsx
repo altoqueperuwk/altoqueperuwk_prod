@@ -66,7 +66,7 @@ const baseOperationColumns = [
     { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
 ];
 
-const operationColumnsByTab: Record<Exclude<BancariaTab, "Movimientos">, typeof baseOperationColumns> = {
+const operationColumnsByTab = {
     Efectivizacion: baseOperationColumns,
     "Pago Deuda": [
         { key: "pasos", label: "Pasos", render: (row: OperacionProceso) => <PagoDeudaSteps row={row} /> },
