@@ -516,7 +516,6 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
                     row={row}
                     isLoading={savingEstadoIds.includes(row.id)}
                     onFinalizar={handleFinalizarEstado}
-                    onTransferencia={handleTransferenciaEstado}
                 />
             ),
         },

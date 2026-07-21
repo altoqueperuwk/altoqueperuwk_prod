@@ -531,6 +531,7 @@
         <a href="#acciones">Acciones Rapidas</a>
         <a href="#efectivizacion">Efectivizacion</a>
         <a href="#pago-deuda">Pago Deuda</a>
+        <a href="#pago-deuda-global">Pago Deuda Global</a>
         <a href="#derivados-pos">Derivados y POS</a>
         <a href="#movimientos">Movimientos</a>
         <a href="#cierre">Cierre</a>
@@ -887,6 +888,58 @@
             </article>
           </div>
           <div class="result"><strong>Resultado esperado:</strong> la solicitud queda transferida y espera devolucion desde Efectivizacion.</div>
+        </div>
+      </section>
+
+      <section id="pago-deuda-global" class="section">
+        <div class="section-header"><div><span class="eyebrow">Atencion central</span><h2>Pago Deuda Global</h2></div><span class="pill">Imagenes 20-22</span></div>
+        <div class="section-body">
+          <p>La ruta <code>/operaciones/pagodeuda</code> es la bandeja central donde Atencion revisa y completa las solicitudes de Pago Deuda.</p>
+          <ul class="list"><li>Solicitud</li><li>Transferencia</li><li>Devolucion</li><li>Finalizacion</li><li>Comision</li></ul>
+          <div class="state-flow"><span>Solicitado</span><strong>-></strong><span>Transferido</span><strong>-></strong><span>Devuelto</span><strong>-></strong><span>Finalizado</span></div>
+          <div class="visual-guide">
+            <article class="visual-card">
+              <div class="visual-copy">
+                <h3>Bandeja Central Pago Deuda</h3>
+                <p><strong>Que se esta viendo:</strong> tabla general de solicitudes con pasos, DNI, cliente, banco, monto solicitado, comision, empresa, cuenta, estado y fecha.</p>
+                <p><strong>Para que sirve:</strong> permite que Atencion controle el ciclo completo de Pago Deuda sin entrar banco por banco.</p>
+                <ul class="mini-list">
+                  <li>Paso 1: solicitud creada.</li>
+                  <li>Paso 2: transferencia al cliente realizada desde BCP.</li>
+                  <li>Paso 3: devolucion enlazada desde Efectivizacion con el boton PD.</li>
+                  <li>Paso 4: solicitud finalizada por Atencion.</li>
+                </ul>
+              </div>
+              <figure class="image-card"><img src="imagenes/20.jpg" alt="Bandeja central Pago Deuda"><figcaption class="image-caption">Nota: imagen 20</figcaption></figure>
+            </article>
+            <article class="visual-card">
+              <div class="visual-copy">
+                <h3>Empresa Y Cuenta De Comision</h3>
+                <p><strong>Que se esta viendo:</strong> columnas Empresa y Cuenta dentro de la solicitud.</p>
+                <p><strong>Para que sirve:</strong> define donde se registrara el ingreso separado de la comision de Pago Deuda.</p>
+                <ul class="mini-list">
+                  <li>Empresa: selecciona la empresa que cobrara la comision.</li>
+                  <li>Cuenta: lista solo las cuentas disponibles de la empresa seleccionada.</li>
+                  <li>Cuando la solicitud esta finalizada, empresa y cuenta quedan bloqueadas.</li>
+                </ul>
+              </div>
+              <figure class="image-card"><img src="imagenes/21.jpg" alt="Empresa y cuenta de comision Pago Deuda"><figcaption class="image-caption">Nota: imagen 21</figcaption></figure>
+            </article>
+            <article class="visual-card">
+              <div class="visual-copy">
+                <h3>Finalizar Solicitud</h3>
+                <p><strong>Que se esta viendo:</strong> accion de confirmacion cuando la solicitud ya esta en estado Devuelto.</p>
+                <p><strong>Para que sirve:</strong> cierra el ciclo administrativo y deja la solicitud como Finalizado.</p>
+                <ul class="mini-list">
+                  <li>Primero debe existir devolucion enlazada desde Efectivizacion.</li>
+                  <li>Despues Atencion confirma/finaliza el flujo.</li>
+                  <li>La comision se registra como ingreso separado en la empresa/cuenta seleccionada.</li>
+                </ul>
+              </div>
+              <figure class="image-card"><img src="imagenes/22.jpg" alt="Finalizar Pago Deuda"><figcaption class="image-caption">Nota: imagen 22</figcaption></figure>
+            </article>
+          </div>
+          <div class="result"><strong>Resultado esperado:</strong> BCP muestra la transferencia y devolucion en su tab bancario, mientras <code>/operaciones/pagodeuda</code> permite completar y auditar el cierre final de Atencion.</div>
         </div>
       </section>
 
