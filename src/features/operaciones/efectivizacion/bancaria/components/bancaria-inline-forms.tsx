@@ -130,6 +130,7 @@ const SegmentedControl = ({
                     <ButtonGroupItem
                         id={option.value}
                         key={option.value}
+                        className="selected:bg-brand-solid selected:text-primary_on-brand selected:hover:bg-brand-solid_hover selected:hover:text-primary_on-brand"
                     >
                         {option.label}
                     </ButtonGroupItem>
@@ -402,7 +403,7 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
         try {
             await operacionesRpcService.postMovimientoCaja({
                 p_id_caja: movementAccount.id_caja,
-                p_tipo_origen: "EFECTIVIZACION",
+                p_tipo_origen: "OTROS",
                 p_tipo_movimiento: movementType.toUpperCase(),
                 p_detalle: movementConcept.trim(),
                 p_monto_ingreso: movementType === "Ingreso" ? amount : 0,

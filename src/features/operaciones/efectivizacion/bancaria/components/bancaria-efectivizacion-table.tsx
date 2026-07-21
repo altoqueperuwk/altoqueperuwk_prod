@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Coins01, Copy01, Eye, Percent01, RefreshCcw02 } from "@untitledui/icons";
+import { ChevronLeft, ChevronRight, Coins01, Copy01, Edit03, Eye, Percent01, RefreshCcw02 } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
@@ -10,6 +10,7 @@ import { NativeSelect } from "@/components/base/select/select-native";
 import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { reglasEfectivizacionService } from "@/services/reglas-efectivizacion.service";
+import { clienteService } from "@/services/cliente.service";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 import {
@@ -19,6 +20,7 @@ import {
     CompactMoneyCell,
     getSelectValue,
 } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
+import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import type { OperacionProceso, OperacionRutaBancaria, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { buildOperacionPagadoPayload, buildOperacionReanudarPayload } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
@@ -35,6 +37,7 @@ interface UserRef {
 }
 
 type ManualCommissionType = "especial" | "extra";
+type ConfirmActionType = "pagar" | "pd-directo" | "directo";
 
 interface ReglaEfectivizacion {
     id: number;
@@ -180,6 +183,9 @@ export const BancariaEfectivizacionTable = ({
         value: string;
     } | null>(null);
     const [pagoDeudaMatches, setPagoDeudaMatches] = useState<Record<number, OperacionProceso[]>>({});
+    const [pdMatchRow, setPdMatchRow] = useState<OperacionProceso | null>(null);
+    const [dniEdit, setDniEdit] = useState<{ row: OperacionProceso; value: string } | null>(null);
+    const [confirmAction, setConfirmAction] = useState<{ row: OperacionProceso; type: ConfirmActionType } | null>(null);
     const hasSelection = Boolean(onToggleRow);
     const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
 
@@ -343,6 +349,37 @@ export const BancariaEfectivizacionTable = ({
     const readOnlyIngreso = (row: OperacionProceso) => isDerivaciones || isPagado(row) || savingIds.includes(row.id);
     const readOnlySalida = (row: OperacionProceso) => isPagado(row) || savingIds.includes(row.id);
 
+    const handleDniEditSave = async () => {
+        if (!dniEdit) return;
+        const newDni = dniEdit.value.replace(/\D/g, "").slice(0, 8);
+        if (!newDni) {
+            addToast("error", "El DNI debe tener al menos un digito.");
+            return;
+        }
+
+        const row = rows.find((r) => r.id === dniEdit.row.id) ?? dniEdit.row;
+        setSavingIds((current) => [...current, row.id]);
+        try {
+            const clientes = await clienteService.getList({ p_numero_documento: newDni });
+            const cliente = clientes?.[0];
+            const payload: Record<string, unknown> = { p_id: row.id, p_dni_cliente: newDni };
+            if (cliente) {
+                payload.p_id_cliente = Number(cliente.id);
+                payload.p_nombre_cliente = String(cliente.nombre ?? "");
+            }
+            const saved = await operacionesRpcService.patchOperacionBase(payload);
+            setRows((current) => current.map((r) => (r.id === saved.id ? saved : r)));
+            onRowUpdated(saved);
+            addToast("success", "DNI actualizado.");
+            onMetricsChanged();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo actualizar el DNI.");
+        } finally {
+            setSavingIds((current) => current.filter((id) => id !== row.id));
+            setDniEdit(null);
+        }
+    };
+
     const handleToggleVisible = () => {
         if (!onToggleRow || isLoading) return;
         if (allVisibleSelected) {
@@ -432,25 +469,30 @@ export const BancariaEfectivizacionTable = ({
         setManualCommission(null);
     };
 
+    const executePago = async (row: OperacionProceso) => {
+        if (!estadoPagado) return;
+        setSavingIds((current) => [...current, row.id]);
+        try {
+            const saved = await operacionesRpcService.patchOperacionPagado(buildOperacionPagadoPayload(row.id, estadoPagado, user));
+            setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+            onRowUpdated(saved);
+            addToast("success", "Operacion pagada.");
+            onMetricsChanged();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo pagar la operacion.");
+        } finally {
+            setSavingIds((current) => current.filter((id) => id !== row.id));
+        }
+    };
+
     const handleEstado = async (row: OperacionProceso, value: string) => {
         const estado = estados?.find((item) => String(item.id) === value);
         if (!estado) return;
         const estadoRef = { id: Number(estado.id), nombre: String(estado.nombre ?? "") };
 
         if (estadoRef.nombre.toUpperCase() === "PAGADO") {
-            if (!estadoPagado || !window.confirm("Confirmar operacion como pagada.")) return;
-            setSavingIds((current) => [...current, row.id]);
-            try {
-                const saved = await operacionesRpcService.patchOperacionPagado(buildOperacionPagadoPayload(row.id, estadoPagado, user));
-                setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
-                onRowUpdated(saved);
-                addToast("success", "Operacion pagada.");
-                onMetricsChanged();
-            } catch (err) {
-                addToast("error", err instanceof Error ? err.message : "No se pudo pagar la operacion.");
-            } finally {
-                setSavingIds((current) => current.filter((id) => id !== row.id));
-            }
+            if (!estadoPagado) return;
+            setConfirmAction({ row, type: "pagar" });
             return;
         }
 
@@ -464,18 +506,21 @@ export const BancariaEfectivizacionTable = ({
         onMetricsChanged();
     };
 
-    const handlePagoDeudaMatch = async (row: OperacionProceso) => {
+    const handlePagoDeudaMatch = async (row: OperacionProceso, matchId?: number) => {
         const matches = pagoDeudaMatches[row.id] ?? [];
         if (!matches.length) return;
-        if (matches.length > 1) {
-            addToast("error", "Hay mas de una coincidencia Pago Deuda. Usa Match desde el tab Pago Deuda.");
+
+        const target = matchId ? matches.find((m) => m.id === matchId) : matches[0];
+        if (!target) return;
+
+        if (!matchId && matches.length > 1) {
             return;
         }
 
         setSavingIds((current) => [...current, row.id]);
         try {
             const saved = await pagoDeudaService.patchMatch({
-                p_id_pago_deuda: matches[0].id,
+                p_id_pago_deuda: target.id,
                 p_id_operacion_efectivizacion: row.id,
                 p_id_usuario_gestor: user.userId,
                 p_nombre_usuario_gestor: user.userName,
@@ -492,8 +537,10 @@ export const BancariaEfectivizacionTable = ({
     };
 
     const handlePagoDeudaDirecto = async (row: OperacionProceso) => {
-        if (!window.confirm("Clasificar esta operacion como Pago Deuda Directo.")) return;
+        setConfirmAction({ row, type: "pd-directo" });
+    };
 
+    const executePagoDeudaDirecto = async (row: OperacionProceso) => {
         setSavingIds((current) => [...current, row.id]);
         try {
             const saved = await pagoDeudaService.patchDirecto({
@@ -513,8 +560,10 @@ export const BancariaEfectivizacionTable = ({
     };
 
     const handleDirectoCaja = async (row: OperacionProceso) => {
-        if (!window.confirm("Clasificar esta operacion como Directo Caja.")) return;
+        setConfirmAction({ row, type: "directo" });
+    };
 
+    const executeDirectoCaja = async (row: OperacionProceso) => {
         setSavingIds((current) => [...current, row.id]);
         try {
             const saved = await operacionesRpcService.patchOperacionDirectoCaja({
@@ -524,14 +573,55 @@ export const BancariaEfectivizacionTable = ({
             });
             setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
             onRowUpdated(saved);
-            addToast("success", "Directo Caja registrado.");
+            addToast("success", "Directo registrado.");
             onMetricsChanged();
         } catch (err) {
-            addToast("error", err instanceof Error ? err.message : "No se pudo registrar Directo Caja.");
+            addToast("error", err instanceof Error ? err.message : "No se pudo registrar Directo.");
         } finally {
             setSavingIds((current) => current.filter((id) => id !== row.id));
         }
     };
+
+    const handleConfirmAction = async () => {
+        const action = confirmAction;
+        if (!action) return;
+        setConfirmAction(null);
+
+        if (action.type === "pagar") {
+            await executePago(action.row);
+            return;
+        }
+
+        if (action.type === "pd-directo") {
+            await executePagoDeudaDirecto(action.row);
+            return;
+        }
+
+        await executeDirectoCaja(action.row);
+    };
+
+    const confirmCopy = (() => {
+        if (!confirmAction) return null;
+        if (confirmAction.type === "pagar") {
+            return {
+                title: "Confirmar pago",
+                description: "La operacion pasara a Pagado y se generara la salida correspondiente en caja.",
+                confirmLabel: "Pagar",
+            };
+        }
+        if (confirmAction.type === "pd-directo") {
+            return {
+                title: "Confirmar PD Directo",
+                description: "La operacion se clasificara como Pago Deuda Directo sin enlazar una solicitud.",
+                confirmLabel: "Confirmar",
+            };
+        }
+        return {
+            title: "Confirmar Directo",
+            description: "La operacion se marcara como ingreso directo a caja y pasara a Pagado.",
+            confirmLabel: "Confirmar",
+        };
+    })();
 
     const handleAction = async (row: OperacionProceso, action: string) => {
         if (action === "Copiar") {
@@ -620,6 +710,7 @@ export const BancariaEfectivizacionTable = ({
                                 const disabledSalida = readOnlySalida(row);
                                 const rowSaving = savingIds.includes(row.id);
                                 const tipoOptions = tipoDepositoOptions(row);
+                                const pdDisabled = rowSaving || isPagado(row) || !(pagoDeudaMatches[row.id]?.length);
 
                                 return (
                                     <motion.tr key={row.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
@@ -665,7 +756,18 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             {row.dni_cliente ? (
-                                                <CompactCellText primary={row.dni_cliente} />
+                                                <div className="flex items-center gap-1">
+                                                    <CompactCellText primary={row.dni_cliente} />
+                                                    {!disabledIngreso && !isDerivaciones && (
+                                                        <Button
+                                                            size="xs"
+                                                            color="tertiary"
+                                                            iconLeading={Edit03}
+                                                            aria-label="Editar DNI"
+                                                            onClick={() => setDniEdit({ row, value: row.dni_cliente ?? "" })}
+                                                        />
+                                                    )}
+                                                </div>
                                             ) : (
                                                 <Input
                                                     size="sm"
@@ -802,9 +904,9 @@ export const BancariaEfectivizacionTable = ({
                                                 {mode === "efectivizacion" && (
                                                     <Button
                                                         size="xs"
-                                                        color="secondary"
-                                                        isDisabled={rowSaving || isPagado(row) || !(pagoDeudaMatches[row.id]?.length)}
-                                                        onClick={() => void handlePagoDeudaMatch(row)}
+                                                        color={pdDisabled ? "secondary" : "primary"}
+                                                        isDisabled={pdDisabled}
+                                                        onClick={() => setPdMatchRow(row)}
                                                     >
                                                         PD
                                                     </Button>
@@ -818,8 +920,7 @@ export const BancariaEfectivizacionTable = ({
                                                         {isPagado(row) && <Dropdown.Item id="Reanudar" icon={RefreshCcw02}>Reanudar</Dropdown.Item>}
                                                         {!isPagado(row) && <Dropdown.Item id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
                                                         {!isPagado(row) && <Dropdown.Item id="ComisionExtra" icon={Coins01}>Com. Extra</Dropdown.Item>}
-                                                        {!isPagado(row) && mode === "efectivizacion" && <Dropdown.Item id="PagoDeudaDirecto" icon={Coins01}>PD Directo</Dropdown.Item>}
-                                                        {!isPagado(row) && mode === "efectivizacion" && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo Caja</Dropdown.Item>}
+                                                        {!isPagado(row) && mode === "efectivizacion" && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo</Dropdown.Item>}
                                                         <Dropdown.Item id="Visualizar" icon={Eye}>Visualizar</Dropdown.Item>
                                                     </Dropdown.Menu>
                                                 </Dropdown.Popover>
@@ -903,6 +1004,95 @@ export const BancariaEfectivizacionTable = ({
                     </Dialog>
                 </Modal>
             </ModalOverlay>
+            <ModalOverlay isOpen={pdMatchRow !== null} onOpenChange={(open) => !open && setPdMatchRow(null)}>
+                <Modal className="max-w-md">
+                    <Dialog>
+                        <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                            <div>
+                                <h2 className="text-lg font-semibold text-primary">Match Pago Deuda</h2>
+                                <p className="mt-1 text-sm text-tertiary">
+                                    {pdMatchRow ? `${pdMatchRow.dni_cliente ?? "-"} — ${formatMoney(pdMatchRow.monto_deposito_cliente)}` : ""}
+                                </p>
+                            </div>
+
+                            <div className="mt-4 max-h-64 space-y-2 overflow-y-auto">
+                                {(() => {
+                                    const matchList = pdMatchRow ? (pagoDeudaMatches[pdMatchRow.id] ?? []) : [];
+                                    return matchList.map((match) => (
+                                    <button
+                                        key={match.id}
+                                        className="flex w-full items-center justify-between rounded-lg border border-secondary bg-secondary px-3 py-2 text-left text-sm text-primary transition hover:bg-secondary_hover"
+                                        onClick={() => {
+                                            const row = pdMatchRow;
+                                            if (!row) return;
+                                            setPdMatchRow(null);
+                                            void handlePagoDeudaMatch(row, match.id);
+                                        }}
+                                    >
+                                        <div>
+                                            <span className="font-medium">{match.dni_cliente ?? "-"}</span>
+                                            <span className="ml-2 text-tertiary">{match.nombre_banco_cliente ?? ""}</span>
+                                        </div>
+                                        <div className="text-right">
+                                            <div>
+                                                <span className="font-semibold">{formatMoney(match.monto_deposito_cliente)}</span>
+                                            </div>
+                                            <div className="text-xs text-tertiary">
+                                                Devuelto: {formatMoney(match.monto_devuelto ?? 0)}
+                                            </div>
+                                        </div>
+                                    </button>
+                                    ));
+                                })()}
+                                {pdMatchRow && !(pagoDeudaMatches[pdMatchRow.id] ?? []).length && (
+                                    <p className="text-sm text-tertiary">Sin candidatos compatibles.</p>
+                                )}
+                            </div>
+
+                            <div className="mt-4 flex justify-end gap-2">
+                                <Button color="secondary" onClick={() => setPdMatchRow(null)}>
+                                    Cancelar
+                                </Button>
+                            </div>
+                        </div>
+                    </Dialog>
+                </Modal>
+            </ModalOverlay>
+            <ModalOverlay isOpen={dniEdit !== null} onOpenChange={(open) => !open && setDniEdit(null)}>
+                <Modal className="max-w-sm">
+                    <Dialog>
+                        <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                            <div>
+                                <h2 className="text-lg font-semibold text-primary">Editar DNI</h2>
+                                <p className="mt-1 text-sm text-tertiary">
+                                    {dniEdit ? `Operacion ${dniEdit.row.codigo_operacion_deposito_cliente ?? dniEdit.row.id}` : ""}
+                                </p>
+                            </div>
+                            <div className="mt-5">
+                                <Input
+                                    size="sm"
+                                    label="DNI"
+                                    value={dniEdit?.value ?? ""}
+                                    onChange={(value) => setDniEdit((current) => current ? { ...current, value } : current)}
+                                />
+                            </div>
+                            <div className="mt-6 flex justify-end gap-2">
+                                <Button color="secondary" onClick={() => setDniEdit(null)}>Cancelar</Button>
+                                <Button onClick={() => void handleDniEditSave()}>Guardar</Button>
+                            </div>
+                        </div>
+                    </Dialog>
+                </Modal>
+            </ModalOverlay>
+            <OperacionConfirmModal
+                confirmLabel={confirmCopy?.confirmLabel}
+                description={confirmCopy?.description ?? ""}
+                isLoading={confirmAction ? savingIds.includes(confirmAction.row.id) : false}
+                isOpen={confirmAction !== null}
+                onClose={() => setConfirmAction(null)}
+                onConfirm={() => void handleConfirmAction()}
+                title={confirmCopy?.title ?? "Confirmar accion"}
+            />
         </div>
     );
 };

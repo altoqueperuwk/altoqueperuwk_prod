@@ -90,11 +90,11 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
 export const tabContracts: Record<BancariaTab, { filters: string[]; actions: string[] }> = {
     Efectivizacion: {
         filters: ["Todos", "Pendientes", "Rechazados", "Pagados"],
-        actions: ["Emp. Ingreso", "Emp. Salida", "Reiniciar", "Pagar", "Directo", "Derivar", "Reasignar"],
+        actions: ["Emp. Ingreso", "Emp. Salida", "Pagar", "Derivar", "Directo", "Reiniciar"],
     },
     "Pago Deuda": {
         filters: ["Todos", "Pendientes", "Procesados", "Pagados"],
-        actions: ["Emp. Salida", "Transferencia", "Match", "Reiniciar", "Pagar"],
+        actions: ["Emp. Salida", "Transferencia", "Reiniciar"],
     },
     Derivados: {
         filters: ["Todos", "Pendientes", "Rechazados", "Pagados"],
@@ -195,13 +195,6 @@ export const useBancariaBandeja = ({
             base.p_flag_derivado = false;
             if (dateFrom) base.p_fecha_deposito_desde = `${dateFrom}T00:00:00`;
             if (dateTo) base.p_fecha_deposito_hasta = `${dateTo}T23:59:59`;
-            if (activeCompanyId) base.p_id_empresa_salida = activeCompanyId;
-        }
-
-        if (tab === "Pago Deuda") {
-            base.p_tipo_servicio = "PAGO DEUDA";
-            base.p_ruta_destino = ruta;
-            base.p_flag_retenido = false;
             if (activeCompanyId) base.p_id_empresa_salida = activeCompanyId;
         }
 
@@ -337,9 +330,16 @@ export const useBancariaBandeja = ({
                   p_fecha_caja_cierre_desde: historyDate ? `${historyDate}T00:00:00` : undefined,
                   p_fecha_caja_cierre_hasta: historyDate ? `${historyDate}T23:59:59` : undefined,
               })
-            : retentionRoutes.has(ruta)
-              ? operacionesRpcService.getOperacionesRetencionBandeja(retentionParams)
-              : operacionesRpcService.getOperaciones(params);
+            : tab === "Pago Deuda"
+              ? operacionesRpcService.getPagoDeudaBandeja({
+                    p_ruta: ruta,
+                    p_id_empresa_salida: activeCompanyId || undefined,
+                    p_dni_cliente: dni.trim() || undefined,
+                    p_id_estado: activeFilter !== "Todos" && estadoByFilter[activeFilter] ? estadoByFilter[activeFilter] : undefined,
+                })
+              : retentionRoutes.has(ruta)
+                ? operacionesRpcService.getOperacionesRetencionBandeja(retentionParams)
+                : operacionesRpcService.getOperaciones(params);
 
         request
             .then((result) => {

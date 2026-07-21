@@ -196,3 +196,25 @@ Los KPI deben separar dinero confirmado de dinero retenido:
 - `Ingresos Retenidos`: monto retenido abierto.
 
 `Ingresos Retenidos` puede venir de dias anteriores y seguir visible hoy, porque es dinero pendiente de liberar.
+
+## Descarga de reportes de cierre
+
+El boton "Descargar" en la barra superior de cada ruta bancaria permite exportar los datos del periodo actual o de un cierre historico en PDF o Excel.
+
+La descarga refleja exactamente lo que se visualiza en los tabs de la web, usando las mismas fuentes de datos:
+
+- **Efectivizaciones Pagadas**: `tb_operacion_proceso` con `tipo_servicio = 'EFECTIVIZACION'` y `nombre_estado = 'PAGADO'`.
+- **Pago Deuda**: `tb_operacion_proceso` con `tipo_servicio = 'PAGO DEUDA'`.
+- **Movimientos OTRO**: `tb_operacion_caja` con `tipo_origen NOT IN ('EFECTIVIZACION', 'PAGO_DEUDA*')`.
+- **Retenciones**: `tb_operacion_proceso` con `flag_retenido = true`.
+- **KPI**: `tb_caja_operativa_cierre` (historico) o `tb_ruta_operacion_kpi` (hoy).
+
+### Modo Hoy vs Historico
+
+| Aspecto | Hoy (sin cierre) | Historico (con cierre) |
+|---------|-----------------|----------------------|
+| KPI | `tb_ruta_operacion_kpi` | `tb_caja_operativa_cierre` |
+| Operaciones | `id_caja_cierre IS NULL` | `id_caja_cierre` del cierre seleccionado |
+| Movimientos | `id_caja_cierre IS NULL` | `id_caja_cierre` del cierre seleccionado |
+
+Ver `32_operaciones_descarga_reportes.md` para el detalle completo de la implementacion.

@@ -131,6 +131,7 @@ Cuando la implementacion llegue a `Operaciones`, leer obligatoriamente esta segu
 - `29_operaciones_frontend_interaccion_actual.md`
 - `30_operaciones_pruebas_retenciones_y_cierres.md`
 - `31_contexto_general_recuperacion_proyecto.md`
+- `32_operaciones_descarga_reportes.md`
 
 Aqui se entiende:
 

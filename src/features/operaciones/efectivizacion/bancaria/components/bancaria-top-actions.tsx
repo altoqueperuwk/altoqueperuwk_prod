@@ -1,4 +1,4 @@
-import { Download01, UserPlus01, XClose } from "@untitledui/icons";
+import { Download01, Edit03, XClose } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { BancariaHistoryDropdown } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-history-dropdown";
 import type { RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
@@ -8,7 +8,7 @@ interface BancariaTopActionsProps {
     activeCompany: RutaOperacionCaja | null;
     isClosing?: boolean;
     selectedHistoryDate: string | null;
-    onOpenConfig: () => void;
+    onEditCaja: () => void;
     onCloseRoute: () => void;
     onHistoryDateChange: (date: string | null) => void;
     onHistoryDateAvailabilityChange?: (isAvailable: boolean) => void;
@@ -20,7 +20,7 @@ export const BancariaTopActions = ({
     activeCompany,
     isClosing,
     selectedHistoryDate,
-    onOpenConfig,
+    onEditCaja,
     onCloseRoute,
     onHistoryDateChange,
     onHistoryDateAvailabilityChange,
@@ -38,8 +38,8 @@ export const BancariaTopActions = ({
                 onDateChange={onHistoryDateChange}
                 onSelectedDateAvailabilityChange={onHistoryDateAvailabilityChange}
             />
-            <Button size="sm" color="secondary" iconLeading={UserPlus01} onClick={onOpenConfig}>
-                Asignar
+            <Button size="sm" color="secondary" iconLeading={Edit03} onClick={onEditCaja}>
+                Editar
             </Button>
             <Button size="sm" color="secondary" iconLeading={Download01} onClick={onDownload}>
                 Descargar

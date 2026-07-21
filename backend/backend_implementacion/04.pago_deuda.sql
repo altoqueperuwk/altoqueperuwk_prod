@@ -143,19 +143,21 @@ BEGIN
       'nombre_estado', op.nombre_estado,
       'fecha_registro', op.fecha_registro,
       'fecha_pendiente', op.fecha_pendiente,
-      'tipo_flujo_pago_deuda', op.tipo_flujo_pago_deuda
+      'tipo_flujo_pago_deuda', op.tipo_flujo_pago_deuda,
+      'monto_deposito_cliente', op.monto_deposito_cliente,
+      'monto_devuelto', op.monto_devuelto
     )
     FROM public.tb_operacion_proceso op
     WHERE op.dni_cliente = v_dni_cliente
-      AND op.monto_deposito_cliente = v_monto_deposito_cliente
-      AND (op.id_banco_cliente = v_banco_cliente OR op.id_banco_cliente IS NULL)
       AND UPPER(COALESCE(op.tipo_servicio, '')) LIKE '%PAGO%DEUDA%'
       AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'BANCO'
       AND UPPER(COALESCE(op.nombre_estado, '')) = 'PROCESADO'
-      AND op.id_operacion_match IS NULL
       AND op.id_caja_cierre IS NULL
       AND v_fecha_operacion IS NOT NULL
-      AND COALESCE(op.fecha_pendiente, op.fecha_registro)::date = v_fecha_operacion
+      AND op.monto_devuelto < op.monto_deposito_cliente
+      AND ABS(
+        EXTRACT(epoch FROM (COALESCE(op.fecha_pendiente, op.fecha_registro) - v_fecha_operacion))
+      ) <= 86400
     ORDER BY op.id DESC
     LIMIT 20;
     RETURN;
@@ -195,6 +197,43 @@ BEGIN
   ORDER BY op.fecha_deposito_cliente DESC NULLS LAST, op.fecha_registro DESC
   LIMIT 20;
 END;
+$$;
+
+/*
+Funcion: f_get_tb_pago_deuda_bandeja
+Objetivo:
+  Listar solo filas BANCO para el tab Pago Deuda dentro de las rutas bancarias
+  (bcp, bbva, scotiabank, banbif, interbank). Excluye RETORNO y SOLICITUD.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_bandeja(
+  p_ruta character varying,
+  p_id_empresa_salida bigint DEFAULT NULL,
+  p_dni_cliente character varying DEFAULT NULL,
+  p_codigo_operacion character varying DEFAULT NULL,
+  p_id_estado bigint DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT to_jsonb(op) || jsonb_build_object(
+    'flag_comision_registrada',
+    EXISTS (
+      SELECT 1
+      FROM public.tb_operacion_caja c
+      WHERE c.id_operacion_proceso = op.id_operacion_padre
+        AND c.tipo_origen = 'PAGO_DEUDA_COMISION'
+    )
+  )
+  FROM public.tb_operacion_proceso op
+  WHERE UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'BANCO'
+    AND op.ruta_destino = p_ruta
+    AND (p_id_empresa_salida IS NULL OR op.id_empresa_salida = p_id_empresa_salida)
+    AND (p_dni_cliente IS NULL OR op.dni_cliente ILIKE '%' || p_dni_cliente || '%')
+    AND (p_codigo_operacion IS NULL OR op.codigo_operacion_deposito_cliente ILIKE '%' || p_codigo_operacion || '%')
+    AND (p_id_estado IS NULL OR op.id_estado = p_id_estado)
+  ORDER BY op.id DESC;
 $$;
 
 /*
@@ -1110,21 +1149,15 @@ BEGIN
     RETURN jsonb_build_object('error', 'Operacion de efectivizacion no encontrada.');
   END IF;
 
-  IF COALESCE(v_op_deuda.monto_deposito_cliente, 0) <> COALESCE(v_op_efect.monto_deposito_cliente, 0) THEN
-    RETURN jsonb_build_object('error', 'Los montos no coinciden.');
-  END IF;
-
   IF COALESCE(v_op_deuda.dni_cliente, '') <> COALESCE(v_op_efect.dni_cliente, '') THEN
     RETURN jsonb_build_object('error', 'Los DNIs no coinciden.');
   END IF;
 
-  IF COALESCE(v_op_deuda.id_banco_cliente, 0) <> COALESCE(v_op_efect.id_banco_empresa_cuenta_ingreso, 0) THEN
-    RETURN jsonb_build_object('error', 'El banco del retorno no coincide con Pago Deuda.');
-  END IF;
-
   IF v_op_efect.fecha_deposito_cliente IS NULL
-     OR v_op_efect.fecha_deposito_cliente::date <> COALESCE(v_op_deuda.fecha_pendiente, v_op_deuda.fecha_registro)::date THEN
-    RETURN jsonb_build_object('error', 'La fecha de deposito no coincide con la fecha de solicitud Pago Deuda.');
+     OR ABS(
+       EXTRACT(epoch FROM (v_op_efect.fecha_deposito_cliente - COALESCE(v_op_deuda.fecha_pendiente, v_op_deuda.fecha_registro)))
+     ) > 86400 THEN
+    RETURN jsonb_build_object('error', 'La fecha de deposito excede el rango de 24h con la solicitud Pago Deuda.');
   END IF;
 
   SELECT id, nombre
@@ -1136,23 +1169,28 @@ BEGIN
   UPDATE public.tb_operacion_proceso
   SET codigo_operacion_deposito_cliente = v_op_efect.codigo_operacion_deposito_cliente,
       fecha_deposito_cliente = v_op_efect.fecha_deposito_cliente,
-      id_banco_cliente = v_op_efect.id_banco_empresa_cuenta_ingreso,
-      nombre_banco_cliente = v_op_efect.nombre_banco_empresa_cuenta_ingreso,
       id_empresa_ingreso = v_op_efect.id_empresa_ingreso,
       nombre_empresa_ingreso = v_op_efect.nombre_empresa_ingreso,
       id_empresa_cuenta_ingreso = v_op_efect.id_empresa_cuenta_ingreso,
       id_banco_empresa_cuenta_ingreso = v_op_efect.id_banco_empresa_cuenta_ingreso,
       nombre_banco_empresa_cuenta_ingreso = v_op_efect.nombre_banco_empresa_cuenta_ingreso,
-      flag_por_sol_comision_banco_ingreso = v_op_efect.flag_por_sol_comision_banco_ingreso,
-      comision_banco_ingreso = v_op_efect.comision_banco_ingreso,
-      comision_minimo_banco_ingreso = v_op_efect.comision_minimo_banco_ingreso,
-      comision_igv_banco_ingreso = v_op_efect.comision_igv_banco_ingreso,
-      resultado_comision_banco_ingreso = v_op_efect.resultado_comision_banco_ingreso,
-      monto_itf_ingreso = v_op_efect.monto_itf_ingreso,
-      id_operacion_match = v_op_efect.id,
+      monto_devuelto = COALESCE(v_op_deuda.monto_devuelto, 0) + COALESCE(v_op_efect.monto_deposito_cliente, 0),
+      id_operacion_match = CASE
+        WHEN (COALESCE(v_op_deuda.monto_devuelto, 0) + COALESCE(v_op_efect.monto_deposito_cliente, 0)) >= COALESCE(v_op_deuda.monto_deposito_cliente, 0)
+        THEN COALESCE(id_operacion_match, v_op_efect.id)
+        ELSE id_operacion_match
+      END,
       id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = v_op_deuda.id;
+
+  IF (COALESCE(v_op_deuda.monto_devuelto, 0) + COALESCE(v_op_efect.monto_deposito_cliente, 0)) >= COALESCE(v_op_deuda.monto_deposito_cliente, 0) THEN
+    UPDATE public.tb_operacion_proceso
+    SET id_operacion_match = v_op_efect.id,
+        id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+        nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+    WHERE id = v_op_deuda.id_operacion_padre AND id_operacion_match IS NULL;
+  END IF;
 
   UPDATE public.tb_operacion_proceso
   SET tipo_servicio = 'Pago Deuda',
@@ -1180,18 +1218,10 @@ BEGIN
     RETURN v_ingreso_result;
   END IF;
 
-  IF v_op_deuda.id_operacion_padre IS NOT NULL THEN
-    UPDATE public.tb_operacion_proceso
-    SET id_operacion_match = v_op_efect.id,
-        id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
-        nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
-    WHERE id = v_op_deuda.id_operacion_padre;
-  END IF;
-
-  RETURN public.f_patch_tb_pago_deuda_pagado(
-    p_id_operacion := v_op_deuda.id,
-    p_id_usuario_gestor := p_id_usuario_gestor,
-    p_nombre_usuario_gestor := p_nombre_usuario_gestor
+  RETURN (
+    SELECT x
+    FROM public.f_get_tb_operacion_proceso(p_id := v_op_efect.id) AS x
+    LIMIT 1
   );
 END;
 $$;
@@ -1252,7 +1282,8 @@ BEGIN
     RETURN jsonb_build_object('error', 'Selecciona la empresa y cuenta de salida antes de finalizar Pago Deuda.');
   END IF;
 
-  IF v_op.id_operacion_match IS NULL THEN
+  IF v_op.id_operacion_match IS NULL
+     AND COALESCE(v_op.monto_devuelto, 0) < COALESCE(v_op.monto_deposito_cliente, 0) THEN
     RETURN jsonb_build_object('error', 'Primero realiza el match con la efectivizacion de retorno.');
   END IF;
 
@@ -1464,6 +1495,140 @@ BEGIN
 END;
 $$;
 
+/*
+Funcion: f_patch_tb_pago_deuda_reiniciar_transferencia
+Objetivo:
+  Revertir una transferencia de Pago Deuda aun no cerrada, volviendo del paso
+  2 (Procesado) al paso 1 (Pendiente) para corregir empresa/cuenta de salida.
+
+Reglas:
+  - solo trabaja sobre la operacion bancaria hija BANCO;
+  - no permite reiniciar si ya existe match/devolucion;
+  - no modifica movimientos cerrados por caja;
+  - revierte el impacto de la SALIDA y elimina el movimiento abierto.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_reiniciar_transferencia(
+  p_id_operacion bigint,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_input record;
+  v_op record;
+  v_mov record;
+  v_estado_pendiente_id bigint;
+  v_estado_pendiente_nombre character varying;
+  v_ruta_kpi character varying;
+  v_result jsonb;
+BEGIN
+  SELECT *
+  INTO v_input
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id_operacion
+  LIMIT 1;
+
+  IF v_input.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Operacion de Pago Deuda no encontrada.');
+  END IF;
+
+  IF UPPER(COALESCE(v_input.tipo_flujo_pago_deuda, '')) = 'SOLICITUD' THEN
+    SELECT *
+    INTO v_op
+    FROM public.tb_operacion_proceso
+    WHERE id_operacion_padre = v_input.id
+      AND UPPER(COALESCE(tipo_flujo_pago_deuda, '')) = 'BANCO'
+    ORDER BY id
+    LIMIT 1;
+  ELSE
+    v_op := v_input;
+  END IF;
+
+  IF v_op.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de Pago Deuda.');
+  END IF;
+
+  IF v_op.id_operacion_match IS NOT NULL THEN
+    RETURN jsonb_build_object('error', 'No se puede reiniciar una Pago Deuda con devolucion enlazada.');
+  END IF;
+
+  SELECT *
+  INTO v_mov
+  FROM public.tb_operacion_caja
+  WHERE id_operacion_proceso = v_op.id
+    AND UPPER(COALESCE(tipo_movimiento, '')) = 'SALIDA'
+    AND UPPER(COALESCE(tipo_origen, '')) = 'PAGO_DEUDA'
+  ORDER BY id DESC
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_mov.id IS NOT NULL AND v_mov.id_caja_cierre IS NOT NULL THEN
+    RETURN jsonb_build_object('error', 'No se puede reiniciar porque la salida ya pertenece a un cierre de caja.');
+  END IF;
+
+  SELECT id, nombre
+  INTO v_estado_pendiente_id, v_estado_pendiente_nombre
+  FROM public.tb_estado
+  WHERE UPPER(nombre) = 'PENDIENTE'
+  LIMIT 1;
+
+  IF v_estado_pendiente_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro el estado Pendiente.');
+  END IF;
+
+  IF v_mov.id IS NOT NULL THEN
+    PERFORM public.f_apply_tb_operacion_caja_delta(
+      p_id_caja := v_mov.id_caja,
+      p_tipo_movimiento := v_mov.tipo_movimiento,
+      p_nombre_estado := v_mov.nombre_estado,
+      p_monto_ingreso := v_mov.monto_ingreso,
+      p_monto_gasto := v_mov.monto_gasto,
+      p_monto_ganancia := v_mov.monto_ganancia,
+      p_monto_salida := v_mov.monto_salida,
+      p_flag_contabiliza_operacion := v_mov.flag_contabiliza_operacion,
+      p_factor := -1,
+      p_id_usuario := COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario)
+    );
+
+    DELETE FROM public.tb_operacion_caja
+    WHERE id = v_mov.id;
+  END IF;
+
+  UPDATE public.tb_operacion_proceso
+  SET id_estado = v_estado_pendiente_id,
+      nombre_estado = v_estado_pendiente_nombre,
+      fecha_pendiente = NOW(),
+      fecha_pagado = NULL,
+      id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+      nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+  WHERE id = v_op.id;
+
+  IF v_op.id_operacion_padre IS NOT NULL THEN
+    UPDATE public.tb_operacion_proceso
+    SET id_estado = v_estado_pendiente_id,
+        nombre_estado = v_estado_pendiente_nombre,
+        fecha_pendiente = NOW(),
+        fecha_pagado = NULL,
+        id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+        nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+    WHERE id = v_op.id_operacion_padre;
+  END IF;
+
+  v_ruta_kpi := COALESCE(v_op.ruta_destino, v_op.ruta_origen);
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario));
+
+  SELECT x
+  INTO v_result
+  FROM public.f_get_tb_operacion_proceso(p_id := v_op.id) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
 SELECT 'DROP FUNCTION IF EXISTS ' ||
        n.nspname || '.' ||
        p.proname || '(' ||
@@ -1471,13 +1636,8 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_pago_deuda',
-  'f_get_tb_pago_deuda_match',
   'f_patch_tb_pago_deuda_match',
-  'f_patch_tb_pago_deuda_comision_cuenta',
-  'f_patch_tb_pago_deuda_directo',
   'f_patch_tb_pago_deuda_pagado',
-  'f_post_tb_pago_deuda_solicitud'
+  'f_patch_tb_pago_deuda_reiniciar_transferencia'
 )
 ORDER BY n.nspname, p.proname;
-

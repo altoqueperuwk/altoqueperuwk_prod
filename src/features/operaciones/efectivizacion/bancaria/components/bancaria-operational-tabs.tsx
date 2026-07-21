@@ -1,10 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Tabs } from "@/components/application/tabs/tabs";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { estadoService } from "@/services/estado.service";
+import { clienteService } from "@/services/cliente.service";
+import { Button } from "@/components/base/buttons/button";
+import { Input } from "@/components/base/input/input";
+import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { Edit03 } from "@untitledui/icons";
 import { EmpresaTabs } from "@/features/operaciones/efectivizacion/shared/components/empresa-tabs";
+import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
 import { OperationToolbar } from "@/features/operaciones/efectivizacion/shared/components/operation-toolbar";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
@@ -38,7 +44,11 @@ import {
     useBancariaTabBadges,
 } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-tab-badges";
 import { PagoDeudaActionModal } from "@/features/operaciones/pago-deuda/components/pago-deuda-action-modal";
-import { PagoDeudaSteps } from "@/features/operaciones/pago-deuda/components/pago-deuda-board";
+import {
+    hasDevolucionConfirmada,
+    PagoDeudaEstadoButton,
+    PagoDeudaSteps,
+} from "@/features/operaciones/pago-deuda/components/pago-deuda-board";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 
 const tabs: BancariaTab[] = ["Efectivizacion", "Pago Deuda", "Derivados", "POS", "Movimientos", "Retenidos"];
@@ -65,53 +75,6 @@ const baseOperationColumns = [
     { key: "nombre_empresa_ingreso", label: "Empresa" },
     { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
 ];
-
-const operationColumnsByTab = {
-    Efectivizacion: baseOperationColumns,
-    "Pago Deuda": [
-        { key: "pasos", label: "Pasos", render: (row: OperacionProceso) => <PagoDeudaSteps row={row} /> },
-        { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
-        { key: "dni_cliente", label: "DNI" },
-        { key: "nombre_cliente", label: "Cliente", render: (row: OperacionProceso) => row.nombre_cliente || "-" },
-        { key: "nombre_empresa_salida", label: "Empresa Salida", render: (row: OperacionProceso) => row.nombre_empresa_salida || "-" },
-        { key: "nombre_banco_empresa_cuenta_salida", label: "Cuenta", render: (row: OperacionProceso) => row.nombre_banco_empresa_cuenta_salida || "-" },
-        { key: "monto_transferencia_cliente", label: "Monto Transferencia", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
-        { key: "nombre_empresa_ingreso", label: "Empresa Ingreso", render: (row: OperacionProceso) => row.nombre_empresa_ingreso || "-" },
-        { key: "nombre_banco_empresa_cuenta_ingreso", label: "Cuenta Ingreso", render: (row: OperacionProceso) => row.nombre_banco_empresa_cuenta_ingreso || "-" },
-        { key: "monto_deposito_cliente", label: "Monto Devolución", render: (row: OperacionProceso) => formatMoney(row.monto_deposito_cliente) },
-        { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
-    ],
-    Derivados: [
-        { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
-        { key: "dni_cliente", label: "DNI" },
-        { key: "nombre_estado", label: "Estado" },
-        { key: "ruta_origen", label: "Origen", render: (row: OperacionProceso) => row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "" },
-        { key: "ruta_destino", label: "Destino", render: (row: OperacionProceso) => row.ruta_destino ? getRutaLabel(row.ruta_destino as OperacionRuta) : "" },
-        { key: "nombre_usuario_deriva", label: "Deriva" },
-        { key: "monto_transferencia_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
-        { key: "fecha_derivacion", label: "Derivacion", render: (row: OperacionProceso) => row.fecha_derivacion ? new Date(row.fecha_derivacion).toLocaleDateString("es-PE") : "" },
-    ],
-    POS: [
-        { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
-        { key: "dni_cliente", label: "DNI" },
-        { key: "nombre_cliente", label: "Cliente" },
-        { key: "nombre_estado", label: "Estado" },
-        { key: "monto_deposito_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_deposito_cliente) },
-        { key: "nombre_usuario_solicitud", label: "Solicita" },
-        { key: "nombre_usuario_gestor", label: "Gestor" },
-        { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
-    ],
-    Retenidos: [
-        { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
-        { key: "dni_cliente", label: "DNI" },
-        { key: "nombre_cliente", label: "Cliente" },
-        { key: "nombre_estado", label: "Estado" },
-        { key: "monto_transferencia_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
-        { key: "nombre_usuario_retiene", label: "Retiene" },
-        { key: "motivo_retencion", label: "Motivo" },
-    { key: "fecha_deposito_cliente", label: "Deposito", render: (row: OperacionProceso) => row.fecha_deposito_cliente ? new Date(row.fecha_deposito_cliente).toLocaleDateString("es-PE") : "" },
-    ],
-};
 
 const movementColumns = [
     { key: "tipo_origen", label: "Origen", render: (row: MovimientoMerged) => <CompactBadgeLine color="brand">{row.tipo_origen}</CompactBadgeLine> },
@@ -243,9 +206,17 @@ export const BancariaOperationalTabs = ({
     const [estadoPagado, setEstadoPagado] = useState<{ id: number; nombre: string } | null>(null);
     const [estadoPendiente, setEstadoPendiente] = useState<{ id: number; nombre: string } | null>(null);
     const [isApplyingAction, setIsApplyingAction] = useState(false);
+    const [dniEdit, setDniEdit] = useState<{ row: OperacionProceso; value: string } | null>(null);
+    const [isSavingDni, setIsSavingDni] = useState(false);
+    const [savingPagoDeudaEstadoIds, setSavingPagoDeudaEstadoIds] = useState<number[]>([]);
+    const [confirmQuickAction, setConfirmQuickAction] = useState<"Directo" | null>(null);
     const visibleTabs = useMemo(
-        () => (retentionRoutes.has(ruta) ? tabs : tabs.filter((tab) => tab !== "Retenidos")),
-        [ruta],
+        () => {
+            const hasRetencion = retentionRoutes.has(ruta) ||
+                companies.some((c) => c.flag_retencion_parcial_cuenta);
+            return hasRetencion ? tabs : tabs.filter((tab) => tab !== "Retenidos");
+        },
+        [ruta, companies],
     );
 
     useEffect(() => {
@@ -322,6 +293,84 @@ export const BancariaOperationalTabs = ({
     const isHistoryMode = Boolean(historyDate);
     const canUseProcesoActions = procesoActionTabs.includes(activeTab) && !isHistoryMode;
     const hasSelection = selectedIds.length > 0;
+    const handlePagoDeudaTransferenciaRow = useCallback(async (row: OperacionProceso) => {
+        setSavingPagoDeudaEstadoIds((current) => [...current, row.id]);
+        try {
+            const saved = await operacionesRpcService.patchPagoDeudaSalida({
+                p_id_operacion: row.id,
+                p_id_usuario_gestor: userId,
+                p_nombre_usuario_gestor: userName,
+                p_ruta_destino: ruta,
+            });
+            replaceOperacion(saved);
+            setMetricsRefreshKey((value) => value + 1);
+            onMetricsChanged?.();
+            addToast("success", "Transferencia confirmada.");
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo confirmar la transferencia.");
+        } finally {
+            setSavingPagoDeudaEstadoIds((current) => current.filter((id) => id !== row.id));
+        }
+    }, [addToast, onMetricsChanged, replaceOperacion, ruta, userId, userName]);
+
+    const operationColumnsByTab = useMemo(() => ({
+        Efectivizacion: baseOperationColumns,
+        "Pago Deuda": [
+            { key: "pasos", label: "Pasos", render: (row: OperacionProceso) => <PagoDeudaSteps row={row} /> },
+            { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
+            { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => (
+                <div className="flex items-center gap-1">
+                    <span className="font-medium text-primary">{row.dni_cliente || "-"}</span>
+                    <Button size="xs" color="tertiary" iconLeading={Edit03} aria-label="Editar DNI" isDisabled={hasDevolucionConfirmada(row)} onClick={() => setDniEdit({ row, value: row.dni_cliente ?? "" })} />
+                </div>
+            ) },
+            { key: "nombre_cliente", label: "Cliente", render: (row: OperacionProceso) => row.nombre_cliente || "-" },
+            { key: "nombre_empresa_salida", label: "Empresa Salida", render: (row: OperacionProceso) => row.nombre_empresa_salida || "-" },
+            { key: "nombre_banco_empresa_cuenta_salida", label: "Cuenta", render: (row: OperacionProceso) => row.nombre_banco_empresa_cuenta_salida || "-" },
+            { key: "monto_transferencia_cliente", label: "Monto Transferencia", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
+            { key: "nombre_empresa_ingreso", label: "Empresa Ingreso", render: (row: OperacionProceso) => row.nombre_empresa_ingreso || "-" },
+            { key: "nombre_banco_empresa_cuenta_ingreso", label: "Cuenta Ingreso", render: (row: OperacionProceso) => row.nombre_banco_empresa_cuenta_ingreso || "-" },
+            { key: "monto_devuelto", label: "Monto Devolución", render: (row: OperacionProceso) => formatMoney(row.monto_devuelto ?? 0) },
+            { key: "estado_visual", label: "Estado", render: (row: OperacionProceso) => (
+                <PagoDeudaEstadoButton
+                    row={row}
+                    isLoading={savingPagoDeudaEstadoIds.includes(row.id)}
+                    onTransferencia={isHistoryMode ? undefined : handlePagoDeudaTransferenciaRow}
+                />
+            ) },
+            { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
+        ],
+        Derivados: [
+            { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
+            { key: "dni_cliente", label: "DNI" },
+            { key: "nombre_estado", label: "Estado" },
+            { key: "ruta_origen", label: "Origen", render: (row: OperacionProceso) => row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "" },
+            { key: "ruta_destino", label: "Destino", render: (row: OperacionProceso) => row.ruta_destino ? getRutaLabel(row.ruta_destino as OperacionRuta) : "" },
+            { key: "nombre_usuario_deriva", label: "Deriva" },
+            { key: "monto_transferencia_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
+            { key: "fecha_derivacion", label: "Derivacion", render: (row: OperacionProceso) => row.fecha_derivacion ? new Date(row.fecha_derivacion).toLocaleDateString("es-PE") : "" },
+        ],
+        POS: [
+            { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
+            { key: "dni_cliente", label: "DNI" },
+            { key: "nombre_cliente", label: "Cliente" },
+            { key: "nombre_estado", label: "Estado" },
+            { key: "monto_deposito_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_deposito_cliente) },
+            { key: "nombre_usuario_solicitud", label: "Solicita" },
+            { key: "nombre_usuario_gestor", label: "Gestor" },
+            { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
+        ],
+        Retenidos: [
+            { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
+            { key: "dni_cliente", label: "DNI" },
+            { key: "nombre_cliente", label: "Cliente" },
+            { key: "nombre_estado", label: "Estado" },
+            { key: "monto_transferencia_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
+            { key: "nombre_usuario_retiene", label: "Retiene" },
+            { key: "motivo_retencion", label: "Motivo" },
+            { key: "fecha_deposito_cliente", label: "Deposito", render: (row: OperacionProceso) => row.fecha_deposito_cliente ? new Date(row.fecha_deposito_cliente).toLocaleDateString("es-PE") : "" },
+        ],
+    } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [handlePagoDeudaTransferenciaRow, isHistoryMode, savingPagoDeudaEstadoIds]);
     const currentOperationColumns = activeTab === "Movimientos" ? baseOperationColumns : operationColumnsByTab[activeTab];
     const selectedOperations = operaciones.filter((row) => selectedIds.includes(row.id));
 
@@ -329,6 +378,7 @@ export const BancariaOperationalTabs = ({
         if (activeTab === "Pago Deuda") {
             if (action === "Transferencia") return selectedOperations.filter(isPendingOperation).map((row) => row.id);
             if (action === "Emp. Salida") return selectedOperations.filter(isPendingOperation).map((row) => row.id);
+            if (action === "Reiniciar") return selectedOperations.filter(isProcessedOperation).map((row) => row.id);
             if (action === "Match" || action === "Pagar") return selectedOperations.filter(isProcessedOperation).map((row) => row.id);
             return selectedIds;
         }
@@ -346,6 +396,31 @@ export const BancariaOperationalTabs = ({
         return selectedIds;
     };
 
+    const handleDniEditSave = async (row: OperacionProceso, newDni: string) => {
+        setIsSavingDni(true);
+        try {
+            const clientes = await clienteService.getList({ p_numero_documento: newDni });
+            const cliente = clientes?.[0];
+            const payload: Record<string, unknown> = { p_id: row.id, p_dni_cliente: newDni };
+            if (cliente) {
+                payload.p_id_cliente = Number(cliente.id);
+                payload.p_nombre_cliente = String(cliente.nombre ?? "");
+            }
+            const saved = await operacionesRpcService.patchOperacionBase(payload);
+            if (row.id_operacion_padre) {
+                await operacionesRpcService.patchOperacionBase({ p_id: row.id_operacion_padre, p_dni_cliente: newDni, ...(cliente ? { p_id_cliente: Number(cliente.id), p_nombre_cliente: String(cliente.nombre ?? "") } : {}) });
+            }
+            replaceOperacion(saved);
+            refreshMetrics();
+            addToast("success", "DNI actualizado.");
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo actualizar el DNI.");
+        } finally {
+            setIsSavingDni(false);
+            setDniEdit(null);
+        }
+    };
+
     const getEligibleIdsOrNotify = (action: string) => {
         const eligibleIds = getEligibleIdsForAction(action);
 
@@ -353,6 +428,8 @@ export const BancariaOperationalTabs = ({
             const expectedState =
                 activeTab === "Pago Deuda" && (action === "Match" || action === "Pagar")
                     ? "Procesado"
+                    : activeTab === "Pago Deuda" && action === "Reiniciar"
+                      ? "Procesado"
                     : action === "Reiniciar"
                       ? "Pagado"
                       : "Pendiente";
@@ -512,7 +589,8 @@ export const BancariaOperationalTabs = ({
             return;
         }
 
-        if (action === "Directo" && !window.confirm("Clasificar las operaciones seleccionadas como Directo Caja.")) {
+        if (action === "Directo") {
+            setConfirmQuickAction("Directo");
             return;
         }
 
@@ -541,9 +619,15 @@ export const BancariaOperationalTabs = ({
                 }
 
                 if (action === "Reiniciar" && estadoPendiente) {
-                    const saved = await operacionesRpcService.patchOperacionReanudar(
-                        buildOperacionReanudarPayload(id, estadoPendiente, { userId, userName }),
-                    );
+                    const saved = activeTab === "Pago Deuda"
+                        ? await pagoDeudaService.patchReiniciarTransferencia({
+                            p_id_operacion: id,
+                            p_id_usuario_gestor: userId,
+                            p_nombre_usuario_gestor: userName,
+                        })
+                        : await operacionesRpcService.patchOperacionReanudar(
+                            buildOperacionReanudarPayload(id, estadoPendiente, { userId, userName }),
+                        );
                     updatedRows.push(saved);
                 }
 
@@ -555,6 +639,38 @@ export const BancariaOperationalTabs = ({
                     });
                     updatedRows.push(saved);
                 }
+            }
+
+            setSelectedIds([]);
+            applyUpdatedRows(updatedRows);
+            addToast("success", `Operaciones actualizadas: ${eligibleIds.length}`);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Error al actualizar operaciones.";
+            addToast("error", message);
+        } finally {
+            setIsApplyingAction(false);
+        }
+    };
+
+    const handleConfirmQuickAction = async () => {
+        const action = confirmQuickAction;
+        if (!action) return;
+        setConfirmQuickAction(null);
+
+        setIsApplyingAction(true);
+
+        try {
+            const eligibleIds = getEligibleIdsOrNotify(action);
+            if (!eligibleIds.length) return;
+            const updatedRows: OperacionProceso[] = [];
+
+            for (const id of eligibleIds) {
+                const saved = await operacionesRpcService.patchOperacionDirectoCaja({
+                    p_id: id,
+                    p_id_usuario_gestor: userId,
+                    p_nombre_usuario_gestor: userName,
+                });
+                updatedRows.push(saved);
             }
 
             setSelectedIds([]);
@@ -701,7 +817,16 @@ export const BancariaOperationalTabs = ({
                 <Tabs selectedKey={activeTab} onSelectionChange={(key) => setActiveTab(key as BancariaTab)}>
                     <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
                         {visibleTabs.map((tab) => (
-                            <Tabs.Item id={tab} key={tab} badge={tabBadges[tab] || undefined}>
+                            <Tabs.Item
+                                id={tab}
+                                key={tab}
+                                badge={tabBadges[tab] || undefined}
+                                className={({ isSelected }) =>
+                                    isSelected
+                                        ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
+                                        : ""
+                                }
+                            >
                                 {tab}
                             </Tabs.Item>
                         ))}
@@ -787,6 +912,41 @@ export const BancariaOperationalTabs = ({
                 onClose={() => setPendingAction(null)}
                 onSubmit={(value) => handleModalAction(value, "")}
             />
+            <OperacionConfirmModal
+                confirmLabel="Confirmar"
+                description={`Se clasificaran ${selectedIds.length} operacion(es) como Directo. Esto las pasara a Pagado sin generar salida normal al cliente.`}
+                isLoading={isApplyingAction}
+                isOpen={confirmQuickAction === "Directo"}
+                onClose={() => setConfirmQuickAction(null)}
+                onConfirm={() => void handleConfirmQuickAction()}
+                title="Confirmar Directo"
+            />
+            <ModalOverlay isOpen={dniEdit !== null} onOpenChange={(open) => !open && setDniEdit(null)}>
+                <Modal className="max-w-sm">
+                    <Dialog>
+                        <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                            <div>
+                                <h2 className="text-lg font-semibold text-primary">Editar DNI</h2>
+                                <p className="mt-1 text-sm text-tertiary">
+                                    {dniEdit ? `Operacion ${dniEdit.row.codigo_operacion_deposito_cliente ?? dniEdit.row.id}` : ""}
+                                </p>
+                            </div>
+                            <div className="mt-5">
+                                <Input
+                                    size="sm"
+                                    label="DNI"
+                                    value={dniEdit?.value ?? ""}
+                                    onChange={(value) => setDniEdit((current) => current ? { ...current, value } : current)}
+                                />
+                            </div>
+                            <div className="mt-6 flex justify-end gap-2">
+                                <Button color="secondary" onClick={() => setDniEdit(null)}>Cancelar</Button>
+                                <Button isLoading={isSavingDni} onClick={() => dniEdit && handleDniEditSave(dniEdit.row, dniEdit.value.replace(/\D/g, "").slice(0, 8))}>Guardar</Button>
+                            </div>
+                        </div>
+                    </Dialog>
+                </Modal>
+            </ModalOverlay>
         </motion.section>
     );
 };

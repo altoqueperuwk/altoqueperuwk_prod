@@ -52,4 +52,8 @@ export const pagoDeudaService = {
     patchPagado(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_pago_deuda_pagado", params);
     },
+
+    patchReiniciarTransferencia(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_pago_deuda_reiniciar_transferencia", params);
+    },
 };

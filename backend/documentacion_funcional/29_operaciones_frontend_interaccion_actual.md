@@ -33,6 +33,27 @@ Reglas:
 - En modo historico, se consulta por `fecha_caja_cierre`.
 - `Retenidos` no debe mostrar ingresos retenidos en historial de cierre, porque esos ingresos quedaron abiertos para el siguiente ciclo.
 
+## Boton Descargar
+
+El boton "Descargar" en la barra superior abre un modal con 2 opciones:
+
+- **Excel**: genera un `.xlsx` con 4 sheets (Efectivizaciones, Pago Deuda, Movimientos, Retenciones).
+- **PDF**: abre ventana de impresion con el componente `BancariaReporteCierrePdf`.
+
+### Comportamiento
+
+1. Al hacer clic, se ejecuta `f_get_reporte_cierre` con los parametros `p_id_caja`, `p_id_empresa`, `p_ruta` y `p_fecha_cierre`.
+2. La respuesta incluye 5 secciones: `kpi`, `efectivizacion`, `pago_deuda`, `movimientos`, `retenciones`.
+3. Los datos provienen de las mismas tablas que los tabs operativos de la web:
+   - Efectivizacion y Pago Deuda: `tb_operacion_proceso`
+   - Movimientos OTRO: `tb_operacion_caja`
+   - Retenciones: `tb_operacion_proceso`
+   - KPI: `tb_caja_operativa_cierre` (historico) o `tb_ruta_operacion_kpi` (hoy)
+4. En modo Hoy (`selectedHistoryDate = null`), se descargan operaciones vivas (`id_caja_cierre IS NULL`).
+5. En modo Historico, se descargan operaciones congeladas del cierre seleccionado.
+
+Las columnas del PDF coinciden exactamente con los DataTables de la web. Ver `32_operaciones_descarga_reportes.md`.
+
 ## Formularios inline actuales
 
 Los tres formularios usan componentes base Untitled UI:

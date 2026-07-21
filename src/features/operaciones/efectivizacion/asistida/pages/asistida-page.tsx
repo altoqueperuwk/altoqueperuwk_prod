@@ -5,7 +5,6 @@ import { Button } from "@/components/base/buttons/button";
 import { RouteConfigDrawer } from "@/features/operaciones/efectivizacion/shared/components/route-config-drawer";
 import { useRouteCompanies } from "@/features/operaciones/efectivizacion/shared/hooks/use-route-companies";
 import type { OperacionRuta } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
-import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { AsistidaOperationalBoard } from "@/features/operaciones/efectivizacion/asistida/components/asistida-operational-board";
 import { AsistidaSolicitudForm } from "@/features/operaciones/efectivizacion/asistida/components/asistida-solicitud-form";
 
@@ -16,7 +15,6 @@ interface AsistidaPageProps {
 export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
     const [refreshKey, setRefreshKey] = useState(0);
     const [isConfigOpen, setIsConfigOpen] = useState(false);
-    const routeLabel = getRutaLabel(ruta);
     const { data: cajas, error, isLoading } = useRouteCompanies(ruta);
     const primaryCompany = useMemo(
         () => cajas.find((caja) => caja.flag_caja_ingreso_principal) ?? cajas[0] ?? null,
@@ -26,11 +24,7 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
     return (
         <AppLayout>
             <div className="flex flex-col gap-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                        <p className="text-sm text-tertiary">Home &gt; Operaciones &gt; {routeLabel}</p>
-                        <h1 className="mt-1 text-xl font-semibold text-primary">{routeLabel}</h1>
-                    </div>
+                <div className="flex justify-end">
                     <Button size="sm" color="primary" iconLeading={Settings01} onClick={() => setIsConfigOpen(true)}>
                         Configuracion
                     </Button>

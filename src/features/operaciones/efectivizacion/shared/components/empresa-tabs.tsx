@@ -23,7 +23,16 @@ export const EmpresaTabs = ({ companies, activeCompanyId, badges = {}, onChange 
             <Tabs selectedKey={String(activeCompanyId ?? companies[0].id_empresa)} onSelectionChange={(key) => onChange(Number(key))}>
                 <Tabs.List type="button-border" size="sm" aria-label="Empresas de ruta">
                     {companies.map((company) => (
-                        <Tabs.Item id={String(company.id_empresa)} key={company.id_empresa} badge={badges[company.id_empresa] || undefined}>
+                        <Tabs.Item
+                            id={String(company.id_empresa)}
+                            key={company.id_empresa}
+                            badge={badges[company.id_empresa] || undefined}
+                            className={({ isSelected }) =>
+                                isSelected
+                                    ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
+                                    : ""
+                            }
+                        >
                             {company.nombre_empresa}
                         </Tabs.Item>
                     ))}

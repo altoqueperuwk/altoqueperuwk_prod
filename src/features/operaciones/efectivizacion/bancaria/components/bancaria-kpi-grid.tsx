@@ -11,13 +11,13 @@ export const BancariaKpiGrid = ({ isLoading = false, kpi }: BancariaKpiGridProps
     const cards = [
         ["Caja Inicial", formatMoney(kpi?.caja_inicial), "text-primary"],
         ["Caja Actual", formatMoney(kpi?.caja_actual), "text-primary"],
-        ["Total Recaudado", formatMoney(kpi?.total_recaudado), "text-concept-ingreso"],
+        ["Caja Recaudación", formatMoney(kpi?.total_recaudado), "text-concept-ingreso"],
         ["Ingresos", formatMoney(kpi?.ingresos), "text-concept-ingreso"],
         ["Salidas", formatMoney(kpi?.salidas), "text-concept-salida"],
         ["Gastos Operacionales", formatMoney(kpi?.gastos_operacionales), "text-concept-gasto"],
         ["Ganancias", formatMoney(kpi?.ganancias), "text-concept-ganancia"],
         ["Pendiente a Depositar", formatMoney(kpi?.pendiente_depositar), "text-primary"],
-        ["Ingresos Retenidos", formatMoney(kpi?.ingresos_retenidos), "text-concept-ingreso"],
+        ["Retención Recaudación", formatMoney(kpi?.ingresos_retenidos), "text-concept-ingreso"],
         ["Total Efectivizacion", formatInteger(kpi?.total_efectivizacion), "text-primary"],
         ["Total Pago Deuda", formatInteger(kpi?.total_pago_deuda), "text-primary"],
     ] as const;

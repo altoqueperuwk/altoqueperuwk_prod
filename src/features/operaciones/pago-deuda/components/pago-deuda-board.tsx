@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Check } from "@untitledui/icons";
+import { Check, Edit03 } from "@untitledui/icons";
+import { Button } from "@/components/base/buttons/button";
+import { Input } from "@/components/base/input/input";
+import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { estadoService } from "@/services/estado.service";
 import { empresaCuentaBancariaService } from "@/services/empresa-cuenta-bancaria.service";
+import { clienteService } from "@/services/cliente.service";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
 import { OperationToolbar } from "@/features/operaciones/efectivizacion/shared/components/operation-toolbar";
@@ -34,6 +38,10 @@ interface EmpresaCuentaActiva {
 const filters = ["Todos", "Pendiente Transferencia", "Pendiente Devolución", "Pendiente Comisión"];
 const actions = ["Confirmar Comision"];
 
+export const hasDevolucionConfirmada = (row: OperacionProceso) =>
+    Boolean(row.id_operacion_match) ||
+    Number(row.monto_devuelto ?? 0) >= Number(row.monto_deposito_cliente ?? 0);
+
 const formatDate = (value?: string | null) => {
     if (!value) return "";
     return new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value));
@@ -46,12 +54,51 @@ const formatTime = (value?: string | null) => {
 
 const getEstadoToken = (estado?: string | null) => estado?.trim().toUpperCase() ?? "";
 
-const getEstadoColor = (estado?: string | null): "gray" | "brand" | "error" | "warning" | "success" => {
-    const token = getEstadoToken(estado);
-    if (token === "PAGADO") return "success";
-    if (token === "PROCESADO") return "brand";
-    if (token === "RECHAZADO") return "error";
-    return "warning";
+type PagoDeudaEstadoAccion = "transferencia" | "finalizar" | "none";
+
+const getPagoDeudaEstadoVisual = (row: OperacionProceso): { action: PagoDeudaEstadoAccion; label: string } => {
+    const estado = getEstadoToken(row.nombre_estado);
+    const isTransferido = estado === "PROCESADO" || estado === "PAGADO";
+
+    if (Boolean(row.flag_comision_registrada)) return { action: "none", label: "Finalizado" };
+    if (hasDevolucionConfirmada(row)) return { action: "finalizar", label: "Devuelto" };
+    if (isTransferido) return { action: "none", label: "Transferido" };
+    return { action: "transferencia", label: "Solicitado" };
+};
+
+interface PagoDeudaEstadoButtonProps {
+    row: OperacionProceso;
+    isLoading?: boolean;
+    onFinalizar?: (row: OperacionProceso) => void;
+    onTransferencia?: (row: OperacionProceso) => void;
+}
+
+export const PagoDeudaEstadoButton = ({
+    isLoading = false,
+    onFinalizar,
+    onTransferencia,
+    row,
+}: PagoDeudaEstadoButtonProps) => {
+    const visual = getPagoDeudaEstadoVisual(row);
+    const handleClick = () => {
+        if (visual.action === "transferencia") onTransferencia?.(row);
+        if (visual.action === "finalizar") onFinalizar?.(row);
+    };
+    const isActionable =
+        (visual.action === "transferencia" && Boolean(onTransferencia)) ||
+        (visual.action === "finalizar" && Boolean(onFinalizar));
+
+    return (
+        <Button
+            size="xs"
+            color={isActionable ? "primary" : "secondary"}
+            isDisabled={!isActionable || isLoading}
+            isLoading={isLoading}
+            onClick={handleClick}
+        >
+            {visual.label}
+        </Button>
+    );
 };
 
 export const PagoDeudaSteps = ({ row }: { row: OperacionProceso }) => {
@@ -59,8 +106,8 @@ export const PagoDeudaSteps = ({ row }: { row: OperacionProceso }) => {
     const completed = [
         true,
         estado === "PROCESADO" || estado === "PAGADO",
-        Boolean(row.id_operacion_match) || estado === "PAGADO",
-        Boolean(row.flag_comision_registrada) || (estado === "PAGADO" && Boolean(row.id_operacion_match)),
+        hasDevolucionConfirmada(row) || estado === "PAGADO",
+        Boolean(row.flag_comision_registrada),
     ];
 
     return (
@@ -95,6 +142,9 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
     const [savingCuentaIds, setSavingCuentaIds] = useState<number[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isApplyingAction, setIsApplyingAction] = useState(false);
+    const [dniEdit, setDniEdit] = useState<{ row: OperacionProceso; value: string } | null>(null);
+    const [isSavingDni, setIsSavingDni] = useState(false);
+    const [savingEstadoIds, setSavingEstadoIds] = useState<number[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [actionRefreshKey, setActionRefreshKey] = useState(0);
     const userId = businessUser?.id ? Number(businessUser.id) : null;
@@ -170,7 +220,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         return rows.filter((row) => {
             const estado = getEstadoToken(row.nombre_estado);
             const isProcesado = estado === "PROCESADO" || estado === "PAGADO";
-            const hasMatch = Boolean(row.id_operacion_match);
+            const hasMatch = hasDevolucionConfirmada(row);
             const hasComision = Boolean(row.flag_comision_registrada);
 
             if (activeFilter === "Pendiente Transferencia") return !isProcesado;
@@ -267,7 +317,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         }
 
         const eligible = solicitudes.filter(
-            (row) => selectedIds.includes(row.id) && Boolean(row.id_operacion_match) && !Boolean(row.flag_comision_registrada),
+            (row) => selectedIds.includes(row.id) && hasDevolucionConfirmada(row) && !Boolean(row.flag_comision_registrada),
         );
         if (!eligible.length) {
             addToast("error", "Las solicitudes seleccionadas no tienen devolucion confirmada o ya tienen comision.");
@@ -303,11 +353,79 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         if (action === "Confirmar Comision") void handleConfirmarComision();
     };
 
+    const handleDniEditSave = async () => {
+        if (!dniEdit) return;
+        const newDni = dniEdit.value.replace(/\D/g, "").slice(0, 8);
+        if (!newDni) {
+            addToast("error", "El DNI debe tener al menos un digito.");
+            return;
+        }
+        setIsSavingDni(true);
+        try {
+            const clientes = await clienteService.getList({ p_numero_documento: newDni });
+            const cliente = clientes?.[0];
+            const payload: Record<string, unknown> = { p_id: dniEdit.row.id, p_dni_cliente: newDni };
+            if (cliente) {
+                payload.p_id_cliente = Number(cliente.id);
+                payload.p_nombre_cliente = String(cliente.nombre ?? "");
+            }
+            const saved = await operacionesRpcService.patchOperacionBase(payload);
+            updateSolicitud(saved);
+            addToast("success", "DNI actualizado.");
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo actualizar el DNI.");
+        } finally {
+            setIsSavingDni(false);
+            setDniEdit(null);
+        }
+    };
+
+    const handleTransferenciaEstado = async (row: OperacionProceso) => {
+        const rutaDestino = row.ruta_destino ?? row.ruta_origen;
+        if (!rutaDestino) {
+            addToast("error", "La solicitud no tiene ruta destino para confirmar transferencia.");
+            return;
+        }
+
+        setSavingEstadoIds((current) => [...current, row.id]);
+        try {
+            const saved = await operacionesRpcService.patchPagoDeudaSalida({
+                p_id_operacion: row.id,
+                p_id_usuario_gestor: userId,
+                p_nombre_usuario_gestor: userName,
+                p_ruta_destino: rutaDestino,
+            });
+            updateSolicitud(saved);
+            addToast("success", "Transferencia confirmada.");
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo confirmar la transferencia.");
+        } finally {
+            setSavingEstadoIds((current) => current.filter((id) => id !== row.id));
+        }
+    };
+
+    const handleFinalizarEstado = async (row: OperacionProceso) => {
+        setSavingEstadoIds((current) => [...current, row.id]);
+        try {
+            const saved = await pagoDeudaService.patchPagado({
+                p_id_operacion: row.id,
+                p_id_usuario_gestor: userId,
+                p_nombre_usuario_gestor: userName,
+            });
+            updateSolicitud(saved);
+            addToast("success", "Pago Deuda finalizado.");
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo finalizar Pago Deuda.");
+        } finally {
+            setSavingEstadoIds((current) => current.filter((id) => id !== row.id));
+        }
+    };
+
     const isActionDisabled = (action: string) => {
         if (isApplyingAction || isLoading || !selectedIds.length) return true;
         if (action === "Confirmar Comision") {
             return !solicitudes.some(
-                (row) => selectedIds.includes(row.id) && Boolean(row.id_operacion_match) && !Boolean(row.flag_comision_registrada),
+                (row) => selectedIds.includes(row.id) && hasDevolucionConfirmada(row) && !Boolean(row.flag_comision_registrada),
             );
         }
         return false;
@@ -322,7 +440,12 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         {
             key: "dni_cliente",
             label: "DNI",
-            render: (row: OperacionProceso) => <CompactCellText primary={row.dni_cliente ?? "-"} />,
+            render: (row: OperacionProceso) => (
+                <div className="flex items-center gap-1">
+                    <CompactCellText primary={row.dni_cliente ?? "-"} />
+                    <Button size="xs" color="tertiary" iconLeading={Edit03} aria-label="Editar DNI" isDisabled={hasDevolucionConfirmada(row)} onClick={() => setDniEdit({ row, value: row.dni_cliente ?? "" })} />
+                </div>
+            ),
         },
         {
             key: "nombre_cliente",
@@ -359,7 +482,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
                     aria-label="Empresa de comision"
                     width="w-52"
                     value={row.id_empresa_ingreso ? String(row.id_empresa_ingreso) : ""}
-                    disabled={savingCuentaIds.includes(row.id) || !row.id_operacion_match}
+                    disabled={savingCuentaIds.includes(row.id) || !hasDevolucionConfirmada(row) || Boolean(row.flag_comision_registrada)}
                     onChange={(event) => handleEmpresaChange(row, getSelectValue(event))}
                     options={[{ label: "Empresa", value: "" }, ...empresasActivas]}
                 />
@@ -378,12 +501,24 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
                         aria-label="Cuenta de comision"
                         width="w-36"
                         value={row.id_empresa_cuenta_ingreso ? String(row.id_empresa_cuenta_ingreso) : ""}
-                        disabled={savingCuentaIds.includes(row.id) || !row.id_empresa_ingreso || !row.id_operacion_match}
+                        disabled={savingCuentaIds.includes(row.id) || !row.id_empresa_ingreso || !hasDevolucionConfirmada(row) || Boolean(row.flag_comision_registrada)}
                         onChange={(event) => handleCuentaChange(row, getSelectValue(event))}
                         options={[{ label: "Cuenta", value: "" }, ...cuentaOptions]}
                     />
                 );
             },
+        },
+        {
+            key: "estado_visual",
+            label: "Estado",
+            render: (row: OperacionProceso) => (
+                <PagoDeudaEstadoButton
+                    row={row}
+                    isLoading={savingEstadoIds.includes(row.id)}
+                    onFinalizar={handleFinalizarEstado}
+                    onTransferencia={handleTransferenciaEstado}
+                />
+            ),
         },
         {
             key: "fecha_registro",
@@ -422,6 +557,32 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
                 selectedIds={selectedIds}
                 onToggleRow={handleToggleRow}
             />
+            <ModalOverlay isOpen={dniEdit !== null} onOpenChange={(open) => !open && setDniEdit(null)}>
+                <Modal className="max-w-sm">
+                    <Dialog>
+                        <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                            <div>
+                                <h2 className="text-lg font-semibold text-primary">Editar DNI</h2>
+                                <p className="mt-1 text-sm text-tertiary">
+                                    {dniEdit ? `Operacion ${dniEdit.row.codigo_operacion_deposito_cliente ?? dniEdit.row.id}` : ""}
+                                </p>
+                            </div>
+                            <div className="mt-5">
+                                <Input
+                                    size="sm"
+                                    label="DNI"
+                                    value={dniEdit?.value ?? ""}
+                                    onChange={(value) => setDniEdit((current) => current ? { ...current, value } : current)}
+                                />
+                            </div>
+                            <div className="mt-6 flex justify-end gap-2">
+                                <Button color="secondary" onClick={() => setDniEdit(null)}>Cancelar</Button>
+                                <Button isLoading={isSavingDni} onClick={() => void handleDniEditSave()}>Guardar</Button>
+                            </div>
+                        </div>
+                    </Dialog>
+                </Modal>
+            </ModalOverlay>
         </motion.section>
     );
 };

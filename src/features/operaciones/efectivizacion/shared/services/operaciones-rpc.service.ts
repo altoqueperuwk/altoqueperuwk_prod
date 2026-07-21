@@ -61,6 +61,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso[]>("f_get_tb_operacion_retencion_bandeja", params);
     },
 
+    getPagoDeudaBandeja(params: Record<string, unknown>) {
+        return rpc<OperacionProceso[]>("f_get_tb_pago_deuda_bandeja", params);
+    },
+
     getMovimientos(params: Record<string, unknown>) {
         return rpc<OperacionCajaMovimiento[]>("f_get_tb_operacion_caja", params);
     },
@@ -150,5 +154,9 @@ export const operacionesRpcService = {
 
     postOperacionExcelGanancia(params: Record<string, unknown>) {
         return rpc<Record<string, unknown>>("f_post_tb_operacion_proceso_excel_ganancia", params);
+    },
+
+    getReporteCierre(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_get_reporte_cierre", params);
     },
 };

@@ -86,7 +86,7 @@ export const OperationToolbar = ({
                         <Button
                             key={filter}
                             size="sm"
-                            color={filter === activeFilter ? "secondary" : "tertiary"}
+                            color={filter === activeFilter ? "primary" : "tertiary"}
                             onClick={() => onFilterChange(filter)}
                         >
                             {filter}

@@ -920,6 +920,17 @@ BEGIN
 END;
 $$;
 
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_empresa_cuenta_bancaria' AND column_name = 'flag_retencion_parcial'
+  ) THEN
+    ALTER TABLE public.tb_empresa_cuenta_bancaria ADD COLUMN flag_retencion_parcial boolean NOT NULL DEFAULT false;
+  END IF;
+END;
+$$;
+
 CREATE TABLE IF NOT EXISTS public.tb_empresa_cuenta_bancaria_his AS
 TABLE public.tb_empresa_cuenta_bancaria
 WITH NO DATA;
@@ -942,6 +953,17 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'tb_empresa_cuenta_bancaria_his' AND column_name = 'flag_retencion'
   ) THEN
     ALTER TABLE public.tb_empresa_cuenta_bancaria_his ADD COLUMN flag_retencion boolean NOT NULL DEFAULT false;
+  END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_empresa_cuenta_bancaria_his' AND column_name = 'flag_retencion_parcial'
+  ) THEN
+    ALTER TABLE public.tb_empresa_cuenta_bancaria_his ADD COLUMN flag_retencion_parcial boolean NOT NULL DEFAULT false;
   END IF;
 END;
 $$;
@@ -1081,6 +1103,7 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_empresa_cuenta_bancaria(
   p_id_banco bigint,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT false,
   p_flag_retencion boolean DEFAULT NULL,
+  p_flag_retencion_parcial boolean DEFAULT false,
   p_comision_itf_ingreso_salida numeric DEFAULT 0,
   p_comision_banco_ingreso numeric DEFAULT 0,
   p_comision_minimo_banco_ingreso numeric DEFAULT 0,
@@ -1097,8 +1120,12 @@ AS $$
 DECLARE
   v_id bigint;
 BEGIN
+  IF COALESCE(p_flag_retencion, false) AND p_flag_retencion_parcial THEN
+    RETURN jsonb_build_object('error', 'Solo puede activarse un tipo de retencion.');
+  END IF;
+
   INSERT INTO public.tb_empresa_cuenta_bancaria (
-    id_empresa, id_banco, flag_por_sol_comision_banco_ingreso, flag_retencion,
+    id_empresa, id_banco, flag_por_sol_comision_banco_ingreso, flag_retencion, flag_retencion_parcial,
     comision_itf_ingreso_salida, comision_banco_ingreso,
     comision_minimo_banco_ingreso, comision_igv_banco_ingreso,
     comision_transf_banco_salida, comision_transf_inter_banco_salida,
@@ -1118,6 +1145,7 @@ BEGIN
       ),
       false
     ),
+    p_flag_retencion_parcial,
     COALESCE(p_comision_itf_ingreso_salida, 0), COALESCE(p_comision_banco_ingreso, 0),
     COALESCE(p_comision_minimo_banco_ingreso, 0), COALESCE(p_comision_igv_banco_ingreso, 0),
     COALESCE(p_comision_transf_banco_salida, 0), COALESCE(p_comision_transf_inter_banco_salida, 0),
@@ -1144,6 +1172,7 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_empresa_cuenta_bancaria(
   p_id_banco bigint DEFAULT NULL,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT NULL,
   p_flag_retencion boolean DEFAULT NULL,
+  p_flag_retencion_parcial boolean DEFAULT NULL,
   p_comision_itf_ingreso_salida numeric DEFAULT NULL,
   p_comision_banco_ingreso numeric DEFAULT NULL,
   p_comision_minimo_banco_ingreso numeric DEFAULT NULL,
@@ -1157,12 +1186,21 @@ RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
+DECLARE
+  v_actual record;
 BEGIN
+  SELECT * INTO v_actual FROM public.tb_empresa_cuenta_bancaria WHERE id = p_id LIMIT 1;
+
+  IF COALESCE(p_flag_retencion, v_actual.flag_retencion) AND COALESCE(p_flag_retencion_parcial, v_actual.flag_retencion_parcial) THEN
+    RETURN jsonb_build_object('error', 'Solo puede activarse un tipo de retencion.');
+  END IF;
+
   UPDATE public.tb_empresa_cuenta_bancaria
   SET id_empresa = COALESCE(p_id_empresa, id_empresa),
       id_banco = COALESCE(p_id_banco, id_banco),
       flag_por_sol_comision_banco_ingreso = COALESCE(p_flag_por_sol_comision_banco_ingreso, flag_por_sol_comision_banco_ingreso),
       flag_retencion = COALESCE(p_flag_retencion, flag_retencion),
+      flag_retencion_parcial = COALESCE(p_flag_retencion_parcial, flag_retencion_parcial),
       comision_itf_ingreso_salida = COALESCE(p_comision_itf_ingreso_salida, comision_itf_ingreso_salida),
       comision_banco_ingreso = COALESCE(p_comision_banco_ingreso, comision_banco_ingreso),
       comision_minimo_banco_ingreso = COALESCE(p_comision_minimo_banco_ingreso, comision_minimo_banco_ingreso),
@@ -1446,6 +1484,8 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
        pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_get_tb_reglas_efectivizacion', 'f_get_tb_reglas_efectivizacion_his', 'f_post_tb_reglas_efectivizacion', 'f_patch_tb_reglas_efectivizacion')
+WHERE p.proname IN (
+
+)
 ORDER BY n.nspname, p.proname;
 

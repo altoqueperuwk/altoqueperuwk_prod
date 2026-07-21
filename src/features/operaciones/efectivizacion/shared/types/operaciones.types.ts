@@ -25,6 +25,8 @@ export interface RutaOperacionCaja {
     id_usuario: number | null;
     nombre_usuario: string | null;
     fecha_registro: string;
+    flag_retencion_cuenta?: boolean | null;
+    flag_retencion_parcial_cuenta?: boolean | null;
 }
 
 export interface RutaOperacionKpi {
@@ -124,6 +126,8 @@ export interface OperacionProceso {
     fecha_retencion?: string | null;
     motivo_retencion?: string | null;
     fecha_registro: string;
+    monto_devuelto?: number | null;
+    flag_retencion_parcial?: boolean | null;
 }
 
 export interface OperacionCajaMovimiento {

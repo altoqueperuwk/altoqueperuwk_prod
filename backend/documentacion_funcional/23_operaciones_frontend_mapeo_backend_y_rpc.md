@@ -132,6 +132,32 @@ Fuente funcional actual:
 
 - `src/features/operaciones/pago-deuda/`
 
+### Descarga de reportes (PDF/Excel)
+
+RPC:
+
+- `f_get_reporte_cierre`
+
+Parametros:
+
+- `p_id_caja` — caja operativa activa
+- `p_id_empresa` — empresa seleccionada (filtra operaciones)
+- `p_ruta` — ruta bancaria
+- `p_fecha_cierre` — fecha del cierre historico (NULL = modo Hoy)
+
+Uso:
+
+- boton "Descargar" en la barra superior de cada ruta bancaria
+- genera PDF via `BancariaReporteCierrePdf` con 5 secciones: KPI, Efectivizaciones Pagadas, Pago Deuda, Movimientos OTRO, Retenciones
+- genera Excel con 4 sheets planas
+- las fuentes de datos estan alineadas con los tabs de la web: `tb_operacion_proceso` para Efectivizacion/Pago Deuda/Retenciones, `tb_operacion_caja` para Movimientos OTRO
+
+Componentes:
+
+- `src/features/operaciones/efectivizacion/bancaria/components/bancaria-reporte-cierre-pdf.tsx`
+
+Ver `32_operaciones_descarga_reportes.md` para el detalle completo.
+
 ## Contextos minimos que el frontend debe manejar
 
 ### Ruta actual

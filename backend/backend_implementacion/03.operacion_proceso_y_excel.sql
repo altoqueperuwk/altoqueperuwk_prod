@@ -257,6 +257,18 @@ BEGIN
 END;
 $$;
 
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'monto_devuelto'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN monto_devuelto bigint NOT NULL DEFAULT 0;
+  END IF;
+END;
+$$;
+
 -- ALTER TABLE: id_tipo_deposito ya no se usa; el tipo aplicado se congela en nombre_tipo_deposito.
 DO $$
 BEGIN
@@ -618,6 +630,7 @@ DECLARE
   v_comision_minimo_banco_ingreso_val numeric := 0;
   v_comision_igv_banco_ingreso_val numeric := 0;
   v_regla record;
+  v_dup_id bigint;
   v_calc_serv jsonb;
   v_calc_ing jsonb;
   v_calc_sal jsonb;
@@ -806,6 +819,28 @@ BEGIN
     RETURN jsonb_build_object(
       'error', 'No existe una cuenta bancaria activa de ingreso para la empresa y banco de la ruta.'
     );
+  END IF;
+
+  IF COALESCE(p_dni_cliente, '') <> ''
+     AND COALESCE(p_codigo_operacion_deposito_cliente, '') <> ''
+     AND p_id_codigo_servicio IS NOT NULL
+     AND p_fecha_deposito_cliente IS NOT NULL THEN
+    SELECT id
+    INTO v_dup_id
+    FROM public.tb_operacion_proceso
+    WHERE dni_cliente = p_dni_cliente
+      AND codigo_operacion_deposito_cliente = p_codigo_operacion_deposito_cliente
+      AND id_codigo_servicio = p_id_codigo_servicio
+      AND fecha_deposito_cliente::date BETWEEN (p_fecha_deposito_cliente::date - 7) AND (p_fecha_deposito_cliente::date + 7)
+    LIMIT 1;
+
+    IF v_dup_id IS NOT NULL THEN
+      RETURN jsonb_build_object(
+        'error', 'Operacion duplicada por DNI, codigo de operacion, servicio y ventana de deposito de 7 dias.',
+        'estado', 'OMITIDO',
+        'id_operacion', v_dup_id
+      );
+    END IF;
   END IF;
 
   SELECT r.*
@@ -2271,6 +2306,7 @@ DECLARE
   v_comision_minimo_banco_ingreso numeric := 0;
   v_comision_igv_banco_ingreso numeric := 0;
   v_flag_retencion_cuenta boolean := false;
+  v_flag_retencion_parcial_cuenta boolean := false;
   v_regla record;
   v_regla_cliente record;
   v_dni_parseado character varying;
@@ -2448,6 +2484,7 @@ BEGIN
     ecb.comision_itf_ingreso_salida,
     ecb.flag_por_sol_comision_banco_ingreso,
     ecb.flag_retencion,
+    ecb.flag_retencion_parcial,
     ecb.comision_banco_ingreso,
     ecb.comision_minimo_banco_ingreso,
     ecb.comision_igv_banco_ingreso
@@ -2456,6 +2493,7 @@ BEGIN
     v_itf_cuenta,
     v_flag_por_sol_comision_banco_ingreso,
     v_flag_retencion_cuenta,
+    v_flag_retencion_parcial_cuenta,
     v_comision_banco_ingreso,
     v_comision_minimo_banco_ingreso,
     v_comision_igv_banco_ingreso
@@ -2577,8 +2615,7 @@ BEGIN
     WHERE dni_cliente = v_dni_parseado
       AND codigo_operacion_deposito_cliente = v_fila.codigo_operacion
       AND id_codigo_servicio = p_id_codigo_servicio
-      AND id_empresa_cuenta_ingreso = v_id_empresa_cuenta_ingreso
-      AND fecha_registro >= NOW() - INTERVAL '7 days'
+      AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
     LIMIT 1;
 
     IF v_dup_id IS NOT NULL THEN
@@ -2586,7 +2623,7 @@ BEGIN
         'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
         'codigo_operacion', v_fila.codigo_operacion,
         'estado', 'OMITIDO',
-        'motivo', 'Duplicado en los Ãºltimos 7 dÃ­as',
+        'motivo', 'Duplicado por DNI, codigo de operacion, servicio y ventana de deposito de 7 dias',
         'id_operacion', v_dup_id
       );
       v_filas_omitidas := v_filas_omitidas + 1;
@@ -2783,12 +2820,12 @@ BEGIN
       p_ruta_actual,
       COALESCE(p_ruta_actual, NULL),
       false,
-      COALESCE(v_flag_retencion_cuenta, false),
-      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN NOW() ELSE NULL END,
-      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN p_id_usuario ELSE NULL END,
-      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN v_username ELSE NULL END,
+      COALESCE(v_flag_retencion_cuenta OR v_flag_retencion_parcial_cuenta, false),
+      CASE WHEN COALESCE(v_flag_retencion_cuenta OR v_flag_retencion_parcial_cuenta, false) THEN NOW() ELSE NULL END,
+      CASE WHEN COALESCE(v_flag_retencion_cuenta OR v_flag_retencion_parcial_cuenta, false) THEN p_id_usuario ELSE NULL END,
+      CASE WHEN COALESCE(v_flag_retencion_cuenta OR v_flag_retencion_parcial_cuenta, false) THEN v_username ELSE NULL END,
       CASE
-        WHEN COALESCE(v_flag_retencion_cuenta, false)
+        WHEN COALESCE(v_flag_retencion_cuenta OR v_flag_retencion_parcial_cuenta, false)
           THEN 'Retencion automatica por cuenta bancaria'
         ELSE NULL
       END,
@@ -3065,10 +3102,28 @@ BEGIN
         jsonb_build_object(
           'fila', 0,
           'estado', 'ERROR',
-          'motivo', 'No existe una cuenta bancaria de ingreso para la empresa y banco definidos por la ruta'
+      'motivo', 'No existe una cuenta bancaria de ingreso para la empresa y banco definidos por la ruta'
         )
       )
     );
+  END IF;
+
+  IF v_flag_retencion_parcial_cuenta THEN
+    PERFORM public.f_patch_tb_operacion_caja_confirmar_retencion(oc.id)
+    FROM public.tb_operacion_caja oc
+    JOIN public.tb_operacion_proceso op ON op.id = oc.id_operacion_proceso
+    WHERE op.flag_retenido = true
+      AND oc.id_empresa = v_id_empresa_ingreso_final
+      AND oc.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_ingreso
+      AND UPPER(COALESCE(oc.nombre_estado, '')) = 'RETENIDO';
+
+    UPDATE public.tb_operacion_proceso op
+    SET flag_retenido = false
+    FROM public.tb_operacion_caja oc
+    WHERE op.id = oc.id_operacion_proceso
+      AND op.flag_retenido = true
+      AND oc.id_empresa = v_id_empresa_ingreso_final
+      AND oc.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_ingreso;
   END IF;
 
   FOR v_fila IN
@@ -3139,8 +3194,7 @@ BEGIN
     WHERE dni_cliente = v_dni_parseado
       AND codigo_operacion_deposito_cliente = v_fila.codigo_operacion
       AND id_codigo_servicio = p_id_codigo_servicio
-      AND id_empresa_cuenta_ingreso = v_id_empresa_cuenta_ingreso
-      AND fecha_registro >= NOW() - INTERVAL '7 days'
+      AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
     LIMIT 1;
 
     IF v_dup_id IS NOT NULL THEN
@@ -3148,7 +3202,7 @@ BEGIN
         'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
         'codigo_operacion', v_fila.codigo_operacion,
         'estado', 'OMITIDO',
-        'motivo', 'Duplicado en los Ãºltimos 7 dÃ­as',
+        'motivo', 'Duplicado por DNI, codigo de operacion, servicio y ventana de deposito de 7 dias',
         'id_operacion', v_dup_id
       );
       v_filas_omitidas := v_filas_omitidas + 1;
@@ -3341,9 +3395,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_operacion_proceso',
-  'f_patch_tb_operacion_proceso_pagado',
-  'f_patch_tb_operacion_proceso_directo_caja',
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',
   'f_post_tb_operacion_proceso_excel_ganancia'
