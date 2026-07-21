@@ -266,6 +266,12 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         setSolicitudes((current) => current.map((row) => (row.id === updated.id ? updated : row)));
     };
 
+    const getSolicitudActualizada = async (row: OperacionProceso, fallback: OperacionProceso) => {
+        const rootId = row.id_operacion_padre ?? row.id;
+        const rows = await pagoDeudaService.getSolicitudes({ p_id: rootId });
+        return rows?.[0] ?? fallback;
+    };
+
     const persistComisionCuenta = async (row: OperacionProceso, cuenta: EmpresaCuentaActiva) => {
         setSavingCuentaIds((current) => [...current, row.id]);
         try {
@@ -334,7 +340,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
                     p_id_usuario_gestor: userId,
                     p_nombre_usuario_gestor: userName,
                 });
-                updatedRows.push(saved);
+                updatedRows.push(await getSolicitudActualizada(row, saved));
             }
 
             setSelectedIds([]);
@@ -412,7 +418,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
                 p_id_usuario_gestor: userId,
                 p_nombre_usuario_gestor: userName,
             });
-            updateSolicitud(saved);
+            updateSolicitud(await getSolicitudActualizada(row, saved));
             addToast("success", "Pago Deuda finalizado.");
         } catch (err) {
             addToast("error", err instanceof Error ? err.message : "No se pudo finalizar Pago Deuda.");

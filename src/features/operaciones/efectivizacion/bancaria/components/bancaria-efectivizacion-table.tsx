@@ -184,6 +184,7 @@ export const BancariaEfectivizacionTable = ({
     } | null>(null);
     const [pagoDeudaMatches, setPagoDeudaMatches] = useState<Record<number, OperacionProceso[]>>({});
     const [pdMatchRow, setPdMatchRow] = useState<OperacionProceso | null>(null);
+    const [pdSelectedMatchId, setPdSelectedMatchId] = useState<number | null>(null);
     const [dniEdit, setDniEdit] = useState<{ row: OperacionProceso; value: string } | null>(null);
     const [confirmAction, setConfirmAction] = useState<{ row: OperacionProceso; type: ConfirmActionType } | null>(null);
     const hasSelection = Boolean(onToggleRow);
@@ -559,6 +560,19 @@ export const BancariaEfectivizacionTable = ({
         }
     };
 
+    const closePagoDeudaMatchModal = () => {
+        setPdMatchRow(null);
+        setPdSelectedMatchId(null);
+    };
+
+    const handleSavePagoDeudaMatch = async () => {
+        if (!pdMatchRow || !pdSelectedMatchId) return;
+        const row = pdMatchRow;
+        const matchId = pdSelectedMatchId;
+        closePagoDeudaMatchModal();
+        await handlePagoDeudaMatch(row, matchId);
+    };
+
     const handleDirectoCaja = async (row: OperacionProceso) => {
         setConfirmAction({ row, type: "directo" });
     };
@@ -906,7 +920,10 @@ export const BancariaEfectivizacionTable = ({
                                                         size="xs"
                                                         color={pdDisabled ? "secondary" : "primary"}
                                                         isDisabled={pdDisabled}
-                                                        onClick={() => setPdMatchRow(row)}
+                                                        onClick={() => {
+                                                            setPdSelectedMatchId(null);
+                                                            setPdMatchRow(row);
+                                                        }}
                                                     >
                                                         PD
                                                     </Button>
@@ -1004,54 +1021,71 @@ export const BancariaEfectivizacionTable = ({
                     </Dialog>
                 </Modal>
             </ModalOverlay>
-            <ModalOverlay isOpen={pdMatchRow !== null} onOpenChange={(open) => !open && setPdMatchRow(null)}>
-                <Modal className="max-w-md">
+            <ModalOverlay isOpen={pdMatchRow !== null} onOpenChange={(open) => !open && closePagoDeudaMatchModal()}>
+                <Modal className="max-w-2xl">
                     <Dialog>
                         <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
                             <div>
                                 <h2 className="text-lg font-semibold text-primary">Match Pago Deuda</h2>
                                 <p className="mt-1 text-sm text-tertiary">
-                                    {pdMatchRow ? `${pdMatchRow.dni_cliente ?? "-"} — ${formatMoney(pdMatchRow.monto_deposito_cliente)}` : ""}
+                                    {pdMatchRow ? `Operacion retorno: ${pdMatchRow.dni_cliente ?? "-"} - ${formatMoney(pdMatchRow.monto_deposito_cliente)}` : ""}
                                 </p>
                             </div>
 
-                            <div className="mt-4 max-h-64 space-y-2 overflow-y-auto">
+                            <div className="mt-4 max-h-80 overflow-y-auto rounded-lg border border-secondary">
                                 {(() => {
                                     const matchList = pdMatchRow ? (pagoDeudaMatches[pdMatchRow.id] ?? []) : [];
-                                    return matchList.map((match) => (
-                                    <button
-                                        key={match.id}
-                                        className="flex w-full items-center justify-between rounded-lg border border-secondary bg-secondary px-3 py-2 text-left text-sm text-primary transition hover:bg-secondary_hover"
-                                        onClick={() => {
-                                            const row = pdMatchRow;
-                                            if (!row) return;
-                                            setPdMatchRow(null);
-                                            void handlePagoDeudaMatch(row, match.id);
-                                        }}
-                                    >
-                                        <div>
-                                            <span className="font-medium">{match.dni_cliente ?? "-"}</span>
-                                            <span className="ml-2 text-tertiary">{match.nombre_banco_cliente ?? ""}</span>
-                                        </div>
-                                        <div className="text-right">
-                                            <div>
-                                                <span className="font-semibold">{formatMoney(match.monto_deposito_cliente)}</span>
-                                            </div>
-                                            <div className="text-xs text-tertiary">
-                                                Devuelto: {formatMoney(match.monto_devuelto ?? 0)}
-                                            </div>
-                                        </div>
-                                    </button>
-                                    ));
+                                    if (!matchList.length) {
+                                        return <p className="px-3 py-8 text-center text-sm text-tertiary">Sin candidatos compatibles.</p>;
+                                    }
+
+                                    return (
+                                        <table className="min-w-full table-fixed text-sm">
+                                            <thead className="bg-secondary">
+                                                <tr>
+                                                    <th className="w-10 px-3 py-2 text-left text-xs font-semibold text-tertiary">Sel.</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-semibold text-tertiary">DNI</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-semibold text-tertiary">Banco</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-semibold text-tertiary">Monto</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-semibold text-tertiary">Devuelto</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-secondary bg-primary">
+                                                {matchList.map((match) => (
+                                                    <tr
+                                                        key={match.id}
+                                                        className="cursor-pointer transition hover:bg-secondary_hover"
+                                                        onClick={() => setPdSelectedMatchId(match.id)}
+                                                    >
+                                                        <td className="px-3 py-3 align-middle">
+                                                            <Checkbox
+                                                                aria-label={`Seleccionar Pago Deuda ${match.id}`}
+                                                                isSelected={pdSelectedMatchId === match.id}
+                                                                onChange={() => setPdSelectedMatchId(match.id)}
+                                                            />
+                                                        </td>
+                                                        <td className="px-3 py-3 align-middle font-medium text-primary">{match.dni_cliente ?? "-"}</td>
+                                                        <td className="px-3 py-3 align-middle text-secondary">{match.nombre_banco_cliente ?? "-"}</td>
+                                                        <td className="px-3 py-3 align-middle font-semibold tabular-nums text-primary">{formatMoney(match.monto_deposito_cliente)}</td>
+                                                        <td className="px-3 py-3 align-middle tabular-nums text-secondary">{formatMoney(match.monto_devuelto ?? 0)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    );
                                 })()}
-                                {pdMatchRow && !(pagoDeudaMatches[pdMatchRow.id] ?? []).length && (
-                                    <p className="text-sm text-tertiary">Sin candidatos compatibles.</p>
-                                )}
                             </div>
 
-                            <div className="mt-4 flex justify-end gap-2">
-                                <Button color="secondary" onClick={() => setPdMatchRow(null)}>
+                            <div className="mt-5 flex justify-end gap-2">
+                                <Button color="secondary" onClick={closePagoDeudaMatchModal}>
                                     Cancelar
+                                </Button>
+                                <Button
+                                    isDisabled={!pdSelectedMatchId || (pdMatchRow ? savingIds.includes(pdMatchRow.id) : false)}
+                                    isLoading={pdMatchRow ? savingIds.includes(pdMatchRow.id) : false}
+                                    onClick={() => void handleSavePagoDeudaMatch()}
+                                >
+                                    Guardar
                                 </Button>
                             </div>
                         </div>
