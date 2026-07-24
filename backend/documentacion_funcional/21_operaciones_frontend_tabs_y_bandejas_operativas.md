@@ -85,7 +85,11 @@ Este modulo concentra:
 Dentro de este modulo:
 
 - `Efectivizacion`, `Derivados`, `Movimientos` y `Retenidos` pertenecen al flujo bancario principal;
-- `POS` pertenece a la variante asistida, pero convive en el mismo ecosistema tecnico de `efectivizacion`.
+- `POS` existe en dos puntos:
+  - `/operaciones/pos`, como pantalla asistida sin caja propia;
+  - tab `POS` dentro de una ruta bancaria, como bandeja donde se atienden solicitudes enviadas desde POS y se impacta caja.
+
+La pantalla asistida POS no debe confundirse con el tab bancario POS.
 
 ### `features/operaciones/pago-deuda/`
 
@@ -104,7 +108,8 @@ Este modulo conserva su propia semantica de bandeja para `Pago Deuda`, aunque vi
 - no mover los tabs de empresa a otra seccion;
 - no inventar filtros globales comunes si el bozquejo define bandejas distintas;
 - no usar el datatable personalizado actual como patron obligatorio;
-- no separar `POS` en un tercer modulo raiz independiente del frontend.
+- no separar `POS` en un tercer modulo raiz independiente del frontend;
+- no hacer que `/operaciones/pos` use cierre o caja propia.
 
 ## Regla para otra IA
 

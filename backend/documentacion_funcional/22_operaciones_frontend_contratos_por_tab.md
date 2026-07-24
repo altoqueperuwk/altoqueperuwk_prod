@@ -79,6 +79,8 @@ Definir cada bandeja del bloque inferior como contrato funcional y visual cerrad
 
 ## 4. POS
 
+Este contrato corresponde al tab `POS` dentro de una ruta bancaria. No describe la pantalla `/operaciones/pos`.
+
 ### Filtros visibles
 
 - `DNI`
@@ -96,9 +98,18 @@ Definir cada bandeja del bloque inferior como contrato funcional y visual cerrad
 
 ### Semantica
 
-- representa la atencion operativa de solicitudes originadas por POS;
+- representa la atencion operativa bancaria de solicitudes originadas por `/operaciones/pos`;
 - convive visualmente con las otras bandejas;
-- pertenece a la variante `asistida` dentro del modulo frontend `features/operaciones/efectivizacion/`.
+- la salida real se decide aqui y puede impactar la caja del banco destino.
+
+### Pantalla asistida relacionada
+
+`/operaciones/pos`:
+
+- registra solicitudes sin caja propia;
+- exige banco/empresa/cuenta destino;
+- no ejecuta `Pagar`;
+- no crea movimientos.
 
 ## 5. Movimientos
 

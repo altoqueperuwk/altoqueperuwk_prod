@@ -27,6 +27,7 @@ export const CajaOperativaPage = () => {
     const { addToast } = useToast();
     const { bancos, empresas } = useSessionCache();
     const [data, setData] = useState<Record<string, unknown>[]>([]);
+    const [allCajaItems, setAllCajaItems] = useState<Record<string, unknown>[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
@@ -53,11 +54,7 @@ export const CajaOperativaPage = () => {
     const loadData = useCallback(async () => {
         setIsLoading(true);
         try {
-            const filters: Record<string, unknown> = {};
-            if (filterEmpresa) filters.p_id_empresa = filterEmpresa;
-            if (filterEstado) filters.p_id_estado = filterEstado;
-
-            const result = await cajaOperativaService.getList(filters);
+            const result = await cajaOperativaService.getList({});
             const withRutas = await Promise.all(
                 result.map(async (row) => {
                     const rutas = await cajaOperativaService.getRutas({
@@ -77,9 +74,13 @@ export const CajaOperativaPage = () => {
                 }),
             );
 
+            setAllCajaItems(withRutas);
+
             const filtered = withRutas.filter((row) => {
                 const byBanco = !filterBanco || Number(row.id_banco) === filterBanco;
-                return byBanco && matchesText(row, filterNombre);
+                const byEmpresa = !filterEmpresa || Number(row.id_empresa) === filterEmpresa;
+                const byEstado = !filterEstado || Number(row.id_estado) === filterEstado;
+                return byBanco && byEmpresa && byEstado && matchesText(row, filterNombre);
             });
 
             setData(filtered);
@@ -225,6 +226,7 @@ export const CajaOperativaPage = () => {
                 />
 
                 <CajaOperativaPopup
+                    existingItems={allCajaItems}
                     isOpen={isPopupOpen}
                     item={selectedItem}
                     onClose={() => {

@@ -128,6 +128,7 @@ export const buildExcelPayload = ({
     rows,
     selectedCommunity,
     service,
+    tipoRecaudacionSf,
     user,
     ruta,
 }: {
@@ -135,6 +136,7 @@ export const buildExcelPayload = ({
     rows: ExcelRow[];
     selectedCommunity: CatalogRef;
     service: CatalogRef;
+    tipoRecaudacionSf?: "Manual" | "Automatico" | null;
     user: UserContext;
     ruta: string;
 }) => ({
@@ -150,6 +152,7 @@ export const buildExcelPayload = ({
     p_id_usuario: user.userId,
     p_nombre_usuario: user.userName,
     p_ruta_actual: ruta,
+    p_tipo_recaudacion_sf: ruta === "safetypay" ? tipoRecaudacionSf ?? "Automatico" : null,
 });
 
 const expectDateString = () => new Date().toISOString();

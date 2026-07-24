@@ -9,6 +9,7 @@ import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { File06, File07, Settings01 } from "@untitledui/icons";
 import { cajaOperativaService } from "@/services/caja-operativa.service";
+import { CuentaTabs } from "@/features/operaciones/efectivizacion/shared/components/cuenta-tabs";
 import { EmpresaTabs } from "@/features/operaciones/efectivizacion/shared/components/empresa-tabs";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import { RouteConfigDrawer } from "@/features/operaciones/efectivizacion/shared/components/route-config-drawer";
@@ -16,6 +17,7 @@ import { useActiveCompany } from "@/features/operaciones/efectivizacion/shared/h
 import { useRouteCompanies } from "@/features/operaciones/efectivizacion/shared/hooks/use-route-companies";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { CajaOperativa, OperacionRutaBancaria } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import { isDigitalWalletBank } from "@/features/operaciones/efectivizacion/shared/utils/digital-wallet";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { BancariaExcelUpload } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-excel-upload";
 import { BancariaInlineForms } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-inline-forms";
@@ -50,17 +52,30 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const { addToast } = useToast();
     const routeLabel = getRutaLabel(ruta);
     const { data: cajas, error: companiesError, isLoading: isLoadingCompanies } = useRouteCompanies(ruta);
-    const { activeCompany, activeCompanyCajas, activeCompanyId, companies, setActiveCompanyId } = useActiveCompany(cajas);
+    const {
+        activeAccountId,
+        activeCajaId,
+        activeCompany,
+        activeCompanyCaja,
+        activeCompanyCajas,
+        activeCompanyId,
+        companies,
+        setActiveAccountId,
+        setActiveCompanyId,
+    } = useActiveCompany(cajas, ruta);
     const { data: kpi, error: kpiError, isLoading: isLoadingKpis } = useBancariaKpis(
         ruta,
         activeCompanyId,
+        activeAccountId,
+        activeCajaId,
         selectedHistoryDate,
         refreshKey + metricsRefreshKey,
     );
     const activeCajaIds = useMemo(
-        () => activeCompanyCajas.map((caja) => caja.id_caja).filter((idCaja): idCaja is number => Boolean(idCaja)),
-        [activeCompanyCajas],
+        () => activeCajaId ? [activeCajaId] : [],
+        [activeCajaId],
     );
+    const isActiveDigitalWallet = isDigitalWalletBank(activeCompanyCaja);
 
     const handleOpenDownload = async () => {
         const cajaId = activeCajaIds[0];
@@ -103,7 +118,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         addSheet("Movimientos", (data.movimientos as Record<string, unknown>[]) ?? []);
         addSheet("Retenciones", (data.retenciones as Record<string, unknown>[]) ?? []);
 
-        XLSX.writeFile(wb, `Reporte_${activeCompany?.nombre_empresa ?? "Caja"}_${routeLabel}.xlsx`);
+        XLSX.writeFile(wb, `Reporte_${activeCompanyCaja?.nombre_empresa ?? activeCompany?.nombre_empresa ?? "Caja"}_${activeCompanyCaja?.nombre_banco ?? routeLabel}.xlsx`);
         setIsDownloadOpen(false);
     };
 
@@ -171,20 +186,20 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         }, 600);
     };
 
-    const companyName = activeCompany?.nombre_empresa ?? "Empresa";
+    const companyName = activeCompanyCaja?.nombre_empresa ?? activeCompany?.nombre_empresa ?? "Empresa";
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const selectedHistoryDateLabel = selectedHistoryDate ? selectedHistoryDate.split("-").reverse().join("/") : "";
 
     const handleOpenEditCaja = async () => {
-        if (!activeCompany?.id_empresa || !activeCompany.id_empresa_cuenta_bancaria) {
+        if (!activeCompanyCaja?.id_empresa || !activeCompanyCaja.id_empresa_cuenta_bancaria) {
             addToast("error", "Selecciona una empresa y cuenta antes de editar la caja.");
             return;
         }
 
         try {
             const cajas = await operacionesRpcService.getCajaOperativa({
-                p_id_empresa: activeCompany.id_empresa,
-                p_id_empresa_cuenta_bancaria: activeCompany.id_empresa_cuenta_bancaria,
+                p_id_empresa: activeCompanyCaja.id_empresa,
+                p_id_empresa_cuenta_bancaria: activeCompanyCaja.id_empresa_cuenta_bancaria,
                 p_id_estado: 1,
             });
             const caja = cajas?.[0] ?? null;
@@ -229,15 +244,13 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     };
 
     const handleCloseRoute = () => {
-        const cajasToClose = activeCompanyCajas.filter((caja) => caja.id_caja);
-
-        if (!activeCompany) {
+        if (!activeCompanyCaja) {
             addToast("error", "Selecciona una empresa antes de cerrar.");
             return;
         }
 
-        if (!cajasToClose.length) {
-            addToast("error", "La empresa activa no tiene cajas operativas configuradas.");
+        if (!activeCompanyCaja.id_caja) {
+            addToast("error", "La cuenta activa no tiene caja operativa configurada.");
             return;
         }
 
@@ -245,18 +258,15 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     };
 
     const handleConfirmCloseRoute = async () => {
-        const cajasToClose = activeCompanyCajas.filter((caja) => caja.id_caja);
         setIsCloseConfirmOpen(false);
         setIsClosing(true);
 
         try {
-            for (const caja of cajasToClose) {
-                await operacionesRpcService.postCajaCierre({
-                    p_id_caja: caja.id_caja,
-                    p_id_usuario: userId,
-                    p_kpi_snapshot: kpi ?? null,
-                });
-            }
+            await operacionesRpcService.postCajaCierre({
+                p_id_caja: activeCompanyCaja?.id_caja,
+                p_id_usuario: userId,
+                p_kpi_snapshot: kpi ?? null,
+            });
 
             await operacionesRpcService.syncRutaKpiCaja(ruta, userId);
             setRefreshKey((value) => value + 1);
@@ -272,17 +282,10 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     return (
         <AppLayout>
             <div className="flex flex-col gap-5">
-                <div className="flex justify-end">
-                    <Button size="sm" color="primary" iconLeading={Settings01} onClick={() => setIsConfigOpen(true)}>
-                        Configuracion
-                    </Button>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <EmpresaTabs companies={companies} activeCompanyId={activeCompanyId} onChange={setActiveCompanyId} />
+                <div className="flex flex-wrap items-center justify-end gap-2">
                     <BancariaTopActions
                         activeCajaIds={activeCajaIds}
-                        activeCompany={activeCompany}
+                        activeCompany={activeCompanyCaja ?? activeCompany}
                         isClosing={isClosing}
                         selectedHistoryDate={selectedHistoryDate}
                         onEditCaja={handleOpenEditCaja}
@@ -291,6 +294,16 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                         onHistoryDateAvailabilityChange={setIsHistoryDateAvailable}
                         onDownload={handleOpenDownload}
                     />
+                    <Button size="sm" color="primary" iconLeading={Settings01} onClick={() => setIsConfigOpen(true)}>
+                        Configuracion
+                    </Button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                        <EmpresaTabs companies={companies} activeCompanyId={activeCompanyId} onChange={setActiveCompanyId} />
+                        <CuentaTabs accounts={activeCompanyCajas} activeAccountId={activeAccountId} onChange={setActiveAccountId} />
+                    </div>
                     {isLoadingCompanies && <span className="text-sm text-tertiary">Cargando empresas...</span>}
                 </div>
 
@@ -309,34 +322,45 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 <BancariaKpiGrid isLoading={isLoadingKpis} kpi={kpi} />
 
                 <BancariaInlineForms
-                    activeCompany={activeCompany}
-                    activeCompanyCajas={activeCompanyCajas}
+                    activeCajaId={activeCajaId}
+                    activeCompany={activeCompanyCaja ?? activeCompany}
+                    activeCompanyCajas={activeCompanyCaja ? [activeCompanyCaja] : activeCompanyCajas}
+                    historyDate={selectedHistoryDate}
+                    refreshKey={refreshKey + metricsRefreshKey}
                     routeCajas={cajas}
+                    showMiniMovimientos={isActiveDigitalWallet}
                     onSaved={() => setRefreshKey((value) => value + 1)}
                     ruta={ruta}
                 />
 
-                <BancariaExcelUpload
-                    activeCompany={activeCompany}
-                    activeCompanyId={activeCompanyId}
-                    companies={companies}
-                    companyName={companyName}
-                    onCompanyChange={setActiveCompanyId}
-                    onProcessed={() => setRefreshKey((value) => value + 1)}
-                    ruta={ruta}
-                />
+                {!isActiveDigitalWallet && (
+                    <BancariaExcelUpload
+                        activeCompany={activeCompanyCaja ?? activeCompany}
+                        activeCompanyId={activeCompanyId}
+                        companies={companies}
+                        companyName={companyName}
+                        onCompanyChange={setActiveCompanyId}
+                        onProcessed={() => setRefreshKey((value) => value + 1)}
+                        ruta={ruta}
+                    />
+                )}
 
-                <BancariaOperationalTabs
-                    activeCompanyId={activeCompanyId}
-                    companies={companies}
-                    downloadKey={downloadKey}
-                    historyDate={selectedHistoryDate}
-                    onChanged={() => setRefreshKey((value) => value + 1)}
-                    onMetricsChanged={() => setMetricsRefreshKey((value) => value + 1)}
-                    onCompanyChange={setActiveCompanyId}
-                    refreshKey={refreshKey}
-                    ruta={ruta}
-                />
+                {!isActiveDigitalWallet && (
+                    <BancariaOperationalTabs
+                        activeAccountId={activeAccountId}
+                        activeCajaId={activeCajaId}
+                        activeCompanyId={activeCompanyId}
+                        activeCompanyCaja={activeCompanyCaja}
+                        companies={companies}
+                        downloadKey={downloadKey}
+                        historyDate={selectedHistoryDate}
+                        onChanged={() => setRefreshKey((value) => value + 1)}
+                        onMetricsChanged={() => setMetricsRefreshKey((value) => value + 1)}
+                        onCompanyChange={setActiveCompanyId}
+                        refreshKey={refreshKey}
+                        ruta={ruta}
+                    />
+                )}
 
                 <RouteConfigDrawer
                     activeCompany={activeCompany}
@@ -388,7 +412,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                                 <div>
                                     <h2 className="text-lg font-semibold text-primary">Descargar Reporte</h2>
                                     <p className="mt-1 text-sm text-tertiary">
-                                        {activeCompany?.nombre_empresa ?? "Empresa"} — {routeLabel}
+                                        {activeCompanyCaja?.nombre_empresa ?? activeCompany?.nombre_empresa ?? "Empresa"} — {activeCompanyCaja?.nombre_banco ?? routeLabel}
                                     </p>
                                     <p className="text-xs text-tertiary">
                                         {selectedHistoryDate ? `Cierre: ${selectedHistoryDateLabel}` : "Actual (sin cierre)"}
@@ -416,7 +440,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
 
                 <OperacionConfirmModal
                     confirmLabel="Cerrar caja"
-                    description={`Se cerrara la caja de ${activeCompany?.nombre_empresa ?? "la empresa seleccionada"} en ${routeLabel}. Esta accion congelara movimientos y resultados del periodo.`}
+                    description={`Se cerrara la caja de ${activeCompanyCaja?.nombre_empresa ?? activeCompany?.nombre_empresa ?? "la empresa seleccionada"} - ${activeCompanyCaja?.nombre_banco ?? routeLabel}. Esta accion congelara movimientos y resultados del periodo.`}
                     intent="destructive"
                     isLoading={isClosing}
                     isOpen={isCloseConfirmOpen}

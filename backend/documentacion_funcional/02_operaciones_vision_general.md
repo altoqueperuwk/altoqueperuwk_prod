@@ -17,8 +17,8 @@ La division aprobada es:
 No todas las rutas de `operaciones` tienen el mismo comportamiento:
 
 - algunas tienen caja inicial propia, apertura/cierre, Excel y flujo completo;
-- otras solo generan solicitud o ganancia;
-- otras no tienen caja propia, pero si impactan una caja real configurable.
+- otras registran operaciones o solicitudes sin caja propia;
+- otras dependen de una ruta bancaria destino para materializar el impacto financiero.
 
 Por eso no se debe volver a agrupar todo bajo un solo `features/operaciones/` sin separacion clara.
 
@@ -37,6 +37,14 @@ Por eso no se debe volver a agrupar todo bajo un solo `features/operaciones/` si
 
 - `link pago`
 - `pos`
+
+Regla actual:
+
+- `/operaciones/pos` y `/operaciones/linkpago` no tienen caja operativa ni cierre;
+- consultan historial por `fecha_registro`;
+- sus KPIs son informativos y salen desde `tb_operacion_proceso`;
+- POS envia solicitudes al banco destino y se atiende en el tab `POS` de ese banco;
+- Link Pago cambia estado sin crear movimientos de caja.
 
 ### `pago-deuda`
 

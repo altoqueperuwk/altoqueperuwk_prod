@@ -12,6 +12,7 @@ export const useRouteCompanies = (ruta: string) => {
 
         setIsLoading(true);
         setError(null);
+        setData([]);
 
         operacionesRpcService
             .getRutaCajas(ruta)

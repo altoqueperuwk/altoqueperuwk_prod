@@ -53,7 +53,7 @@ Leer despues:
 Aqui se entiende:
 
 - que rutas no tienen caja propia;
-- que generan solicitud o impacto configurable;
+- que generan registro o solicitud operativa sin cierre propio;
 - y como conviven dentro de `operaciones` sin ser una caja autonoma.
 
 ### 5. Operaciones: pago deuda
@@ -132,6 +132,8 @@ Cuando la implementacion llegue a `Operaciones`, leer obligatoriamente esta segu
 - `30_operaciones_pruebas_retenciones_y_cierres.md`
 - `31_contexto_general_recuperacion_proyecto.md`
 - `32_operaciones_descarga_reportes.md`
+- `33_manual_global_operaciones_pago_deuda_safetypay.md`
+- `manuales_md/00_indice_manuales_operativos.md`
 
 Aqui se entiende:
 
@@ -142,6 +144,8 @@ Aqui se entiende:
 - que RPC compactas gobiernan cada bloque del frontend nuevo;
 - cual es el flujo de negocio vigente despues de retenciones, Pago Deuda, cierres y actualizacion parcial de filas;
 - y que archivos frontend/backend se deben restaurar primero si se corrompe el proyecto.
+- que guia funcional sirve como base para manual HTML de bancos, SafetyPay y Pago Deuda.
+- que manuales operativos por ruta existen para usuarios finales.
 
 ## Regla de implementacion
 

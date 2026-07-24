@@ -12,6 +12,7 @@ import { Check, X } from "@untitledui/icons";
 
 interface CajaOperativaPopupProps {
     isOpen: boolean;
+    existingItems?: Record<string, unknown>[];
     item: Record<string, unknown> | null;
     onClose: () => void;
     onSave: () => void;
@@ -27,7 +28,7 @@ const parseMoney = (value: string) => {
     return Number.isFinite(numberValue) ? numberValue : null;
 };
 
-export const CajaOperativaPopup = ({ isOpen, item, onClose, onSave }: CajaOperativaPopupProps) => {
+export const CajaOperativaPopup = ({ existingItems = [], isOpen, item, onClose, onSave }: CajaOperativaPopupProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const { empresas, empresasCuentasBancarias, estados } = useSessionCache();
@@ -43,20 +44,43 @@ export const CajaOperativaPopup = ({ isOpen, item, onClose, onSave }: CajaOperat
         [estados],
     );
 
+    const assignedCuentaIds = useMemo(() => {
+        const currentCuentaId = isEditing ? Number(item?.id_empresa_cuenta_bancaria ?? 0) : 0;
+
+        return new Set(
+            (existingItems || [])
+                .map((caja) => Number(caja.id_empresa_cuenta_bancaria ?? 0))
+                .filter((id) => id && id !== currentCuentaId),
+        );
+    }, [existingItems, isEditing, item]);
+
+    const availableCuentaRows = useMemo(
+        () => (empresasCuentasBancarias || []).filter((cuenta) => !assignedCuentaIds.has(Number(cuenta.id ?? 0))),
+        [assignedCuentaIds, empresasCuentasBancarias],
+    );
+
+    const availableEmpresaIds = useMemo(
+        () => new Set(availableCuentaRows.map((cuenta) => Number(cuenta.id_empresa ?? 0)).filter(Boolean)),
+        [availableCuentaRows],
+    );
+
     const empresaItems = useMemo(
-        () => (empresas || []).map((empresa) => ({ id: empresa.id as string | number, label: empresa.nombre as string })),
-        [empresas],
+        () =>
+            (empresas || [])
+                .filter((empresa) => isEditing || availableEmpresaIds.has(Number(empresa.id ?? 0)))
+                .map((empresa) => ({ id: empresa.id as string | number, label: empresa.nombre as string })),
+        [availableEmpresaIds, empresas, isEditing],
     );
 
     const cuentaItems = useMemo(
         () =>
-            (empresasCuentasBancarias || [])
+            availableCuentaRows
                 .filter((cuenta) => !idEmpresa || Number(cuenta.id_empresa) === idEmpresa)
                 .map((cuenta) => ({
                     id: cuenta.id as string | number,
                     label: `${cuenta.banco_nombre ?? cuenta.nombre_banco ?? "Banco"} - ${cuenta.empresa_nombre ?? cuenta.nombre_empresa ?? "Empresa"}`,
                 })),
-        [empresasCuentasBancarias, idEmpresa],
+        [availableCuentaRows, idEmpresa],
     );
 
     useEffect(() => {

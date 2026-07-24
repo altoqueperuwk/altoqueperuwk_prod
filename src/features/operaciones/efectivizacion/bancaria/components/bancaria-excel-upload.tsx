@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle, File07, Trash01, UploadCloud02, XClose } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
+import { Tabs } from "@/components/application/tabs/tabs";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { codigoServicioService } from "@/services/codigo-servicio.service";
@@ -40,6 +41,31 @@ const formatFileSize = (bytes: number) => {
 };
 
 const getCounterValue = (result: Record<string, unknown> | null, key: string) => Number(result?.[key] ?? 0);
+type SafetyPayMode = "Manual" | "Automatico";
+
+const SafetyPayModeTabs = ({ value, onChange }: { value: SafetyPayMode; onChange: (value: SafetyPayMode) => void }) => (
+    <Tabs
+        className="w-max shrink-0"
+        selectedKey={value}
+        onSelectionChange={(key) => onChange(String(key) === "Manual" ? "Manual" : "Automatico")}
+    >
+        <Tabs.List type="button-border" size="sm" aria-label="Modalidad SafetyPay">
+            {(["Automatico", "Manual"] as SafetyPayMode[]).map((item) => (
+                <Tabs.Item
+                    id={item}
+                    key={item}
+                    className={({ isSelected }) =>
+                        isSelected
+                            ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
+                            : ""
+                    }
+                >
+                    {item}
+                </Tabs.Item>
+            ))}
+        </Tabs.List>
+    </Tabs>
+);
 
 export const BancariaExcelUpload = ({
     activeCompany,
@@ -60,6 +86,7 @@ export const BancariaExcelUpload = ({
     const [serviceItems, setServiceItems] = useState<CatalogItem[]>([]);
     const [result, setResult] = useState<Record<string, unknown> | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [safetyPayMode, setSafetyPayMode] = useState<SafetyPayMode>("Automatico");
 
     const selectedCommunity = useMemo(
         () => communities.find((item) => String(item.id) === communityId) ?? null,
@@ -113,6 +140,7 @@ export const BancariaExcelUpload = ({
 
     useEffect(() => {
         resetUpload();
+        if (ruta === "safetypay") setSafetyPayMode("Automatico");
     }, [activeCompany?.id_empresa, activeCompany?.id_empresa_cuenta_bancaria, ruta]);
 
     const handleFile = async (file: File) => {
@@ -174,6 +202,7 @@ export const BancariaExcelUpload = ({
                 rows,
                 selectedCommunity,
                 service,
+                tipoRecaudacionSf: safetyPayMode,
                 user: { userId, userName },
                 ruta,
             });
@@ -192,8 +221,19 @@ export const BancariaExcelUpload = ({
 
     return (
         <section className="rounded-lg border border-secondary bg-primary p-5 shadow-xs" aria-label={`Carga de archivo ${companyName}`}>
+            <div className="mb-4 min-w-0">
+                <div className="overflow-x-auto overflow-y-hidden pb-1">
+                    <div className="inline-block min-w-max">
+                        <div className="flex items-center gap-3">
+                            <EmpresaTabs companies={companies} activeCompanyId={activeCompanyId} onChange={onCompanyChange} />
+                            {ruta === "safetypay" && <SafetyPayModeTabs value={safetyPayMode} onChange={setSafetyPayMode} />}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div className="grid min-w-0 items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_fit-content(680px)]">
-                <div className="grid min-w-0 grid-rows-[1fr_auto] gap-4">
+                <div className="grid min-w-0">
                     <label
                         className={cx(
                             "flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-secondary bg-secondary px-4 py-8 text-center transition duration-100",
@@ -220,29 +260,9 @@ export const BancariaExcelUpload = ({
                             }}
                         />
                     </label>
-
-                    <div className="grid gap-4 sm:grid-cols-3">
-                        {[
-                            ["PROCESADOS", processedCount],
-                            ["OMITIDOS", omittedCount],
-                            ["ERRORES", errorCount],
-                        ].map(([label, value]) => (
-                            <div key={label} className="flex min-h-10 items-center rounded-lg border border-secondary bg-secondary px-5 shadow-xs">
-                                <p className="w-full text-center text-xs font-semibold uppercase text-secondary sm:text-left">{label}: {value}</p>
-                            </div>
-                        ))}
-                    </div>
                 </div>
 
                 <div className="grid min-w-0 content-start gap-4 xl:min-w-[360px] xl:max-w-[680px]">
-                    <div className="min-w-0 rounded-lg border border-secondary bg-secondary p-3">
-                        <div className="overflow-x-auto overflow-y-hidden pb-1">
-                            <div className="inline-block min-w-max">
-                                <EmpresaTabs companies={companies} activeCompanyId={activeCompanyId} onChange={onCompanyChange} />
-                            </div>
-                        </div>
-                    </div>
-
                     <div className={cx("min-w-0 rounded-xl border border-secondary bg-primary p-4 shadow-xs", !hasFile && "opacity-60")}>
                         <div className="flex min-w-0 items-start gap-3">
                             <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-secondary bg-secondary">
@@ -274,6 +294,18 @@ export const BancariaExcelUpload = ({
                             </div>
                             <span className="shrink-0 text-xs font-semibold text-secondary">{hasFile ? "100%" : "0%"}</span>
                         </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-3">
+                        {[
+                            ["Procesados", processedCount],
+                            ["Omitidos", omittedCount],
+                            ["Errores", errorCount],
+                        ].map(([label, value]) => (
+                            <div key={label} className="flex min-h-10 items-center rounded-lg border border-secondary bg-secondary px-4 shadow-xs">
+                                <p className="w-full text-center text-xs font-semibold text-secondary">{label}: {value}</p>
+                            </div>
+                        ))}
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-2">

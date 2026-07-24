@@ -4,6 +4,7 @@ import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
+import { bancoService } from "@/services/banco.service";
 import { codigoServicioService } from "@/services/codigo-servicio.service";
 import { comunidadService } from "@/services/comunidad.service";
 import { estadoService } from "@/services/estado.service";
@@ -24,7 +25,17 @@ interface CatalogItem {
     tipo?: string;
 }
 
+interface BancoDestino {
+    id: number;
+    nombre: string;
+}
+
 const getServicioNeedle = (ruta: OperacionRuta) => (ruta === "pos" ? "POS" : "LINK");
+
+const isDigitalWallet = (item: BancoDestino) => {
+    const name = String(item.nombre ?? "").trim().toUpperCase();
+    return name === "YAPE" || name === "PLIN";
+};
 
 export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: AsistidaSolicitudFormProps) => {
     const { businessUser } = useAuth();
@@ -36,11 +47,17 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
     const [servicio, setServicio] = useState<CatalogItem | null>(null);
     const [estadoSolicitado, setEstadoSolicitado] = useState<CatalogItem | null>(null);
+    const [bancosDestino, setBancosDestino] = useState<BancoDestino[]>([]);
+    const [bancoDestinoId, setBancoDestinoId] = useState("");
     const [isSaving, setIsSaving] = useState(false);
 
     const selectedCommunity = useMemo(
         () => comunidades.find((item) => String(item.id) === comunidadId) ?? null,
         [comunidadId, comunidades],
+    );
+    const selectedBancoDestino = useMemo(
+        () => bancosDestino.find((item) => String(item.id) === bancoDestinoId) ?? null,
+        [bancoDestinoId, bancosDestino],
     );
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
@@ -93,6 +110,35 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         };
     }, [addToast, comunidadId, ruta]);
 
+    useEffect(() => {
+        if (ruta !== "pos") {
+            setBancosDestino([]);
+            setBancoDestinoId("");
+            return;
+        }
+
+        let ignore = false;
+
+        bancoService
+            .getList({ p_id_estado: 1 })
+            .then((rows) => {
+                if (ignore) return;
+                const items = rows
+                    .map((row) => ({
+                        id: Number(row.id),
+                        nombre: String(row.nombre ?? ""),
+                    }))
+                    .filter((item) => !isDigitalWallet(item));
+                setBancosDestino(items);
+                setBancoDestinoId("");
+            })
+            .catch(() => addToast("error", "Error al cargar bancos destino para POS."));
+
+        return () => {
+            ignore = true;
+        };
+    }, [addToast, ruta]);
+
     const handleSave = async () => {
         const amount = Number(monto.replace(",", "."));
 
@@ -111,8 +157,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             return;
         }
 
-        if (!activeCompany) {
-            addToast("error", "Configura una empresa/caja para esta ruta antes de registrar solicitudes.");
+        if (ruta === "pos" && !selectedBancoDestino) {
+            addToast("error", "Selecciona el banco destino para POS.");
             return;
         }
 
@@ -130,7 +176,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
 
         try {
             const now = new Date().toISOString();
-            const result = await operacionesRpcService.postOperacionProceso({
+            const result = await operacionesRpcService.postOperacionAsistida({
+                p_ruta: ruta,
                 p_id_codigo_servicio: servicio.id,
                 p_nombre_codigo_servicio: servicio.nombre,
                 p_tipo_servicio: routeLabel.toUpperCase(),
@@ -138,7 +185,6 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_nombre_comunidad: selectedCommunity.nombre,
                 p_dni_cliente: dni.trim(),
                 p_monto_deposito_cliente: amount,
-                p_monto_transferencia_cliente: amount,
                 p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null,
                 p_id_estado: estadoSolicitado.id,
                 p_nombre_estado: estadoSolicitado.nombre,
@@ -148,10 +194,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_nombre_usuario_gestor: userName,
                 p_id_usuario_solicitud: userId,
                 p_nombre_usuario_solicitud: userName,
-                p_ruta_origen: ruta,
-                p_ruta_destino: ruta,
-                p_ruta_actual: ruta,
-                p_fecha_pendiente: now,
+                p_id_banco_destino: ruta === "pos" ? selectedBancoDestino?.id : null,
+                p_fecha_registro: now,
             });
 
             if (result && "error" in result) {
@@ -161,6 +205,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             setCodigoOperacion("");
             setDni("");
             setMonto("");
+            setBancoDestinoId("");
             onSaved();
             addToast("success", "Solicitud registrada correctamente.");
         } catch (err) {
@@ -172,7 +217,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     };
 
     return (
-        <InlineFormCard title={`Solicitud ${routeLabel}: ${activeCompany?.nombre_empresa ?? "Empresa"}`}>
+        <InlineFormCard title={`Solicitud ${routeLabel}${activeCompany ? `: ${activeCompany.nombre_empresa}` : ""}`}>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                 <Input size="sm" label="Codigo Operacion" placeholder="Opcional" value={codigoOperacion} onChange={setCodigoOperacion} />
                 <Input size="sm" label="DNI" placeholder="Documento" value={dni} onChange={setDni} />
@@ -184,6 +229,22 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                     onChange={(event) => setComunidadId(event.currentTarget.value)}
                     options={comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))}
                 />
+                {ruta === "pos" && (
+                    <NativeSelect
+                        size="sm"
+                        label="Banco destino"
+                        value={bancoDestinoId}
+                        onChange={(event) => setBancoDestinoId(event.currentTarget.value)}
+                        options={[
+                            { label: "Seleccionar banco destino", value: "", disabled: true },
+                            ...bancosDestino.map((item) => ({
+                                label: item.nombre,
+                                value: String(item.id),
+                            })),
+                        ]}
+                        className="md:col-span-4"
+                    />
+                )}
                 <div className="flex justify-end gap-2 md:col-span-4">
                     <Button
                         size="sm"
@@ -193,6 +254,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                             setCodigoOperacion("");
                             setDni("");
                             setMonto("");
+                            setBancoDestinoId("");
                         }}
                     >
                         Cancelar

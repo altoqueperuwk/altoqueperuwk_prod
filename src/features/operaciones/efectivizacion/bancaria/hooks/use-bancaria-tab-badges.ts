@@ -13,11 +13,12 @@ const emptyBadges: BadgeMap = {
     POS: 0,
     Retenidos: 0,
 };
-const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif"]);
+const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif", "safetypay"]);
 
 export const useBancariaTabBadges = (
     ruta: OperacionRutaBancaria,
     activeCompanyId: number | null,
+    activeAccountId: number | null = null,
     historyDate: string | null = null,
     refreshKey = 0,
 ) => {
@@ -29,6 +30,7 @@ export const useBancariaTabBadges = (
         const payload: Record<string, unknown> = {
             p_ruta: ruta,
             p_id_empresa: activeCompanyId,
+            p_id_empresa_cuenta_bancaria: activeAccountId,
         };
 
         if (historyDate) {
@@ -37,7 +39,7 @@ export const useBancariaTabBadges = (
         }
 
         return payload;
-    }, [activeCompanyId, historyDate, ruta]);
+    }, [activeAccountId, activeCompanyId, historyDate, ruta]);
 
     useEffect(() => {
         const handleFocus = () => setFocusRefreshKey((value) => value + 1);
@@ -87,6 +89,7 @@ export const useBancariaTabBadges = (
 export const useBancariaEmpresaBadges = (
     ruta: OperacionRutaBancaria,
     activeTab: BancariaTab,
+    activeAccountId: number | null = null,
     historyDate: string | null = null,
     refreshKey = 0,
 ) => {
@@ -97,6 +100,7 @@ export const useBancariaEmpresaBadges = (
     const params = useMemo(() => {
         const payload: Record<string, unknown> = {
             p_ruta: ruta,
+            p_id_empresa_cuenta_bancaria: activeAccountId,
         };
 
         if (historyDate) {
@@ -105,7 +109,7 @@ export const useBancariaEmpresaBadges = (
         }
 
         return payload;
-    }, [historyDate, ruta]);
+    }, [activeAccountId, historyDate, ruta]);
 
     useEffect(() => {
         const handleFocus = () => setFocusRefreshKey((value) => value + 1);

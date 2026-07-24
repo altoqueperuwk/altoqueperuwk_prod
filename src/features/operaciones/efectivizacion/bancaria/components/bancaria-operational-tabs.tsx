@@ -24,6 +24,7 @@ import type {
 import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { downloadCsv } from "@/features/operaciones/efectivizacion/shared/utils/csv";
+import { isDigitalWalletBank } from "@/features/operaciones/efectivizacion/shared/utils/digital-wallet";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { isBancariaActionDisabled, procesoActionTabs } from "@/features/operaciones/efectivizacion/shared/utils/action-rules";
 import {
@@ -45,6 +46,7 @@ import {
 } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-tab-badges";
 import { PagoDeudaActionModal } from "@/features/operaciones/pago-deuda/components/pago-deuda-action-modal";
 import {
+    getPagoDeudaEstadoVisual,
     hasDevolucionConfirmada,
     PagoDeudaEstadoButton,
     PagoDeudaSteps,
@@ -52,9 +54,12 @@ import {
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 
 const tabs: BancariaTab[] = ["Efectivizacion", "Pago Deuda", "Derivados", "POS", "Movimientos", "Retenidos"];
-const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif"]);
+const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif", "safetypay"]);
 
 interface BancariaOperationalTabsProps {
+    activeAccountId: number | null;
+    activeCajaId: number | null;
+    activeCompanyCaja: RutaOperacionCaja | null;
     activeCompanyId: number | null;
     companies: RutaOperacionCaja[];
     downloadKey?: number;
@@ -76,8 +81,17 @@ const baseOperationColumns = [
     { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
 ];
 
-const movementColumns = [
+const getMovementColumns = (showModalidad: boolean) => [
     { key: "tipo_origen", label: "Origen", render: (row: MovimientoMerged) => <CompactBadgeLine color="brand">{row.tipo_origen}</CompactBadgeLine> },
+    ...(showModalidad ? [{
+        key: "tipo_recaudacion_sf",
+        label: "Modalidad",
+        render: (row: MovimientoMerged) => (
+            <CompactBadgeLine color={row.tipo_recaudacion_sf ? "brand" : "gray"}>
+                {row.tipo_recaudacion_sf ?? "-"}
+            </CompactBadgeLine>
+        ),
+    }] : []),
     {
         key: "movimientos",
         label: "Movimiento",
@@ -142,6 +156,13 @@ const movementColumns = [
     { key: "fecha_registro", label: "Fecha", render: (row: MovimientoMerged) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
 ];
 
+const EmpresaCuentaBadges = ({ cuenta, empresa }: { cuenta?: string | null; empresa?: string | null }) => (
+    <div className="flex min-w-0 flex-wrap gap-1">
+        <CompactBadgeLine color="brand">{empresa || "-"}</CompactBadgeLine>
+        <CompactBadgeLine>{cuenta || "-"}</CompactBadgeLine>
+    </div>
+);
+
 const getExportValue = <T extends { id: number }>(
     row: T,
     column: { key: keyof T | string; render?: (row: T) => unknown },
@@ -157,6 +178,10 @@ const getExportValue = <T extends { id: number }>(
 const isPendingOperation = (row: OperacionProceso) => row.nombre_estado?.trim().toUpperCase() === "PENDIENTE";
 const isPaidOperation = (row: OperacionProceso) => row.nombre_estado?.trim().toUpperCase() === "PAGADO";
 const isProcessedOperation = (row: OperacionProceso) => row.nombre_estado?.trim().toUpperCase() === "PROCESADO";
+const isPosSolicitado = (row: OperacionProceso) => {
+    const estado = row.nombre_estado?.trim().toUpperCase() ?? "";
+    return estado === "PENDIENTE" || estado === "SOLICITADO";
+};
 const quickActionRuleTabs: BancariaTab[] = ["Efectivizacion", "Derivados", "POS"];
 const toNumber = (value: unknown) => Number(value ?? 0);
 
@@ -181,6 +206,9 @@ const getCalculationPayload = (row: OperacionProceso) => ({
 });
 
 export const BancariaOperationalTabs = ({
+    activeAccountId,
+    activeCajaId,
+    activeCompanyCaja,
     activeCompanyId,
     companies,
     downloadKey = 0,
@@ -201,7 +229,7 @@ export const BancariaOperationalTabs = ({
     const [dni, setDni] = useState("");
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
-    const [pendingAction, setPendingAction] = useState<"Derivar" | "Emp. Ingreso" | "Emp. Salida" | "Reasignar" | "Transferencia" | "Match" | null>(null);
+    const [pendingAction, setPendingAction] = useState<"Derivar" | "Emp. Ingreso" | "Emp. Salida" | "Reasignar" | "Transferencia" | "Match" | "Modalidad" | null>(null);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [estadoPagado, setEstadoPagado] = useState<{ id: number; nombre: string } | null>(null);
     const [estadoPendiente, setEstadoPendiente] = useState<{ id: number; nombre: string } | null>(null);
@@ -209,14 +237,18 @@ export const BancariaOperationalTabs = ({
     const [dniEdit, setDniEdit] = useState<{ row: OperacionProceso; value: string } | null>(null);
     const [isSavingDni, setIsSavingDni] = useState(false);
     const [savingPagoDeudaEstadoIds, setSavingPagoDeudaEstadoIds] = useState<number[]>([]);
+    const [savingPosEstadoIds, setSavingPosEstadoIds] = useState<number[]>([]);
     const [confirmQuickAction, setConfirmQuickAction] = useState<"Directo" | null>(null);
+    const isActiveDigitalWallet = isDigitalWalletBank(activeCompanyCaja);
     const visibleTabs = useMemo(
         () => {
+            if (isActiveDigitalWallet) return [] as BancariaTab[];
+            if (ruta === "safetypay") return ["Efectivizacion", "POS", "Movimientos", "Retenidos"] as BancariaTab[];
             const hasRetencion = retentionRoutes.has(ruta) ||
                 companies.some((c) => c.flag_retencion_parcial_cuenta);
             return hasRetencion ? tabs : tabs.filter((tab) => tab !== "Retenidos");
         },
-        [ruta, companies],
+        [isActiveDigitalWallet, ruta, companies],
     );
 
     useEffect(() => {
@@ -229,13 +261,30 @@ export const BancariaOperationalTabs = ({
 
     useEffect(() => {
         setSelectedIds([]);
-    }, [activeFilter, activeCompanyId, code, dateFrom, dateTo, dni, historyDate, refreshKey]);
+        setPendingAction(null);
+        setConfirmQuickAction(null);
+    }, [activeAccountId, activeFilter, activeCompanyId, code, dateFrom, dateTo, dni, historyDate, refreshKey]);
+
+    useEffect(() => {
+        if (isActiveDigitalWallet) {
+            setActiveTab("Movimientos");
+            setActiveFilter("Todos");
+            setCode("");
+            setDateFrom("");
+            setDateTo("");
+            setSelectedIds([]);
+            setPendingAction(null);
+            setConfirmQuickAction(null);
+        }
+    }, [isActiveDigitalWallet]);
 
     useEffect(() => {
         if (!visibleTabs.includes(activeTab)) {
-            setActiveTab("Efectivizacion");
+            setActiveTab(visibleTabs[0] ?? "Efectivizacion");
         }
     }, [activeTab, visibleTabs]);
+
+    const currentTab = activeTab;
 
     useEffect(() => {
         let ignore = false;
@@ -255,7 +304,18 @@ export const BancariaOperationalTabs = ({
         };
     }, [addToast]);
 
-    const contract = tabContracts[activeTab];
+    const contract = useMemo(() => {
+        const base = tabContracts[currentTab];
+
+        if (ruta === "safetypay" && currentTab === "Efectivizacion") {
+            return {
+                ...base,
+                actions: ["Emp. Ingreso", "Emp. Salida", "Modalidad", "Pagar", "Derivar", "Directo", "Reiniciar"],
+            };
+        }
+
+        return base;
+    }, [currentTab, ruta]);
     const {
         error,
         isLoading,
@@ -265,6 +325,8 @@ export const BancariaOperationalTabs = ({
         replaceOperacion,
         replaceOperaciones,
     } = useBancariaBandeja({
+        activeAccountId,
+        activeCajaId,
         activeCompanyId,
         activeFilter,
         code,
@@ -274,25 +336,32 @@ export const BancariaOperationalTabs = ({
         historyDate,
         refreshKey: refreshKey + actionRefreshKey,
         ruta,
-        tab: activeTab,
+        tab: currentTab,
     });
     const { data: tabBadges, error: tabBadgesError } = useBancariaTabBadges(
         ruta,
         null,
+        activeAccountId,
         historyDate,
         refreshKey + actionRefreshKey + metricsRefreshKey,
     );
     const { data: empresaBadges, error: empresaBadgesError } = useBancariaEmpresaBadges(
         ruta,
-        activeTab,
+        currentTab,
+        null,
         historyDate,
         refreshKey + actionRefreshKey + metricsRefreshKey,
     );
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
     const isHistoryMode = Boolean(historyDate);
-    const canUseProcesoActions = procesoActionTabs.includes(activeTab) && !isHistoryMode;
+    const canUseProcesoActions = procesoActionTabs.includes(currentTab) && !isHistoryMode;
     const hasSelection = selectedIds.length > 0;
+    const commercialCompanies = useMemo(() => companies.filter((company) => !isDigitalWalletBank(company)), [companies]);
+    const actionCompanies = useMemo(
+        () => commercialCompanies.filter((company) => !activeCompanyId || company.id_empresa !== activeCompanyId),
+        [activeCompanyId, commercialCompanies],
+    );
     const handlePagoDeudaTransferenciaRow = useCallback(async (row: OperacionProceso) => {
         setSavingPagoDeudaEstadoIds((current) => [...current, row.id]);
         try {
@@ -313,6 +382,26 @@ export const BancariaOperationalTabs = ({
         }
     }, [addToast, onMetricsChanged, replaceOperacion, ruta, userId, userName]);
 
+    const handlePosEstadoRow = useCallback(async (row: OperacionProceso) => {
+        const estado = row.nombre_estado?.trim().toUpperCase() ?? "";
+        const isSolicitado = estado === "PENDIENTE" || estado === "SOLICITADO";
+        if (!isSolicitado || !estadoPagado) return;
+
+        setSavingPosEstadoIds((current) => [...current, row.id]);
+        try {
+            const payload = buildOperacionPagadoPayload(row.id, estadoPagado, { userId, userName });
+            const saved = await operacionesRpcService.patchOperacionPagado(payload);
+            replaceOperacion(saved);
+            setMetricsRefreshKey((value) => value + 1);
+            onMetricsChanged?.();
+            addToast("success", "Solicitud POS atendida correctamente.");
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo atender la solicitud POS.");
+        } finally {
+            setSavingPosEstadoIds((current) => current.filter((id) => id !== row.id));
+        }
+    }, [addToast, estadoPagado, onMetricsChanged, replaceOperacion, userId, userName]);
+
     const operationColumnsByTab = useMemo(() => ({
         Efectivizacion: baseOperationColumns,
         "Pago Deuda": [
@@ -325,11 +414,21 @@ export const BancariaOperationalTabs = ({
                 </div>
             ) },
             { key: "nombre_cliente", label: "Cliente", render: (row: OperacionProceso) => row.nombre_cliente || "-" },
-            { key: "nombre_empresa_salida", label: "Empresa Salida", render: (row: OperacionProceso) => row.nombre_empresa_salida || "-" },
-            { key: "nombre_banco_empresa_cuenta_salida", label: "Cuenta", render: (row: OperacionProceso) => row.nombre_banco_empresa_cuenta_salida || "-" },
+            {
+                key: "empresa_cuenta_salida",
+                label: "Empresa Cuenta",
+                render: (row: OperacionProceso) => (
+                    <EmpresaCuentaBadges empresa={row.nombre_empresa_salida} cuenta={row.nombre_banco_empresa_cuenta_salida} />
+                ),
+            },
             { key: "monto_transferencia_cliente", label: "Monto Transferencia", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
-            { key: "nombre_empresa_ingreso", label: "Empresa Ingreso", render: (row: OperacionProceso) => row.nombre_empresa_ingreso || "-" },
-            { key: "nombre_banco_empresa_cuenta_ingreso", label: "Cuenta Ingreso", render: (row: OperacionProceso) => row.nombre_banco_empresa_cuenta_ingreso || "-" },
+            {
+                key: "empresa_cuenta_ingreso",
+                label: "Empresa Cuenta",
+                render: (row: OperacionProceso) => (
+                    <EmpresaCuentaBadges empresa={row.nombre_empresa_ingreso} cuenta={row.nombre_banco_empresa_cuenta_ingreso} />
+                ),
+            },
             { key: "monto_devuelto", label: "Monto Devolución", render: (row: OperacionProceso) => formatMoney(row.monto_devuelto ?? 0) },
             { key: "estado_visual", label: "Estado", render: (row: OperacionProceso) => (
                 <PagoDeudaEstadoButton
@@ -354,10 +453,36 @@ export const BancariaOperationalTabs = ({
             { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
             { key: "dni_cliente", label: "DNI" },
             { key: "nombre_cliente", label: "Cliente" },
-            { key: "nombre_estado", label: "Estado" },
-            { key: "monto_deposito_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_deposito_cliente) },
-            { key: "nombre_usuario_solicitud", label: "Solicita" },
-            { key: "nombre_usuario_gestor", label: "Gestor" },
+            {
+                key: "empresa_cuenta_salida",
+                label: "Empresa Cuenta",
+                render: (row: OperacionProceso) => (
+                    <EmpresaCuentaBadges empresa={row.nombre_empresa_salida} cuenta={row.nombre_banco_empresa_cuenta_salida} />
+                ),
+            },
+            { key: "monto_transferencia", label: "Monto Transferencia", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
+            { key: "comision", label: "Comisión", render: (row: OperacionProceso) => formatMoney(row.resultado_comision_servicio ?? 0) },
+            {
+                key: "estado_visual",
+                label: "Estado",
+                render: (row: OperacionProceso) => {
+                    const estado = row.nombre_estado?.trim().toUpperCase() ?? "";
+                    const isSolicitado = estado === "PENDIENTE" || estado === "SOLICITADO";
+                    const isPagado = estado === "PAGADO";
+
+                    return (
+                        <Button
+                            size="xs"
+                            color={isSolicitado ? "primary" : "secondary"}
+                            isDisabled={!isSolicitado || isHistoryMode || savingPosEstadoIds.includes(row.id)}
+                            isLoading={savingPosEstadoIds.includes(row.id)}
+                            onClick={() => handlePosEstadoRow(row)}
+                        >
+                            {isSolicitado ? "Solicitado" : isPagado ? "Pagado" : row.nombre_estado}
+                        </Button>
+                    );
+                },
+            },
             { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
         ],
         Retenidos: [
@@ -370,12 +495,34 @@ export const BancariaOperationalTabs = ({
             { key: "motivo_retencion", label: "Motivo" },
             { key: "fecha_deposito_cliente", label: "Deposito", render: (row: OperacionProceso) => row.fecha_deposito_cliente ? new Date(row.fecha_deposito_cliente).toLocaleDateString("es-PE") : "" },
         ],
-    } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [handlePagoDeudaTransferenciaRow, isHistoryMode, savingPagoDeudaEstadoIds]);
-    const currentOperationColumns = activeTab === "Movimientos" ? baseOperationColumns : operationColumnsByTab[activeTab];
+    } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [handlePagoDeudaTransferenciaRow, handlePosEstadoRow, isHistoryMode, savingPagoDeudaEstadoIds, savingPosEstadoIds]);
+    const currentOperationColumns = currentTab === "Movimientos" ? baseOperationColumns : operationColumnsByTab[currentTab];
+    const currentMovementColumns = useMemo(() => getMovementColumns(ruta === "safetypay"), [ruta]);
     const selectedOperations = operaciones.filter((row) => selectedIds.includes(row.id));
+    const selectedTransferSummary = useMemo(() => {
+        if (!["Efectivizacion", "Pago Deuda", "Derivados", "POS"].includes(currentTab)) return null;
+
+        const transferRows = selectedOperations.filter((row) => {
+            if (currentTab === "Pago Deuda") {
+                return getPagoDeudaEstadoVisual(row).action === "transferencia";
+            }
+
+            return !isPaidOperation(row);
+        });
+
+        if (!transferRows.length) return null;
+
+        return {
+            count: transferRows.length,
+            amount: transferRows.reduce(
+                (sum, row) => sum + toNumber(row.monto_transferencia_cliente ?? row.monto_deposito_cliente),
+                0,
+            ),
+        };
+    }, [currentTab, selectedOperations]);
 
     const getEligibleIdsForAction = (action: string) => {
-        if (activeTab === "Pago Deuda") {
+        if (currentTab === "Pago Deuda") {
             if (action === "Transferencia") return selectedOperations.filter(isPendingOperation).map((row) => row.id);
             if (action === "Emp. Salida") return selectedOperations.filter(isPendingOperation).map((row) => row.id);
             if (action === "Reiniciar") return selectedOperations.filter(isProcessedOperation).map((row) => row.id);
@@ -383,9 +530,15 @@ export const BancariaOperationalTabs = ({
             return selectedIds;
         }
 
-        if (!quickActionRuleTabs.includes(activeTab)) return selectedIds;
+        if (currentTab === "POS") {
+            if (action === "Pagar") return selectedOperations.filter(isPosSolicitado).map((row) => row.id);
+            if (action === "Reiniciar") return selectedOperations.filter(isPaidOperation).map((row) => row.id);
+            return selectedIds;
+        }
 
-        if (["Pagar", "Directo", "Derivar", "Reasignar", "Emp. Ingreso", "Emp. Salida"].includes(action)) {
+        if (!quickActionRuleTabs.includes(currentTab)) return selectedIds;
+
+        if (["Pagar", "Directo", "Derivar", "Reasignar", "Emp. Ingreso", "Emp. Salida", "Modalidad"].includes(action)) {
             return selectedOperations.filter(isPendingOperation).map((row) => row.id);
         }
 
@@ -426,9 +579,9 @@ export const BancariaOperationalTabs = ({
 
         if (selectedIds.length && !eligibleIds.length) {
             const expectedState =
-                activeTab === "Pago Deuda" && (action === "Match" || action === "Pagar")
+                currentTab === "Pago Deuda" && (action === "Match" || action === "Pagar")
                     ? "Procesado"
-                    : activeTab === "Pago Deuda" && action === "Reiniciar"
+                    : currentTab === "Pago Deuda" && action === "Reiniciar"
                       ? "Procesado"
                     : action === "Reiniciar"
                       ? "Pagado"
@@ -458,23 +611,23 @@ export const BancariaOperationalTabs = ({
     useEffect(() => {
         if (!downloadKey) return;
 
-        if (activeTab === "Movimientos") {
+        if (currentTab === "Movimientos") {
             downloadCsv(
-                `${ruta}-${activeTab.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`,
-                movementColumns.map((column) => column.label),
-                movimientos.map((row) => movementColumns.map((column) => getExportValue(row, column))),
+                `${ruta}-${currentTab.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`,
+                currentMovementColumns.map((column) => column.label),
+                movimientos.map((row) => currentMovementColumns.map((column) => getExportValue(row, column))),
             );
             addToast("success", "Bandeja descargada correctamente.");
             return;
         }
 
         downloadCsv(
-            `${ruta}-${activeTab.toLowerCase().replaceAll(" ", "-")}-${new Date().toISOString().slice(0, 10)}.csv`,
+            `${ruta}-${currentTab.toLowerCase().replaceAll(" ", "-")}-${new Date().toISOString().slice(0, 10)}.csv`,
             currentOperationColumns.map((column) => column.label),
             operaciones.map((row) => currentOperationColumns.map((column) => getExportValue(row, column))),
         );
         addToast("success", "Bandeja descargada correctamente.");
-    }, [activeTab, addToast, currentOperationColumns, downloadKey, movimientos, operaciones, ruta]);
+    }, [addToast, currentMovementColumns, currentOperationColumns, currentTab, downloadKey, movimientos, operaciones, ruta]);
 
     const handleToggleRow = (id: number) => {
         setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
@@ -483,15 +636,15 @@ export const BancariaOperationalTabs = ({
     const isActionDisabled = (action: string) => {
         return isBancariaActionDisabled({
             action,
-            activeTab,
-            companyCount: companies.length,
+            activeTab: currentTab,
+            companyCount: actionCompanies.length,
             hasSelection: hasSelection && getEligibleIdsForAction(action).length > 0,
             isApplyingAction: isApplyingAction || isHistoryMode,
         });
     };
 
     const handleAction = async (action: string) => {
-        if (action === "Transferencia" && activeTab === "Pago Deuda") {
+        if (action === "Transferencia" && currentTab === "Pago Deuda") {
             if (!selectedIds.length) {
                 addToast("error", "Selecciona al menos una operacion.");
                 return;
@@ -526,7 +679,7 @@ export const BancariaOperationalTabs = ({
             return;
         }
 
-        if (action === "Derivar" || action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Reasignar" || action === "Match") {
+        if (action === "Derivar" || action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Reasignar" || action === "Match" || action === "Modalidad") {
             if (!selectedIds.length) {
                 addToast("error", "Selecciona al menos una operación.");
                 return;
@@ -603,7 +756,7 @@ export const BancariaOperationalTabs = ({
 
             for (const id of eligibleIds) {
                 if (action === "Pagar" && estadoPagado) {
-                    if (activeTab === "Pago Deuda") {
+                    if (currentTab === "Pago Deuda") {
                         const saved = await pagoDeudaService.patchPagado({
                             p_id_operacion: id,
                             p_id_usuario_gestor: userId,
@@ -619,7 +772,7 @@ export const BancariaOperationalTabs = ({
                 }
 
                 if (action === "Reiniciar" && estadoPendiente) {
-                    const saved = activeTab === "Pago Deuda"
+                    const saved = currentTab === "Pago Deuda"
                         ? await pagoDeudaService.patchReiniciarTransferencia({
                             p_id_operacion: id,
                             p_id_usuario_gestor: userId,
@@ -707,14 +860,28 @@ export const BancariaOperationalTabs = ({
                     updatedRows.push(saved);
                 }
 
+                if (pendingAction === "Modalidad") {
+                    const saved = await operacionesRpcService.patchOperacionTipoRecaudacionSafetyPay({
+                        p_id: id,
+                        p_tipo_recaudacion_sf: value,
+                        p_id_usuario_gestor: userId,
+                        p_nombre_usuario_gestor: userName,
+                    });
+                    updatedRows.push(saved);
+                }
+
                 if (pendingAction === "Emp. Ingreso" || pendingAction === "Emp. Salida") {
-                    const company = companies.find((item) => String(item.id) === value);
+                    const company = actionCompanies.find((item) => String(item.id) === value);
+
+                    if (isDigitalWalletBank(company)) {
+                        throw new Error("YAPE y PLIN no pueden usarse para operaciones de efectivizacion bancaria.");
+                    }
 
                     if (!company) {
                         throw new Error("No se encontró la empresa seleccionada.");
                     }
 
-                    if (activeTab === "Pago Deuda") {
+                    if (currentTab === "Pago Deuda") {
                         const saved = await pagoDeudaService.patchEmpresa({
                             p_id_operacion: id,
                             p_id_empresa_salida: company.id_empresa,
@@ -747,7 +914,7 @@ export const BancariaOperationalTabs = ({
                             nombre_banco_cliente_transferencia: company.nombre_banco,
                         };
 
-                        if (activeTab === "Derivados") {
+                        if (currentTab === "Derivados") {
                             const calc = await operacionesRpcService.calcularOperacion(getCalculationPayload(draft));
 
                             const saved = await operacionesRpcService.patchOperacionBase({
@@ -771,7 +938,11 @@ export const BancariaOperationalTabs = ({
                 }
 
                 if (pendingAction === "Transferencia") {
-                    const company = companies.find((item) => String(item.id) === value);
+                    const company = actionCompanies.find((item) => String(item.id) === value);
+
+                    if (isDigitalWalletBank(company)) {
+                        throw new Error("YAPE y PLIN no pueden usarse para operaciones de Pago Deuda bancario.");
+                    }
 
                     if (!company) {
                         throw new Error("No se encontró la empresa seleccionada.");
@@ -814,7 +985,7 @@ export const BancariaOperationalTabs = ({
             className="overflow-hidden rounded-lg border border-secondary bg-primary shadow-xs"
         >
             <div className="flex flex-wrap items-center justify-between gap-3 p-4">
-                <Tabs selectedKey={activeTab} onSelectionChange={(key) => setActiveTab(key as BancariaTab)}>
+                <Tabs selectedKey={currentTab} onSelectionChange={(key) => setActiveTab(key as BancariaTab)}>
                     <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
                         {visibleTabs.map((tab) => (
                             <Tabs.Item
@@ -832,21 +1003,42 @@ export const BancariaOperationalTabs = ({
                         ))}
                     </Tabs.List>
                 </Tabs>
-                <EmpresaTabs companies={companies} activeCompanyId={activeCompanyId} badges={empresaBadges} onChange={onCompanyChange} />
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex flex-wrap items-center gap-3">
+                        <EmpresaTabs
+                            companies={companies}
+                            activeCompanyId={activeCompanyId}
+                            badges={empresaBadges}
+                            onChange={onCompanyChange}
+                        />
+                    </div>
+                    {selectedTransferSummary ? (
+                        <div className="flex h-11 items-center gap-2 rounded-lg border border-secondary bg-secondary px-3 text-sm font-semibold text-primary shadow-xs">
+                            <span>Seleccionado</span>
+                            <span className="-my-px size-max rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-primary ring-inset shadow-xs">
+                                {selectedTransferSummary.count}
+                            </span>
+                            <span>Transferir</span>
+                            <span className="-my-px size-max rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-brand-secondary ring-1 ring-primary ring-inset shadow-xs tabular-nums">
+                                {formatMoney(selectedTransferSummary.amount)}
+                            </span>
+                        </div>
+                    ) : null}
+                </div>
             </div>
 
             <OperationToolbar
                 activeFilter={activeFilter}
                 actions={contract.actions}
-                code={activeTab === "Efectivizacion" ? code : undefined}
+                code={currentTab === "Efectivizacion" ? code : undefined}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
                 dni={dni}
                 filters={contract.filters}
-                showDateRange={activeTab === "Retenidos"}
+                showDateRange={currentTab === "Retenidos"}
                 onDateFromChange={setDateFrom}
                 onDateToChange={setDateTo}
-                onCodeChange={activeTab === "Efectivizacion" ? setCode : undefined}
+                onCodeChange={currentTab === "Efectivizacion" ? setCode : undefined}
                 onDniChange={setDni}
                 onFilterChange={setActiveFilter}
                 isActionDisabled={isActionDisabled}
@@ -859,10 +1051,11 @@ export const BancariaOperationalTabs = ({
                 </div>
             )}
 
-            {activeTab === "Movimientos" ? (
-                <OperationTable columns={movementColumns} data={movimientos} emptyText="Sin movimientos para esta bandeja." isLoading={isLoading} />
-            ) : activeTab === "Efectivizacion" || activeTab === "Derivados" ? (
+            {currentTab === "Movimientos" ? (
+                <OperationTable columns={currentMovementColumns} data={movimientos} emptyText="Sin movimientos para esta bandeja." isLoading={isLoading} />
+            ) : currentTab === "Efectivizacion" || currentTab === "Derivados" ? (
                 <BancariaEfectivizacionTable
+                    activeAccountId={activeAccountId}
                     activeCompanyId={activeCompanyId}
                     companies={companies}
                     data={operaciones}
@@ -870,7 +1063,7 @@ export const BancariaOperationalTabs = ({
                     estadoPagado={estadoPagado}
                     estadoPendiente={estadoPendiente}
                     isLoading={isLoading}
-                    mode={activeTab === "Derivados" ? "derivaciones" : "efectivizacion"}
+                    mode={currentTab === "Derivados" ? "derivaciones" : "efectivizacion"}
                     onMetricsChanged={refreshMetrics}
                     onRefresh={() => {
                         setActionRefreshKey((value) => value + 1);
@@ -895,7 +1088,7 @@ export const BancariaOperationalTabs = ({
 
             <BancariaActionModal
                 action={pendingAction === "Match" ? null : pendingAction}
-                companies={companies}
+                companies={actionCompanies}
                 currentRuta={ruta}
                 isOpen={pendingAction !== null && pendingAction !== "Match"}
                 isSaving={isApplyingAction}

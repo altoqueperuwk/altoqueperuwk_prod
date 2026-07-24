@@ -56,7 +56,7 @@ const getEstadoToken = (estado?: string | null) => estado?.trim().toUpperCase() 
 
 type PagoDeudaEstadoAccion = "transferencia" | "finalizar" | "none";
 
-const getPagoDeudaEstadoVisual = (row: OperacionProceso): { action: PagoDeudaEstadoAccion; label: string } => {
+export const getPagoDeudaEstadoVisual = (row: OperacionProceso): { action: PagoDeudaEstadoAccion; label: string } => {
     const estado = getEstadoToken(row.nombre_estado);
     const isTransferido = estado === "PROCESADO" || estado === "PAGADO";
 

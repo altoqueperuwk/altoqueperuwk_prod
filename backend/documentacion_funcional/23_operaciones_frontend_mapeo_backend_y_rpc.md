@@ -11,6 +11,7 @@ Este documento es la referencia tecnica principal para otra IA.
 - `backend_implementacion/03.operacion_proceso_y_excel.sql`
 - `backend_implementacion/04.pago_deuda.sql`
 - `backend_implementacion/05.ruta_operacion_y_cajas.sql`
+- `backend_implementacion/11.operaciones_asistidas_pos_linkpago.sql`
 
 ## Modulos frontend raiz
 
@@ -106,6 +107,34 @@ Motivo:
 - `Retenidos` usa `flag_retenido=true` y no depende del estado comercial.
 - Una operacion retenida puede estar `Pagado` y seguir visible en `Efectivizacion`.
 - Las reglas de cierre/historial no deben contaminar bancos sin retencion.
+
+### POS y Link Pago sin caja
+
+RPCs:
+
+- `f_get_tb_operacion_asistida_kpi`
+- `f_get_tb_operacion_asistida_bandeja`
+- `f_post_tb_operacion_asistida`
+
+Uso:
+
+- `/operaciones/pos`
+- `/operaciones/linkpago`
+
+Reglas:
+
+- no usan caja operativa;
+- no usan cierre de caja;
+- filtran por `fecha_registro`;
+- los KPIs son informativos y suman solo operaciones `Pagado`;
+- POS registra destino bancario y se atiende desde el tab `POS` de la ruta bancaria;
+- Link Pago registra y cambia estado sin generar movimientos.
+
+Componentes:
+
+- `src/features/operaciones/efectivizacion/asistida/pages/asistida-page.tsx`
+- `src/features/operaciones/efectivizacion/asistida/components/asistida-solicitud-form.tsx`
+- `src/features/operaciones/efectivizacion/asistida/components/asistida-operational-board.tsx`
 
 ### Carga Excel
 

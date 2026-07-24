@@ -20,6 +20,31 @@ Cada ruta bancaria usa una pantalla con:
 6. Carga de archivo.
 7. Tabs operativos.
 
+## Estructura de pantalla asistida POS/Link Pago
+
+Las rutas asistidas usan una pantalla distinta a la bancaria:
+
+- `/operaciones/pos`
+- `/operaciones/linkpago`
+
+No muestran:
+
+- caja inicial;
+- caja actual;
+- cierre de caja;
+- historial por cierre;
+- carga Excel;
+- movimientos de caja.
+
+Si muestran:
+
+- selector de fecha de registro;
+- KPI informativos `Gastos`, `Ganancia` y `Salidas`;
+- formulario de registro;
+- bandeja de operaciones registradas en la fecha seleccionada.
+
+La fecha superior filtra por `tb_operacion_proceso.fecha_registro`.
+
 ## Selector de fecha
 
 El selector permite:
@@ -206,6 +231,38 @@ Regla para retenciones:
 - tambien aparece en `Efectivizacion > Pagados`;
 - sigue apareciendo en `Retenidos` hasta confirmar la retencion;
 - confirmar la retencion no cambia `nombre_estado`; solo apaga `flag_retenido`.
+
+## POS y Link Pago asistidos
+
+### POS
+
+En `/operaciones/pos`:
+
+- se registra la solicitud;
+- se elige banco/empresa/cuenta destino;
+- queda como `ruta_origen = 'pos'`;
+- queda con `ruta_destino` igual al banco elegido;
+- no se muestra accion `Pagar`;
+- no se crea movimiento de caja.
+
+La salida real se atiende desde el tab `POS` del banco destino.
+
+### Link Pago
+
+En `/operaciones/linkpago`:
+
+- se registra la operacion sin banco destino;
+- queda como `ruta_origen = 'linkpago'` y `ruta_destino = 'linkpago'`;
+- permite cambiar estado desde la bandeja;
+- no se crea movimiento de caja.
+
+### KPIs asistidos
+
+Los KPI se consultan con:
+
+- `f_get_tb_operacion_asistida_kpi`
+
+Solo suman operaciones en estado `Pagado`.
 
 Estado actual:
 

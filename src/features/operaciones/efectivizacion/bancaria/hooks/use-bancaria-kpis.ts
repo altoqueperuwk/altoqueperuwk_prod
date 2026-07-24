@@ -56,7 +56,14 @@ const buildHistoryKpi = (ruta: OperacionRutaBancaria, rows: CajaOperativaCierre[
     };
 };
 
-export const useBancariaKpis = (ruta: OperacionRutaBancaria, activeCompanyId: number | null, historyDate: string | null = null, refreshKey = 0) => {
+export const useBancariaKpis = (
+    ruta: OperacionRutaBancaria,
+    activeCompanyId: number | null,
+    activeAccountId: number | null,
+    activeCajaId: number | null,
+    historyDate: string | null = null,
+    refreshKey = 0,
+) => {
     const [data, setData] = useState<RutaOperacionKpi | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -68,14 +75,14 @@ export const useBancariaKpis = (ruta: OperacionRutaBancaria, activeCompanyId: nu
         setError(null);
 
         const request = (() => {
-            if (historyDate && !activeCompanyId) return Promise.resolve(null);
+            if (historyDate && !activeCajaId && !activeCompanyId) return Promise.resolve(null);
             if (historyDate) {
                 return operacionesRpcService
-                    .getCajaCierres({ p_id_empresa: activeCompanyId })
+                    .getCajaCierres(activeCajaId ? { p_id_caja: activeCajaId } : { p_id_empresa: activeCompanyId })
                     .then((rows) => buildHistoryKpi(ruta, rows, historyDate));
             }
 
-            return operacionesRpcService.getRutaKpi(ruta, activeCompanyId).then((result) => result?.[0] ?? null);
+            return operacionesRpcService.getRutaKpi(ruta, activeCompanyId, activeAccountId).then((result) => result?.[0] ?? null);
         })();
 
         request
@@ -92,7 +99,7 @@ export const useBancariaKpis = (ruta: OperacionRutaBancaria, activeCompanyId: nu
         return () => {
             ignore = true;
         };
-    }, [activeCompanyId, historyDate, refreshKey, ruta]);
+    }, [activeAccountId, activeCajaId, activeCompanyId, historyDate, refreshKey, ruta]);
 
     return { data, error, isLoading };
 };

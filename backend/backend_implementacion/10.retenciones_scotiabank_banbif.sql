@@ -1,10 +1,10 @@
 -- ============================================================================
--- RETENCIONES SCOTIABANK / BANBIF
+-- RETENCIONES SCOTIABANK / BANBIF / SAFETYPAY
 -- ============================================================================
 --
 -- Objetivo:
 --   Separar las consultas operativas de retenciones de las consultas generales.
---   Estas funciones solo aplican a las rutas scotiabank y banbif.
+--   Estas funciones solo aplican a las rutas scotiabank, banbif y safetypay.
 
 /*
 Funcion: f_get_tb_operacion_retencion_bandeja
@@ -16,6 +16,7 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_retencion_bandeja(
   p_tab character varying,
   p_ruta character varying,
   p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
   p_filtro_estado character varying DEFAULT NULL,
   p_codigo_operacion character varying DEFAULT NULL,
   p_dni_cliente character varying DEFAULT NULL,
@@ -39,7 +40,7 @@ AS $$
     SELECT op.*
     FROM public.tb_operacion_proceso op
     CROSS JOIN args a
-    WHERE a.ruta IN ('scotiabank', 'banbif')
+    WHERE a.ruta IN ('scotiabank', 'banbif', 'safetypay')
       AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
       AND (p_codigo_operacion IS NULL OR COALESCE(op.codigo_operacion_deposito_cliente, '') ILIKE '%' || p_codigo_operacion || '%')
       AND (p_dni_cliente IS NULL OR COALESCE(op.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
@@ -71,6 +72,7 @@ AS $$
       AND UPPER(COALESCE(b.tipo_servicio, '')) = 'EFECTIVIZACION'
       AND COALESCE(b.flag_derivado, false) = false
       AND (p_id_empresa IS NULL OR b.id_empresa_ingreso = p_id_empresa)
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
       AND (
         a.filtro_estado = 'TODOS'
         OR UPPER(BTRIM(COALESCE(b.nombre_estado, ''))) = a.filtro_estado
@@ -82,12 +84,14 @@ AS $$
       AND p_fecha_caja_cierre_desde IS NULL
       AND p_fecha_caja_cierre_hasta IS NULL
       AND (p_id_empresa IS NULL OR b.id_empresa_ingreso = p_id_empresa)
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
     )
     OR (
       a.tab = 'PAGO DEUDA'
       AND UPPER(COALESCE(b.tipo_servicio, '')) = 'PAGO DEUDA'
       AND COALESCE(b.flag_retenido, false) = false
       AND (p_id_empresa IS NULL OR b.id_empresa_salida = p_id_empresa)
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND (
         a.filtro_estado = 'TODOS'
         OR UPPER(BTRIM(COALESCE(b.nombre_estado, ''))) = a.filtro_estado
@@ -98,6 +102,7 @@ AS $$
       AND COALESCE(b.flag_derivado, false) = true
       AND COALESCE(b.flag_retenido, false) = false
       AND (p_id_empresa IS NULL OR b.id_empresa_salida = p_id_empresa)
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND (
         a.filtro_estado = 'TODOS'
         OR UPPER(BTRIM(COALESCE(b.nombre_estado, ''))) = a.filtro_estado
@@ -107,6 +112,7 @@ AS $$
       a.tab = 'POS'
       AND LOWER(COALESCE(b.ruta_origen, '')) = 'pos'
       AND COALESCE(b.flag_retenido, false) = false
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND (
         a.filtro_estado = 'TODOS'
         OR UPPER(BTRIM(COALESCE(b.nombre_estado, ''))) = a.filtro_estado
@@ -124,6 +130,7 @@ Objetivo:
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_retencion_bandeja_badges(
   p_ruta character varying,
   p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
   p_fecha_caja_cierre_desde timestamp with time zone DEFAULT NULL,
   p_fecha_caja_cierre_hasta timestamp with time zone DEFAULT NULL
 )
@@ -142,7 +149,7 @@ AS $$
     SELECT op.*
     FROM public.tb_operacion_proceso op
     CROSS JOIN args a
-    WHERE a.ruta IN ('scotiabank', 'banbif')
+    WHERE a.ruta IN ('scotiabank', 'banbif', 'safetypay')
       AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
       AND (
         (
@@ -168,30 +175,35 @@ AS $$
           AND COALESCE(flag_derivado, false) = false
           AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO', 'RECHAZADO', 'PAGADO')
           AND (p_id_empresa IS NULL OR id_empresa_ingreso = p_id_empresa)
+          AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
       )::integer AS efectivizacion,
       COUNT(*) FILTER (
         WHERE UPPER(COALESCE(tipo_servicio, '')) = 'PAGO DEUDA'
           AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
           AND COALESCE(flag_retenido, false) = false
           AND (p_id_empresa IS NULL OR id_empresa_salida = p_id_empresa)
+          AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       )::integer AS pago_deuda,
       COUNT(*) FILTER (
         WHERE COALESCE(flag_derivado, false) = true
           AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
           AND COALESCE(flag_retenido, false) = false
           AND (p_id_empresa IS NULL OR id_empresa_salida = p_id_empresa)
+          AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       )::integer AS derivados,
       COUNT(*) FILTER (
         WHERE LOWER(COALESCE(ruta_origen, '')) = 'pos'
           AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
           AND COALESCE(flag_retenido, false) = false
           AND (p_id_empresa IS NULL OR COALESCE(id_empresa_salida, id_empresa_ingreso) = p_id_empresa)
+          AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       )::integer AS pos,
       COUNT(*) FILTER (
         WHERE COALESCE(flag_retenido, false) = true
           AND p_fecha_caja_cierre_desde IS NULL
           AND p_fecha_caja_cierre_hasta IS NULL
           AND (p_id_empresa IS NULL OR id_empresa_ingreso = p_id_empresa)
+          AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
       )::integer AS retenidos
     FROM base
   )
@@ -213,6 +225,7 @@ Objetivo:
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_retencion_empresa_badges(
   p_ruta character varying,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
   p_fecha_caja_cierre_desde timestamp with time zone DEFAULT NULL,
   p_fecha_caja_cierre_hasta timestamp with time zone DEFAULT NULL
 )
@@ -232,7 +245,7 @@ AS $$
     SELECT op.*
     FROM public.tb_operacion_proceso op
     CROSS JOIN args a
-    WHERE a.ruta IN ('scotiabank', 'banbif')
+    WHERE a.ruta IN ('scotiabank', 'banbif', 'safetypay')
       AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
       AND (
         (
@@ -257,6 +270,7 @@ AS $$
     WHERE UPPER(COALESCE(tipo_servicio, '')) = 'EFECTIVIZACION'
       AND COALESCE(flag_derivado, false) = false
       AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO', 'RECHAZADO', 'PAGADO')
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
       AND id_empresa_ingreso IS NOT NULL
 
     UNION ALL
@@ -265,6 +279,7 @@ AS $$
     WHERE UPPER(COALESCE(tipo_servicio, '')) = 'PAGO DEUDA'
       AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
       AND COALESCE(flag_retenido, false) = false
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND id_empresa_salida IS NOT NULL
 
     UNION ALL
@@ -273,6 +288,7 @@ AS $$
     WHERE COALESCE(flag_derivado, false) = true
       AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
       AND COALESCE(flag_retenido, false) = false
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND id_empresa_salida IS NOT NULL
 
     UNION ALL
@@ -281,6 +297,7 @@ AS $$
     WHERE LOWER(COALESCE(ruta_origen, '')) = 'pos'
       AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
       AND COALESCE(flag_retenido, false) = false
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND COALESCE(id_empresa_salida, id_empresa_ingreso) IS NOT NULL
 
     UNION ALL
@@ -289,6 +306,7 @@ AS $$
     WHERE COALESCE(flag_retenido, false) = true
       AND p_fecha_caja_cierre_desde IS NULL
       AND p_fecha_caja_cierre_hasta IS NULL
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
       AND id_empresa_ingreso IS NOT NULL
   )
   SELECT empresa_rows.tab, empresa_rows.id_empresa, COUNT(*)::integer AS cantidad
@@ -305,6 +323,8 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-
+  'f_get_tb_operacion_retencion_bandeja',
+  'f_get_tb_operacion_retencion_bandeja_badges',
+  'f_get_tb_operacion_retencion_empresa_badges'
 )
 ORDER BY n.nspname, p.proname;

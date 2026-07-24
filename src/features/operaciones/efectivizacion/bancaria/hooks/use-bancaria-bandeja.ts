@@ -5,15 +5,17 @@ import type {
     OperacionProceso,
     OperacionRutaBancaria,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import { getPagoDeudaEstadoVisual } from "@/features/operaciones/pago-deuda/components/pago-deuda-board";
 
 export type BancariaTab = "Efectivizacion" | "Pago Deuda" | "Derivados" | "POS" | "Movimientos" | "Retenidos";
-const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif"]);
+const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif", "safetypay"]);
 
 export interface MovimientoMerged {
     id: number;
     tipo_origen: string;
     movimientos: string[];
     tipo_servicio: string;
+    tipo_recaudacion_sf: string | null;
     nombre_codigo_servicio: string;
     dni_cliente: string;
     codigo_operacion: string;
@@ -52,6 +54,7 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
             tipo_origen: primary.tipo_origen,
             movimientos: group.map((r) => r.tipo_movimiento),
             tipo_servicio: primary.tipo_servicio ?? primary.nombre_codigo_servicio ?? "",
+            tipo_recaudacion_sf: primary.tipo_recaudacion_sf ?? null,
             nombre_codigo_servicio: primary.nombre_codigo_servicio ?? "",
             dni_cliente: primary.dni_cliente ?? "",
             codigo_operacion: primary.codigo_operacion ?? "",
@@ -71,6 +74,7 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
             tipo_origen: row.tipo_origen,
             movimientos: [row.tipo_movimiento],
             tipo_servicio: row.tipo_servicio ?? row.nombre_codigo_servicio ?? "",
+            tipo_recaudacion_sf: row.tipo_recaudacion_sf ?? null,
             nombre_codigo_servicio: row.nombre_codigo_servicio ?? "",
             dni_cliente: row.dni_cliente ?? "",
             codigo_operacion: row.codigo_operacion ?? "",
@@ -89,20 +93,20 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
 
 export const tabContracts: Record<BancariaTab, { filters: string[]; actions: string[] }> = {
     Efectivizacion: {
-        filters: ["Todos", "Pendientes", "Rechazados", "Pagados"],
+        filters: ["Todos", "Pendientes", "Pagados"],
         actions: ["Emp. Ingreso", "Emp. Salida", "Pagar", "Derivar", "Directo", "Reiniciar"],
     },
     "Pago Deuda": {
-        filters: ["Todos", "Pendientes", "Procesados", "Pagados"],
+        filters: ["Todos", "Solicitado", "Transferido", "Devuelto", "Finalizado"],
         actions: ["Emp. Salida", "Transferencia", "Reiniciar"],
     },
     Derivados: {
-        filters: ["Todos", "Pendientes", "Rechazados", "Pagados"],
+        filters: ["Todos", "Pendientes", "Pagados"],
         actions: ["Emp. Salida", "Reiniciar", "Pagar", "Derivar"],
     },
     POS: {
-        filters: ["Todos", "Solicitado", "Rechazados", "Pagados"],
-        actions: ["Reiniciar", "Pagar", "Derivar"],
+        filters: ["Todos", "Solicitado", "Pagados"],
+        actions: ["Pagar", "Reiniciar"],
     },
     Movimientos: {
         filters: ["Todos", "Efectivizacion", "Pago Deuda", "Otros"],
@@ -120,6 +124,11 @@ const estadoByFilter: Record<string, string> = {
     Pagados: "Pagado",
     Solicitado: "Solicitado",
     Procesados: "Procesado",
+};
+
+const filterPagoDeudaByVisualState = (rows: OperacionProceso[], activeFilter: string) => {
+    if (activeFilter === "Todos") return rows;
+    return rows.filter((row) => getPagoDeudaEstadoVisual(row).label === activeFilter);
 };
 
 const filterMovimientos = (rows: MovimientoMerged[], activeFilter: string) => {
@@ -148,6 +157,8 @@ const filterMovimientos = (rows: MovimientoMerged[], activeFilter: string) => {
 };
 
 interface UseBancariaBandejaArgs {
+    activeAccountId?: number | null;
+    activeCajaId?: number | null;
     activeCompanyId: number | null;
     code?: string;
     activeFilter: string;
@@ -161,6 +172,8 @@ interface UseBancariaBandejaArgs {
 }
 
 export const useBancariaBandeja = ({
+    activeAccountId = null,
+    activeCajaId = null,
     activeCompanyId,
     activeFilter,
     code = "",
@@ -196,19 +209,28 @@ export const useBancariaBandeja = ({
             if (dateFrom) base.p_fecha_deposito_desde = `${dateFrom}T00:00:00`;
             if (dateTo) base.p_fecha_deposito_hasta = `${dateTo}T23:59:59`;
             if (activeCompanyId) base.p_id_empresa_salida = activeCompanyId;
+            if (activeAccountId) {
+                if (ruta === "safetypay") {
+                    base.p_id_empresa_cuenta_salida = activeAccountId;
+                } else {
+                    base.p_id_empresa_cuenta_ingreso = activeAccountId;
+                }
+            }
         }
 
         if (tab === "Derivados") {
             base.p_ruta_destino = ruta;
             base.p_flag_derivado = true;
-            base.p_flag_retenido = false;
             if (activeCompanyId) base.p_id_empresa_salida = activeCompanyId;
+            if (activeAccountId) base.p_id_empresa_cuenta_salida = activeAccountId;
         }
 
         if (tab === "POS") {
             base.p_ruta_origen = "pos";
             base.p_ruta_destino = ruta;
             base.p_flag_retenido = false;
+            if (activeCompanyId) base.p_id_empresa_salida = activeCompanyId;
+            if (activeAccountId) base.p_id_empresa_cuenta_salida = activeAccountId;
         }
 
         if (tab === "Retenidos") {
@@ -216,15 +238,17 @@ export const useBancariaBandeja = ({
             base.p_flag_retenido = true;
             if (dateFrom) base.p_fecha_deposito_desde = `${dateFrom}T00:00:00`;
             if (dateTo) base.p_fecha_deposito_hasta = `${dateTo}T23:59:59`;
+            if (activeAccountId) base.p_id_empresa_cuenta_ingreso = activeAccountId;
         }
 
         return base;
-    }, [activeCompanyId, activeFilter, code, dateFrom, dateTo, dni, historyDate, ruta, tab]);
+    }, [activeAccountId, activeCompanyId, activeFilter, code, dateFrom, dateTo, dni, historyDate, ruta, tab]);
 
     const retentionParams = useMemo(() => {
         const payload: Record<string, unknown> = {
             p_tab: tab,
             p_ruta: ruta,
+            p_id_empresa_cuenta_bancaria: activeAccountId,
             p_id_empresa: activeCompanyId,
             p_filtro_estado: activeFilter === "Todos" ? "Todos" : estadoByFilter[activeFilter] ?? activeFilter,
         };
@@ -239,11 +263,11 @@ export const useBancariaBandeja = ({
         }
 
         return payload;
-    }, [activeCompanyId, activeFilter, code, dateFrom, dateTo, dni, historyDate, ruta, tab]);
+    }, [activeAccountId, activeCompanyId, activeFilter, code, dateFrom, dateTo, dni, historyDate, ruta, tab]);
 
     const matchesCurrentOperacionView = useCallback(
         (row: OperacionProceso) => {
-            if (activeFilter !== "Todos" && estadoByFilter[activeFilter]) {
+            if (tab !== "Pago Deuda" && activeFilter !== "Todos" && estadoByFilter[activeFilter]) {
                 if ((row.nombre_estado ?? "").toUpperCase() !== estadoByFilter[activeFilter].toUpperCase()) return false;
             }
 
@@ -252,7 +276,10 @@ export const useBancariaBandeja = ({
                     (row.tipo_servicio ?? "").toUpperCase() === "EFECTIVIZACION" &&
                     row.ruta_destino === ruta &&
                     row.flag_derivado === false &&
-                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId)
+                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
+                    (!activeAccountId || (ruta === "safetypay"
+                        ? row.id_empresa_cuenta_salida === activeAccountId
+                        : row.id_empresa_cuenta_ingreso === activeAccountId))
                 );
             }
 
@@ -262,7 +289,9 @@ export const useBancariaBandeja = ({
                     row.ruta_destino === ruta &&
                     row.flag_retenido === false &&
                     (row.tipo_flujo_pago_deuda ?? "").toUpperCase() !== "RETORNO" &&
-                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId)
+                    (activeFilter === "Todos" || getPagoDeudaEstadoVisual(row).label === activeFilter) &&
+                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
+                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)
                 );
             }
 
@@ -270,22 +299,28 @@ export const useBancariaBandeja = ({
                 return (
                     row.ruta_destino === ruta &&
                     row.flag_derivado === true &&
-                    row.flag_retenido === false &&
-                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId)
+                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
+                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)
                 );
             }
 
             if (tab === "POS") {
-                return row.ruta_origen === "pos" && row.ruta_destino === ruta && row.flag_retenido === false;
+                return (
+                    row.ruta_origen === "pos" &&
+                    row.ruta_destino === ruta &&
+                    row.flag_retenido === false &&
+                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
+                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)
+                );
             }
 
             if (tab === "Retenidos") {
-                return row.ruta_destino === ruta && row.flag_retenido === true;
+                return row.ruta_destino === ruta && row.flag_retenido === true && (!activeAccountId || row.id_empresa_cuenta_ingreso === activeAccountId);
             }
 
             return true;
         },
-        [activeCompanyId, activeFilter, ruta, tab],
+        [activeAccountId, activeCompanyId, activeFilter, ruta, tab],
     );
 
     const replaceOperaciones = useCallback(
@@ -325,7 +360,8 @@ export const useBancariaBandeja = ({
 
         const request = tab === "Movimientos"
             ? operacionesRpcService.getMovimientos({
-                  p_id_empresa: activeCompanyId,
+                  p_id_caja: activeCajaId || undefined,
+                  p_id_empresa: activeCajaId ? undefined : activeCompanyId,
                   p_dni_cliente: dni.trim() || undefined,
                   p_fecha_caja_cierre_desde: historyDate ? `${historyDate}T00:00:00` : undefined,
                   p_fecha_caja_cierre_hasta: historyDate ? `${historyDate}T23:59:59` : undefined,
@@ -334,8 +370,8 @@ export const useBancariaBandeja = ({
               ? operacionesRpcService.getPagoDeudaBandeja({
                     p_ruta: ruta,
                     p_id_empresa_salida: activeCompanyId || undefined,
+                    p_id_empresa_cuenta_salida: activeAccountId || undefined,
                     p_dni_cliente: dni.trim() || undefined,
-                    p_id_estado: activeFilter !== "Todos" && estadoByFilter[activeFilter] ? estadoByFilter[activeFilter] : undefined,
                 })
               : retentionRoutes.has(ruta)
                 ? operacionesRpcService.getOperacionesRetencionBandeja(retentionParams)
@@ -351,7 +387,8 @@ export const useBancariaBandeja = ({
                     setMovimientos(filterMovimientos(merged, activeFilter));
                     setOperaciones([]);
                 } else {
-                    setOperaciones((result ?? []) as OperacionProceso[]);
+                    const rows = (result ?? []) as OperacionProceso[];
+                    setOperaciones(tab === "Pago Deuda" ? filterPagoDeudaByVisualState(rows, activeFilter) : rows);
                     setMovimientos([]);
                 }
             })
@@ -365,7 +402,7 @@ export const useBancariaBandeja = ({
         return () => {
             ignore = true;
         };
-    }, [activeCompanyId, activeFilter, dateFrom, dateTo, dni, historyDate, localRefreshKey, params, refreshKey, retentionParams, ruta, tab]);
+    }, [activeAccountId, activeCajaId, activeCompanyId, activeFilter, dateFrom, dateTo, dni, historyDate, localRefreshKey, params, refreshKey, retentionParams, ruta, tab]);
 
     return {
         error,

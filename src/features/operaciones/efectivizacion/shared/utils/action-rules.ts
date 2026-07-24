@@ -31,6 +31,10 @@ export const isBancariaActionDisabled = ({
         return activeTab !== "Efectivizacion" || !hasSelection;
     }
 
+    if (action === "Modalidad") {
+        return activeTab !== "Efectivizacion" || !hasSelection;
+    }
+
     if (action === "Reiniciar") {
         return !procesoActionTabs.includes(activeTab) || !hasSelection;
     }

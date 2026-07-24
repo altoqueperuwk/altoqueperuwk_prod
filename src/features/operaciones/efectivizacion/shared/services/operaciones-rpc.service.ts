@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import type {
     CajaOperativa,
     CajaOperativaCierre,
+    OperacionAsistidaKpi,
     OperacionBandejaBadge,
     OperacionCajaMovimiento,
     OperacionEmpresaBadge,
@@ -10,12 +11,40 @@ import type {
     RutaOperacionKpi,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
+const formatMoney = (value: unknown) => {
+    const amount = Number(value ?? 0);
+    return `S/ ${Number.isFinite(amount) ? amount.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00"}`;
+};
+
+const buildRpcErrorMessage = (payload: Record<string, unknown>) => {
+    if (payload.codigo === "SALDO_INSUFICIENTE") {
+        return `Saldo insuficiente en caja actual. Disponible: ${formatMoney(payload.saldo_disponible)}. Requerido: ${formatMoney(payload.monto_requerido)}.`;
+    }
+
+    return String(payload.error ?? "Error en la operacion.");
+};
+
+const normalizeRpcErrorMessage = (message: string) => {
+    if (message.includes("SALDO_INSUFICIENTE")) {
+        const disponible = message.match(/Disponible:\s*([0-9.-]+)/i)?.[1];
+        const requerido = message.match(/Requerido:\s*([0-9.-]+)/i)?.[1];
+
+        if (disponible || requerido) {
+            return `Saldo insuficiente en caja actual. Disponible: ${formatMoney(disponible)}. Requerido: ${formatMoney(requerido)}.`;
+        }
+
+        return "Saldo insuficiente en caja actual.";
+    }
+
+    return message;
+};
+
 const rpc = async <T>(fn: string, params: Record<string, unknown>): Promise<T> => {
     const { data, error } = await supabase.rpc(fn, params);
 
-    if (error) throw error;
+    if (error) throw new Error(normalizeRpcErrorMessage(error.message));
     if (data && !Array.isArray(data) && typeof data === "object" && "error" in data) {
-        throw new Error(String((data as Record<string, unknown>).error));
+        throw new Error(buildRpcErrorMessage(data as Record<string, unknown>));
     }
 
     return data as T;
@@ -29,10 +58,11 @@ export const operacionesRpcService = {
         });
     },
 
-    getRutaKpi(ruta: string, idEmpresa?: number | null) {
+    getRutaKpi(ruta: string, idEmpresa?: number | null, idEmpresaCuentaBancaria?: number | null) {
         return rpc<RutaOperacionKpi[]>("f_get_tb_ruta_operacion_kpi", {
             p_ruta: ruta,
             p_id_empresa: idEmpresa ?? null,
+            p_id_empresa_cuenta_bancaria: idEmpresaCuentaBancaria ?? null,
             p_id_estado: 1,
         });
     },
@@ -57,6 +87,14 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso[]>("f_get_tb_operacion_proceso", params);
     },
 
+    getOperacionAsistidaKpi(params: Record<string, unknown>) {
+        return rpc<OperacionAsistidaKpi[]>("f_get_tb_operacion_asistida_kpi", params);
+    },
+
+    getOperacionAsistidaBandeja(params: Record<string, unknown>) {
+        return rpc<OperacionProceso[]>("f_get_tb_operacion_asistida_bandeja", params);
+    },
+
     getOperacionesRetencionBandeja(params: Record<string, unknown>) {
         return rpc<OperacionProceso[]>("f_get_tb_operacion_retencion_bandeja", params);
     },
@@ -79,6 +117,10 @@ export const operacionesRpcService = {
 
     postOperacionProceso(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_post_tb_operacion_proceso", params);
+    },
+
+    postOperacionAsistida(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_post_tb_operacion_asistida", params);
     },
 
     patchOperacionBase(params: Record<string, unknown>) {
@@ -138,6 +180,10 @@ export const operacionesRpcService = {
 
     patchOperacionRetencion(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_retencion", params);
+    },
+
+    patchOperacionTipoRecaudacionSafetyPay(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_tipo_recaudacion_sf", params);
     },
 
     confirmarOperacionRetencion(params: Record<string, unknown>) {

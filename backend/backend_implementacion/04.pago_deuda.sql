@@ -208,6 +208,7 @@ Objetivo:
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_bandeja(
   p_ruta character varying,
   p_id_empresa_salida bigint DEFAULT NULL,
+  p_id_empresa_cuenta_salida bigint DEFAULT NULL,
   p_dni_cliente character varying DEFAULT NULL,
   p_codigo_operacion character varying DEFAULT NULL,
   p_id_estado bigint DEFAULT NULL
@@ -230,6 +231,7 @@ AS $$
   WHERE UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'BANCO'
     AND op.ruta_destino = p_ruta
     AND (p_id_empresa_salida IS NULL OR op.id_empresa_salida = p_id_empresa_salida)
+    AND (p_id_empresa_cuenta_salida IS NULL OR op.id_empresa_cuenta_salida = p_id_empresa_cuenta_salida)
     AND (p_dni_cliente IS NULL OR op.dni_cliente ILIKE '%' || p_dni_cliente || '%')
     AND (p_codigo_operacion IS NULL OR op.codigo_operacion_deposito_cliente ILIKE '%' || p_codigo_operacion || '%')
     AND (p_id_estado IS NULL OR op.id_estado = p_id_estado)
@@ -1636,6 +1638,7 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
+  'f_get_tb_pago_deuda_bandeja',
   'f_patch_tb_pago_deuda_match',
   'f_patch_tb_pago_deuda_pagado',
   'f_patch_tb_pago_deuda_reiniciar_transferencia'

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronLeft, ChevronRight } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { NativeSelect } from "@/components/base/select/select-native";
+import { isInteractiveElement } from "@/features/operaciones/efectivizacion/shared/utils/row-selection";
 import { cx } from "@/utils/cx";
 
 interface Column<T> {
@@ -80,6 +81,11 @@ export const OperationTable = <T extends { id: number }>({
 
     const visibleIds = paginatedData.map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+    const handleRowClick = (event: MouseEvent<HTMLTableRowElement>, rowId: number) => {
+        if (!onToggleRow || isLoading || isInteractiveElement(event.target)) return;
+        onToggleRow(rowId);
+    };
+
     const handleToggleVisible = () => {
         if (!onToggleRow || isLoading) return;
 
@@ -145,15 +151,21 @@ export const OperationTable = <T extends { id: number }>({
                                     <motion.tr
                                         key={row.id}
                                         layout
+                                        className={cx(
+                                            hasSelection && "cursor-pointer transition-colors hover:bg-primary_hover",
+                                            selectedIds.includes(row.id) && "bg-secondary",
+                                        )}
                                         initial={{ opacity: 0, y: 4 }}
                                         animate={{ opacity: 1, y: 0 }}
                                         exit={{ opacity: 0, height: 0 }}
                                         transition={{ duration: 0.2 }}
+                                        onClick={(event) => handleRowClick(event, row.id)}
                                     >
                                         {hasSelection && (
                                             <td className="px-2 py-2 align-middle">
                                                 <Checkbox
                                                     aria-label={`Seleccionar ${row.id}`}
+                                                    data-prevent-row-select
                                                     isSelected={selectedIds.includes(row.id)}
                                                     onChange={() => onToggleRow?.(row.id)}
                                                 />

@@ -50,6 +50,15 @@ export interface RutaOperacionKpi {
     fecha_registro: string;
 }
 
+export interface OperacionAsistidaKpi {
+    ruta: string;
+    gastos: number;
+    ganancia: number;
+    salidas: number;
+    total_operaciones: number;
+    total_pagadas: number;
+}
+
 export interface OperacionBandejaBadge {
     tab: string;
     cantidad: number;
@@ -106,6 +115,7 @@ export interface OperacionProceso {
     nombre_banco_cliente?: string | null;
     nombre_banco_cliente_transferencia?: string | null;
     tipo_facturacion?: string | null;
+    tipo_recaudacion_sf?: string | null;
     nombre_usuario_gestor?: string | null;
     nombre_usuario_solicitud?: string | null;
     nombre_usuario_deriva?: string | null;
@@ -138,6 +148,7 @@ export interface OperacionCajaMovimiento {
     tipo_origen: string;
     tipo_movimiento: string;
     tipo_servicio?: string | null;
+    tipo_recaudacion_sf?: string | null;
     nombre_codigo_servicio: string | null;
     dni_cliente: string | null;
     codigo_operacion: string | null;

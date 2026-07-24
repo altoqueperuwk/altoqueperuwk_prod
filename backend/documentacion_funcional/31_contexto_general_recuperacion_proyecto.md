@@ -344,6 +344,26 @@ Rutas:
 - `/operaciones/pos`
 - `/operaciones/linkpago`
 
+Regla vigente:
+
+- POS y Link Pago no tienen caja operativa propia.
+- No usan cierre de caja ni historial por cierre.
+- La fecha superior filtra por `tb_operacion_proceso.fecha_registro`.
+- Los KPI son informativos: `Gastos`, `Ganancia`, `Salidas`.
+- Los KPI solo suman operaciones `Pagado`.
+- POS registra solicitud con banco/empresa/cuenta destino y se atiende desde el tab `POS` del banco elegido.
+- Link Pago registra y cambia estado sin generar movimientos.
+
+RPCs:
+
+- `f_get_tb_operacion_asistida_kpi`
+- `f_get_tb_operacion_asistida_bandeja`
+- `f_post_tb_operacion_asistida`
+
+Archivo backend:
+
+- `backend/backend_implementacion/11.operaciones_asistidas_pos_linkpago.sql`
+
 ## RPC y contratos criticos
 
 Servicio principal:

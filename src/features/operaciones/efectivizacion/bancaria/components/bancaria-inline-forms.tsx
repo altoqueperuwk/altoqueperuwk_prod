@@ -11,19 +11,26 @@ import { comunidadService } from "@/services/comunidad.service";
 import { empresaCuentaBancariaService } from "@/services/empresa-cuenta-bancaria.service";
 import { estadoService } from "@/services/estado.service";
 import { InlineFormCard } from "@/features/operaciones/efectivizacion/shared/components/inline-form-card";
+import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type {
     CajaOperativa,
+    OperacionCajaMovimiento,
     OperacionRutaBancaria,
     RutaOperacionCaja,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { findCodigoServicioForRuta } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { cx } from "@/utils/cx";
 
 interface BancariaInlineFormsProps {
+    activeCajaId: number | null;
     activeCompany: RutaOperacionCaja | null;
     activeCompanyCajas: RutaOperacionCaja[];
+    historyDate?: string | null;
+    refreshKey?: number;
     routeCajas: RutaOperacionCaja[];
+    showMiniMovimientos?: boolean;
     onSaved: () => void;
     ruta: OperacionRutaBancaria;
 }
@@ -149,7 +156,7 @@ const FormActions = ({
     onCancel: () => void;
     onSave: () => void;
 }) => (
-    <div className="mt-auto grid grid-cols-2 gap-3 pt-4">
+    <div className="grid grid-cols-2 gap-3 pt-3">
         <Button
             type="button"
             color="primary"
@@ -181,7 +188,137 @@ const cuentaOptions = (cajas: RutaOperacionCaja[]) =>
         value: getCajaSelectionKey(caja),
     }));
 
-export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCajas, onSaved, ruta }: BancariaInlineFormsProps) => {
+const getMovimientoMonto = (row: OperacionCajaMovimiento) => {
+    const tipo = row.tipo_movimiento?.trim().toUpperCase();
+    return tipo === "INGRESO" ? Number(row.monto_ingreso ?? 0) : Number(row.monto_salida ?? 0);
+};
+
+const MiniMovimientosTable = ({
+    activeCajaId,
+    historyDate,
+    refreshKey = 0,
+}: {
+    activeCajaId: number | null;
+    historyDate?: string | null;
+    refreshKey?: number;
+}) => {
+    const [rows, setRows] = useState<OperacionCajaMovimiento[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!activeCajaId) {
+            setRows([]);
+            setError(null);
+            return;
+        }
+
+        let ignore = false;
+        setIsLoading(true);
+        setError(null);
+
+        operacionesRpcService
+            .getMovimientos({
+                p_id_caja: activeCajaId,
+                p_fecha_caja_cierre_desde: historyDate ? `${historyDate}T00:00:00` : undefined,
+                p_fecha_caja_cierre_hasta: historyDate ? `${historyDate}T23:59:59` : undefined,
+            })
+            .then((result) => {
+                if (ignore) return;
+                const visible = ((result ?? []) as OperacionCajaMovimiento[])
+                    .filter((row) => (row.nombre_estado ?? "").trim().toUpperCase() !== "RETENIDO")
+                    .slice(0, 8);
+                setRows(visible);
+            })
+            .catch((err) => {
+                if (!ignore) setError(err instanceof Error ? err.message : "No se pudo cargar movimientos.");
+            })
+            .finally(() => {
+                if (!ignore) setIsLoading(false);
+            });
+
+        return () => {
+            ignore = true;
+        };
+    }, [activeCajaId, historyDate, refreshKey]);
+
+    return (
+        <div className="overflow-hidden rounded-lg border border-secondary">
+            <div className="max-h-[177px] overflow-y-auto overflow-x-auto">
+                <table className="w-full min-w-max divide-y divide-secondary">
+                    <thead className="sticky top-0 bg-secondary">
+                        <tr>
+                            {["Origen", "Movimiento", "Monto", "Fecha"].map((label) => (
+                                <th key={label} className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-tertiary">
+                                    {label}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-secondary bg-primary">
+                        {isLoading ? (
+                            Array.from({ length: 3 }).map((_, index) => (
+                                <tr key={index}>
+                                    <td className="px-3 py-2" colSpan={4}>
+                                        <div className="h-4 w-full animate-pulse rounded bg-secondary" />
+                                    </td>
+                                </tr>
+                            ))
+                        ) : error ? (
+                            <tr>
+                                <td className="px-3 py-6 text-center text-sm text-error-primary" colSpan={4}>
+                                    {error}
+                                </td>
+                            </tr>
+                        ) : rows.length ? (
+                            rows.map((row) => {
+                                const tipo = row.tipo_movimiento?.trim().toUpperCase();
+                                const isIngreso = tipo === "INGRESO";
+
+                                return (
+                                    <tr key={row.id}>
+                                        <td className="whitespace-nowrap px-3 py-2 text-sm text-secondary">
+                                            <CompactBadgeLine color="brand">{row.tipo_origen}</CompactBadgeLine>
+                                        </td>
+                                        <td className="whitespace-nowrap px-3 py-2 text-sm text-secondary">
+                                            <CompactBadgeLine color={isIngreso ? "success" : "error"}>{row.tipo_movimiento}</CompactBadgeLine>
+                                        </td>
+                                        <td className="whitespace-nowrap px-3 py-2 text-sm tabular-nums">
+                                            <span className={isIngreso ? "font-medium text-concept-ingreso" : "font-medium text-concept-salida"}>
+                                                {formatMoney(getMovimientoMonto(row))}
+                                            </span>
+                                        </td>
+                                        <td className="whitespace-nowrap px-3 py-2 text-sm text-secondary">
+                                            {new Date(row.fecha_registro).toLocaleDateString("es-PE")}
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        ) : (
+                            <tr>
+                                <td className="px-3 py-8 text-center text-sm text-tertiary" colSpan={4}>
+                                    Sin movimientos para esta caja.
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+export const BancariaInlineForms = ({
+    activeCajaId,
+    activeCompany,
+    activeCompanyCajas,
+    historyDate = null,
+    refreshKey = 0,
+    routeCajas,
+    showMiniMovimientos = false,
+    onSaved,
+    ruta,
+}: BancariaInlineFormsProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [transferOriginKey, setTransferOriginKey] = useState("");
@@ -210,24 +347,6 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
     const transferOrigin = activeCompanyCajas.find((caja) => getCajaSelectionKey(caja) === transferOriginKey) ?? firstCuenta ?? null;
-    const transferCompanies = useMemo(() => {
-        const byId = new Map<number, { label: string; value: string }>();
-        cuentasActivas.forEach((cuenta) => {
-            if (!byId.has(cuenta.id_empresa)) {
-                byId.set(cuenta.id_empresa, { label: cuenta.empresa_nombre, value: String(cuenta.id_empresa) });
-            }
-        });
-
-        return Array.from(byId.values()).sort((a, b) => a.label.localeCompare(b.label));
-    }, [cuentasActivas]);
-    const transferDestinationAccounts = useMemo(
-        () =>
-            cuentasActivas
-                .filter((cuenta) => String(cuenta.id_empresa) === transferDestinationCompanyId)
-                .sort((a, b) => a.banco_nombre.localeCompare(b.banco_nombre)),
-        [cuentasActivas, transferDestinationCompanyId],
-    );
-    const transferDestinationAccount = transferDestinationAccounts.find((cuenta) => String(cuenta.id) === transferDestinationKey) ?? null;
     const cajaMap = useMemo(() => {
         const map = new Map<string, CajaOperativa>();
         cajasOperativas.forEach((caja) => {
@@ -235,6 +354,34 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
         });
         return map;
     }, [cajasOperativas]);
+    const transferDestinationAccountsWithCaja = useMemo(
+        () =>
+            cuentasActivas.filter((cuenta) => {
+                const caja = cajaMap.get(`${cuenta.id_empresa}-${cuenta.id}`);
+                if (!caja) return false;
+                if (transferOrigin?.id_caja && caja.id === transferOrigin.id_caja) return false;
+                return true;
+            }),
+        [cajaMap, cuentasActivas, transferOrigin?.id_caja],
+    );
+    const transferCompanies = useMemo(() => {
+        const byId = new Map<number, { label: string; value: string }>();
+        transferDestinationAccountsWithCaja.forEach((cuenta) => {
+            if (!byId.has(cuenta.id_empresa)) {
+                byId.set(cuenta.id_empresa, { label: cuenta.empresa_nombre, value: String(cuenta.id_empresa) });
+            }
+        });
+
+        return Array.from(byId.values()).sort((a, b) => a.label.localeCompare(b.label));
+    }, [transferDestinationAccountsWithCaja]);
+    const transferDestinationAccounts = useMemo(
+        () =>
+            transferDestinationAccountsWithCaja
+                .filter((cuenta) => String(cuenta.id_empresa) === transferDestinationCompanyId)
+                .sort((a, b) => a.banco_nombre.localeCompare(b.banco_nombre)),
+        [transferDestinationAccountsWithCaja, transferDestinationCompanyId],
+    );
+    const transferDestinationAccount = transferDestinationAccounts.find((cuenta) => String(cuenta.id) === transferDestinationKey) ?? null;
     const transferDestination = transferDestinationAccount
         ? (() => {
               const caja = cajaMap.get(`${transferDestinationAccount.id_empresa}-${transferDestinationAccount.id}`);
@@ -251,12 +398,7 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
         [comunidades, manualCommunityId],
     );
     const codigoEfectivizacion = useMemo(() => findCodigoServicioForRuta(codigoItems, ruta), [codigoItems, ruta]);
-    const originCuentaOptions = activeCompanyCajas.length ? cuentaOptions(activeCompanyCajas) : [{ label: "Sin cuentas", value: "" }];
-    const lockedCuentaName = firstCuenta?.nombre_banco ?? "";
     const placeholderOption = { label: "Seleccionar", value: "" };
-    const renderOriginCompanyInput = () => (
-        <CompactInput disabled inputClassName="text-center font-semibold text-primary" value={companyName} />
-    );
 
     useEffect(() => {
         const first = activeCompanyCajas[0];
@@ -269,6 +411,12 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
         setTransferDestinationCompanyId("");
         setTransferDestinationKey("");
     }, [activeCompany?.id_empresa]);
+
+    useEffect(() => {
+        setTransferDestinationCompanyId((current) =>
+            current && transferCompanies.some((company) => company.value === current) ? current : "",
+        );
+    }, [transferCompanies]);
 
     useEffect(() => {
         setTransferDestinationKey((current) =>
@@ -506,22 +654,18 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
         }
     };
 
+    const activeCajaBadges = (
+        <div className="flex max-w-56 flex-wrap justify-end gap-1">
+            <CompactBadgeLine color="brand">{activeCompany?.nombre_empresa ?? "Empresa"}</CompactBadgeLine>
+            <CompactBadgeLine>{activeCompany?.nombre_banco ?? firstCuenta?.nombre_banco ?? "Cuenta"}</CompactBadgeLine>
+        </div>
+    );
+
     return (
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <InlineFormCard title="Mover Saldo">
-                <div className="flex min-h-64 flex-col">
+            <InlineFormCard title="Mover Saldo" actions={activeCajaBadges}>
+                <div className="flex flex-col gap-2">
                     <div className="grid grid-cols-2 gap-4">
-                        <Field label="Empresa">
-                            {renderOriginCompanyInput()}
-                        </Field>
-                        <Field label="Cuenta">
-                            <CompactSelect
-                                options={originCuentaOptions}
-                                selectClassName="text-center font-semibold"
-                                value={transferOriginKey}
-                                onChange={setTransferOriginKey}
-                            />
-                        </Field>
                         <Field label="Empresa Destino">
                             <CompactSelect
                                 options={[placeholderOption, ...transferCompanies]}
@@ -547,20 +691,9 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
                 </div>
             </InlineFormCard>
 
-            <InlineFormCard title="Ingreso y Salidas">
-                <div className="flex min-h-64 flex-col">
+            <InlineFormCard title="Ingreso y Salidas" actions={activeCajaBadges}>
+                <div className="flex flex-col gap-2">
                     <div className="grid grid-cols-2 gap-4">
-                        <Field label="Empresa">
-                            {renderOriginCompanyInput()}
-                        </Field>
-                        <Field label="Cuenta">
-                            <CompactSelect
-                                options={originCuentaOptions}
-                                selectClassName="text-center font-semibold"
-                                value={movementAccountKey}
-                                onChange={setMovementAccountKey}
-                            />
-                        </Field>
                         <Field label="Movimiento">
                             <SegmentedControl
                                 className="w-full grid-cols-2 rounded-lg"
@@ -590,43 +723,43 @@ export const BancariaInlineForms = ({ activeCompany, activeCompanyCajas, routeCa
                 </div>
             </InlineFormCard>
 
-            <InlineFormCard title="Operacion Efectivizacion">
-                <div className="flex min-h-64 flex-col">
-                    <div className="grid grid-cols-2 gap-4">
-                        <Field label="Empresa">
-                            {renderOriginCompanyInput()}
-                        </Field>
-                        <Field label="Cuenta">
-                            <CompactInput disabled inputClassName="text-center font-semibold text-primary" value={lockedCuentaName} />
-                        </Field>
-                        <Field label="Codigo Operacion">
-                            <CompactInput value={manualCode} onChange={setManualCode} />
-                        </Field>
-                        <Field label="DNI">
-                            <CompactInput value={manualDni} onChange={setManualDni} />
-                        </Field>
-                        <Field label="Monto">
-                            <CompactInput placeholder="S/ 0.00" value={manualAmount} onChange={setManualAmount} />
-                        </Field>
-                        <Field label="Comunidad">
-                            <CompactSelect
-                                options={comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))}
-                                value={manualCommunityId}
-                                onChange={setManualCommunityId}
-                            />
-                        </Field>
+            {showMiniMovimientos ? (
+                <InlineFormCard title="Movimientos" actions={activeCajaBadges}>
+                    <MiniMovimientosTable activeCajaId={activeCajaId} historyDate={historyDate} refreshKey={refreshKey} />
+                </InlineFormCard>
+            ) : (
+                <InlineFormCard title="Operacion Efectivizacion" actions={activeCajaBadges}>
+                    <div className="flex flex-col gap-2">
+                        <div className="grid grid-cols-2 gap-4">
+                            <Field label="Codigo Operacion">
+                                <CompactInput value={manualCode} onChange={setManualCode} />
+                            </Field>
+                            <Field label="DNI">
+                                <CompactInput value={manualDni} onChange={setManualDni} />
+                            </Field>
+                            <Field label="Monto">
+                                <CompactInput placeholder="S/ 0.00" value={manualAmount} onChange={setManualAmount} />
+                            </Field>
+                            <Field label="Comunidad">
+                                <CompactSelect
+                                    options={comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))}
+                                    value={manualCommunityId}
+                                    onChange={setManualCommunityId}
+                                />
+                            </Field>
+                        </div>
+                        <FormActions
+                            isSaving={isSavingManual}
+                            onCancel={() => {
+                                setManualCode("");
+                                setManualDni("");
+                                setManualAmount("");
+                            }}
+                            onSave={handleSaveManualOperation}
+                        />
                     </div>
-                    <FormActions
-                        isSaving={isSavingManual}
-                        onCancel={() => {
-                            setManualCode("");
-                            setManualDni("");
-                            setManualAmount("");
-                        }}
-                        onSave={handleSaveManualOperation}
-                    />
-                </div>
-            </InlineFormCard>
+                </InlineFormCard>
+            )}
         </section>
     );
 };

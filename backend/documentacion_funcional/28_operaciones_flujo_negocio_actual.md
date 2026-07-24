@@ -29,7 +29,27 @@ Pago Deuda no es una caja propia. Es una solicitud que genera atencion bancaria 
 
 ### POS y asistidas
 
-POS convive dentro de la pantalla bancaria como bandeja operativa. Sus impactos son principalmente de salida o atencion, segun el flujo configurado.
+POS y Link Pago son rutas asistidas sin caja propia.
+
+Reglas:
+
+- no tienen cierre de caja;
+- no tienen caja inicial ni caja actual;
+- se consultan por `fecha_registro`;
+- sus KPI se calculan desde `tb_operacion_proceso`;
+- solo suman operaciones en estado `Pagado`.
+
+POS tiene dos momentos:
+
+1. En `/operaciones/pos`, el usuario registra la solicitud y selecciona banco/empresa/cuenta destino.
+2. En el banco destino, el tab `POS` atiende la transferencia y recien ahi se impacta caja.
+
+Link Pago:
+
+- registra la operacion en `/operaciones/linkpago`;
+- permite cambio de estado operativo;
+- no envia solicitud bancaria;
+- no crea movimientos de caja.
 
 ## Flujo base de Efectivizacion
 

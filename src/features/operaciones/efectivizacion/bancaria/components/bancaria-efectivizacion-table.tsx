@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { motion } from "motion/react";
 import { ChevronLeft, ChevronRight, Coins01, Copy01, Edit03, Eye, Percent01, RefreshCcw02 } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
@@ -23,6 +23,7 @@ import {
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import type { OperacionProceso, OperacionRutaBancaria, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
+import { isInteractiveElement } from "@/features/operaciones/efectivizacion/shared/utils/row-selection";
 import { buildOperacionPagadoPayload, buildOperacionReanudarPayload } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
 import { cx } from "@/utils/cx";
 
@@ -51,6 +52,7 @@ interface ReglaEfectivizacion {
 }
 
 interface BancariaEfectivizacionTableProps {
+    activeAccountId?: number | null;
     activeCompanyId: number | null;
     companies: RutaOperacionCaja[];
     data: OperacionProceso[];
@@ -79,6 +81,10 @@ const toOption = (value: unknown, label: unknown) => ({
 
 const allowedCuentaClienteBanks = ["bcp", "bbva", "scotiabank", "scotibank", "interbank", "banbif"];
 const tipoDepositoVisibleRoutes: OperacionRutaBancaria[] = ["scotiabank", "banbif"];
+const safetyPayModeOptions = [
+    { label: "Automatico", value: "Automatico" },
+    { label: "Manual", value: "Manual" },
+];
 
 const normalizeBankName = (value: unknown) =>
     String(value ?? "")
@@ -138,12 +144,12 @@ const formatTime = (value?: string | null) => {
     return new Date(value).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
 };
 
-const getColumnHeaders = (showCuentaIngresoInDni: boolean) => [
+const getColumnHeaders = (showModalidad: boolean) => [
     { label: "Facturacion" },
+    ...(showModalidad ? [{ label: "Modalidad" }] : []),
     { label: "Cod. Op." },
-    { label: "DNI", className: showCuentaIngresoInDni ? "w-[170px]" : undefined },
+    { label: "DNI" },
     { label: "Comunidad" },
-    { label: "Cuenta Empresa", className: "w-32" },
     { label: "Cuenta Cliente", className: "w-32" },
     { label: "Monto" },
     { label: "Comision" },
@@ -154,6 +160,7 @@ const getColumnHeaders = (showCuentaIngresoInDni: boolean) => [
 ];
 
 export const BancariaEfectivizacionTable = ({
+    activeAccountId = null,
     activeCompanyId,
     companies,
     data,
@@ -228,12 +235,16 @@ export const BancariaEfectivizacionTable = ({
     const paginatedRows = useMemo(() => rows.slice((page - 1) * pageSize, page * pageSize), [page, pageSize, rows]);
     const visibleIds = paginatedRows.map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
-    const showCuentaIngresoInDni = ruta === "safetypay";
+    const showModalidad = ruta === "safetypay";
     const showTipoDeposito = tipoDepositoVisibleRoutes.includes(ruta);
-    const columnHeaders = useMemo(() => getColumnHeaders(showCuentaIngresoInDni), [showCuentaIngresoInDni]);
+    const columnHeaders = useMemo(() => getColumnHeaders(showModalidad), [showModalidad]);
+    const tableColSpan = columnHeaders.length + (hasSelection ? 1 : 0);
     const activeCompanyAccounts = useMemo(
-        () => companies.filter((company) => !activeCompanyId || company.id_empresa === activeCompanyId),
-        [activeCompanyId, companies],
+        () => companies.filter((company) =>
+            (!activeCompanyId || company.id_empresa === activeCompanyId) &&
+            (!activeAccountId || company.id_empresa_cuenta_bancaria === activeAccountId)
+        ),
+        [activeAccountId, activeCompanyId, companies],
     );
     const cuentaClienteOptions = useMemo(
         () =>
@@ -247,7 +258,7 @@ export const BancariaEfectivizacionTable = ({
     );
 
     useEffect(() => {
-        if (mode !== "efectivizacion" || !paginatedRows.length) {
+        if (mode !== "efectivizacion" || ruta === "safetypay" || !paginatedRows.length) {
             setPagoDeudaMatches({});
             return;
         }
@@ -272,7 +283,7 @@ export const BancariaEfectivizacionTable = ({
         return () => {
             ignore = true;
         };
-    }, [mode, paginatedRows]);
+    }, [mode, paginatedRows, ruta]);
 
     const tipoDepositoOptions = (row: OperacionProceso) => uniqueOptions([
         ...(row.nombre_tipo_deposito ? [toOption(row.nombre_tipo_deposito, row.nombre_tipo_deposito)] : []),
@@ -388,6 +399,11 @@ export const BancariaEfectivizacionTable = ({
             return;
         }
         visibleIds.filter((id) => !selectedIds.includes(id)).forEach((id) => onToggleRow(id));
+    };
+
+    const handleRowClick = (event: MouseEvent<HTMLTableRowElement>, row: OperacionProceso, isSaving: boolean) => {
+        if (!onToggleRow || isLoading || isSaving || isInteractiveElement(event.target)) return;
+        onToggleRow(row.id);
     };
 
     const handleCompanySalida = (row: OperacionProceso, value: string) => {
@@ -713,7 +729,7 @@ export const BancariaEfectivizacionTable = ({
                         {isLoading ? (
                             Array.from({ length: 5 }).map((_, index) => (
                                 <tr key={index}>
-                                    <td colSpan={13} className="px-2 py-3">
+                                    <td colSpan={tableColSpan} className="px-2 py-3">
                                         <div className="h-5 animate-pulse rounded bg-secondary" />
                                     </td>
                                 </tr>
@@ -727,11 +743,22 @@ export const BancariaEfectivizacionTable = ({
                                 const pdDisabled = rowSaving || isPagado(row) || !(pagoDeudaMatches[row.id]?.length);
 
                                 return (
-                                    <motion.tr key={row.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+                                    <motion.tr
+                                        key={row.id}
+                                        className={cx(
+                                            hasSelection && !rowSaving && "cursor-pointer transition-colors hover:bg-primary_hover",
+                                            selectedIds.includes(row.id) && "bg-secondary",
+                                        )}
+                                        initial={{ opacity: 0, y: 4 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ duration: 0.2 }}
+                                        onClick={(event) => handleRowClick(event, row, rowSaving)}
+                                    >
                                         {hasSelection && (
                                             <td className="px-2 py-2 align-top">
                                                 <Checkbox
                                                     aria-label={`Seleccionar ${row.id}`}
+                                                    data-prevent-row-select
                                                     isSelected={selectedIds.includes(row.id)}
                                                     isDisabled={rowSaving}
                                                     onChange={() => onToggleRow?.(row.id)}
@@ -751,6 +778,35 @@ export const BancariaEfectivizacionTable = ({
                                                 />
                                             )}
                                         </td>
+                                        {showModalidad && (
+                                            <td className="px-2 py-2 align-top">
+                                                <CompactInlineSelect
+                                                    aria-label="Modalidad"
+                                                    width="w-30"
+                                                    disabled={disabledIngreso}
+                                                    value={row.tipo_recaudacion_sf ?? "Automatico"}
+                                                    onChange={(event) => {
+                                                        const modalidad = getSelectValue(event);
+                                                        setSavingIds((current) => [...current, row.id]);
+                                                        void operacionesRpcService
+                                                            .patchOperacionTipoRecaudacionSafetyPay({
+                                                                p_id: row.id,
+                                                                p_tipo_recaudacion_sf: modalidad,
+                                                                p_id_usuario_gestor: user.userId,
+                                                                p_nombre_usuario_gestor: user.userName,
+                                                            })
+                                                            .then((saved) => {
+                                                                setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+                                                                onRowUpdated(saved);
+                                                                addToast("success", "Modalidad actualizada.");
+                                                            })
+                                                            .catch((err) => addToast("error", err instanceof Error ? err.message : "No se pudo actualizar la modalidad."))
+                                                            .finally(() => setSavingIds((current) => current.filter((id) => id !== row.id)));
+                                                    }}
+                                                    options={safetyPayModeOptions}
+                                                />
+                                            </td>
+                                        )}
                                         <td className="px-2 py-2 align-top">
                                             <CompactCellText primary={row.codigo_operacion_deposito_cliente ?? "-"} />
                                             {showTipoDeposito && (
@@ -796,37 +852,6 @@ export const BancariaEfectivizacionTable = ({
                                                     }}
                                                 />
                                             )}
-                                            {showCuentaIngresoInDni && (
-                                                <CompactInlineSelect
-                                                    aria-label="Cuenta ingreso"
-                                                    className="mt-1"
-                                                    width="w-40"
-                                                    disabled={disabledIngreso || activeCompanyAccounts.length <= 1}
-                                                    value={String(cuentaIngresoValue(row) ?? "")}
-                                                    onChange={(event) => {
-                                                        const company = activeCompanyAccounts.find((item) => String(item.id) === event.currentTarget.value);
-                                                        if (!company) return;
-                                                        void patchWithRule(
-                                                            row,
-                                                            {
-                                                                id_empresa_ingreso: company.id_empresa,
-                                                                nombre_empresa_ingreso: company.nombre_empresa,
-                                                                id_empresa_cuenta_ingreso: company.id_empresa_cuenta_bancaria,
-                                                                id_banco_empresa_cuenta_ingreso: company.id_banco,
-                                                                nombre_banco_empresa_cuenta_ingreso: company.nombre_banco,
-                                                            },
-                                                            {
-                                                                p_id_empresa_ingreso: company.id_empresa,
-                                                                p_nombre_empresa_ingreso: company.nombre_empresa,
-                                                                p_id_empresa_cuenta_ingreso: company.id_empresa_cuenta_bancaria,
-                                                                p_id_banco_empresa_cuenta_ingreso: company.id_banco,
-                                                                p_nombre_banco_empresa_cuenta_ingreso: company.nombre_banco,
-                                                            },
-                                                        );
-                                                    }}
-                                                    options={accountOptions}
-                                                />
-                                            )}
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <CompactInlineSelect
@@ -844,16 +869,6 @@ export const BancariaEfectivizacionTable = ({
                                                     );
                                                 }}
                                                 options={(comunidades ?? []).map((item) => toOption(item.id, item.nombre))}
-                                            />
-                                        </td>
-                                        <td className="px-2 py-2 align-top">
-                                            <CompactInlineSelect
-                                                aria-label="Cuenta empresa"
-                                                width="w-32"
-                                                disabled={disabledSalida || activeCompanyAccounts.length <= 1}
-                                                value={String(empresaSalidaValue(row) ?? "")}
-                                                onChange={(event) => handleCompanySalida(row, event.currentTarget.value)}
-                                                options={accountOptions}
                                             />
                                         </td>
                                         <td className="px-2 py-2 align-top">
@@ -915,7 +930,7 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
                                         <td className="px-2 py-2 text-center align-top">
                                             <div className="flex items-center justify-center gap-1">
-                                                {mode === "efectivizacion" && (
+                                                {mode === "efectivizacion" && ruta !== "safetypay" && (
                                                     <Button
                                                         size="xs"
                                                         color={pdDisabled ? "secondary" : "primary"}
@@ -950,7 +965,7 @@ export const BancariaEfectivizacionTable = ({
                             })
                         ) : (
                             <tr>
-                                <td colSpan={13} className="px-4 py-10 text-center text-sm text-tertiary">{emptyText}</td>
+                                <td colSpan={tableColSpan} className="px-4 py-10 text-center text-sm text-tertiary">{emptyText}</td>
                             </tr>
                         )}
                     </tbody>

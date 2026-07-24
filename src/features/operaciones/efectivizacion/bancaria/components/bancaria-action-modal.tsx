@@ -6,7 +6,7 @@ import { usuarioService } from "@/services/usuario.service";
 import { bancariaRouteKeys, getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import type { OperacionRuta, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
-type ActionType = "Derivar" | "Emp. Ingreso" | "Emp. Salida" | "Reasignar" | "Transferencia";
+type ActionType = "Derivar" | "Emp. Ingreso" | "Emp. Salida" | "Reasignar" | "Transferencia" | "Modalidad";
 
 interface UserOption {
     id: number;
@@ -46,6 +46,11 @@ export const BancariaActionModal = ({
             return;
         }
 
+        if (action === "Modalidad") {
+            setValue("Automatico");
+            return;
+        }
+
         if (action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Transferencia") {
             setValue(companies[0] ? String(companies[0].id) : "");
             return;
@@ -74,6 +79,11 @@ export const BancariaActionModal = ({
             ? bancariaRouteKeys
                   .filter((route) => route !== currentRuta)
                   .map((route) => ({ label: getRutaLabel(route), value: route }))
+            : action === "Modalidad"
+              ? [
+                    { label: "Automatico", value: "Automatico" },
+                    { label: "Manual", value: "Manual" },
+                ]
             : action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Transferencia"
               ? companies.map((company) => ({
                     label: `${company.nombre_empresa} - ${company.nombre_banco}`,
@@ -99,6 +109,8 @@ export const BancariaActionModal = ({
                                 label={
                                     action === "Derivar"
                                         ? "Ruta destino"
+                                        : action === "Modalidad"
+                                          ? "Modalidad"
                                         : action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Transferencia"
                                           ? "Empresa y cuenta"
                                           : "Usuario gestor"
