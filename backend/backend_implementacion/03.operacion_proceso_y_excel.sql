@@ -2766,6 +2766,7 @@ BEGIN
       EXCEPTION WHEN OTHERS THEN
         v_error_motivo := 'Fecha invÃ¡lida: ' || COALESCE(v_fila.fecha_pago, 'vacÃ­a');
       END;
+    END IF;
 
     IF v_error_motivo IS NOT NULL THEN
       v_detalle := v_detalle || jsonb_build_object(
