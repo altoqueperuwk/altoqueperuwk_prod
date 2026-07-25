@@ -333,7 +333,6 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         <NativeSelect
                             size="sm"
                             label="Entidad Tarjeta"
-                            placeholder="Seleccionar entidad"
                             value={entidadTarjetaId}
                             onChange={(event) => setEntidadTarjetaId(event.currentTarget.value)}
                             options={[

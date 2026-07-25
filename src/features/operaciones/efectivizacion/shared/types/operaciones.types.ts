@@ -113,6 +113,7 @@ export interface OperacionProceso {
     nombre_banco_empresa_cuenta_ingreso: string | null;
     nombre_banco_empresa_cuenta_salida: string | null;
     id_banco_cliente_transferencia?: number | null;
+    id_banco_cliente?: number | null;
     nombre_banco_cliente?: string | null;
     nombre_banco_cliente_transferencia?: string | null;
     tipo_facturacion?: string | null;

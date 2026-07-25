@@ -225,7 +225,6 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
                             <NativeSelect
                                 size="sm"
                                 label="Entidad Tarjeta"
-                                placeholder="Seleccionar entidad"
                                 value={entidadTarjetaId}
                                 onChange={(event) => setEntidadTarjetaId(event.currentTarget.value)}
                                 options={[
