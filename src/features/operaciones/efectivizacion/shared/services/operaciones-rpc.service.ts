@@ -123,6 +123,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_post_tb_operacion_asistida", params);
     },
 
+    patchOperacionAsistida(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_asistida", params);
+    },
+
     patchOperacionBase(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_base", params);
     },

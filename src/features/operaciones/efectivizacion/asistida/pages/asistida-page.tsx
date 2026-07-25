@@ -78,13 +78,7 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
     return (
         <AppLayout>
             <div className="flex flex-col gap-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <h1 className="text-xl font-semibold text-primary">{routeLabel}</h1>
-                        <p className="mt-1 text-sm text-tertiary">
-                            {ruta === "pos" ? "Solicitudes enviadas a bancos para transferencia." : "Operaciones registradas sin impacto de caja."}
-                        </p>
-                    </div>
+                <div className="flex flex-wrap items-center justify-end gap-3">
                     <div className="flex items-end gap-2">
                         <div className="relative">
                             <Button size="sm" color="secondary" iconLeading={CalendarIcon} onClick={() => setIsCalendarOpen(!isCalendarOpen)}>

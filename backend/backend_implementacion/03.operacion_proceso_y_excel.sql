@@ -1198,7 +1198,7 @@ DECLARE
   v_sync_result jsonb;
   v_ruta_actual character varying;
   v_ruta_final character varying;
-BEGIN
+  BEGIN
   SELECT *
   INTO v_actual
   FROM public.tb_operacion_proceso
@@ -3662,6 +3662,7 @@ JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',
+  'f_patch_tb_operacion_proceso_base',
   'f_patch_tb_operacion_proceso_pagado',
   'f_patch_tb_operacion_proceso_tipo_recaudacion_sf',
   'f_patch_tb_operacion_proceso_reanudar'

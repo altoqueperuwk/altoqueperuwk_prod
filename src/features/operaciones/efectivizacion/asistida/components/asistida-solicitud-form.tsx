@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, X } from "@untitledui/icons";
+import { Save01, XClose } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
@@ -54,6 +54,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
     const [servicio, setServicio] = useState<CatalogItem | null>(null);
     const [estadoSolicitado, setEstadoSolicitado] = useState<CatalogItem | null>(null);
+    const [estadoPagado, setEstadoPagado] = useState<CatalogItem | null>(null);
     const [bancosDestino, setBancosDestino] = useState<BancoDestino[]>([]);
     const [bancoDestinoId, setBancoDestinoId] = useState("");
     const [entidadTarjetaId, setEntidadTarjetaId] = useState("");
@@ -69,8 +70,13 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         [comunidadId, comunidades],
     );
     const entidadTarjetaList = useMemo(
-        () => bancosDestino.filter((item) => item.tipo === "Tarjeta Comercial"),
-        [bancosDestino],
+        () => {
+            if (ruta === "linkpago") {
+                return bancosDestino.filter((item) => item.id === 11 || item.id === 17);
+            }
+            return bancosDestino.filter((item) => item.tipo === "Tarjeta Comercial");
+        },
+        [bancosDestino, ruta],
     );
     const bancoTransferirList = useMemo(
         () => bancosDestino.filter((item) => item.tipo === "Tarjeta Crédito"),
@@ -150,6 +156,9 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         estadoItems.find((item) => item.nombre.toUpperCase() === "PENDIENTE") ??
                         null,
                 );
+                setEstadoPagado(
+                    estadoItems.find((item) => item.nombre.toUpperCase() === "PAGADO") ?? null,
+                );
 
                 if (!comunidadId && comunidadItems[0]) setComunidadId(String(comunidadItems[0].id));
             })
@@ -161,13 +170,6 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     }, [addToast, comunidadId, ruta]);
 
     useEffect(() => {
-        if (ruta !== "pos") {
-            setBancosDestino([]);
-            setBancoDestinoId("");
-            setEntidadTarjetaId("");
-            return;
-        }
-
         let ignore = false;
 
         bancoService
@@ -183,7 +185,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 setBancoDestinoId("");
                 setEntidadTarjetaId("");
             })
-            .catch(() => addToast("error", "Error al cargar bancos destino para POS."));
+            .catch(() => addToast("error", "Error al cargar bancos destino."));
 
         return () => {
             ignore = true;
@@ -225,8 +227,10 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             return;
         }
 
-        if (!estadoSolicitado) {
-            addToast("error", "No se encontro el estado Solicitado.");
+        const estadoRequerido = ruta === "linkpago" ? estadoPagado : estadoSolicitado;
+
+        if (!estadoRequerido) {
+            addToast("error", `No se encontro el estado ${ruta === "linkpago" ? "Pagado" : "Solicitado"}.`);
             return;
         }
 
@@ -237,6 +241,11 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
 
         if (ruta === "pos" && !selectedBancoTransferir) {
             addToast("error", "Selecciona el banco al que transferir.");
+            return;
+        }
+
+        if (ruta === "linkpago" && !selectedEntidadTarjeta) {
+            addToast("error", "Selecciona la entidad tarjeta.");
             return;
         }
 
@@ -266,8 +275,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_dni_cliente: dni.replace(/\D/g, ""),
                 p_monto_deposito_cliente: amount,
                 p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null,
-                p_id_estado: estadoSolicitado.id,
-                p_nombre_estado: estadoSolicitado.nombre,
+                p_id_estado: estadoRequerido.id,
+                p_nombre_estado: estadoRequerido.nombre,
                 p_id_usuario: userId,
                 p_nombre_usuario: userName,
                 p_id_usuario_gestor: userId,
@@ -275,7 +284,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_id_usuario_solicitud: userId,
                 p_nombre_usuario_solicitud: userName,
                 p_id_banco_destino: ruta === "pos" ? selectedBancoTransferir?.id : null,
-                p_id_banco_cliente: ruta === "pos" ? selectedEntidadTarjeta?.id : null,
+                p_id_banco_cliente: (ruta === "pos" || ruta === "linkpago") ? selectedEntidadTarjeta?.id : null,
                 p_fecha_registro: now,
             });
 
@@ -294,9 +303,9 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             setOriginalCelulares([]);
             setOriginalComunidadId("");
             onSaved();
-            addToast("success", "Solicitud registrada correctamente.");
+            addToast("success", ruta === "linkpago" ? "Operacion registrada correctamente." : "Solicitud registrada correctamente.");
         } catch (err) {
-            const message = err instanceof Error ? err.message : "Error al registrar la solicitud.";
+            const message = err instanceof Error ? err.message : `Error al registrar ${ruta === "linkpago" ? "la operacion" : "la solicitud"}.`;
             addToast("error", message);
         } finally {
             setIsSaving(false);
@@ -318,63 +327,90 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
 
     return (
         <InlineFormCard title={`Solicitud ${routeLabel}`}>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                {ruta === "pos" && (
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
+                <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap xl:flex-nowrap xl:items-end">
+                    {(ruta === "pos" || ruta === "linkpago") && (
+                        <NativeSelect
+                            size="sm"
+                            label="Entidad Tarjeta"
+                            placeholder="Seleccionar entidad"
+                            value={entidadTarjetaId}
+                            onChange={(event) => setEntidadTarjetaId(event.currentTarget.value)}
+                            options={[
+                                { label: "Seleccionar entidad", value: "", disabled: true },
+                                ...entidadTarjetaList.map((item) => ({
+                                    label: item.nombre,
+                                    value: String(item.id),
+                                })),
+                            ]}
+                            className="min-w-0 flex-1"
+                        />
+                    )}
+                    <div className="flex w-full max-w-[11ch] min-w-0 flex-col gap-1">
+                        <Input
+                            size="sm"
+                            label="DNI"
+                            placeholder="Documento"
+                            value={dni}
+                            onChange={(value) => setDni(value.slice(0, 10))}
+                            maxLength={10}
+                        />
+                        {isClienteLoading && <span className="text-xs text-tertiary">Buscando...</span>}
+                    </div>
+                    <Input
+                        size="sm"
+                        label="Nombre"
+                        placeholder={clienteId ? "Cliente encontrado" : "Nombre del cliente"}
+                        value={nombre}
+                        onChange={setNombre}
+                        isDisabled={!!clienteId}
+                        className="min-w-0 flex-1"
+                    />
                     <NativeSelect
                         size="sm"
-                        label="Entidad Tarjeta"
-                        placeholder="Seleccionar entidad"
-                        value={entidadTarjetaId}
-                        onChange={(event) => setEntidadTarjetaId(event.currentTarget.value)}
-                        options={[
-                            { label: "Seleccionar entidad", value: "", disabled: true },
-                            ...entidadTarjetaList.map((item) => ({
-                                label: item.nombre,
-                                value: String(item.id),
-                            })),
-                        ]}
+                        label="Comunidad"
+                        value={comunidadId}
+                        onChange={(event) => setComunidadId(event.currentTarget.value)}
+                        options={comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))}
+                        className="w-full max-w-[17ch] shrink-0"
                     />
-                )}
-                <div className="flex flex-col gap-1">
-                    <Input size="sm" label="DNI" placeholder="Documento" value={dni} onChange={setDni} />
-                    {isClienteLoading && <span className="text-xs text-tertiary">Buscando...</span>}
+                    {ruta === "pos" && (
+                        <NativeSelect
+                            size="sm"
+                            label="Banco Transferir"
+                            value={bancoDestinoId}
+                            onChange={(event) => setBancoDestinoId(event.currentTarget.value)}
+                            options={[
+                                { label: "Seleccionar banco", value: "", disabled: true },
+                                ...bancoTransferirList.map((item) => ({
+                                    label: item.nombre,
+                                    value: String(item.id),
+                                })),
+                            ]}
+                            className="min-w-0 flex-1"
+                        />
+                    )}
+                    <Input size="sm" label="Monto" placeholder="S/ 0.00" value={monto} onChange={setMonto} className="w-full max-w-[8rem] shrink-0" />
                 </div>
-                <Input
-                    size="sm"
-                    label="Nombre"
-                    placeholder={clienteId ? "Cliente encontrado" : "Nombre del cliente"}
-                    value={nombre}
-                    onChange={setNombre}
-                    isDisabled={!!clienteId}
-                />
-                <NativeSelect
-                    size="sm"
-                    label="Comunidad"
-                    value={comunidadId}
-                    onChange={(event) => setComunidadId(event.currentTarget.value)}
-                    options={comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))}
-                />
-                {ruta === "pos" && (
-                    <NativeSelect
+                <div className="flex shrink-0 gap-2">
+                    <Button
                         size="sm"
-                        label="Banco Transferir"
-                        value={bancoDestinoId}
-                        onChange={(event) => setBancoDestinoId(event.currentTarget.value)}
-                        options={[
-                            { label: "Seleccionar banco", value: "", disabled: true },
-                            ...bancoTransferirList.map((item) => ({
-                                label: item.nombre,
-                                value: String(item.id),
-                            })),
-                        ]}
-                    />
-                )}
-                <Input size="sm" label="Monto" placeholder="S/ 0.00" value={monto} onChange={setMonto} />
-                <div className="flex gap-2 md:col-span-2">
-                    <Button size="sm" color="primary" iconLeading={Check} isLoading={isSaving} onClick={handleSave} className="flex-1">
+                        color="primary"
+                        iconLeading={Save01}
+                        isLoading={isSaving}
+                        onClick={handleSave}
+                        className="flex-1 xl:flex-none"
+                    >
                         Guardar
                     </Button>
-                    <Button size="sm" color="secondary" iconLeading={X} isDisabled={isSaving} onClick={handleClear} className="flex-1">
+                    <Button
+                        size="sm"
+                        color="secondary"
+                        iconLeading={XClose}
+                        isDisabled={isSaving}
+                        onClick={handleClear}
+                        className="flex-1 xl:flex-none"
+                    >
                         Cancelar
                     </Button>
                 </div>

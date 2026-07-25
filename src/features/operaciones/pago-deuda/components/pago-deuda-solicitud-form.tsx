@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, X } from "@untitledui/icons";
+import { Save01, XClose } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
@@ -169,39 +169,65 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
 
     return (
         <InlineFormCard title="Solicitud Pago Deuda">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                <div className="flex flex-col gap-1">
-                    <Input size="sm" label="DNI" placeholder="Documento" value={dni} onChange={setDni} />
-                    {isClienteLoading && <span className="text-xs text-tertiary">Buscando...</span>}
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
+                <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap xl:flex-nowrap xl:items-end">
+                    <div className="flex w-full max-w-[11ch] min-w-0 flex-col gap-1">
+                        <Input
+                            size="sm"
+                            label="DNI"
+                            placeholder="Documento"
+                            value={dni}
+                            onChange={(value) => setDni(value.slice(0, 10))}
+                            maxLength={10}
+                        />
+                        {isClienteLoading && <span className="text-xs text-tertiary">Buscando...</span>}
+                    </div>
+                    <Input
+                        size="sm"
+                        label="Nombre"
+                        placeholder={clienteId ? "Cliente encontrado" : "Nombre del cliente"}
+                        value={nombre}
+                        onChange={setNombre}
+                        isDisabled={!!clienteId}
+                        className="min-w-0 flex-1"
+                    />
+                    <NativeSelect
+                        size="sm"
+                        label="Comunidad"
+                        value={comunidadId}
+                        onChange={(event) => setComunidadId(event.currentTarget.value)}
+                        options={comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))}
+                        className="w-full max-w-[17ch] shrink-0"
+                    />
+                    <NativeSelect
+                        size="sm"
+                        label="Banco Transferir"
+                        value={bancoId}
+                        onChange={(event) => setBancoId(event.currentTarget.value)}
+                        options={bancos.map((item) => ({ label: item.nombre, value: String(item.id) }))}
+                        className="min-w-0 flex-1"
+                    />
+                    <Input size="sm" label="Monto" placeholder="S/ 0.00" value={monto} onChange={setMonto} className="w-full max-w-[8rem] shrink-0" />
                 </div>
-                <Input
-                    size="sm"
-                    label="Nombre"
-                    placeholder={clienteId ? "Cliente encontrado" : "Nombre del cliente"}
-                    value={nombre}
-                    onChange={setNombre}
-                    isDisabled={!!clienteId}
-                />
-                <NativeSelect
-                    size="sm"
-                    label="Comunidad"
-                    value={comunidadId}
-                    onChange={(event) => setComunidadId(event.currentTarget.value)}
-                    options={comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))}
-                />
-                <NativeSelect
-                    size="sm"
-                    label="Banco Transferir"
-                    value={bancoId}
-                    onChange={(event) => setBancoId(event.currentTarget.value)}
-                    options={bancos.map((item) => ({ label: item.nombre, value: String(item.id) }))}
-                />
-                <Input size="sm" label="Monto" placeholder="S/ 0.00" value={monto} onChange={setMonto} />
-                <div className="flex gap-2 md:col-span-2">
-                    <Button size="sm" color="primary" iconLeading={Check} isLoading={isSaving} onClick={handleSave} className="flex-1">
+                <div className="flex shrink-0 gap-2">
+                    <Button
+                        size="sm"
+                        color="primary"
+                        iconLeading={Save01}
+                        isLoading={isSaving}
+                        onClick={handleSave}
+                        className="flex-1 xl:flex-none"
+                    >
                         Guardar
                     </Button>
-                    <Button size="sm" color="secondary" iconLeading={X} isDisabled={isSaving} onClick={handleClear} className="flex-1">
+                    <Button
+                        size="sm"
+                        color="secondary"
+                        iconLeading={XClose}
+                        isDisabled={isSaving}
+                        onClick={handleClear}
+                        className="flex-1 xl:flex-none"
+                    >
                         Cancelar
                     </Button>
                 </div>

@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { Edit03 } from "@untitledui/icons";
 import { motion } from "motion/react";
+import { Input } from "@/components/base/input/input";
+import { NativeSelect } from "@/components/base/select/select-native";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
+import { bancoService } from "@/services/banco.service";
 import { estadoService } from "@/services/estado.service";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
 import { OperationToolbar } from "@/features/operaciones/efectivizacion/shared/components/operation-toolbar";
@@ -15,6 +19,7 @@ import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/c
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { cx } from "@/utils/cx";
+import { LinkPagoEditModal } from "@/features/operaciones/efectivizacion/asistida/components/linkpago-edit-modal";
 
 interface AsistidaOperationalBoardProps {
     companies: RutaOperacionCaja[];
@@ -66,6 +71,83 @@ const baseColumns = [
     },
     { key: "nombre_usuario_solicitud", label: "Solicita" },
     { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
+];
+
+const linkpagoColumns = [
+    {
+        key: "nombre_banco_cliente",
+        label: "Entidad Tarjeta",
+        render: (row: OperacionProceso) => (
+            <CompactBadge>{row.nombre_banco_cliente ?? "-"}</CompactBadge>
+        ),
+    },
+    { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary" },
+    { key: "nombre_comunidad", label: "Comunidad" },
+    {
+        key: "monto_deposito_cliente",
+        label: "Monto",
+        cellClassName: "font-semibold text-primary tabular-nums",
+        render: (row: OperacionProceso) => formatMoney(row.monto_deposito_cliente),
+    },
+    {
+        key: "resultado_comision_servicio",
+        label: "Comision",
+        render: (row: OperacionProceso) => (
+            <div className="flex items-center gap-1 tabular-nums">
+                <span className="font-semibold text-primary">{formatMoney(row.resultado_comision_servicio)}</span>
+                {row.comision_servicio != null && <CompactBadge>{`${row.comision_servicio}%`}</CompactBadge>}
+            </div>
+        ),
+    },
+    {
+        key: "comision_ecompany",
+        label: "Comision ECompany",
+        cellClassName: "tabular-nums",
+        render: (row: OperacionProceso) => (
+            <span className="text-concept-gasto font-semibold">
+                {formatMoney(
+                    (row.resultado_comision_banco_ingreso ?? 0) + (row.resultado_comision_banco_salida ?? 0),
+                )}
+            </span>
+        ),
+    },
+    {
+        key: "comision_atk",
+        label: "Comision ATK",
+        cellClassName: "tabular-nums",
+        render: (row: OperacionProceso) => (
+            <span className="text-concept-ganancia font-semibold">
+                {formatMoney(
+                    (row.resultado_comision_servicio ?? 0)
+                    - (row.resultado_comision_banco_ingreso ?? 0)
+                    - (row.resultado_comision_banco_salida ?? 0),
+                )}
+            </span>
+        ),
+    },
+    {
+        key: "monto_transferencia_cliente",
+        label: "Transferencia",
+        cellClassName: "font-semibold text-primary tabular-nums",
+        render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente),
+    },
+    {
+        key: "nombre_estado",
+        label: "Estado",
+        render: (row: OperacionProceso) => (
+            <CompactBadge tone={isPagado(row) ? "success" : "brand"}>{isPagado(row) ? "Pagado" : "Pendiente"}</CompactBadge>
+        ),
+    },
+    {
+        key: "fecha_registro",
+        label: "Hora",
+        render: (row: OperacionProceso) => (
+            <div className="leading-tight">
+                <p className="font-medium text-primary">{formatTime(row.fecha_registro) || "-"}</p>
+                <p className="text-xs text-tertiary">{formatDate(row.fecha_registro)}</p>
+            </div>
+        ),
+    },
 ];
 
 const posColumns = [
@@ -157,14 +239,43 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
     const [estadoPagado, setEstadoPagado] = useState<{ id: number; nombre: string } | null>(null);
     const [estadoPendiente, setEstadoPendiente] = useState<{ id: number; nombre: string } | null>(null);
     const [estadoSolicitado, setEstadoSolicitado] = useState<{ id: number; nombre: string } | null>(null);
+    const [editOperation, setEditOperation] = useState<OperacionProceso | null>(null);
+    const [entidadTarjetaFiltro, setEntidadTarjetaFiltro] = useState("");
+    const [bancosLinkPago, setBancosLinkPago] = useState<{ id: number; nombre: string }[]>([]);
 
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
-    const actions = ruta === "linkpago" ? ["Reiniciar", "Pagar"] : [];
+    const actions: string[] = [];
     const columns = useMemo(
-        () => (ruta === "pos" ? posColumns : baseColumns),
+        () => {
+            if (ruta === "pos") return posColumns;
+            if (ruta === "linkpago") return [
+                ...linkpagoColumns.slice(0, -1),
+                {
+                    key: "acciones",
+                    label: "Acciones",
+                    render: (row: OperacionProceso) => (
+                        <Edit03 className="size-4 cursor-pointer text-secondary hover:text-primary" onClick={() => setEditOperation(row)} />
+                    ),
+                },
+            ];
+            return baseColumns;
+        },
         [ruta],
     );
+
+    useEffect(() => {
+        let ignore = false;
+        bancoService.getList({ p_id_estado: 1 }).then((rows) => {
+            if (ignore) return;
+            setBancosLinkPago(
+                rows
+                    .filter((row) => Number(row.id) === 11 || Number(row.id) === 17)
+                    .map((row) => ({ id: Number(row.id), nombre: String(row.nombre ?? "") })),
+            );
+        }).catch(() => {});
+        return () => { ignore = true; };
+    }, []);
 
     const params = useMemo(() => {
         const values: Record<string, unknown> = {
@@ -177,9 +288,10 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         if (dni.trim()) values.p_dni_cliente = dni.trim();
         if (activeFilter === "Solicitado" && estadoSolicitado) values.p_nombre_estado = estadoSolicitado.nombre;
         if (activeFilter !== "Todos" && estadoByFilter[activeFilter]) values.p_nombre_estado = estadoByFilter[activeFilter];
+        if (entidadTarjetaFiltro) values.p_id_banco_cliente = Number(entidadTarjetaFiltro);
 
         return values;
-    }, [activeFilter, codigo, dni, estadoSolicitado, ruta, selectedDate]);
+    }, [activeFilter, codigo, dni, entidadTarjetaFiltro, estadoSolicitado, ruta, selectedDate]);
 
     useEffect(() => {
         let ignore = false;
@@ -206,7 +318,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
 
     useEffect(() => {
         setSelectedIds([]);
-    }, [activeFilter, codigo, dni, refreshKey, ruta, selectedDate]);
+    }, [activeFilter, codigo, dni, entidadTarjetaFiltro, refreshKey, ruta, selectedDate]);
 
     useEffect(() => {
         let ignore = false;
@@ -289,23 +401,38 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
             transition={{ duration: 0.2 }}
             className="overflow-hidden rounded-lg border border-secondary bg-primary shadow-xs"
         >
-            <div className="border-b border-secondary p-4">
-                <h2 className="text-sm font-semibold text-primary">Bandeja {getRutaLabel(ruta)}</h2>
-                <p className="mt-1 text-sm text-tertiary">Solicitudes asistidas originadas en esta ruta.</p>
-            </div>
-
-            <OperationToolbar
-                activeFilter={activeFilter}
-                actions={actions}
-                code={codigo}
-                dni={dni}
-                filters={filters}
-                isActionDisabled={() => isApplyingAction || !selectedIds.length}
-                onAction={handleAction}
-                onCodeChange={setCodigo}
-                onDniChange={setDni}
-                onFilterChange={setActiveFilter}
-            />
+            {ruta === "linkpago" ? (
+                <div className="flex flex-wrap items-center gap-3 border-b border-secondary px-4 py-3">
+                    <Input size="sm" label="DNI" placeholder="Buscar DNI" value={dni} onChange={setDni} className="w-44" />
+                    <NativeSelect
+                        size="sm"
+                        label="Entidad Tarjeta"
+                        value={entidadTarjetaFiltro}
+                        onChange={(event) => setEntidadTarjetaFiltro(event.currentTarget.value)}
+                        options={[
+                            { label: "Todas", value: "", disabled: true },
+                            ...bancosLinkPago.map((item) => ({
+                                label: item.nombre,
+                                value: String(item.id),
+                            })),
+                        ]}
+                        className="w-56"
+                    />
+                </div>
+            ) : (
+                <OperationToolbar
+                    activeFilter={activeFilter}
+                    actions={actions}
+                    code={codigo}
+                    dni={dni}
+                    filters={filters}
+                    isActionDisabled={() => isApplyingAction || !selectedIds.length}
+                    onAction={handleAction}
+                    onCodeChange={setCodigo}
+                    onDniChange={setDni}
+                    onFilterChange={setActiveFilter}
+                />
+            )}
 
             {error && <div className="border-t border-secondary px-4 py-3 text-sm text-error-primary">{error}</div>}
 
@@ -316,6 +443,16 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                 isLoading={isLoading}
                 selectedIds={selectedIds}
                 onToggleRow={actions.length ? handleToggleRow : undefined}
+            />
+
+            <LinkPagoEditModal
+                isOpen={!!editOperation}
+                operation={editOperation}
+                onClose={() => setEditOperation(null)}
+                onSaved={() => {
+                    setEditOperation(null);
+                    onChanged?.();
+                }}
             />
         </motion.section>
     );

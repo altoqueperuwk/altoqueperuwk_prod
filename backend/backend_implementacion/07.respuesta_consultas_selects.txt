@@ -1,0 +1,24 @@
+select * from tb_banco where id in (5,2);
+id|nombre|nombre_abreviatura|nombre_equivalencia|flag_permite_deposito|tipo|id_estado|id_usuario|fecha_registro
+2|BCP|BCP|"[""Banco de Crédito""]"|true|Tarjeta Crédito|1||2026-07-11 21:03:03.713580 -05:00
+5|Interbank|IBK|"[""Globokas - Kasnet""]"|true|Tarjeta Crédito|1||2026-07-11 21:10:31.212914 -05:00
+
+select * from tb_empresa where id=12;
+id|nombre|abreviatura|flag_transferencia|id_estado|id_usuario|fecha_registro
+12|Abitex S.A.|Abitex|true|1||2026-07-18 18:17:21.991668 -05:00
+
+select * from tb_empresa_cuenta_bancaria where id_empresa=12;
+id|id_empresa|id_banco|flag_por_sol_comision_banco_ingreso|comision_itf_ingreso_salida|comision_banco_ingreso|comision_minimo_banco_ingreso|comision_igv_banco_ingreso|comision_transf_banco_salida|comision_transf_inter_banco_salida|id_usuario|fecha_registro|id_estado|flag_retencion|flag_retencion_parcial
+13|12|5|true|0.005|4|0|0|0|5.3||2026-07-18 18:19:47.184640 -05:00|1|false|false
+14|12|2|true|0.005|6|0|0|0|4.8||2026-07-18 18:19:47.439052 -05:00|1|false|false
+
+select * from tb_ruta_operacion_caja where id_empresa=12;
+id|ruta|id_empresa|id_empresa_cuenta_bancaria|flag_caja_ingreso_principal|id_estado|id_usuario|fecha_registro
+15|bcp|12|14|false|1|1|2026-07-23 09:37:01.324859 -05:00
+16|interbank|12|13|false|1|1|2026-07-23 09:37:18.097588 -05:00
+24|safetypay|12|13|false|1|1|2026-07-24 08:31:58.976039 -05:00
+
+select * from tb_caja_operativa where id_empresa=12;
+id|id_empresa|id_empresa_cuenta_bancaria|saldo_inicial|saldo_actual|total_recaudado|ingresos|ingresos_retenido|gastos|ganancia|ganancia_retenido|salida|operaciones|flag_retencion|id_estado|id_usuario|fecha_apertura|fecha_registro|saldo_total
+15|12|14|100000|100000|0|0|0|0|0|0|0|0|false|1|1|2026-07-25 13:40:27.635986 -05:00|2026-07-23 09:36:48.684467 -05:00|100000
+16|12|13|100000|100000|0|0|0|0|0|0|0|0|false|1|1|2026-07-25 13:40:27.635986 -05:00|2026-07-23 09:37:08.208614 -05:00|100000
