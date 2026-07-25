@@ -2757,12 +2757,15 @@ BEGIN
       BEGIN
         v_fecha_deposito := public.f_get_tb_parsear_fecha(v_fila.fecha_pago)::timestamp with time zone;
         IF v_fecha_deposito::time = '00:00:00'::time THEN
-          v_fecha_deposito := (v_fecha_deposito::date + current_time)::timestamp with time zone;
+          IF COALESCE(v_fila.hora_proceso, '') <> '' THEN
+            v_fecha_deposito := (v_fecha_deposito::date + v_fila.hora_proceso::time)::timestamp with time zone;
+          ELSE
+            v_fecha_deposito := (v_fecha_deposito::date + current_time)::timestamp with time zone;
+          END IF;
         END IF;
       EXCEPTION WHEN OTHERS THEN
         v_error_motivo := 'Fecha invÃ¡lida: ' || COALESCE(v_fila.fecha_pago, 'vacÃ­a');
       END;
-    END IF;
 
     IF v_error_motivo IS NOT NULL THEN
       v_detalle := v_detalle || jsonb_build_object(
@@ -3354,6 +3357,13 @@ BEGIN
 
     BEGIN
       v_fecha_deposito := public.f_get_tb_parsear_fecha(v_fila.fecha_pago)::timestamp with time zone;
+      IF v_fecha_deposito::time = '00:00:00'::time THEN
+        IF COALESCE(v_fila.hora_proceso, '') <> '' THEN
+          v_fecha_deposito := (v_fecha_deposito::date + v_fila.hora_proceso::time)::timestamp with time zone;
+        ELSE
+          v_fecha_deposito := (v_fecha_deposito::date + current_time)::timestamp with time zone;
+        END IF;
+      END IF;
     EXCEPTION WHEN OTHERS THEN
       v_fecha_deposito := NOW();
     END;
@@ -3662,6 +3672,7 @@ JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',
+  'f_post_tb_operacion_proceso_excel_ganancia',
   'f_patch_tb_operacion_proceso_base',
   'f_patch_tb_operacion_proceso_pagado',
   'f_patch_tb_operacion_proceso_tipo_recaudacion_sf',
