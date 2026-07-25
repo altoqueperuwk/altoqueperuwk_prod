@@ -52,6 +52,7 @@ export interface RutaOperacionKpi {
 
 export interface OperacionAsistidaKpi {
     ruta: string;
+    comisiones: number;
     gastos: number;
     ganancia: number;
     salidas: number;

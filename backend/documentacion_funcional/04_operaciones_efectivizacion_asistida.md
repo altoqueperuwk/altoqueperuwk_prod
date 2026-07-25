@@ -25,10 +25,15 @@ Estas rutas:
 ### `POS`
 
 - la solicitud nace por uso de tarjeta;
-- el usuario selecciona banco/empresa/cuenta destino al registrar la solicitud;
+- el formulario de registro contiene: `Entidad Tarjeta | DNI | Nombre | Comunidad | Banco Transferir | Monto`;
+- `Entidad Tarjeta` lista bancos con `tipo = 'Tarjeta Comercial'` (trazabilidad del banco del cliente en `id_banco_cliente` / `nombre_banco_cliente`);
+- `Banco Transferir` lista bancos con `tipo = 'Tarjeta Crédito'` y resuelve automaticamente la empresa/cuenta de salida desde `tb_ruta_operacion_caja` con `flag_caja_ingreso_principal = true`;
+- al ingresar DNI se busca automaticamente el cliente en `tb_cliente` y se populan `Nombre` (bloqueado si existe) y `Comunidad`;
+- el campo `Celulares` es multi-valor (chip input) y se guarda en `tb_cliente.celular` como `jsonb`;
 - la solicitud queda con `ruta_origen = 'pos'` y `ruta_destino` del banco elegido;
 - la atencion de salida al cliente se resuelve desde el tab `POS` del banco destino;
-- la pantalla `/operaciones/pos` no tiene accion `Pagar` ni golpea caja.
+- la pantalla `/operaciones/pos` no tiene accion `Pagar` ni golpea caja;
+- la botonera del formulario es `Guardar` (izquierda, primary) y `Cancelar` (derecha, secondary); ambos ocupan ancho completo y `Cancelar` limpia todos los campos incluyendo el cliente encontrado.
 
 ### `Link Pago`
 
@@ -42,8 +47,9 @@ Estas rutas:
 
 Las rutas asistidas muestran KPIs informativos por fecha de registro:
 
-- `Gastos`
-- `Ganancia`
+- `Comisiones` (lo cobrado al cliente por la empresa)
+- `Gastos` (comisiones de banco ingreso + banco salida)
+- `Ganancia` (comisiones - gastos)
 - `Salidas`
 
 Reglas:
@@ -52,7 +58,7 @@ Reglas:
 - solo suman operaciones en estado `Pagado`;
 - no consultan `tb_caja_operativa`, `tb_operacion_caja` ni cierres.
 
-La fecha superior de la pantalla representa historial operativo del dia seleccionado, no cierre de caja.
+La fecha se selecciona mediante un dropdown con calendario en el header de la pantalla (al lado del boton Configuracion). Representa historial operativo del dia seleccionado, no cierre de caja.
 
 ## Diferencia frente a efectivizacion bancaria
 
@@ -78,19 +84,48 @@ La documentacion debe dejar claro que:
 - pero no se construyen como un clon de los bancos tradicionales.
 - usan las RPC asistidas de `11.operaciones_asistidas_pos_linkpago.sql`.
 
-## Estructura frontend sugerida
+## Estructura frontend
 
-Esta familia no debe vivir como un tercer modulo raiz. Debe implementarse dentro de:
+La pagina `/operaciones/pos` y `/operaciones/linkpago` comparten el mismo layout:
 
-- `features/operaciones/efectivizacion/`
+- **Header**: titulo de ruta + dropdown de fecha con calendario (popup) + boton `Configuracion`
+- **KPIs**: 4 cards en grid `2x2` / `sm:4` usando `RouteKpiCard` (mismo componente que bancaria)
+- **Formulario inline**: `AsistidaSolicitudForm` en card compacto
+- **Bandeja operativa**: `AsistidaOperationalBoard` con datatable
 
-Con desglose interno sugerido:
+### Columnas datatable POS
 
-- `features/operaciones/efectivizacion/asistida/pages/`
-- `features/operaciones/efectivizacion/asistida/components/`
-- `features/operaciones/efectivizacion/asistida/hooks/`
-- `features/operaciones/efectivizacion/asistida/services/`
-- `features/operaciones/efectivizacion/asistida/schemas/`
+| Columna | Campo | Notas |
+|---------|-------|-------|
+| Entidad Tarjeta | `nombre_banco_cliente` | `CompactBadge` |
+| DNI | `dni_cliente` | |
+| Comunidad | `nombre_comunidad` | |
+| Monto | `monto_deposito_cliente` | |
+| Comision | `resultado_comision_servicio` | badge con % |
+| Empresa Cuenta | `nombre_empresa_salida` + `nombre_banco_empresa_cuenta_salida` | dos `CompactBadgeLine` (brand + gray) |
+| Transferencia | `monto_transferencia_cliente` | |
+| Estado | `nombre_estado` | badge Pagado/Pendiente |
+| Hora | `fecha_registro` | hora + fecha |
+
+La columna `Codigo Operacion` esta oculta en POS.
+
+### Hook de busqueda de cliente
+
+`useClienteLookup(dni)` en `features/operaciones/efectivizacion/asistida/hooks/`:
+
+- debounce 500ms sobre el DNI;
+- llama `clienteService.getList({ p_numero_documento, p_id_estado: 1 })`;
+- retorna `{ id, nombre, celular: string[], id_comunidad }` o `null`;
+- el formulario usa el resultado para auto-popular Nombre (bloqueado), Celulares y Comunidad;
+- si el cliente no existe, Nombre queda editable para registro manual.
+
+### Componente `CelularInput`
+
+`components/base/input/celular-input.tsx`:
+
+- chip/tag input multi-valor;
+- props: `value: string[]`, `onChange`, `placeholder`, `isDisabled`;
+- solo digitos (max 9), deduplicacion, Enter para agregar.
 
 ## Regla para otra IA
 

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Settings01 } from "@untitledui/icons";
+import { CalendarDate } from "@internationalized/date";
+import { Calendar as CalendarIcon, Settings01 } from "@untitledui/icons";
 import { AppLayout } from "@/components/application/app-layout";
+import { Calendar } from "@/components/application/date-picker/calendar";
 import { Button } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
 import { RouteConfigDrawer } from "@/features/operaciones/efectivizacion/shared/components/route-config-drawer";
 import { useRouteCompanies } from "@/features/operaciones/efectivizacion/shared/hooks/use-route-companies";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
@@ -11,6 +12,7 @@ import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { AsistidaOperationalBoard } from "@/features/operaciones/efectivizacion/asistida/components/asistida-operational-board";
 import { AsistidaSolicitudForm } from "@/features/operaciones/efectivizacion/asistida/components/asistida-solicitud-form";
+import { RouteKpiCard } from "@/features/operaciones/efectivizacion/shared/components/route-kpi-card";
 
 interface AsistidaPageProps {
     ruta: Extract<OperacionRuta, "pos" | "linkpago">;
@@ -18,10 +20,16 @@ interface AsistidaPageProps {
 
 const getTodayValue = () => new Date().toISOString().slice(0, 10);
 
+const stringToCalendarDate = (str: string) => {
+    const [year, month, day] = str.split("-").map(Number);
+    return new CalendarDate(year, month, day);
+};
+
 export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
     const [refreshKey, setRefreshKey] = useState(0);
     const [isConfigOpen, setIsConfigOpen] = useState(false);
     const [selectedDate, setSelectedDate] = useState(getTodayValue);
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
     const [kpi, setKpi] = useState<OperacionAsistidaKpi | null>(null);
     const [isKpiLoading, setIsKpiLoading] = useState(false);
     const { data: cajas, error, isLoading } = useRouteCompanies(ruta);
@@ -54,10 +62,18 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
     }, [refreshKey, ruta, selectedDate]);
 
     const kpiCards = [
-        { label: "Gastos", value: formatMoney(kpi?.gastos), tone: "text-error-primary" },
-        { label: "Ganancia", value: formatMoney(kpi?.ganancia), tone: "text-success-primary" },
-        { label: "Salidas", value: formatMoney(kpi?.salidas), tone: "text-error-primary" },
+        { label: "Comisiones", value: formatMoney(kpi?.comisiones), tone: "text-concept-ingreso" },
+        { label: "Gastos", value: formatMoney(kpi?.gastos), tone: "text-concept-gasto" },
+        { label: "Ganancia", value: formatMoney(kpi?.ganancia), tone: "text-concept-ganancia" },
+        { label: "Salidas", value: formatMoney(kpi?.salidas), tone: "text-concept-salida" },
     ];
+
+    const handleCalendarChange = (date: any) => {
+        if (date) {
+            setSelectedDate(`${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`);
+            setIsCalendarOpen(false);
+        }
+    };
 
     return (
         <AppLayout>
@@ -69,34 +85,45 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
                             {ruta === "pos" ? "Solicitudes enviadas a bancos para transferencia." : "Operaciones registradas sin impacto de caja."}
                         </p>
                     </div>
-                    <div className="flex flex-wrap items-end gap-2">
-                        <Input
-                            size="sm"
-                            label="Fecha de registro"
-                            type="date"
-                            value={selectedDate}
-                            onChange={setSelectedDate}
-                            className="min-w-48"
-                        />
-                        <Button size="sm" color="secondary" onClick={() => setSelectedDate(getTodayValue())}>
-                            Hoy
-                        </Button>
+                    <div className="flex items-end gap-2">
+                        <div className="relative">
+                            <Button size="sm" color="secondary" iconLeading={CalendarIcon} onClick={() => setIsCalendarOpen(!isCalendarOpen)}>
+                                {new Date(selectedDate).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}
+                            </Button>
+                            {isCalendarOpen && (
+                                <div className="absolute right-0 top-full z-50 mt-2">
+                                    <div className="rounded-lg border border-secondary bg-primary p-3 shadow-lg">
+                                        <Calendar value={stringToCalendarDate(selectedDate)} onChange={handleCalendarChange}>
+                                            <div />
+                                        </Calendar>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                         <Button size="sm" color="primary" iconLeading={Settings01} onClick={() => setIsConfigOpen(true)}>
                             Configuracion
                         </Button>
                     </div>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     {kpiCards.map((card) => (
-                        <div key={card.label} className="rounded-lg border border-secondary bg-primary px-4 py-3 shadow-xs">
-                            <p className="text-sm font-medium text-tertiary">{card.label}</p>
-                            <p className={`mt-2 text-xl font-semibold tabular-nums ${card.tone}`}>
-                                {isKpiLoading ? "..." : card.value}
-                            </p>
-                        </div>
+                        <RouteKpiCard
+                            key={card.label}
+                            isLoading={isKpiLoading}
+                            label={card.label}
+                            value={card.value}
+                            valueClassName={card.tone}
+                        />
                     ))}
                 </div>
+
+                <AsistidaSolicitudForm
+                    activeCompany={primaryCompany}
+                    onSaved={() => setRefreshKey((value) => value + 1)}
+                    ruta={ruta}
+                />
+
                 {isLoading && <span className="text-sm text-tertiary">Cargando configuracion...</span>}
 
                 {error && (
@@ -104,12 +131,6 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
                         {error}
                     </div>
                 )}
-
-                <AsistidaSolicitudForm
-                    activeCompany={primaryCompany}
-                    onSaved={() => setRefreshKey((value) => value + 1)}
-                    ruta={ruta}
-                />
 
                 <AsistidaOperationalBoard
                     companies={cajas}

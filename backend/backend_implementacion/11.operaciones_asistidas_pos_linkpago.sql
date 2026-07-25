@@ -11,8 +11,16 @@ Reglas:
   - solo aplica para pos y linkpago;
   - filtra por fecha_registro;
   - suma solo operaciones Pagado;
+  - comisiones refleja lo cobrado al cliente;
+  - ganancia refleja comisiones menos gastos operativos;
   - no consulta ni modifica cajas.
 */
+DROP FUNCTION IF EXISTS public.f_get_tb_operacion_asistida_kpi(
+  character varying,
+  timestamp with time zone,
+  timestamp with time zone
+);
+
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_asistida_kpi(
   p_ruta character varying,
   p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
@@ -20,6 +28,7 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_asistida_kpi(
 )
 RETURNS TABLE (
   ruta character varying,
+  comisiones numeric,
   gastos numeric,
   ganancia numeric,
   salidas numeric,
@@ -43,6 +52,13 @@ AS $$
     COALESCE(SUM(
       CASE
         WHEN UPPER(BTRIM(COALESCE(nombre_estado, ''))) = 'PAGADO'
+        THEN COALESCE(resultado_comision_servicio, 0)
+        ELSE 0
+      END
+    ), 0)::numeric AS comisiones,
+    COALESCE(SUM(
+      CASE
+        WHEN UPPER(BTRIM(COALESCE(nombre_estado, ''))) = 'PAGADO'
         THEN COALESCE(resultado_comision_banco_ingreso, 0) + COALESCE(resultado_comision_banco_salida, 0)
         ELSE 0
       END
@@ -51,6 +67,8 @@ AS $$
       CASE
         WHEN UPPER(BTRIM(COALESCE(nombre_estado, ''))) = 'PAGADO'
         THEN COALESCE(resultado_comision_servicio, 0)
+          - COALESCE(resultado_comision_banco_ingreso, 0)
+          - COALESCE(resultado_comision_banco_salida, 0)
         ELSE 0
       END
     ), 0)::numeric AS ganancia,
@@ -108,6 +126,8 @@ Reglas:
     la ruta_destino y empresa/cuenta de salida usando tb_ruta_operacion_caja;
   - Link Pago queda en la misma ruta y no requiere destino bancario;
   - busca regla de efectivizacion por id_codigo_servicio + id_comunidad;
+  - POS resuelve su cuenta principal como ingreso informativo para calcular
+    comision/ITF cobrado por la entidad POS;
   - calcula comisiones automaticamente usando las funciones de calculo;
   - no llama a funciones de tb_operacion_caja.
 */
@@ -130,6 +150,7 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
   p_id_usuario_solicitud bigint DEFAULT NULL,
   p_nombre_usuario_solicitud character varying DEFAULT NULL,
   p_id_banco_destino bigint DEFAULT NULL,
+  p_id_banco_cliente bigint DEFAULT NULL,
   p_fecha_registro timestamp with time zone DEFAULT NULL
 )
 RETURNS jsonb
@@ -142,12 +163,24 @@ DECLARE
   v_cliente_id bigint;
   v_cliente_nombre character varying;
   v_tipo_documento bigint;
+  v_id_banco_cliente bigint;
+  v_nombre_banco_cliente character varying;
   v_ruta_destino character varying;
   v_id_empresa_salida bigint;
   v_nombre_empresa_salida character varying;
   v_id_empresa_cuenta_salida bigint;
   v_id_banco_empresa_cuenta_salida bigint;
   v_nombre_banco_empresa_cuenta_salida character varying;
+  v_id_empresa_ingreso bigint;
+  v_nombre_empresa_ingreso character varying;
+  v_id_empresa_cuenta_ingreso bigint;
+  v_id_banco_empresa_cuenta_ingreso bigint;
+  v_nombre_banco_empresa_cuenta_ingreso character varying;
+  v_flag_por_sol_comision_banco_ingreso boolean := false;
+  v_comision_banco_ingreso numeric := 0;
+  v_comision_minimo_banco_ingreso numeric := 0;
+  v_comision_igv_banco_ingreso numeric := 0;
+  v_monto_itf_ingreso numeric := 0;
   v_ruta_caja record;
   v_regla record;
   v_calc_serv jsonb;
@@ -187,6 +220,51 @@ BEGIN
     v_id_empresa_cuenta_salida := v_ruta_caja.id_empresa_cuenta_bancaria;
     v_id_banco_empresa_cuenta_salida := v_ruta_caja.id_banco;
     v_nombre_banco_empresa_cuenta_salida := v_ruta_caja.nombre_banco;
+  END IF;
+
+  IF v_ruta = 'pos' THEN
+    SELECT
+      rc.id_empresa,
+      e.nombre,
+      rc.id_empresa_cuenta_bancaria,
+      ecb.id_banco,
+      b.nombre,
+      COALESCE(ecb.flag_por_sol_comision_banco_ingreso, false),
+      COALESCE(ecb.comision_banco_ingreso, 0),
+      COALESCE(ecb.comision_minimo_banco_ingreso, 0),
+      COALESCE(ecb.comision_igv_banco_ingreso, 0),
+      COALESCE(ecb.comision_itf_ingreso_salida, 0)
+    INTO
+      v_id_empresa_ingreso,
+      v_nombre_empresa_ingreso,
+      v_id_empresa_cuenta_ingreso,
+      v_id_banco_empresa_cuenta_ingreso,
+      v_nombre_banco_empresa_cuenta_ingreso,
+      v_flag_por_sol_comision_banco_ingreso,
+      v_comision_banco_ingreso,
+      v_comision_minimo_banco_ingreso,
+      v_comision_igv_banco_ingreso,
+      v_monto_itf_ingreso
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_empresa e ON e.id = rc.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
+    WHERE LOWER(COALESCE(rc.ruta, '')) = 'pos'
+      AND rc.flag_caja_ingreso_principal = true
+      AND rc.id_estado = 1
+      AND ecb.id_estado = 1
+    LIMIT 1;
+
+    IF v_id_empresa_ingreso IS NULL THEN
+      RETURN jsonb_build_object('error', 'Configura la cuenta principal POS antes de registrar solicitudes.');
+    END IF;
+  END IF;
+
+  IF v_ruta = 'pos' AND p_id_banco_cliente IS NOT NULL THEN
+    SELECT b.id, b.nombre
+    INTO v_id_banco_cliente, v_nombre_banco_cliente
+    FROM public.tb_banco b
+    WHERE b.id = p_id_banco_cliente AND b.id_estado = 1;
   END IF;
 
   v_tipo_documento := public.f_get_tb_documento_tipo_codigo('DNI');
@@ -237,20 +315,20 @@ BEGIN
   END IF;
 
   v_calc_serv := public.f_get_tb_operacion_calculo_comision_servicio(
-    COALESCE(p_monto_deposito_cliente, 0),
+    COALESCE(p_monto_deposito_cliente, 0)::bigint,
     v_regla.comision_servicio,
     v_regla.monto_minimo_deposito_servicio,
     v_regla.comision_minima_servicio,
-    0
+    0::bigint
   );
 
   v_calc_ing := public.f_get_tb_operacion_calculo_comision_banco_ingreso(
-    false,
-    COALESCE(p_monto_deposito_cliente, 0),
-    0,
-    0,
-    0,
-    0
+    v_flag_por_sol_comision_banco_ingreso,
+    COALESCE(p_monto_deposito_cliente, 0)::bigint,
+    v_comision_banco_ingreso,
+    v_comision_minimo_banco_ingreso,
+    v_comision_igv_banco_ingreso,
+    v_monto_itf_ingreso
   );
 
   v_calc_sal := public.f_get_tb_operacion_calculo_comision_banco_salida(
@@ -276,6 +354,16 @@ BEGIN
     monto_deposito_cliente,
     codigo_operacion_deposito_cliente,
     fecha_deposito_cliente,
+    id_empresa_ingreso,
+    nombre_empresa_ingreso,
+    id_empresa_cuenta_ingreso,
+    id_banco_empresa_cuenta_ingreso,
+    nombre_banco_empresa_cuenta_ingreso,
+    flag_por_sol_comision_banco_ingreso,
+    comision_banco_ingreso,
+    comision_minimo_banco_ingreso,
+    comision_igv_banco_ingreso,
+    monto_itf_ingreso,
     comision_servicio,
     monto_minimo_deposito_servicio,
     comision_minima_servicio,
@@ -288,6 +376,8 @@ BEGIN
     id_empresa_cuenta_salida,
     id_banco_empresa_cuenta_salida,
     nombre_banco_empresa_cuenta_salida,
+    id_banco_cliente,
+    nombre_banco_cliente,
     id_banco_cliente_transferencia,
     nombre_banco_cliente_transferencia,
     id_estado,
@@ -317,6 +407,16 @@ BEGIN
     ROUND(COALESCE(p_monto_deposito_cliente, 0))::bigint,
     p_codigo_operacion_deposito_cliente,
     COALESCE(p_fecha_registro, now()),
+    CASE WHEN v_ruta = 'pos' THEN v_id_empresa_ingreso ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_nombre_empresa_ingreso ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_id_empresa_cuenta_ingreso ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_id_banco_empresa_cuenta_ingreso ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_nombre_banco_empresa_cuenta_ingreso ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_flag_por_sol_comision_banco_ingreso ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_comision_banco_ingreso ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_comision_minimo_banco_ingreso ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_comision_igv_banco_ingreso ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_monto_itf_ingreso ELSE NULL END,
     v_regla.comision_servicio,
     v_regla.monto_minimo_deposito_servicio,
     v_regla.comision_minima_servicio,
@@ -329,6 +429,8 @@ BEGIN
     CASE WHEN v_ruta = 'pos' THEN v_id_empresa_cuenta_salida ELSE NULL END,
     CASE WHEN v_ruta = 'pos' THEN v_id_banco_empresa_cuenta_salida ELSE NULL END,
     CASE WHEN v_ruta = 'pos' THEN v_nombre_banco_empresa_cuenta_salida ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_id_banco_cliente ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_nombre_banco_cliente ELSE NULL END,
     CASE WHEN v_ruta = 'pos' THEN v_id_banco_empresa_cuenta_salida ELSE NULL END,
     CASE WHEN v_ruta = 'pos' THEN v_nombre_banco_empresa_cuenta_salida ELSE NULL END,
     p_id_estado,
@@ -368,7 +470,6 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_tb_operacion_asistida_kpi',
-  'f_get_tb_operacion_asistida_bandeja',
   'f_post_tb_operacion_asistida'
 )
 ORDER BY n.nspname, p.proname;

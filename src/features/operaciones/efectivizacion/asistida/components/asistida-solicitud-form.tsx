@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { Check, X } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
+import { CelularInput } from "@/components/base/input/celular-input";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { bancoService } from "@/services/banco.service";
+import { clienteService } from "@/services/cliente.service";
 import { codigoServicioService } from "@/services/codigo-servicio.service";
 import { comunidadService } from "@/services/comunidad.service";
 import { estadoService } from "@/services/estado.service";
@@ -12,6 +15,7 @@ import { InlineFormCard } from "@/features/operaciones/efectivizacion/shared/com
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { OperacionRuta, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
+import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
 
 interface AsistidaSolicitudFormProps {
     activeCompany: RutaOperacionCaja | null;
@@ -28,13 +32,14 @@ interface CatalogItem {
 interface BancoDestino {
     id: number;
     nombre: string;
+    tipo: string;
 }
 
 const getServicioNeedle = (ruta: OperacionRuta) => (ruta === "pos" ? "POS" : "LINK");
 
-const isDigitalWallet = (item: BancoDestino) => {
-    const name = String(item.nombre ?? "").trim().toUpperCase();
-    return name === "YAPE" || name === "PLIN";
+const getTipoDocumento = (dni: string) => {
+    const digits = dni.replace(/\D/g, "");
+    return digits.length === 11 ? 2 : 1;
 };
 
 export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: AsistidaSolicitudFormProps) => {
@@ -42,6 +47,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const { addToast } = useToast();
     const [codigoOperacion, setCodigoOperacion] = useState("");
     const [dni, setDni] = useState("");
+    const [nombre, setNombre] = useState("");
+    const [celulares, setCelulares] = useState<string[]>([]);
     const [monto, setMonto] = useState("");
     const [comunidadId, setComunidadId] = useState("");
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
@@ -49,19 +56,62 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const [estadoSolicitado, setEstadoSolicitado] = useState<CatalogItem | null>(null);
     const [bancosDestino, setBancosDestino] = useState<BancoDestino[]>([]);
     const [bancoDestinoId, setBancoDestinoId] = useState("");
+    const [entidadTarjetaId, setEntidadTarjetaId] = useState("");
     const [isSaving, setIsSaving] = useState(false);
+    const [clienteId, setClienteId] = useState<number | null>(null);
+    const [originalCelulares, setOriginalCelulares] = useState<string[]>([]);
+    const [originalComunidadId, setOriginalComunidadId] = useState("");
+
+    const { result: clienteLookup, isLoading: isClienteLoading } = useClienteLookup(dni);
 
     const selectedCommunity = useMemo(
         () => comunidades.find((item) => String(item.id) === comunidadId) ?? null,
         [comunidadId, comunidades],
     );
-    const selectedBancoDestino = useMemo(
-        () => bancosDestino.find((item) => String(item.id) === bancoDestinoId) ?? null,
-        [bancoDestinoId, bancosDestino],
+    const entidadTarjetaList = useMemo(
+        () => bancosDestino.filter((item) => item.tipo === "Tarjeta Comercial"),
+        [bancosDestino],
+    );
+    const bancoTransferirList = useMemo(
+        () => bancosDestino.filter((item) => item.tipo === "Tarjeta Crédito"),
+        [bancosDestino],
+    );
+    const selectedEntidadTarjeta = useMemo(
+        () => entidadTarjetaList.find((item) => String(item.id) === entidadTarjetaId) ?? null,
+        [entidadTarjetaId, entidadTarjetaList],
+    );
+    const selectedBancoTransferir = useMemo(
+        () => bancoTransferirList.find((item) => String(item.id) === bancoDestinoId) ?? null,
+        [bancoDestinoId, bancoTransferirList],
     );
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
     const routeLabel = getRutaLabel(ruta);
+
+    useEffect(() => {
+        if (!dni.trim()) {
+            setClienteId(null);
+            setNombre("");
+            setCelulares([]);
+            setOriginalCelulares([]);
+            setOriginalComunidadId("");
+            return;
+        }
+        if (clienteLookup) {
+            setClienteId(clienteLookup.id);
+            setNombre(clienteLookup.nombre);
+            setCelulares(clienteLookup.celular);
+            setOriginalCelulares(clienteLookup.celular);
+            if (clienteLookup.id_comunidad && !comunidadId) {
+                setComunidadId(String(clienteLookup.id_comunidad));
+            }
+            setOriginalComunidadId(String(clienteLookup.id_comunidad));
+        } else if (dni.replace(/\D/g, "").length >= 8) {
+            setClienteId(null);
+            setOriginalCelulares([]);
+            setOriginalComunidadId("");
+        }
+    }, [clienteLookup, dni, comunidadId]);
 
     useEffect(() => {
         let ignore = false;
@@ -114,6 +164,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         if (ruta !== "pos") {
             setBancosDestino([]);
             setBancoDestinoId("");
+            setEntidadTarjetaId("");
             return;
         }
 
@@ -123,14 +174,14 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             .getList({ p_id_estado: 1 })
             .then((rows) => {
                 if (ignore) return;
-                const items = rows
-                    .map((row) => ({
-                        id: Number(row.id),
-                        nombre: String(row.nombre ?? ""),
-                    }))
-                    .filter((item) => !isDigitalWallet(item));
+                const items = rows.map((row) => ({
+                    id: Number(row.id),
+                    nombre: String(row.nombre ?? ""),
+                    tipo: String(row.tipo ?? ""),
+                }));
                 setBancosDestino(items);
                 setBancoDestinoId("");
+                setEntidadTarjetaId("");
             })
             .catch(() => addToast("error", "Error al cargar bancos destino para POS."));
 
@@ -138,6 +189,33 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             ignore = true;
         };
     }, [addToast, ruta]);
+
+    const handleSaveCliente = async () => {
+        const cleanDni = dni.replace(/\D/g, "");
+        if (!cleanDni) return;
+
+        if (clienteId) {
+            const celularesChanged = JSON.stringify(celulares.sort()) !== JSON.stringify(originalCelulares.sort());
+            const comunidadChanged = comunidadId !== originalComunidadId;
+
+            if (celularesChanged || comunidadChanged) {
+                await clienteService.update(clienteId, {
+                    p_celular: celulares.length > 0 ? celulares : null,
+                    p_id_comunidad: Number(comunidadId),
+                });
+            }
+        } else {
+            await clienteService.create({
+                p_tipo_documento: getTipoDocumento(cleanDni),
+                p_numero_documento: cleanDni,
+                p_nombre: nombre.trim(),
+                p_celular: celulares.length > 0 ? celulares : null,
+                p_id_comunidad: Number(comunidadId),
+                p_id_estado: (await estadoService.getList({})).find((e) => String(e.nombre).toUpperCase() === "ACTIVO")?.id,
+                p_id_usuario: userId,
+            });
+        }
+    };
 
     const handleSave = async () => {
         const amount = Number(monto.replace(",", "."));
@@ -157,8 +235,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             return;
         }
 
-        if (ruta === "pos" && !selectedBancoDestino) {
-            addToast("error", "Selecciona el banco destino para POS.");
+        if (ruta === "pos" && !selectedBancoTransferir) {
+            addToast("error", "Selecciona el banco al que transferir.");
             return;
         }
 
@@ -175,6 +253,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         setIsSaving(true);
 
         try {
+            await handleSaveCliente();
+
             const now = new Date().toISOString();
             const result = await operacionesRpcService.postOperacionAsistida({
                 p_ruta: ruta,
@@ -183,7 +263,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_tipo_servicio: routeLabel.toUpperCase(),
                 p_id_comunidad: selectedCommunity.id,
                 p_nombre_comunidad: selectedCommunity.nombre,
-                p_dni_cliente: dni.trim(),
+                p_dni_cliente: dni.replace(/\D/g, ""),
                 p_monto_deposito_cliente: amount,
                 p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null,
                 p_id_estado: estadoSolicitado.id,
@@ -194,7 +274,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_nombre_usuario_gestor: userName,
                 p_id_usuario_solicitud: userId,
                 p_nombre_usuario_solicitud: userName,
-                p_id_banco_destino: ruta === "pos" ? selectedBancoDestino?.id : null,
+                p_id_banco_destino: ruta === "pos" ? selectedBancoTransferir?.id : null,
+                p_id_banco_cliente: ruta === "pos" ? selectedEntidadTarjeta?.id : null,
                 p_fecha_registro: now,
             });
 
@@ -204,8 +285,14 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
 
             setCodigoOperacion("");
             setDni("");
+            setNombre("");
+            setCelulares([]);
             setMonto("");
+            setEntidadTarjetaId("");
             setBancoDestinoId("");
+            setClienteId(null);
+            setOriginalCelulares([]);
+            setOriginalComunidadId("");
             onSaved();
             addToast("success", "Solicitud registrada correctamente.");
         } catch (err) {
@@ -216,12 +303,50 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         }
     };
 
+    const handleClear = () => {
+        setCodigoOperacion("");
+        setDni("");
+        setNombre("");
+        setCelulares([]);
+        setMonto("");
+        setEntidadTarjetaId("");
+        setBancoDestinoId("");
+        setClienteId(null);
+        setOriginalCelulares([]);
+        setOriginalComunidadId("");
+    };
+
     return (
-        <InlineFormCard title={`Solicitud ${routeLabel}${activeCompany ? `: ${activeCompany.nombre_empresa}` : ""}`}>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                <Input size="sm" label="Codigo Operacion" placeholder="Opcional" value={codigoOperacion} onChange={setCodigoOperacion} />
-                <Input size="sm" label="DNI" placeholder="Documento" value={dni} onChange={setDni} />
-                <Input size="sm" label="Monto" placeholder="S/ 0.00" value={monto} onChange={setMonto} />
+        <InlineFormCard title={`Solicitud ${routeLabel}`}>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
+                {ruta === "pos" && (
+                    <NativeSelect
+                        size="sm"
+                        label="Entidad Tarjeta"
+                        placeholder="Seleccionar entidad"
+                        value={entidadTarjetaId}
+                        onChange={(event) => setEntidadTarjetaId(event.currentTarget.value)}
+                        options={[
+                            { label: "Seleccionar entidad", value: "", disabled: true },
+                            ...entidadTarjetaList.map((item) => ({
+                                label: item.nombre,
+                                value: String(item.id),
+                            })),
+                        ]}
+                    />
+                )}
+                <div className="flex flex-col gap-1">
+                    <Input size="sm" label="DNI" placeholder="Documento" value={dni} onChange={setDni} />
+                    {isClienteLoading && <span className="text-xs text-tertiary">Buscando...</span>}
+                </div>
+                <Input
+                    size="sm"
+                    label="Nombre"
+                    placeholder={clienteId ? "Cliente encontrado" : "Nombre del cliente"}
+                    value={nombre}
+                    onChange={setNombre}
+                    isDisabled={!!clienteId}
+                />
                 <NativeSelect
                     size="sm"
                     label="Comunidad"
@@ -232,35 +357,25 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 {ruta === "pos" && (
                     <NativeSelect
                         size="sm"
-                        label="Banco destino"
+                        label="Banco Transferir"
                         value={bancoDestinoId}
                         onChange={(event) => setBancoDestinoId(event.currentTarget.value)}
                         options={[
-                            { label: "Seleccionar banco destino", value: "", disabled: true },
-                            ...bancosDestino.map((item) => ({
+                            { label: "Seleccionar banco", value: "", disabled: true },
+                            ...bancoTransferirList.map((item) => ({
                                 label: item.nombre,
                                 value: String(item.id),
                             })),
                         ]}
-                        className="md:col-span-4"
                     />
                 )}
-                <div className="flex justify-end gap-2 md:col-span-4">
-                    <Button
-                        size="sm"
-                        color="secondary"
-                        isDisabled={isSaving}
-                        onClick={() => {
-                            setCodigoOperacion("");
-                            setDni("");
-                            setMonto("");
-                            setBancoDestinoId("");
-                        }}
-                    >
-                        Cancelar
-                    </Button>
-                    <Button size="sm" isLoading={isSaving} onClick={handleSave}>
+                <Input size="sm" label="Monto" placeholder="S/ 0.00" value={monto} onChange={setMonto} />
+                <div className="flex gap-2 md:col-span-2">
+                    <Button size="sm" color="primary" iconLeading={Check} isLoading={isSaving} onClick={handleSave} className="flex-1">
                         Guardar
+                    </Button>
+                    <Button size="sm" color="secondary" iconLeading={X} isDisabled={isSaving} onClick={handleClear} className="flex-1">
+                        Cancelar
                     </Button>
                 </div>
             </div>

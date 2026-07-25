@@ -26,6 +26,22 @@ Reglas:
 - `Comision` registra un ingreso separado con origen `PAGO_DEUDA_COMISION`.
 - En `/operaciones/pagodeuda`, empresa/cuenta corresponden al destino de comision.
 
+## Formulario de solicitud
+
+El formulario en `/operaciones/pagodeuda` contiene los campos:
+
+`DNI | Nombre | Comunidad | Banco Transferir | Monto`
+
+Comportamiento:
+
+- al ingresar DNI se busca automaticamente el cliente en `tb_cliente` y se populan `Nombre` (bloqueado si existe) y `Comunidad`;
+- el boton `Cancelar` limpia todos los campos incluyendo el cliente encontrado;
+- `Guardar` registra la solicitud via `f_post_tb_pago_deuda_solicitud`;
+- `Comunidad` es obligatoria y se envia como `p_id_comunidad`;
+- el campo `Celular` fue eliminado del formulario.
+
+Layout: grid `md:grid-cols-6` con botones `Guardar` (izquierda, primary, icono `Check`) y `Cancelar` (derecha, secondary, icono `X`) ocupando 2 columnas cada uno (ancho completo).
+
 ## Alcance
 
 `pago-deuda` es una familia propia dentro de `operaciones`. No debe documentarse como una simple variante de `efectivizacion-bancaria`, porque su naturaleza es de solicitud y atencion, no de caja bancaria completa.

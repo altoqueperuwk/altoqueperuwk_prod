@@ -11,8 +11,10 @@ import type {
     OperacionRuta,
     RutaOperacionCaja,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
+import { cx } from "@/utils/cx";
 
 interface AsistidaOperationalBoardProps {
     companies: RutaOperacionCaja[];
@@ -27,6 +29,31 @@ const estadoByFilter: Record<string, string> = {
     Pagados: "Pagado",
 };
 
+const formatDate = (value: string | null | undefined) => {
+    if (!value) return "";
+    return new Date(value).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" });
+};
+
+const formatTime = (value: string | null | undefined) => {
+    if (!value) return "";
+    return new Date(value).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
+};
+
+const isPagado = (row: OperacionProceso) => String(row.nombre_estado ?? "").trim().toUpperCase() === "PAGADO";
+
+const CompactBadge = ({ children, tone = "default" }: { children: string; tone?: "default" | "brand" | "success" }) => (
+    <span
+        className={cx(
+            "inline-flex w-max items-center rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset",
+            tone === "brand" && "bg-brand-solid text-primary_on-brand ring-transparent",
+            tone === "success" && "bg-success-primary text-success-primary ring-success",
+            tone === "default" && "bg-secondary text-secondary ring-secondary",
+        )}
+    >
+        {children}
+    </span>
+);
+
 const baseColumns = [
     { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
     { key: "dni_cliente", label: "DNI" },
@@ -39,6 +66,67 @@ const baseColumns = [
     },
     { key: "nombre_usuario_solicitud", label: "Solicita" },
     { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
+];
+
+const posColumns = [
+    {
+        key: "nombre_banco_cliente",
+        label: "Entidad Tarjeta",
+        render: (row: OperacionProceso) => (
+            <CompactBadge>{row.nombre_banco_cliente ?? "-"}</CompactBadge>
+        ),
+    },
+    { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary" },
+    { key: "nombre_comunidad", label: "Comunidad" },
+    {
+        key: "monto_deposito_cliente",
+        label: "Monto",
+        cellClassName: "font-semibold text-primary tabular-nums",
+        render: (row: OperacionProceso) => formatMoney(row.monto_deposito_cliente),
+    },
+    {
+        key: "resultado_comision_servicio",
+        label: "Comision",
+        render: (row: OperacionProceso) => (
+            <div className="flex items-center gap-1 tabular-nums">
+                <span className="font-semibold text-primary">{formatMoney(row.resultado_comision_servicio)}</span>
+                {row.comision_servicio != null && <CompactBadge>{`${row.comision_servicio}%`}</CompactBadge>}
+            </div>
+        ),
+    },
+    {
+        key: "nombre_empresa_salida",
+        label: "Empresa Cuenta",
+        render: (row: OperacionProceso) => (
+            <div className="flex min-w-0 flex-wrap gap-1">
+                <CompactBadgeLine color="brand">{row.nombre_empresa_salida ?? "-"}</CompactBadgeLine>
+                <CompactBadgeLine>{row.nombre_banco_empresa_cuenta_salida ?? "-"}</CompactBadgeLine>
+            </div>
+        ),
+    },
+    {
+        key: "monto_transferencia_cliente",
+        label: "Transferencia",
+        cellClassName: "font-semibold text-primary tabular-nums",
+        render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente),
+    },
+    {
+        key: "nombre_estado",
+        label: "Estado",
+        render: (row: OperacionProceso) => (
+            <CompactBadge tone={isPagado(row) ? "success" : "brand"}>{isPagado(row) ? "Pagado" : "Pendiente"}</CompactBadge>
+        ),
+    },
+    {
+        key: "fecha_registro",
+        label: "Hora",
+        render: (row: OperacionProceso) => (
+            <div className="leading-tight">
+                <p className="font-medium text-primary">{formatTime(row.fecha_registro) || "-"}</p>
+                <p className="text-xs text-tertiary">{formatDate(row.fecha_registro)}</p>
+            </div>
+        ),
+    },
 ];
 
 const buildEstadoPayload = (
@@ -74,25 +162,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
     const actions = ruta === "linkpago" ? ["Reiniciar", "Pagar"] : [];
     const columns = useMemo(
-        () =>
-            ruta === "pos"
-                ? [
-                      ...baseColumns.slice(0, 4),
-                      {
-                          key: "ruta_destino",
-                          label: "Destino",
-                          render: (row: OperacionProceso) =>
-                              [
-                                  getRutaLabel((row.ruta_destino ?? "") as OperacionRuta),
-                                  row.nombre_empresa_salida,
-                                  row.nombre_banco_empresa_cuenta_salida,
-                              ]
-                                  .filter(Boolean)
-                                  .join(" - "),
-                      },
-                      ...baseColumns.slice(4),
-                  ]
-                : baseColumns,
+        () => (ruta === "pos" ? posColumns : baseColumns),
         [ruta],
     );
 

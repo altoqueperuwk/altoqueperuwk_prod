@@ -19,12 +19,27 @@ ORDER BY n.nspname, p.proname;
 
 Usar `IN (...)` solo con las funciones realmente afectadas.
 
-### Regla 2 — Resumen de cambios
+### Regla 2 — Resumen de cambios al actualizar .sql
 
-Entregar resumen corto con formato:
+Al finalizar cambios en archivos `.sql`, entregar resumen con este formato exacto:
 
 ```
-funcion | cambios
+[nombre_archivo1.sql](ruta/al/archivo1.sql)
+- nombre_funcion_1
+- nombre_funcion_2
+Resumen corto informando cambios de cada función. Si hay ALTER TABLE, DROP COLUMN, DROP FUNCTION, etc., mencionarlo.
+
+[nombre_archivo2.sql](ruta/al/archivo2.sql)
+- nombre_funcion_1
+Resumen corto informando cambios.
+```
+
+Ejemplo:
+
+```
+[11.operaciones_asistidas_pos_linkpago.sql](backend/backend_implementacion/11.operaciones_asistidas_pos_linkpago.sql)
+- f_post_tb_operacion_asistida
+Se agregó ::bigint a COALESCE(p_monto_deposito_cliente, 0) y a 0 en la llamada a f_get_tb_operacion_calculo_comision_servicio, y ::bigint a COALESCE(p_monto_deposito_cliente, 0) en la llamada a f_get_tb_operacion_calculo_comision_banco_ingreso, para corregir type mismatch numeric→bigint.
 ```
 
 ### Regla 3 — ALTER TABLE / DROP COLUMN
