@@ -8,6 +8,7 @@ import { Plus, Trash01, X, Check } from "@untitledui/icons";
 import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { clienteService } from "@/services/cliente.service";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface ClientePopupProps {
   isOpen: boolean;
@@ -50,10 +51,7 @@ export const ClientePopup = ({ isOpen, onClose, onSave, item }: ClientePopupProp
   const [idEstado, setIdEstado] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
 
-  const estadoItems = useMemo(
-    () => (estados || []).map((e) => ({ id: e.id as string | number, label: e.nombre as string })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   const comunidadItems = useMemo(
     () => (comunidades || []).map((c) => ({ id: c.id as string | number, label: c.nombre as string })),

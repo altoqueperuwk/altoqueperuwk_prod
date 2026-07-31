@@ -1,24 +1,8 @@
-select * from tb_banco where id in (5,2);
-id|nombre|nombre_abreviatura|nombre_equivalencia|flag_permite_deposito|tipo|id_estado|id_usuario|fecha_registro
-2|BCP|BCP|"[""Banco de Crédito""]"|true|Tarjeta Crédito|1||2026-07-11 21:03:03.713580 -05:00
-5|Interbank|IBK|"[""Globokas - Kasnet""]"|true|Tarjeta Crédito|1||2026-07-11 21:10:31.212914 -05:00
+select * from tb_operacion_proceso;
 
-select * from tb_empresa where id=12;
-id|nombre|abreviatura|flag_transferencia|id_estado|id_usuario|fecha_registro
-12|Abitex S.A.|Abitex|true|1||2026-07-18 18:17:21.991668 -05:00
-
-select * from tb_empresa_cuenta_bancaria where id_empresa=12;
-id|id_empresa|id_banco|flag_por_sol_comision_banco_ingreso|comision_itf_ingreso_salida|comision_banco_ingreso|comision_minimo_banco_ingreso|comision_igv_banco_ingreso|comision_transf_banco_salida|comision_transf_inter_banco_salida|id_usuario|fecha_registro|id_estado|flag_retencion|flag_retencion_parcial
-13|12|5|true|0.005|4|0|0|0|5.3||2026-07-18 18:19:47.184640 -05:00|1|false|false
-14|12|2|true|0.005|6|0|0|0|4.8||2026-07-18 18:19:47.439052 -05:00|1|false|false
-
-select * from tb_ruta_operacion_caja where id_empresa=12;
-id|ruta|id_empresa|id_empresa_cuenta_bancaria|flag_caja_ingreso_principal|id_estado|id_usuario|fecha_registro
-15|bcp|12|14|false|1|1|2026-07-23 09:37:01.324859 -05:00
-16|interbank|12|13|false|1|1|2026-07-23 09:37:18.097588 -05:00
-24|safetypay|12|13|false|1|1|2026-07-24 08:31:58.976039 -05:00
-
-select * from tb_caja_operativa where id_empresa=12;
-id|id_empresa|id_empresa_cuenta_bancaria|saldo_inicial|saldo_actual|total_recaudado|ingresos|ingresos_retenido|gastos|ganancia|ganancia_retenido|salida|operaciones|flag_retencion|id_estado|id_usuario|fecha_apertura|fecha_registro|saldo_total
-15|12|14|100000|100000|0|0|0|0|0|0|0|0|false|1|1|2026-07-25 13:40:27.635986 -05:00|2026-07-23 09:36:48.684467 -05:00|100000
-16|12|13|100000|100000|0|0|0|0|0|0|0|0|false|1|1|2026-07-25 13:40:27.635986 -05:00|2026-07-23 09:37:08.208614 -05:00|100000
+id|id_codigo_servicio|nombre_codigo_servicio|tipo_servicio|id_comunidad|nombre_comunidad|nombre_tipo_deposito|id_cliente|dni_cliente|nombre_cliente|id_banco_cliente|nombre_banco_cliente|monto_deposito_cliente|codigo_operacion_deposito_cliente|fecha_deposito_cliente|id_empresa_ingreso|nombre_empresa_ingreso|id_empresa_cuenta_ingreso|id_banco_empresa_cuenta_ingreso|nombre_banco_empresa_cuenta_ingreso|flag_por_sol_comision_banco_ingreso|comision_banco_ingreso|comision_minimo_banco_ingreso|comision_igv_banco_ingreso|resultado_comision_banco_ingreso|monto_itf_ingreso|comision_servicio|monto_minimo_deposito_servicio|comision_minima_servicio|comision_monto_extra_servicio|resultado_comision_servicio|id_empresa_salida|nombre_empresa_salida|id_empresa_cuenta_salida|id_banco_empresa_cuenta_salida|nombre_banco_empresa_cuenta_salida|comision_transf_banco_salida|comision_transf_inter_banco_salida|resultado_comision_banco_salida|monto_transferencia_cliente|monto_itf_salida|id_banco_cliente_transferencia|nombre_banco_cliente_transferencia|id_estado|nombre_estado|id_usuario|nombre_usuario|id_usuario_gestor|nombre_usuario_gestor|id_usuario_reasignado|nombre_usuario_reasignado|id_usuario_solicitud|nombre_usuario_solicitud|ruta_origen|ruta_destino|flag_derivado|fecha_derivacion|id_usuario_deriva|nombre_usuario_deriva|flag_retenido|fecha_retencion|id_usuario_retiene|nombre_usuario_retiene|motivo_retencion|fecha_pendiente|fecha_pagado|error_motivo|observacion_tiempo|tipo_facturacion|fecha_registro|id_caja_cierre|fecha_caja_cierre|id_operacion_padre|id_operacion_match|tipo_flujo_pago_deuda|monto_devuelto|tipo_recaudacion_sf|id_carga_excel|nombre_carga_excel|fecha_carga_excel
+1|10|Pago Deuda|Pago Deuda|10|ATK1|Mismo Día|42|47356534|jhon|1|BBVA|1000|||3|TwoService (1) S.A.|20|5|Interbank|||||||1|0|0|0|10|||||||||||1|BBVA|4|Pagado|1|johnsmendoza|1|jhon|||1|jhon|deuda|deuda|false||||false|||||2026-07-29 15:55:23.626508 -05:00|2026-07-29 15:56:48.614688 -05:00|||Boleta|2026-07-29 15:55:23.626508 -05:00||||3|SOLICITUD|0||||
+2|10|Pago Deuda|Pago Deuda|10|ATK1|Mismo Día|42|47356534|jhon|1|BBVA|1000|87542154|2026-07-29 15:55:44.644000 -05:00|3|TwoService (1) S.A.|20|5|Interbank|||||||1|0|0|0|10|7|A Cuenta WK S.A.|6|1|BBVA|0|5.3|0.05|1000|0.005|1|BBVA|4|Pagado|1|johnsmendoza|1|jhon|||1|jhon|deuda|bbva|false||||false|||||2026-07-29 15:55:23.626508 -05:00|2026-07-29 15:56:48.614688 -05:00|||Boleta|2026-07-29 15:55:23.626508 -05:00|||1|3|BANCO|1000||||
+3|3|BBVA|Pago Deuda|10|ATK1|Mismo Día|42|47356534|jhon|1|BBVA|250|87542154|2026-07-29 15:55:44.644000 -05:00|7|A Cuenta WK S.A.|6|1|BBVA|true|6|0|0|6|0.005|1|1200|12|0|0|7|A Cuenta WK S.A.|6|1|BBVA|0|0|0|250|0.005|1|BBVA|4|Pagado|1|jhon|1|jhon|||||bbva|bbva|false||||false|||||2026-07-29 15:55:44.644000 -05:00|2026-07-29 15:56:31.720370 -05:00|||Boleta|2026-07-29 15:55:45.327014 -05:00||||2|RETORNO|0||||
+4|3|BBVA|Pago Deuda|10|ATK1|Mismo Día|42|47356534|jhon|1|BBVA|250|98653254|2026-07-29 15:55:53.463000 -05:00|7|A Cuenta WK S.A.|6|1|BBVA|true|6|0|0|6|0.005|1|1200|12|0|0|7|A Cuenta WK S.A.|6|1|BBVA|0|0|0|250|0.005|1|BBVA|4|Pagado|1|jhon|1|jhon|||||bbva|bbva|false||||false|||||2026-07-29 15:55:53.463000 -05:00|2026-07-29 15:56:27.272896 -05:00|||Boleta|2026-07-29 15:55:54.119601 -05:00||||2|RETORNO|0||||
+5|3|BBVA|Pago Deuda|10|ATK1|Mismo Día|42|47356534|jhon|1|BBVA|500|98653265|2026-07-29 15:56:07.474000 -05:00|7|A Cuenta WK S.A.|6|1|BBVA|true|6|0|0|6|0.005|1|1200|12|0|0|7|A Cuenta WK S.A.|6|1|BBVA|0|0|0|500|0.005|1|BBVA|4|Pagado|1|jhon|1|jhon|||||bbva|bbva|false||||false|||||2026-07-29 15:56:07.474000 -05:00|2026-07-29 15:56:24.345948 -05:00|||Boleta|2026-07-29 15:56:08.131321 -05:00||||2|RETORNO|0||||

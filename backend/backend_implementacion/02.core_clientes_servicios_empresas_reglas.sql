@@ -992,6 +992,7 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_empresa_cuenta_bancaria(
   p_id_banco bigint DEFAULT NULL,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT NULL,
   p_flag_retencion boolean DEFAULT NULL,
+  p_flag_retencion_parcial boolean DEFAULT NULL,
   p_comision_itf_ingreso_salida numeric DEFAULT NULL,
   p_comision_banco_ingreso numeric DEFAULT NULL,
   p_comision_minimo_banco_ingreso numeric DEFAULT NULL,
@@ -1016,6 +1017,7 @@ AS $$
     'banco_nombre', b.nombre,
     'flag_por_sol_comision_banco_ingreso', t.flag_por_sol_comision_banco_ingreso,
     'flag_retencion', t.flag_retencion,
+    'flag_retencion_parcial', t.flag_retencion_parcial,
     'comision_itf_ingreso_salida', t.comision_itf_ingreso_salida,
     'comision_banco_ingreso', t.comision_banco_ingreso,
     'comision_minimo_banco_ingreso', t.comision_minimo_banco_ingreso,
@@ -1038,6 +1040,7 @@ AS $$
     AND (p_id_banco IS NULL OR t.id_banco = p_id_banco)
     AND (p_flag_por_sol_comision_banco_ingreso IS NULL OR t.flag_por_sol_comision_banco_ingreso = p_flag_por_sol_comision_banco_ingreso)
     AND (p_flag_retencion IS NULL OR t.flag_retencion = p_flag_retencion)
+    AND (p_flag_retencion_parcial IS NULL OR t.flag_retencion_parcial = p_flag_retencion_parcial)
     AND (p_comision_itf_ingreso_salida IS NULL OR t.comision_itf_ingreso_salida = p_comision_itf_ingreso_salida)
     AND (p_comision_banco_ingreso IS NULL OR t.comision_banco_ingreso = p_comision_banco_ingreso)
     AND (p_comision_minimo_banco_ingreso IS NULL OR t.comision_minimo_banco_ingreso = p_comision_minimo_banco_ingreso)
@@ -1057,6 +1060,7 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_empresa_cuenta_bancaria_his(
   p_id_banco bigint DEFAULT NULL,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT NULL,
   p_flag_retencion boolean DEFAULT NULL,
+  p_flag_retencion_parcial boolean DEFAULT NULL,
   p_comision_itf_ingreso_salida numeric DEFAULT NULL,
   p_comision_banco_ingreso numeric DEFAULT NULL,
   p_comision_minimo_banco_ingreso numeric DEFAULT NULL,
@@ -1080,6 +1084,7 @@ AS $$
     AND (p_id_banco IS NULL OR t.id_banco = p_id_banco)
     AND (p_flag_por_sol_comision_banco_ingreso IS NULL OR t.flag_por_sol_comision_banco_ingreso = p_flag_por_sol_comision_banco_ingreso)
     AND (p_flag_retencion IS NULL OR t.flag_retencion = p_flag_retencion)
+    AND (p_flag_retencion_parcial IS NULL OR t.flag_retencion_parcial = p_flag_retencion_parcial)
     AND (p_comision_itf_ingreso_salida IS NULL OR t.comision_itf_ingreso_salida = p_comision_itf_ingreso_salida)
     AND (p_comision_banco_ingreso IS NULL OR t.comision_banco_ingreso = p_comision_banco_ingreso)
     AND (p_comision_minimo_banco_ingreso IS NULL OR t.comision_minimo_banco_ingreso = p_comision_minimo_banco_ingreso)
@@ -1415,7 +1420,28 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_id bigint;
+  v_estado_activo bigint;
 BEGIN
+  SELECT id
+  INTO v_estado_activo
+  FROM public.tb_estado
+  WHERE UPPER(BTRIM(COALESCE(nombre, ''))) = 'ACTIVO'
+  ORDER BY id
+  LIMIT 1;
+
+  IF COALESCE(p_id_estado, v_estado_activo) = v_estado_activo
+     AND EXISTS (
+       SELECT 1
+       FROM public.tb_reglas_efectivizacion r
+       WHERE r.id_codigo_servicio = p_id_codigo_servicio
+         AND COALESCE(r.id_banco, 0) = COALESCE(p_id_banco, 0)
+         AND COALESCE(r.id_comunidad, 0) = COALESCE(p_id_comunidad, 0)
+         AND COALESCE(r.tipo_deposito, '') = COALESCE(p_tipo_deposito, '')
+         AND r.id_estado = v_estado_activo
+     ) THEN
+    RETURN jsonb_build_object('error', 'Ya existe una regla activa para servicio, banco, comunidad y tipo deposito.');
+  END IF;
+
   INSERT INTO public.tb_reglas_efectivizacion (
     id_codigo_servicio, id_banco, id_comunidad, tipo_deposito,
     comision_servicio, monto_minimo_deposito_servicio, comision_minima_servicio,
@@ -1457,7 +1483,52 @@ RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
+DECLARE
+  v_actual record;
+  v_id_codigo_servicio bigint;
+  v_id_banco bigint;
+  v_id_comunidad bigint;
+  v_tipo_deposito character varying;
+  v_id_estado bigint;
+  v_estado_activo bigint;
 BEGIN
+  SELECT *
+  INTO v_actual
+  FROM public.tb_reglas_efectivizacion
+  WHERE id = p_id
+  LIMIT 1;
+
+  IF v_actual.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La regla de efectivizacion no existe.');
+  END IF;
+
+  SELECT id
+  INTO v_estado_activo
+  FROM public.tb_estado
+  WHERE UPPER(BTRIM(COALESCE(nombre, ''))) = 'ACTIVO'
+  ORDER BY id
+  LIMIT 1;
+
+  v_id_codigo_servicio := COALESCE(p_id_codigo_servicio, v_actual.id_codigo_servicio);
+  v_id_banco := COALESCE(p_id_banco, v_actual.id_banco);
+  v_id_comunidad := COALESCE(p_id_comunidad, v_actual.id_comunidad);
+  v_tipo_deposito := COALESCE(p_tipo_deposito, v_actual.tipo_deposito);
+  v_id_estado := COALESCE(p_id_estado, v_actual.id_estado);
+
+  IF v_id_estado = v_estado_activo
+     AND EXISTS (
+       SELECT 1
+       FROM public.tb_reglas_efectivizacion r
+       WHERE r.id <> p_id
+         AND r.id_codigo_servicio = v_id_codigo_servicio
+         AND COALESCE(r.id_banco, 0) = COALESCE(v_id_banco, 0)
+         AND COALESCE(r.id_comunidad, 0) = COALESCE(v_id_comunidad, 0)
+         AND COALESCE(r.tipo_deposito, '') = COALESCE(v_tipo_deposito, '')
+         AND r.id_estado = v_estado_activo
+     ) THEN
+    RETURN jsonb_build_object('error', 'Ya existe una regla activa para servicio, banco, comunidad y tipo deposito.');
+  END IF;
+
   UPDATE public.tb_reglas_efectivizacion
   SET id_codigo_servicio = COALESCE(p_id_codigo_servicio, id_codigo_servicio),
       id_banco = COALESCE(p_id_banco, id_banco),
@@ -1485,7 +1556,8 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-
+  'f_post_tb_reglas_efectivizacion',
+  'f_patch_tb_reglas_efectivizacion'
 )
 ORDER BY n.nspname, p.proname;
 

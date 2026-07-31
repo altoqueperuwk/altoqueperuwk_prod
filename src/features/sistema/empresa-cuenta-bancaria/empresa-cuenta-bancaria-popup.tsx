@@ -8,6 +8,7 @@ import { X, Check } from "@untitledui/icons";
 import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { empresaCuentaBancariaService } from "@/services/empresa-cuenta-bancaria.service";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface EmpresaCuentaBancariaPopupProps {
   isOpen: boolean;
@@ -48,10 +49,7 @@ export const EmpresaCuentaBancariaPopup = ({ isOpen, onClose, onSave, item, defa
 
   const comisionBancoPlaceholder = flagPorSolComisionBancoIngreso ? "S/ 0.00" : "% 0.0";
 
-  const estadoItems = useMemo(
-    () => (estados || []).map((e) => ({ id: e.id as string | number, label: e.nombre as string })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   const empresaItems = useMemo(
     () => (empresas || []).map((e) => ({ id: e.id as string | number, label: e.nombre as string })),
@@ -190,12 +188,12 @@ export const EmpresaCuentaBancariaPopup = ({ isOpen, onClose, onSave, item, defa
               <div className="rounded-lg border border-secondary p-3">
                 <p className="mb-2 text-sm font-medium text-primary">Tipo de Retención</p>
                 <label className="flex items-center gap-2 py-1">
-                  <input type="checkbox" checked={flagRetencion} onChange={() => { setFlagRetencion(true); setFlagRetencionParcial(false); }}
+                  <input type="checkbox" checked={flagRetencion} onChange={() => { setFlagRetencion(!flagRetencion); setFlagRetencionParcial(false); }}
                     className="size-4 rounded border-secondary accent-brand" />
                   <span className="text-sm text-primary">Retención Total (Scotiabank/Banbif)</span>
                 </label>
                 <label className="flex items-center gap-2 py-1">
-                  <input type="checkbox" checked={flagRetencionParcial} onChange={() => { setFlagRetencionParcial(true); setFlagRetencion(false); }}
+                  <input type="checkbox" checked={flagRetencionParcial} onChange={() => { setFlagRetencionParcial(!flagRetencionParcial); setFlagRetencion(false); }}
                     className="size-4 rounded border-secondary accent-brand" />
                   <span className="text-sm text-primary">Retención Parcial (Cierre automático)</span>
                 </label>

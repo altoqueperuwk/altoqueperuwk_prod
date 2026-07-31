@@ -8,6 +8,7 @@ import { X, Check } from "@untitledui/icons";
 import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { codigoServicioService } from "@/services/codigo-servicio.service";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface CodigoServicioPopupProps {
   isOpen: boolean;
@@ -36,10 +37,7 @@ export const CodigoServicioPopup = ({ isOpen, onClose, onSave, item }: CodigoSer
   const [idEstado, setIdEstado] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
 
-  const estadoItems = useMemo(
-    () => (estados || []).map((e) => ({ id: e.id as string | number, label: e.nombre as string })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   useEffect(() => {
     if (isOpen) {

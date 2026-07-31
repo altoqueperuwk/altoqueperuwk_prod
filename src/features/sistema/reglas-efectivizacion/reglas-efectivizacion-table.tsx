@@ -5,6 +5,7 @@ import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { ChevronLeft, ChevronRight, Edit03, Save01, ClockRewind } from "@untitledui/icons";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface ReglasEfectivizacionTableProps {
   data: Record<string, unknown>[];
@@ -42,14 +43,7 @@ export const ReglasEfectivizacionTable = ({
 }: ReglasEfectivizacionTableProps) => {
   const [editingRows, setEditingRows] = useState<Record<number, RowDraft>>({});
 
-  const estadoItems = useMemo(
-    () =>
-      (estados || []).map((e) => ({
-        id: e.id as string | number,
-        label: e.nombre as string,
-      })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   const getEstadoNombre = (idEstado: unknown) => {
     if (idEstado == null) return "-";

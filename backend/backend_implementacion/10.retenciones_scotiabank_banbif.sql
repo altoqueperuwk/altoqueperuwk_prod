@@ -71,8 +71,8 @@ AS $$
       a.tab = 'EFECTIVIZACION'
       AND UPPER(COALESCE(b.tipo_servicio, '')) = 'EFECTIVIZACION'
       AND COALESCE(b.flag_derivado, false) = false
-      AND (p_id_empresa IS NULL OR b.id_empresa_ingreso = p_id_empresa)
-      AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
+      AND (p_id_empresa IS NULL OR b.id_empresa_salida = p_id_empresa)
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND (
         a.filtro_estado = 'TODOS'
         OR UPPER(BTRIM(COALESCE(b.nombre_estado, ''))) = a.filtro_estado
@@ -174,8 +174,8 @@ AS $$
         WHERE UPPER(COALESCE(tipo_servicio, '')) = 'EFECTIVIZACION'
           AND COALESCE(flag_derivado, false) = false
           AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO', 'RECHAZADO', 'PAGADO')
-          AND (p_id_empresa IS NULL OR id_empresa_ingreso = p_id_empresa)
-          AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
+          AND (p_id_empresa IS NULL OR id_empresa_salida = p_id_empresa)
+          AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       )::integer AS efectivizacion,
       COUNT(*) FILTER (
         WHERE UPPER(COALESCE(tipo_servicio, '')) = 'PAGO DEUDA'
@@ -265,13 +265,13 @@ AS $$
       )
   ),
   empresa_rows AS (
-    SELECT 'Efectivizacion'::character varying AS tab, id_empresa_ingreso AS id_empresa
+    SELECT 'Efectivizacion'::character varying AS tab, id_empresa_salida AS id_empresa
     FROM base
     WHERE UPPER(COALESCE(tipo_servicio, '')) = 'EFECTIVIZACION'
       AND COALESCE(flag_derivado, false) = false
       AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO', 'RECHAZADO', 'PAGADO')
-      AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
-      AND id_empresa_ingreso IS NOT NULL
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
+      AND id_empresa_salida IS NOT NULL
 
     UNION ALL
     SELECT 'Pago Deuda'::character varying AS tab, id_empresa_salida AS id_empresa

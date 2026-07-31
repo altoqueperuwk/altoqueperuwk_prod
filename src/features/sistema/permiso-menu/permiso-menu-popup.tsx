@@ -8,6 +8,7 @@ import { X, Check } from "@untitledui/icons";
 import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { permisoMenuService } from "@/services/permiso-menu.service";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface PermisoMenuPopupProps {
   isOpen: boolean;
@@ -36,14 +37,7 @@ export const PermisoMenuPopup = ({ isOpen, onClose, onSave, item }: PermisoMenuP
 
   const [menus, setMenus] = useState<Record<string, unknown>[]>([]);
 
-  const estadoItems = useMemo(
-    () =>
-      (estados || []).map((e) => ({
-        id: e.id as string | number,
-        label: e.nombre as string,
-      })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   const menuPadreItems = useMemo(
     () =>

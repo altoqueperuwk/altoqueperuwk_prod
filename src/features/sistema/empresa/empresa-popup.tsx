@@ -9,6 +9,7 @@ import { X, Check } from "@untitledui/icons";
 import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { empresaService } from "@/services/empresa.service";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface EmpresaPopupProps {
   isOpen: boolean;
@@ -33,14 +34,7 @@ export const EmpresaPopup = ({ isOpen, onClose, onSave, item }: EmpresaPopupProp
   const [idEstado, setIdEstado] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
 
-  const estadoItems = useMemo(
-    () =>
-      (estados || []).map((e) => ({
-        id: e.id as string | number,
-        label: e.nombre as string,
-      })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   useEffect(() => {
     if (isOpen) {

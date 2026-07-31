@@ -241,7 +241,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
     const [estadoSolicitado, setEstadoSolicitado] = useState<{ id: number; nombre: string } | null>(null);
     const [editOperation, setEditOperation] = useState<OperacionProceso | null>(null);
     const [entidadTarjetaFiltro, setEntidadTarjetaFiltro] = useState("");
-    const [bancosLinkPago, setBancosLinkPago] = useState<{ id: number; nombre: string }[]>([]);
+    const [bancosFiltro, setBancosFiltro] = useState<{ id: number; nombre: string; tipo: string }[]>([]);
 
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
@@ -263,15 +263,32 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         },
         [ruta],
     );
+    const entidadTarjetaOptions = useMemo(
+        () => {
+            if (ruta === "linkpago") {
+                return bancosFiltro.filter((item) => item.id === 11 || item.id === 17);
+            }
+
+            if (ruta === "pos") {
+                return bancosFiltro.filter((item) => item.tipo === "Tarjeta Comercial");
+            }
+
+            return [];
+        },
+        [bancosFiltro, ruta],
+    );
 
     useEffect(() => {
         let ignore = false;
         bancoService.getList({ p_id_estado: 1 }).then((rows) => {
             if (ignore) return;
-            setBancosLinkPago(
+            setBancosFiltro(
                 rows
-                    .filter((row) => Number(row.id) === 11 || Number(row.id) === 17)
-                    .map((row) => ({ id: Number(row.id), nombre: String(row.nombre ?? "") })),
+                    .map((row) => ({
+                        id: Number(row.id),
+                        nombre: String(row.nombre ?? ""),
+                        tipo: String(row.tipo ?? ""),
+                    })),
             );
         }).catch(() => {});
         return () => { ignore = true; };
@@ -284,7 +301,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
             p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
         };
 
-        if (codigo.trim()) values.p_codigo_operacion = codigo.trim();
+        if (ruta !== "pos" && codigo.trim()) values.p_codigo_operacion = codigo.trim();
         if (dni.trim()) values.p_dni_cliente = dni.trim();
         if (activeFilter === "Solicitado" && estadoSolicitado) values.p_nombre_estado = estadoSolicitado.nombre;
         if (activeFilter !== "Todos" && estadoByFilter[activeFilter]) values.p_nombre_estado = estadoByFilter[activeFilter];
@@ -411,7 +428,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                         onChange={(event) => setEntidadTarjetaFiltro(event.currentTarget.value)}
                         options={[
                             { label: "Todas", value: "", disabled: true },
-                            ...bancosLinkPago.map((item) => ({
+                            ...entidadTarjetaOptions.map((item) => ({
                                 label: item.nombre,
                                 value: String(item.id),
                             })),
@@ -425,10 +442,27 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                     actions={actions}
                     code={codigo}
                     dni={dni}
+                    extraFilters={ruta === "pos" ? (
+                        <NativeSelect
+                            size="sm"
+                            label=""
+                            aria-label="Entidad Tarjeta"
+                            value={entidadTarjetaFiltro}
+                            onChange={(event) => setEntidadTarjetaFiltro(event.currentTarget.value)}
+                            options={[
+                                { label: "Entidad Tarjeta", value: "" },
+                                ...entidadTarjetaOptions.map((item) => ({
+                                    label: item.nombre,
+                                    value: String(item.id),
+                                })),
+                            ]}
+                            className="w-56"
+                        />
+                    ) : undefined}
                     filters={filters}
                     isActionDisabled={() => isApplyingAction || !selectedIds.length}
                     onAction={handleAction}
-                    onCodeChange={setCodigo}
+                    onCodeChange={ruta === "pos" ? undefined : setCodigo}
                     onDniChange={setDni}
                     onFilterChange={setActiveFilter}
                 />

@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Generador Excel - Reporte de Cierre de Caja</title>
+
+  <!-- ExcelJS permite crear y estilizar archivos XLSX desde el navegador -->
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      font-family: Inter, Arial, sans-serif;
+      color: #1e2a38;
+      background: #f4f6f9;
+    }
+    .panel {
+      width: min(680px, 100%);
+      padding: 32px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      box-shadow: 0 8px 28px rgba(30, 42, 56, 0.08);
+    }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    p { margin: 0 0 22px; color: #64748b; line-height: 1.55; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+    .item {
+      padding: 12px 14px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+    }
+    .item strong { display: block; font-size: 12px; color: #64748b; }
+    .item span { display: block; margin-top: 3px; font-weight: 700; }
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 8px;
+      padding: 13px 18px;
+      background: #1e2a38;
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { background: #2d3f52; }
+    button:disabled { opacity: .65; cursor: wait; }
+    #message { min-height: 20px; margin-top: 12px; font-size: 13px; color: #64748b; }
+    @media (max-width: 540px) {
+      .summary { grid-template-columns: 1fr; }
+      .panel { padding: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <h1>Reporte de cierre de caja</h1>
+    <p>
+      Este cascarón genera un Excel con una sola pestaña llamada <strong>Hoja1</strong>.
+      Todos los bloques se colocan verticalmente en la misma hoja.
+    </p>
+
+    <div class="summary">
+      <div class="item"><strong>Empresa</strong><span>Hueso Cash S.A.</span></div>
+      <div class="item"><strong>Cuenta</strong><span>BCP</span></div>
+      <div class="item"><strong>Formato</strong><span>Excel .xlsx</span></div>
+      <div class="item"><strong>Contenido</strong><span>Una sola hoja</span></div>
+    </div>
+
+    <button id="downloadButton" type="button">Descargar reporte Excel</button>
+    <div id="message" aria-live="polite"></div>
+  </main>
+
+  <script>
+    /* ================================================================
+       1. DATOS DEL REPORTE
+       Reemplaza este objeto por la respuesta real de tu API.
+       ================================================================ */
+    const reportData = {
+      company: "Hueso Cash S.A.",
+      bank: "BCP",
+      issuedAt: "21/07/2026 · 04:28 a.m.",
+      paidOperations: 6,
+      pendingOperations: 0,
+      pendingTransfer: 0,
+
+      kpis: [
+        { label: "Caja Inicial", value: 400000.00 },
+        { label: "Caja Actual", value: 394280.20 },
+        { label: "Caja Recaudación", value: 38000.00 },
+        { label: "Ingresos", value: 23500.00 },
+        { label: "Salidas", value: 51680.00 },
+        { label: "Gastos Operacionales", value: 39.80 },
+        { label: "Ganancias", value: 286.80 },
+        { label: "Retención Recaudación", value: 0.00 }
+      ],
+
+      efectivizaciones: [
+        ["Boleta 4080326", "4080326", "25766601", "ATK1", "BCP", 5000, 0.01, 50, 44.80, 4950, "Pagado"],
+        ["Boleta 4084661", "4084661", "15735628", "ATK1", "BCP", 5000, 0.01, 50, 44.80, 4950, "Pagado"],
+        ["Boleta 4099264", "4099264", "19870229", "ATK1", "BCP", 5000, 0.01, 50, 44.80, 4950, "Pagado"],
+        ["Boleta 4152281", "4152281", "44787028", "ATK1", "BCP", 12000, 0.01, 120, 107.60, 11880, "Pagado"],
+        ["Boleta 4226268", "4226268", "43343435", "ATK1", "BCP", 5000, 0.01, 50, 44.80, 4950, "Pagado"]
+      ],
+
+      pagoDeuda: [
+        ["87541", "47356534", "Jhon", "Hueso Cash S.A.", "BCP", 6000, "Hueso Cash S.A.", "BCP", 6000]
+      ],
+
+      pos: [],
+
+      movimientos: [
+        ["Otros", "Ingreso", "—", "Transferencia", 8000, 0],
+        ["Otros", "Salida", "—", "Laptop", 0, 2000],
+        ["Transferencia Interna", "Salida", "—", "Mover saldo Hueso Cash S.A.", 0, 12000]
+      ],
+
+      pendientes: []
+    };
+
+    /* ================================================================
+       2. CONFIGURACIÓN VISUAL DEL EXCEL
+       ================================================================ */
+    const COLORS = {
+      navy: "1E2A38",
+      navy2: "2D3F52",
+      gold: "D9BE8C",
+      white: "FFFFFF",
+      text: "334155",
+      muted: "64748B",
+      light: "F4F6F9",
+      lighter: "F8FAFC",
+      border: "D9E0E7"
+    };
+
+    const MONEY_FORMAT = '"S/" #,##0.00';
+    const PERCENT_FORMAT = '0.00%';
+
+    const thinBorder = {
+      top: { style: "thin", color: { argb: COLORS.border } },
+      left: { style: "thin", color: { argb: COLORS.border } },
+      bottom: { style: "thin", color: { argb: COLORS.border } },
+      right: { style: "thin", color: { argb: COLORS.border } }
+    };
+
+    function applyRangeStyle(worksheet, startRow, endRow, startCol, endCol, styleCallback) {
+      for (let row = startRow; row <= endRow; row++) {
+        for (let col = startCol; col <= endCol; col++) {
+          styleCallback(worksheet.getCell(row, col), row, col);
+        }
+      }
+    }
+
+    function addMergedTitle(worksheet, row, startCol, endCol, text, options = {}) {
+      worksheet.mergeCells(row, startCol, row, endCol);
+      const cell = worksheet.getCell(row, startCol);
+      cell.value = text;
+      cell.font = {
+        name: "Arial",
+        size: options.size ?? 11,
+        bold: true,
+        color: { argb: options.color ?? COLORS.white }
+      };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: options.fill ?? COLORS.navy }
+      };
+      cell.alignment = { vertical: "middle", horizontal: options.align ?? "left" };
+      worksheet.getRow(row).height = options.height ?? 17;
+    }
+
+    function styleTableHeader(row) {
+      row.height = 21;
+      row.eachCell(cell => {
+        cell.font = { name: "Arial", size: 8, bold: true, color: { argb: COLORS.white } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.navy } };
+        cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+        cell.border = thinBorder;
+      });
+    }
+
+    function addTableSection(worksheet, startRow, config) {
+      const { title, headers, rows, numericColumns = [], percentageColumns = [], totalColumns = [] } = config;
+      const endCol = headers.length;
+
+      addMergedTitle(worksheet, startRow, 1, endCol, `${title}  ${rows.length}`, {
+        size: 10,
+        fill: COLORS.white,
+        color: COLORS.navy,
+        height: 17
+      });
+
+      const headerRowNumber = startRow + 1;
+      const headerRow = worksheet.getRow(headerRowNumber);
+      headers.forEach((header, index) => {
+        headerRow.getCell(index + 1).value = header;
+      });
+      styleTableHeader(headerRow);
+
+      let currentRow = headerRowNumber + 1;
+
+      if (rows.length === 0) {
+        worksheet.mergeCells(currentRow, 1, currentRow, endCol);
+        const emptyCell = worksheet.getCell(currentRow, 1);
+        emptyCell.value = "Sin registros";
+        emptyCell.font = { name: "Arial", size: 8, italic: true, color: { argb: COLORS.muted } };
+        emptyCell.alignment = { horizontal: "center", vertical: "middle" };
+        emptyCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.lighter } };
+        emptyCell.border = thinBorder;
+        worksheet.getRow(currentRow).height = 16;
+        return currentRow + 2;
+      }
+
+      rows.forEach((data, index) => {
+        const row = worksheet.getRow(currentRow);
+        data.forEach((value, columnIndex) => {
+          const cell = row.getCell(columnIndex + 1);
+          cell.value = value;
+          cell.font = { name: "Arial", size: 8, color: { argb: COLORS.text } };
+          cell.alignment = {
+            vertical: "middle",
+            horizontal: numericColumns.includes(columnIndex + 1) || percentageColumns.includes(columnIndex + 1)
+              ? "right"
+              : "left"
+          };
+          cell.border = thinBorder;
+          if (index % 2 === 1) {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.lighter } };
+          }
+          if (numericColumns.includes(columnIndex + 1)) cell.numFmt = MONEY_FORMAT;
+          if (percentageColumns.includes(columnIndex + 1)) cell.numFmt = PERCENT_FORMAT;
+        });
+        row.height = 15;
+        currentRow++;
+      });
+
+      if (totalColumns.length > 0) {
+        const firstDataRow = headerRowNumber + 1;
+        const lastDataRow = currentRow - 1;
+        const totalRow = worksheet.getRow(currentRow);
+        totalRow.getCell(1).value = "TOTALES";
+
+        totalColumns.forEach(columnNumber => {
+          const letter = worksheet.getColumn(columnNumber).letter;
+          totalRow.getCell(columnNumber).value = {
+            formula: `SUM(${letter}${firstDataRow}:${letter}${lastDataRow})`
+          };
+          totalRow.getCell(columnNumber).numFmt = MONEY_FORMAT;
+        });
+
+        for (let col = 1; col <= endCol; col++) {
+          const cell = totalRow.getCell(col);
+          cell.font = { name: "Arial", size: 8, bold: true, color: { argb: COLORS.navy } };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.light } };
+          cell.border = {
+            ...thinBorder,
+            top: { style: "thin", color: { argb: COLORS.border } }
+          };
+          cell.alignment = { vertical: "middle", horizontal: col === 1 ? "left" : "right" };
+        }
+        totalRow.height = 16;
+        currentRow++;
+      }
+
+      return currentRow + 1;
+    }
+
+    /* ================================================================
+       3. GENERACIÓN DEL ARCHIVO XLSX
+       ================================================================ */
+    async function generateExcel(data) {
+      if (!window.ExcelJS) {
+        throw new Error("No se pudo cargar ExcelJS. Verifica tu conexión a internet.");
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Altoque Perú WK";
+      workbook.created = new Date();
+      workbook.modified = new Date();
+
+      const worksheet = workbook.addWorksheet("Hoja1", {
+        views: [{ state: "frozen", ySplit: 4, showGridLines: false }],
+        pageSetup: {
+          paperSize: 9, // A4
+          orientation: "landscape",
+          fitToPage: true,
+          fitToWidth: 1,
+          fitToHeight: 0,
+          margins: {
+            left: 0.25,
+            right: 0.25,
+            top: 0.4,
+            bottom: 0.4,
+            header: 0.2,
+            footer: 0.2
+          }
+        }
+      });
+
+      worksheet.properties.defaultRowHeight = 15;
+
+      // Anchos pensados para la tabla más ancha: Pendientes (12 columnas)
+      const widths = [18, 17, 12, 13, 12, 11, 15, 10, 13, 13, 15, 12];
+      widths.forEach((width, index) => {
+        worksheet.getColumn(index + 1).width = width;
+      });
+
+      // Cabecera principal
+      addMergedTitle(worksheet, 1, 1, 12, "ALTOQUE PERÚ WK", { size: 14, height: 18 });
+      addMergedTitle(worksheet, 2, 1, 12, "REPORTE DE CIERRE DE CAJA", { size: 12, fill: COLORS.navy2, height: 18 });
+      addMergedTitle(worksheet, 3, 1, 12, `${data.company}  |  ${data.bank}`, {
+        size: 10,
+        fill: COLORS.navy2,
+        color: COLORS.gold,
+        height: 18
+      });
+
+      // Datos operativos (4 bloques, cada uno ocupa 3 columnas)
+      const operational = [
+        ["Fecha de Emisión", data.issuedAt],
+        ["Operaciones Pagadas", data.paidOperations],
+        ["Operaciones Pendientes", data.pendingOperations],
+        ["Pendiente Transferir", data.pendingTransfer]
+      ];
+
+      operational.forEach((item, index) => {
+        const startCol = index * 3 + 1;
+        const endCol = startCol + 2;
+        worksheet.mergeCells(5, startCol, 5, endCol);
+        worksheet.mergeCells(6, startCol, 6, endCol);
+
+        const labelCell = worksheet.getCell(5, startCol);
+        labelCell.value = item[0];
+        labelCell.font = { name: "Arial", size: 8, bold: true, color: { argb: COLORS.white } };
+        labelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.navy } };
+        labelCell.alignment = { horizontal: "center", vertical: "middle" };
+        labelCell.border = thinBorder;
+
+        const valueCell = worksheet.getCell(6, startCol);
+        valueCell.value = item[1];
+        valueCell.font = { name: "Arial", size: 10, bold: true, color: { argb: COLORS.text } };
+        valueCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.white } };
+        valueCell.alignment = { horizontal: "center", vertical: "middle" };
+        valueCell.border = thinBorder;
+        if (index === 3) valueCell.numFmt = MONEY_FORMAT;
+      });
+      worksheet.getRow(5).height = 18;
+      worksheet.getRow(6).height = 18;
+
+      // KPIs: cuatro por fila, cada KPI ocupa tres columnas
+      const kpiStartRows = [8, 10];
+      data.kpis.forEach((kpi, index) => {
+        const group = Math.floor(index / 4);
+        const position = index % 4;
+        const labelRow = kpiStartRows[group];
+        const valueRow = labelRow + 1;
+        const startCol = position * 3 + 1;
+        const endCol = startCol + 2;
+
+        worksheet.mergeCells(labelRow, startCol, labelRow, endCol);
+        worksheet.mergeCells(valueRow, startCol, valueRow, endCol);
+
+        const labelCell = worksheet.getCell(labelRow, startCol);
+        labelCell.value = kpi.label;
+        labelCell.font = { name: "Arial", size: 8, bold: true, color: { argb: COLORS.muted } };
+        labelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.light } };
+        labelCell.alignment = { horizontal: "center", vertical: "middle" };
+        labelCell.border = thinBorder;
+
+        const valueCell = worksheet.getCell(valueRow, startCol);
+        valueCell.value = kpi.value;
+        valueCell.numFmt = MONEY_FORMAT;
+        valueCell.font = { name: "Arial", size: 12, bold: true, color: { argb: COLORS.text } };
+        valueCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.white } };
+        valueCell.alignment = { horizontal: "center", vertical: "middle" };
+        valueCell.border = thinBorder;
+      });
+      worksheet.getRow(8).height = 16;
+      worksheet.getRow(9).height = 18;
+      worksheet.getRow(10).height = 16;
+      worksheet.getRow(11).height = 18;
+
+      // Se deja únicamente la fila 12 como separación antes de Efectivizaciones.
+      worksheet.getRow(12).height = 8;
+      let nextRow = 13;
+
+      nextRow = addTableSection(worksheet, nextRow, {
+        title: "Efectivizaciones",
+        headers: ["Facturación", "Cod. Op.", "DNI", "Comunidad", "Cuenta", "Monto Cliente", "% Com.", "Comisión", "Ganancia", "Transferido", "Estado"],
+        rows: data.efectivizaciones,
+        numericColumns: [6, 8, 9, 10],
+        percentageColumns: [7],
+        totalColumns: [6, 8, 9, 10]
+      });
+
+      nextRow = addTableSection(worksheet, nextRow, {
+        title: "Pago Deuda",
+        headers: ["Código", "DNI", "Cliente", "Empresa Salida", "Cuenta", "Transferencia", "Empresa Ingreso", "Cuenta", "Devolución"],
+        rows: data.pagoDeuda,
+        numericColumns: [6, 9],
+        totalColumns: [6, 9]
+      });
+
+      nextRow = addTableSection(worksheet, nextRow, {
+        title: "POS",
+        headers: ["Facturación", "Cod. Op.", "DNI", "Comunidad", "Cuenta", "Monto Cliente", "% Com.", "Comisión", "Ganancia", "Transferido", "Estado"],
+        rows: data.pos,
+        numericColumns: [6, 8, 9, 10],
+        percentageColumns: [7],
+        totalColumns: [6, 8, 9, 10]
+      });
+
+      nextRow = addTableSection(worksheet, nextRow, {
+        title: "Movimientos",
+        headers: ["Origen", "Tipo", "DNI", "Detalle", "Ingreso", "Salida"],
+        rows: data.movimientos,
+        numericColumns: [5, 6],
+        totalColumns: [5, 6]
+      });
+
+      nextRow = addTableSection(worksheet, nextRow, {
+        title: "Pendientes",
+        headers: ["Servicio", "Facturación", "Cod. Op.", "DNI", "Comunidad", "Cuenta", "Monto Cliente", "% Com.", "Comisión", "Ganancia", "Transferido", "Estado"],
+        rows: data.pendientes,
+        numericColumns: [7, 9, 10, 11],
+        percentageColumns: [8],
+        totalColumns: [7, 9, 10, 11]
+      });
+
+      // Pie del documento
+      worksheet.mergeCells(nextRow, 1, nextRow, 12);
+      const footer = worksheet.getCell(nextRow, 1);
+      footer.value = `${data.company} · Altoque Perú WK · Reporte de Cierre de Caja`;
+      footer.font = { name: "Arial", size: 8, italic: true, color: { argb: COLORS.muted } };
+      footer.alignment = { horizontal: "left", vertical: "middle" };
+      worksheet.getRow(nextRow).height = 16;
+
+      // Unificar la tipografía de toda la Hoja1.
+      // Se mantienen negritas, colores, cursivas y fondos; únicamente
+      // se fuerza la misma familia y tamaño del detalle de los datatables.
+      worksheet.eachRow({ includeEmpty: true }, row => {
+        row.eachCell({ includeEmpty: true }, cell => {
+          cell.font = {
+            ...(cell.font || {}),
+            name: "Arial",
+            size: 8
+          };
+        });
+      });
+
+      // Área de impresión y repetición de cabecera en páginas impresas
+      worksheet.pageSetup.printArea = `A1:L${nextRow}`;
+      worksheet.pageSetup.printTitlesRow = "1:4";
+      worksheet.headerFooter.oddFooter = "&LAltoque Perú WK&C&P de &N&RReporte de cierre";
+
+      // Descargar archivo
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `reporte_cierre_caja_${data.bank}_${new Date().getTime()}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    const button = document.getElementById("downloadButton");
+    const message = document.getElementById("message");
+
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      button.textContent = "Generando Excel...";
+      message.textContent = "Preparando Hoja1 con todas las secciones.";
+
+      try {
+        await generateExcel(reportData);
+        message.textContent = "Excel generado correctamente.";
+      } catch (error) {
+        console.error(error);
+        message.textContent = error instanceof Error
+          ? error.message
+          : "No se pudo generar el archivo Excel.";
+      } finally {
+        button.disabled = false;
+        button.textContent = "Descargar reporte Excel";
+      }
+    });
+
+    /* ================================================================
+       EJEMPLO DE INTEGRACIÓN CON UNA API
+
+       async function loadAndDownload() {
+         const response = await fetch('/api/reportes/cierre-caja?idCaja=123');
+         if (!response.ok) throw new Error('No se pudo obtener el reporte');
+         const dataFromApi = await response.json();
+         await generateExcel(dataFromApi);
+       }
+       ================================================================ */
+  </script>
+</body>
+</html>

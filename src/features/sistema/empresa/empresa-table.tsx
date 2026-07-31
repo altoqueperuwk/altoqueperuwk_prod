@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/application/empty-state/empty-state";
 import { Button } from "@/components/base/buttons/button";
 import { Select } from "@/components/base/select/select";
 import { ChevronLeft, ChevronRight, Edit03, Check, ClockRewind } from "@untitledui/icons";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface EmpresaTableProps {
   data: Record<string, unknown>[];
@@ -30,14 +31,7 @@ export const EmpresaTable = ({
 }: EmpresaTableProps) => {
   const [editingRows, setEditingRows] = useState<Record<number, number>>({});
 
-  const estadoItems = useMemo(
-    () =>
-      (estados || []).map((e) => ({
-        id: e.id as string | number,
-        label: e.nombre as string,
-      })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   const getEstadoNombre = (idEstado: unknown) => {
     if (idEstado == null) return "-";

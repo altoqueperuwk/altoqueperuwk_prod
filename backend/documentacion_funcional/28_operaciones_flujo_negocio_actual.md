@@ -44,6 +44,8 @@ POS tiene dos momentos:
 1. En `/operaciones/pos`, el usuario registra la solicitud y selecciona banco/empresa/cuenta destino.
 2. En el banco destino, el tab `POS` atiende la transferencia y recien ahi se impacta caja.
 
+Cuando se marca como Pagado en el banco destino, `f_patch_tb_operacion_proceso_pagado` solo genera movimiento `SALIDA` (no `INGRESO`) porque no hay ingreso real desde la perspectiva del POS; la caja del banco destino registra la salida.
+
 Link Pago:
 
 - registra la operacion en `/operaciones/linkpago`;
@@ -80,11 +82,13 @@ Scotiabank y Banbif retienen ingresos por cuenta bancaria.
 
 La fuente de verdad es:
 
-- `tb_empresa_cuenta_bancaria.flag_retencion`
+- `tb_empresa_cuenta_bancaria.flag_retencion` (retencion total)
+- `tb_empresa_cuenta_bancaria.flag_retencion_parcial` (retencion parcial)
 
 Comportamiento:
 
-- Al cargar Excel/TXT en una cuenta con `flag_retencion = true`, la operacion queda con `flag_retenido = true`.
+- Al cargar Excel/TXT en una cuenta con `flag_retencion = true` o `flag_retencion_parcial = true`, la operacion queda con `flag_retenido = true`.
+- Ambos flags son mutuamente excluyentes (no pueden estar `true` simultaneamente), pero ambos pueden estar `false` (sin retencion).
 - La operacion sigue apareciendo en `Efectivizacion` mientras sea parte del flujo operativo.
 - Si la operacion retenida se marca como `Pagado`, no desaparece de `Efectivizacion > Todos` y tambien aparece en `Efectivizacion > Pagados`.
 - Tambien aparece en `Retenidos` hasta que se confirme manualmente.
@@ -94,7 +98,8 @@ Comportamiento:
 - El cierre de caja excluye el ingreso retenido pendiente.
 - Confirmar una retencion mueve el ingreso retenido a ingreso confirmado y recien suma a caja.
 - Confirmar una retencion solo apaga `flag_retenido`; no cambia el estado comercial de la operacion.
-- Las consultas operativas de Scotiabank/Banbif usan funciones separadas en `10.retenciones_scotiabank_banbif.sql`.
+- Las consultas operativas de Scotiabank/Banbif/SafetyPay usan funciones separadas en `10.retenciones_scotiabank_banbif.sql`.
+- Los tabs `Efectivizacion` y `Retenidos` filtran por `id_empresa_salida` (no `id_empresa_ingreso`), porque la empresa de salida es la que atiende la operacion. Esto permite que al usar `Emp. Salida`, la operacion se mueva al tab de la empresa destino.
 
 ### Trabajo real con retenciones
 

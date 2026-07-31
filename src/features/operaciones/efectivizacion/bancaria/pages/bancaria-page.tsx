@@ -1,18 +1,22 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { AppLayout } from "@/components/application/app-layout";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
-import { File06, File07, Settings01 } from "@untitledui/icons";
+import { File06, File07 } from "@untitledui/icons";
 import { cajaOperativaService } from "@/services/caja-operativa.service";
 import { CuentaTabs } from "@/features/operaciones/efectivizacion/shared/components/cuenta-tabs";
 import { EmpresaTabs } from "@/features/operaciones/efectivizacion/shared/components/empresa-tabs";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
-import { RouteConfigDrawer } from "@/features/operaciones/efectivizacion/shared/components/route-config-drawer";
+import { OperacionCajasRutaModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-cajas-ruta-modal";
+import { OperacionConfigDropdown } from "@/features/operaciones/efectivizacion/shared/components/operacion-config-dropdown";
+import { OperacionEmpresasModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-empresas-modal";
+import { OperacionReglasAbonoModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-reglas-abono-modal";
+import { OperacionReglasEfectivizacionModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-reglas-efectivizacion-modal";
 import { useActiveCompany } from "@/features/operaciones/efectivizacion/shared/hooks/use-active-company";
 import { useRouteCompanies } from "@/features/operaciones/efectivizacion/shared/hooks/use-route-companies";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
@@ -23,7 +27,7 @@ import { BancariaExcelUpload } from "@/features/operaciones/efectivizacion/banca
 import { BancariaInlineForms } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-inline-forms";
 import { BancariaKpiGrid } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-kpi-grid";
 import { BancariaOperationalTabs } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-operational-tabs";
-import { BancariaReporteCierrePdf } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-reporte-cierre-pdf";
+import { BancariaReporteCierrePdfOficial } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-reporte-cierre-pdf-oficial";
 import { BancariaTopActions } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-top-actions";
 import { useBancariaKpis } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-kpis";
 
@@ -35,8 +39,12 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const [refreshKey, setRefreshKey] = useState(0);
     const [metricsRefreshKey, setMetricsRefreshKey] = useState(0);
     const [downloadKey, setDownloadKey] = useState(0);
-    const [isConfigOpen, setIsConfigOpen] = useState(false);
+    const [isCajasOpen, setIsCajasOpen] = useState(false);
+    const [isEmpresasOpen, setIsEmpresasOpen] = useState(false);
+    const [isReglasAbonoOpen, setIsReglasAbonoOpen] = useState(false);
+    const [isReglasOpen, setIsReglasOpen] = useState(false);
     const [isClosing, setIsClosing] = useState(false);
+    const [isReopeningClose, setIsReopeningClose] = useState(false);
     const [selectedHistoryDate, setSelectedHistoryDate] = useState<string | null>(null);
     const [isHistoryDateAvailable, setIsHistoryDateAvailable] = useState(true);
     const [isEditCajaOpen, setIsEditCajaOpen] = useState(false);
@@ -46,12 +54,14 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const [isSavingCaja, setIsSavingCaja] = useState(false);
     const [isDownloadOpen, setIsDownloadOpen] = useState(false);
     const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
+    const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
+    const [todayCloseDateKey, setTodayCloseDateKey] = useState<string | null>(null);
     const [reporteData, setReporteData] = useState<Record<string, unknown> | null>(null);
     const [isLoadingReporte, setIsLoadingReporte] = useState(false);
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const routeLabel = getRutaLabel(ruta);
-    const { data: cajas, error: companiesError, isLoading: isLoadingCompanies } = useRouteCompanies(ruta);
+    const { data: cajas, error: companiesError, isLoading: isLoadingCompanies } = useRouteCompanies(ruta, refreshKey);
     const {
         activeAccountId,
         activeCajaId,
@@ -77,14 +87,44 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     );
     const isActiveDigitalWallet = isDigitalWalletBank(activeCompanyCaja);
 
-    const handleOpenDownload = async () => {
-        const cajaId = activeCajaIds[0];
+    useEffect(() => {
+        let ignore = false;
+        const cajaId = activeCajaId;
+
         if (!cajaId) {
-            addToast("error", "La empresa activa no tiene caja operativa configurada.");
+            setTodayCloseDateKey(null);
             return;
         }
 
-        setIsDownloadOpen(true);
+        operacionesRpcService
+            .getCajaCierres({ p_id_caja: cajaId })
+            .then((rows) => {
+                if (ignore) return;
+                const today = new Date();
+                const todayKey = [
+                    today.getFullYear(),
+                    String(today.getMonth() + 1).padStart(2, "0"),
+                    String(today.getDate()).padStart(2, "0"),
+                ].join("-");
+                const hasTodayClose = (rows ?? []).some((row) => String(row.fecha_cierre ?? "").slice(0, 10) === todayKey);
+                setTodayCloseDateKey(hasTodayClose ? todayKey : null);
+            })
+            .catch(() => {
+                if (!ignore) setTodayCloseDateKey(null);
+            });
+
+        return () => {
+            ignore = true;
+        };
+    }, [activeCajaId, refreshKey, metricsRefreshKey]);
+
+    const loadReporteData = async () => {
+        const cajaId = activeCajaIds[0];
+        if (!cajaId) {
+            addToast("error", "La empresa activa no tiene caja operativa configurada.");
+            return null;
+        }
+
         setIsLoadingReporte(true);
         try {
             const data = await operacionesRpcService.getReporteCierre({
@@ -94,36 +134,264 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 p_fecha_cierre: selectedHistoryDate || undefined,
             });
             setReporteData(data);
+            return data as Record<string, unknown>;
         } catch {
             addToast("error", "Error al cargar los datos del reporte.");
-            setIsDownloadOpen(false);
+            return null;
         } finally {
             setIsLoadingReporte(false);
         }
     };
 
-    const handleDownloadExcel = () => {
-        if (!reporteData) return;
-        const data = reporteData as Record<string, unknown>;
-        const wb = XLSX.utils.book_new();
+    const handleDownloadExcel = async (reportDataOverride?: Record<string, unknown> | null) => {
+        const data = reportDataOverride ?? reporteData;
+        if (!data) return;
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = "Altoque Peru WK";
+        workbook.created = new Date();
+        const worksheet = workbook.addWorksheet("Hoja1", {
+            pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+            properties: { defaultRowHeight: 18 },
+        });
 
-        const addSheet = (name: string, rows: Record<string, unknown>[]) => {
-            if (!rows.length) return;
-            const ws = XLSX.utils.json_to_sheet(rows);
-            XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+        const colors = {
+            navy: "1E2A38",
+            navySoft: "2D3F52",
+            gold: "D9BE8C",
+            paper: "F4F6F9",
+            line: "E5E7EB",
+            row: "F8FAFC",
+            white: "FFFFFF",
+            ink: "1E2A38",
+            muted: "64748B",
+            green: "10B981",
+            coral: "F0654B",
+        };
+        const money = (value: unknown) => Number(value ?? 0);
+        const text = (value: unknown) => value === null || value === undefined || value === "" ? "-" : String(value);
+        const percent = (value: unknown) => `${new Intl.NumberFormat("es-PE", { maximumFractionDigits: 2 }).format(money(value))}%`;
+        const date = (value: unknown) => value ? new Date(String(value)).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" }) : "-";
+        const reportFileName = getReportFileName(data).replace(/\.pdf$/i, ".xlsx");
+        const kpi = (data.kpi ?? {}) as Record<string, number>;
+        const efectivizacion = ((data.efectivizacion as Record<string, unknown>[]) ?? []);
+        const pagoDeuda = ((data.pago_deuda as Record<string, unknown>[]) ?? []);
+        const pos = ((data.pos as Record<string, unknown>[]) ?? []);
+        const totalRows = efectivizacion.length + pagoDeuda.length + pos.length;
+
+        worksheet.columns = [
+            { width: 13 }, { width: 12 }, { width: 12 }, { width: 13 },
+            { width: 13 }, { width: 11 }, { width: 13 }, { width: 12 },
+            { width: 12 }, { width: 14 }, { width: 11 }, { width: 11 },
+        ];
+        worksheet.views = [{ showGridLines: false }];
+
+        const styleCell = (cell: ExcelJS.Cell, options: { bold?: boolean; size?: number; color?: string; bg?: string; align?: "left" | "center" | "right" } = {}) => {
+            cell.font = { name: "Arial", size: options.size ?? 8, bold: options.bold ?? false, color: { argb: options.color ?? "1E2A38" } };
+            cell.alignment = { horizontal: options.align ?? "left", vertical: "middle", wrapText: true };
+            cell.border = {
+                top: { style: "thin", color: { argb: colors.line } },
+                left: { style: "thin", color: { argb: colors.line } },
+                bottom: { style: "thin", color: { argb: colors.line } },
+                right: { style: "thin", color: { argb: colors.line } },
+            };
+            if (options.bg) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: options.bg } };
         };
 
-        addSheet("Efectivizaciones", (data.efectivizacion as Record<string, unknown>[]) ?? []);
-        addSheet("Pago Deuda", (data.pago_deuda as Record<string, unknown>[]) ?? []);
-        addSheet("Movimientos", (data.movimientos as Record<string, unknown>[]) ?? []);
-        addSheet("Retenciones", (data.retenciones as Record<string, unknown>[]) ?? []);
+        const mergeAndStyle = (
+            row: number,
+            startCol: number,
+            endCol: number,
+            value: string | number,
+            options: { bold?: boolean; size?: number; color?: string; bg?: string; align?: "left" | "center" | "right"; numFmt?: string } = {},
+        ) => {
+            worksheet.mergeCells(row, startCol, row, endCol);
+            const cell = worksheet.getCell(row, startCol);
+            cell.value = value;
+            styleCell(cell, options);
+            if (options.numFmt) cell.numFmt = options.numFmt;
+            worksheet.getRow(row).height = 15;
+            return cell;
+        };
 
-        XLSX.writeFile(wb, `Reporte_${activeCompanyCaja?.nombre_empresa ?? activeCompany?.nombre_empresa ?? "Caja"}_${activeCompanyCaja?.nombre_banco ?? routeLabel}.xlsx`);
-        setIsDownloadOpen(false);
+        const generatedAt = new Date().toLocaleString("es-PE", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+
+        mergeAndStyle(1, 1, 12, "ALTOQUE PERU WK", { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+        mergeAndStyle(2, 1, 12, "Reporte de Cierre de Caja", { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+        mergeAndStyle(3, 1, 12, `Fecha: ${generatedAt}`, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+        mergeAndStyle(4, 1, 12, `Empresa: ${String(data.empresa ?? "Empresa").toUpperCase()}`, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+        mergeAndStyle(5, 1, 12, `Cuenta: ${String(data.banco ?? routeLabel).toUpperCase()}`, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+
+        let nextRow = 7;
+        const kpiRows = [
+            ["Caja Inicial", kpi.caja_inicial],
+            ["Caja Actual", kpi.caja_actual],
+            ["Caja Recaudacion", kpi.total_recaudado],
+            ["Ingresos", kpi.ingresos],
+            ["Salidas", kpi.salidas],
+            ["Gastos Operacionales", kpi.gastos_operacionales],
+            ["Ganancias", kpi.ganancias],
+            ["Retencion Recaudacion", kpi.ingresos_retenidos],
+        ];
+        kpiRows.forEach(([label, value], index) => {
+            const rowIndex = nextRow + Math.floor(index / 4) * 2;
+            const colIndex = (index % 4) * 3 + 1;
+            mergeAndStyle(rowIndex, colIndex, colIndex + 2, String(label), { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+            mergeAndStyle(rowIndex + 1, colIndex, colIndex + 2, money(value), {
+                bold: true,
+                size: 8,
+                bg: colors.white,
+                color: ["Salidas", "Gastos Operacionales"].includes(String(label)) ? colors.coral : colors.green,
+                numFmt: '"S/ "#,##0.00',
+            });
+        });
+        nextRow += 5;
+
+        const addSection = (
+            sectionTitle: string,
+            headers: string[],
+            rows: Array<Array<string | number>>,
+            totalIndexes: number[],
+        ) => {
+            if (!rows.length) return;
+            const sectionRow = worksheet.getRow(nextRow);
+            sectionRow.height = 15;
+            const sectionTitleCell = sectionRow.getCell(1);
+            sectionTitleCell.value = sectionTitle;
+            styleCell(sectionTitleCell, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+            const sectionCountCell = sectionRow.getCell(2);
+            sectionCountCell.value = `Total: ${rows.length}`;
+            styleCell(sectionCountCell, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+            nextRow += 1;
+
+            const headerRow = worksheet.getRow(nextRow);
+            headerRow.height = 15;
+            headers.forEach((header, index) => {
+                const cell = headerRow.getCell(index + 1);
+                cell.value = header;
+                styleCell(cell, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+            });
+            nextRow += 1;
+
+            rows.forEach((values, rowIndex) => {
+                const row = worksheet.getRow(nextRow);
+                row.height = 15;
+                values.forEach((value, index) => {
+                    const cell = row.getCell(index + 1);
+                    cell.value = value;
+                    if (typeof value === "number") cell.numFmt = '"S/ "#,##0.00';
+                    styleCell(cell, { bg: rowIndex % 2 === 1 ? colors.row : colors.white });
+                });
+                nextRow += 1;
+            });
+
+            const totalRow = worksheet.getRow(nextRow);
+            totalRow.height = 15;
+            totalRow.getCell(1).value = "Totales";
+            styleCell(totalRow.getCell(1), { bold: true, bg: colors.row });
+            totalIndexes.forEach((index) => {
+                const total = rows.reduce((acc, row) => acc + (typeof row[index] === "number" ? Number(row[index]) : 0), 0);
+                const cell = totalRow.getCell(index + 1);
+                cell.value = total;
+                cell.numFmt = '"S/ "#,##0.00';
+                styleCell(cell, { bold: true, bg: colors.row });
+            });
+            for (let i = 2; i <= headers.length; i += 1) {
+                if (!totalIndexes.includes(i - 1)) styleCell(totalRow.getCell(i), { bg: colors.row });
+            }
+            nextRow += 2;
+        };
+
+        addSection(
+            "Efectivizacion",
+            ["Facturacion", "Operacion", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"],
+            efectivizacion.map((row) => [
+                text(row.facturacion ?? row.tipo_facturacion),
+                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
+                text(row.dni ?? row.dni_cliente),
+                text(row.comunidad ?? row.nombre_comunidad),
+                money(row.deposito ?? row.monto),
+                percent(row.porcentaje_comision ?? row.comision_servicio),
+                money(row.soles_comision ?? row.comision),
+                money(row.gastos),
+                money(row.ganancia),
+                money(row.transferencia),
+                text(row.estado ?? row.nombre_estado),
+                date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro),
+            ]),
+            [4, 6, 7, 8, 9],
+        );
+
+        addSection(
+            "Pago de Deuda",
+            ["Operacion", "DNI", "Empresa", "Cuenta", "Transferencia", "Empresa", "Cuenta", "Deposito", "% Comision", "S/ Comision", "Estado", "Fecha"],
+            pagoDeuda.map((row) => [
+                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
+                text(row.dni ?? row.dni_cliente),
+                text(row.empresa_salida ?? row.nombre_empresa_salida),
+                text(row.cuenta_salida ?? row.cuenta),
+                money(row.transferencia ?? row.monto_transferencia),
+                text(row.empresa_ingreso ?? row.nombre_empresa_ingreso),
+                text(row.cuenta_ingreso),
+                money(row.deposito ?? row.monto_devolucion),
+                percent(row.porcentaje_comision ?? row.comision_servicio),
+                money(row.soles_comision),
+                text(row.estado ?? row.nombre_estado),
+                date(row.fecha ?? row.fecha_registro),
+            ]),
+            [4, 7, 9],
+        );
+
+        addSection(
+            "POS",
+            ["Operacion", "DNI", "Empresa", "Cuenta", "Deposito", "% Comision", "S/ Comision", "Transferencia", "Estado", "Fecha"],
+            pos.map((row) => [
+                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
+                text(row.dni ?? row.dni_cliente),
+                text(row.empresa),
+                text(row.cuenta),
+                money(row.deposito),
+                percent(row.porcentaje_comision),
+                money(row.soles_comision),
+                money(row.transferencia),
+                text(row.estado ?? row.nombre_estado),
+                date(row.fecha ?? row.fecha_registro),
+            ]),
+            [4, 6, 7],
+        );
+
+        if (!totalRows) {
+            worksheet.mergeCells(nextRow, 1, nextRow, 12);
+            const empty = worksheet.getCell(nextRow, 1);
+            empty.value = "Sin operaciones para este periodo.";
+            styleCell(empty, { bg: colors.white, color: colors.muted, align: "center" });
+            nextRow += 1;
+        }
+
+        worksheet.mergeCells(nextRow, 1, nextRow, 12);
+        const footer = worksheet.getCell(nextRow, 1);
+        footer.value = `${data.empresa ?? "Empresa"} - Altoque Peru WK - Reporte de Cierre de Caja`;
+        styleCell(footer, { size: 8, color: colors.muted, bg: colors.paper });
+
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = reportFileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
     };
 
-    const getReportFileName = () => {
-        const data = (reporteData ?? {}) as Record<string, unknown>;
+    const getReportFileName = (reportDataOverride?: Record<string, unknown> | null) => {
+        const data = (reportDataOverride ?? reporteData ?? {}) as Record<string, unknown>;
         const normalizePart = (value: unknown, fallback: string) => String(value || fallback)
             .normalize("NFD")
             .replace(/[\u0300-\u036f]/g, "")
@@ -145,45 +413,65 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         return `${normalizePart(data.empresa, activeCompany?.nombre_empresa ?? "empresa")}_${normalizePart(data.banco, routeLabel)}_${datePart}.pdf`;
     };
 
-    const handleDownloadPdf = () => {
-        setIsDownloadOpen(false);
-        const win = window.open("", "_blank");
-        if (!win || !reporteData) return;
-        const reportFileName = getReportFileName();
+    const handleDownloadPdf = async (reportDataOverride?: Record<string, unknown> | null) => {
+        const data = reportDataOverride ?? reporteData;
+        if (!data) return;
+        const reportFileName = getReportFileName(data);
 
-        win.document.write(`
-            <!DOCTYPE html>
-            <html>
-                <head>
-                    <meta charset="utf-8">
-                    <title>${reportFileName}</title>
-                    <style>
-                        @page { size: A4 portrait; margin: 10mm; }
-                        html, body {
-                            margin: 0;
-                            padding: 0;
-                            background: #ffffff;
-                            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-                        }
-                        * { box-sizing: border-box; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-                    </style>
-                </head>
-                <body>
-                    <div id="reporte-root"></div>
-                </body>
-            </html>
-        `);
-        win.document.close();
+        let host: HTMLDivElement | null = null;
+        let root: ReturnType<typeof createRoot> | null = null;
+        try {
+            const html2pdf = (await import("html2pdf.js")).default;
+            if (!document.getElementById("reporte-cierre-pdf-font")) {
+                const style = document.createElement("style");
+                style.id = "reporte-cierre-pdf-font";
+                style.textContent = "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');";
+                document.head.appendChild(style);
+            }
 
-        const root = createRoot(win.document.getElementById("reporte-root")!);
-        root.render(<BancariaReporteCierrePdf data={reporteData as never} />);
+            host = document.createElement("div");
+            host.style.position = "absolute";
+            host.style.left = "0";
+            host.style.top = "0";
+            host.style.width = "794px";
+            host.style.margin = "0";
+            host.style.background = "#FFFFFF";
+            host.style.pointerEvents = "none";
+            host.style.zIndex = "-1";
+            document.body.appendChild(host);
 
-        win.focus();
-        setTimeout(() => {
-            win.print();
-            root.unmount();
-            win.close();
-        }, 600);
+            root = createRoot(host);
+            root.render(<BancariaReporteCierrePdfOficial data={data as never} />);
+
+            await new Promise((resolve) => window.setTimeout(resolve, 350));
+            if (document.fonts?.ready) await document.fonts.ready;
+
+            const reportElement = host.querySelector(".report-container") ?? host;
+
+            await html2pdf()
+                .set({
+                    margin: [0, 0, 0, 0],
+                    filename: reportFileName,
+                    image: { type: "jpeg", quality: 0.98 },
+                    html2canvas: {
+                        scale: 3,
+                        useCORS: true,
+                        backgroundColor: "#FFFFFF",
+                        scrollY: 0,
+                        windowWidth: 794,
+                        windowHeight: Math.max(reportElement.scrollHeight, 1123),
+                    },
+                    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+                    pagebreak: { mode: ["css", "legacy"], avoid: [".cover", ".kpi-card", ".section-header"] },
+                })
+                .from(reportElement)
+                .save();
+        } catch {
+            addToast("error", "No se pudo generar el PDF.");
+        } finally {
+            root?.unmount();
+            host?.remove();
+        }
     };
 
     const companyName = activeCompanyCaja?.nombre_empresa ?? activeCompany?.nombre_empresa ?? "Empresa";
@@ -279,6 +567,48 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         }
     };
 
+    const handleReopenClose = () => {
+        if (!activeCompanyCaja?.id_caja) {
+            addToast("error", "La cuenta activa no tiene caja operativa configurada.");
+            return;
+        }
+
+        setIsReopenConfirmOpen(true);
+    };
+
+    const handleConfirmReopenClose = async () => {
+        setIsReopenConfirmOpen(false);
+        setIsReopeningClose(true);
+
+        try {
+            await operacionesRpcService.deleteUltimoCierreCajaDia({
+                p_id_caja: activeCompanyCaja?.id_caja,
+                p_id_usuario: userId,
+            });
+
+            await operacionesRpcService.syncRutaKpiCaja(ruta, userId);
+            setSelectedHistoryDate(null);
+            setRefreshKey((value) => value + 1);
+            setMetricsRefreshKey((value) => value + 1);
+            addToast("success", "Ultimo cierre reabierto correctamente.");
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Error al reabrir el cierre.";
+            addToast("error", message);
+        } finally {
+            setIsReopeningClose(false);
+        }
+    };
+
+    const handleDownloadExcelOption = async () => {
+        const data = await loadReporteData();
+        if (data) await handleDownloadExcel(data);
+    };
+
+    const handleDownloadPdfOption = async () => {
+        const data = await loadReporteData();
+        if (data) await handleDownloadPdf(data);
+    };
+
     return (
         <AppLayout>
             <div className="flex flex-col gap-5">
@@ -286,17 +616,27 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     <BancariaTopActions
                         activeCajaIds={activeCajaIds}
                         activeCompany={activeCompanyCaja ?? activeCompany}
+                        canReopenTodayClose={Boolean(activeCompanyCaja?.id_caja && selectedHistoryDate && selectedHistoryDate === todayCloseDateKey)}
                         isClosing={isClosing}
+                        isReopening={isReopeningClose}
                         selectedHistoryDate={selectedHistoryDate}
-                        onEditCaja={handleOpenEditCaja}
                         onCloseRoute={handleCloseRoute}
                         onHistoryDateChange={setSelectedHistoryDate}
                         onHistoryDateAvailabilityChange={setIsHistoryDateAvailable}
-                        onDownload={handleOpenDownload}
+                        onReopenTodayClose={handleReopenClose}
+                        onDownloadExcel={() => void handleDownloadExcelOption()}
+                        onDownloadPdf={() => void handleDownloadPdfOption()}
+                        isDownloading={isLoadingReporte}
                     />
-                    <Button size="sm" color="primary" iconLeading={Settings01} onClick={() => setIsConfigOpen(true)}>
-                        Configuracion
-                    </Button>
+                    <OperacionConfigDropdown
+                        onOpenCajas={() => setIsCajasOpen(true)}
+                        onOpenEmpresas={() => setIsEmpresasOpen(true)}
+                        onOpenReglasAbono={() => setIsReglasAbonoOpen(true)}
+                        onOpenReglas={() => setIsReglasOpen(true)}
+                        showCajas
+                        showEmpresas
+                        showReglasAbono
+                    />
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -362,13 +702,43 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     />
                 )}
 
-                <RouteConfigDrawer
-                    activeCompany={activeCompany}
-                    cajas={cajas}
-                    isOpen={isConfigOpen}
-                    onClose={() => setIsConfigOpen(false)}
-                    ruta={ruta}
-                />
+                {isReglasOpen && (
+                    <OperacionReglasEfectivizacionModal
+                        activeCompany={activeCompanyCaja ?? activeCompany}
+                        isOpen={isReglasOpen}
+                        onClose={() => setIsReglasOpen(false)}
+                        onSaved={() => setRefreshKey((value) => value + 1)}
+                        ruta={ruta}
+                    />
+                )}
+
+                {isReglasAbonoOpen && (
+                    <OperacionReglasAbonoModal
+                        activeCompanyCaja={activeCompanyCaja ?? activeCompany}
+                        isOpen={isReglasAbonoOpen}
+                        onClose={() => setIsReglasAbonoOpen(false)}
+                        onSaved={() => setRefreshKey((value) => value + 1)}
+                        ruta={ruta}
+                    />
+                )}
+
+                {isEmpresasOpen && (
+                    <OperacionEmpresasModal
+                        isOpen={isEmpresasOpen}
+                        onClose={() => setIsEmpresasOpen(false)}
+                        onSaved={() => setRefreshKey((value) => value + 1)}
+                        ruta={ruta}
+                    />
+                )}
+
+                {isCajasOpen && (
+                    <OperacionCajasRutaModal
+                        isOpen={isCajasOpen}
+                        onClose={() => setIsCajasOpen(false)}
+                        onSaved={() => setRefreshKey((value) => value + 1)}
+                        ruta={ruta}
+                    />
+                )}
 
                 <ModalOverlay isOpen={isEditCajaOpen} onOpenChange={(open) => !open && setIsEditCajaOpen(false)}>
                     <Modal className="max-w-sm">
@@ -405,7 +775,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     </Modal>
                 </ModalOverlay>
 
-                <ModalOverlay isOpen={isDownloadOpen} onOpenChange={(open) => !open && setIsDownloadOpen(false)}>
+                <ModalOverlay isOpen={false} onOpenChange={(open) => !open && setIsDownloadOpen(false)}>
                     <Modal className="max-w-xs">
                         <Dialog>
                             <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
@@ -447,6 +817,17 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     onClose={() => setIsCloseConfirmOpen(false)}
                     onConfirm={() => void handleConfirmCloseRoute()}
                     title="Confirmar cierre de caja"
+                />
+
+                <OperacionConfirmModal
+                    confirmLabel="Reabrir"
+                    description="Se reabrira el ultimo cierre de hoy y la caja volvera al estado anterior al cierre."
+                    intent="destructive"
+                    isLoading={isReopeningClose}
+                    isOpen={isReopenConfirmOpen}
+                    onClose={() => setIsReopenConfirmOpen(false)}
+                    onConfirm={() => void handleConfirmReopenClose()}
+                    title="Reabrir ultimo cierre"
                 />
 
             </div>

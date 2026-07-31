@@ -68,10 +68,9 @@ const excelHeaderConfig: Record<`/operaciones/${OperacionRutaBancaria}`, HeaderA
     },
     "/operaciones/safetypay": {
         dni: ["Nro. Documento", "Nro Documento"],
-        monto: ["Importe de la venta", "Monto"],
-        codigo_operacion: ["Id. de transaccion", "Id. de transacción", "Transaccion", "Transacción", "Transaction id"],
-        fecha_pago: ["Fecha", "Fecha de Creacion", "Fecha de Creación"],
-        nombre_cliente_banco_ingreso: ["Nombre del banco de pago", "Nombre del Banco"],
+        monto: ["Importe"],
+        codigo_operacion: ["Id. de operación"],
+        fecha_pago: ["Fecha"],
         estado: ["Estado"],
     },
 };
@@ -423,7 +422,7 @@ export const buildExcelRowsFromMatrix = (matrix: unknown[][], match: HeaderMatch
             codigo_operacion: getValue(match.idxCodigoOperacion, offset),
             fecha_pago: fechaPago,
             hora_proceso: getValue(match.idxHoraProceso, offset),
-            nombre_cliente_banco_ingreso: getValue(match.idxBancoIngreso, offset),
+            nombre_cliente_banco_ingreso: path === "/operaciones/safetypay" ? "CMR Falabella" : getValue(match.idxBancoIngreso, offset),
             estado,
         });
     }

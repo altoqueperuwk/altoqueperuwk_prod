@@ -9,6 +9,7 @@ import { Plus, Trash01, X, Check } from "@untitledui/icons";
 import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { bancoService } from "@/services/banco.service";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface BancoPopupProps {
   isOpen: boolean;
@@ -46,10 +47,7 @@ export const BancoPopup = ({ isOpen, onClose, onSave, item }: BancoPopupProps) =
   const [idEstado, setIdEstado] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
 
-  const estadoItems = useMemo(
-    () => (estados || []).map((e) => ({ id: e.id as string | number, label: e.nombre as string })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   useEffect(() => {
     if (isOpen) {

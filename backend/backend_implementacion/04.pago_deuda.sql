@@ -3,10 +3,169 @@
 -- ============================================================================
 
 /*
+Tabla: tb_pago_deuda_empresa_comision
+Objetivo:
+  Configurar que cuentas empresariales pueden recibir el deposito de comision
+  del flujo Pago Deuda y con que billetera digital se presentan al usuario.
+*/
+CREATE TABLE IF NOT EXISTS public.tb_pago_deuda_empresa_comision (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_empresa bigint NOT NULL,
+  id_empresa_cuenta_bancaria bigint NOT NULL,
+  billetera_digital character varying,
+  flag_deposito_comision boolean NOT NULL DEFAULT false,
+  id_estado bigint NOT NULL DEFAULT 1,
+  id_usuario bigint,
+  fecha_registro timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT tb_pago_deuda_empresa_comision_pkey PRIMARY KEY (id),
+  CONSTRAINT tb_pago_deuda_empresa_comision_fk_empresa FOREIGN KEY (id_empresa) REFERENCES public.tb_empresa(id),
+  CONSTRAINT tb_pago_deuda_empresa_comision_fk_cuenta FOREIGN KEY (id_empresa_cuenta_bancaria) REFERENCES public.tb_empresa_cuenta_bancaria(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS tb_pago_deuda_empresa_comision_uk_cuenta
+ON public.tb_pago_deuda_empresa_comision (id_empresa_cuenta_bancaria);
+
+/*
+Funcion: f_get_tb_pago_deuda_empresa_comision
+Objetivo:
+  Listar cuentas empresariales con su configuracion para deposito de comision
+  de Pago Deuda. Incluye cuentas sin configuracion para permitir activarlas.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_empresa_comision(
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_flag_deposito_comision boolean DEFAULT NULL,
+  p_id_estado bigint DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT jsonb_build_object(
+    'id', cfg.id,
+    'id_empresa', e.id,
+    'empresa_nombre', e.nombre,
+    'id_empresa_cuenta_bancaria', ecb.id,
+    'id_banco', b.id,
+    'banco_nombre', b.nombre,
+    'billetera_digital', cfg.billetera_digital,
+    'flag_deposito_comision', COALESCE(cfg.flag_deposito_comision, false),
+    'id_estado', COALESCE(cfg.id_estado, 1),
+    'id_usuario', cfg.id_usuario,
+    'fecha_registro', cfg.fecha_registro
+  )
+  FROM public.tb_empresa_cuenta_bancaria ecb
+  JOIN public.tb_empresa e ON e.id = ecb.id_empresa
+  JOIN public.tb_banco b ON b.id = ecb.id_banco
+  LEFT JOIN public.tb_pago_deuda_empresa_comision cfg
+    ON cfg.id_empresa_cuenta_bancaria = ecb.id
+  WHERE e.id_estado = 1
+    AND ecb.id_estado = 1
+    AND (p_id_empresa IS NULL OR e.id = p_id_empresa)
+    AND (p_id_empresa_cuenta_bancaria IS NULL OR ecb.id = p_id_empresa_cuenta_bancaria)
+    AND (p_flag_deposito_comision IS NULL OR COALESCE(cfg.flag_deposito_comision, false) = p_flag_deposito_comision)
+    AND (p_id_estado IS NULL OR COALESCE(cfg.id_estado, 1) = p_id_estado)
+  ORDER BY e.nombre, b.nombre, ecb.id;
+$$;
+
+/*
+Funcion: f_patch_tb_pago_deuda_empresa_comision
+Objetivo:
+  Crear o actualizar la configuracion de deposito de comision de una cuenta.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_empresa_comision(
+  p_id_empresa bigint,
+  p_id_empresa_cuenta_bancaria bigint,
+  p_billetera_digital character varying DEFAULT NULL,
+  p_flag_deposito_comision boolean DEFAULT false,
+  p_id_estado bigint DEFAULT 1,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_billetera character varying;
+  v_result jsonb;
+BEGIN
+  IF p_id_empresa IS NULL OR p_id_empresa_cuenta_bancaria IS NULL THEN
+    RETURN jsonb_build_object('error', 'Empresa y cuenta son requeridas.');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.tb_empresa_cuenta_bancaria ecb
+    JOIN public.tb_empresa e ON e.id = ecb.id_empresa
+    WHERE ecb.id = p_id_empresa_cuenta_bancaria
+      AND ecb.id_empresa = p_id_empresa
+      AND ecb.id_estado = 1
+      AND e.id_estado = 1
+  ) THEN
+    RETURN jsonb_build_object('error', 'Cuenta empresarial no encontrada o inactiva.');
+  END IF;
+
+  v_billetera := NULLIF(BTRIM(COALESCE(p_billetera_digital, '')), '');
+
+  IF v_billetera IS NOT NULL THEN
+    v_billetera := CASE
+      WHEN UPPER(v_billetera) = 'QR' THEN 'QR'
+      ELSE INITCAP(LOWER(v_billetera))
+    END;
+  END IF;
+
+  IF COALESCE(p_flag_deposito_comision, false) = true
+     AND UPPER(COALESCE(v_billetera, '')) NOT IN ('YAPE', 'PLIN', 'QR') THEN
+    RETURN jsonb_build_object('error', 'Selecciona una billetera digital valida: Yape, Plin o QR.');
+  END IF;
+
+  INSERT INTO public.tb_pago_deuda_empresa_comision (
+    id_empresa,
+    id_empresa_cuenta_bancaria,
+    billetera_digital,
+    flag_deposito_comision,
+    id_estado,
+    id_usuario
+  )
+  VALUES (
+    p_id_empresa,
+    p_id_empresa_cuenta_bancaria,
+    v_billetera,
+    COALESCE(p_flag_deposito_comision, false),
+    COALESCE(p_id_estado, 1),
+    p_id_usuario
+  )
+  ON CONFLICT (id_empresa_cuenta_bancaria) DO UPDATE
+  SET id_empresa = EXCLUDED.id_empresa,
+      billetera_digital = EXCLUDED.billetera_digital,
+      flag_deposito_comision = EXCLUDED.flag_deposito_comision,
+      id_estado = EXCLUDED.id_estado,
+      id_usuario = EXCLUDED.id_usuario,
+      fecha_registro = now();
+
+  SELECT x
+  INTO v_result
+  FROM public.f_get_tb_pago_deuda_empresa_comision(
+    p_id_empresa_cuenta_bancaria := p_id_empresa_cuenta_bancaria
+  ) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
+/*
 Funcion: f_get_tb_pago_deuda
 Objetivo:
   Listar solo solicitudes raiz para `/operaciones/pagodeuda`. La atencion
   bancaria se consulta desde la fila hija en las rutas de efectivizacion.
+
+Regla de fecha:
+  - muestra solicitudes registradas dentro del dia consultado;
+  - si el dia consultado es hoy, arrastra solicitudes anteriores no pagadas
+    para que no desaparezcan de la bandeja operativa;
+  - si el dia consultado es historico, muestra solo solicitudes Pagado.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda(
   p_id bigint DEFAULT NULL,
@@ -64,12 +223,113 @@ BEGIN
     AND (p_dni_cliente IS NULL OR op.dni_cliente ILIKE '%' || p_dni_cliente || '%')
     AND (p_id_estado IS NULL OR op.id_estado = p_id_estado)
     AND (p_codigo_operacion IS NULL OR op.codigo_operacion_deposito_cliente ILIKE '%' || p_codigo_operacion || '%')
-    AND (p_fecha_desde IS NULL OR op.fecha_registro >= p_fecha_desde)
-    AND (p_fecha_hasta IS NULL OR op.fecha_registro <= p_fecha_hasta)
+    AND (
+      (p_fecha_desde IS NULL AND p_fecha_hasta IS NULL)
+      OR (
+        COALESCE(p_fecha_hasta, p_fecha_desde) IS NOT NULL
+        AND (COALESCE(p_fecha_hasta, p_fecha_desde) AT TIME ZONE 'America/Lima')::date = (now() AT TIME ZONE 'America/Lima')::date
+        AND (
+          (
+            (p_fecha_desde IS NULL OR op.fecha_registro >= p_fecha_desde)
+            AND (p_fecha_hasta IS NULL OR op.fecha_registro <= p_fecha_hasta)
+          )
+          OR (
+            UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PAGADO'
+            AND (p_fecha_hasta IS NULL OR op.fecha_registro <= p_fecha_hasta)
+          )
+        )
+      )
+      OR (
+        COALESCE(p_fecha_hasta, p_fecha_desde) IS NOT NULL
+        AND (COALESCE(p_fecha_hasta, p_fecha_desde) AT TIME ZONE 'America/Lima')::date <> (now() AT TIME ZONE 'America/Lima')::date
+        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+        AND (p_fecha_desde IS NULL OR op.fecha_registro >= p_fecha_desde)
+        AND (p_fecha_hasta IS NULL OR op.fecha_registro <= p_fecha_hasta)
+      )
+    )
     AND (p_id_usuario_gestor IS NULL OR op.id_usuario_gestor = p_id_usuario_gestor)
     AND (p_id_usuario_solicitud IS NULL OR op.id_usuario_solicitud = p_id_usuario_solicitud)
   ORDER BY op.id DESC;
 END;
+$$;
+
+/*
+Funcion: f_get_tb_pago_deuda_kpi
+Objetivo:
+  Consultar KPIs informativos de Pago Deuda por fecha de registro. No depende
+  de caja operativa ni de cierre. Las solicitudes pendientes de dias previos se
+  arrastran solo cuando se consulta el dia actual. En historico solo cuenta
+  solicitudes Pagado.
+*/
+DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_kpi(timestamp with time zone, timestamp with time zone);
+
+CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_kpi(
+  p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
+  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL
+)
+RETURNS TABLE (
+  total_operaciones_pendientes integer,
+  total_operaciones_pagados integer,
+  monto_solicitados numeric,
+  comisiones numeric,
+  monto_devueltos numeric
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT
+    COUNT(*) FILTER (
+      WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PAGADO'
+    )::integer AS total_operaciones_pendientes,
+    COUNT(*) FILTER (
+      WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+    )::integer AS total_operaciones_pagados,
+    COALESCE(SUM(COALESCE(op.monto_deposito_cliente, 0)), 0)::numeric AS monto_solicitados,
+    COALESCE(
+      SUM(COALESCE(op.resultado_comision_servicio, 0)) FILTER (
+        WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+      ),
+      0
+    )::numeric AS comisiones,
+    COALESCE(
+      SUM(
+        CASE
+          WHEN op.id_operacion_match IS NOT NULL
+            OR COALESCE(op.monto_devuelto, 0) >= COALESCE(op.monto_deposito_cliente, 0)
+          THEN COALESCE(op.monto_deposito_cliente, 0)
+          ELSE COALESCE(op.monto_devuelto, 0)
+        END
+      ),
+      0
+    )::numeric AS monto_devueltos
+  FROM public.tb_operacion_proceso op
+  WHERE op.id_operacion_padre IS NULL
+    AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'SOLICITUD'
+    AND (
+      (p_fecha_registro_desde IS NULL AND p_fecha_registro_hasta IS NULL)
+      OR (
+        COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
+        AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date = (now() AT TIME ZONE 'America/Lima')::date
+        AND (
+          (
+            (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
+            AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+          )
+          OR (
+            UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PAGADO'
+            AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+          )
+        )
+      )
+      OR (
+        COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
+        AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date <> (now() AT TIME ZONE 'America/Lima')::date
+        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+        AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
+        AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+      )
+    );
 $$;
 
 /*
@@ -225,9 +485,51 @@ AS $$
       FROM public.tb_operacion_caja c
       WHERE c.id_operacion_proceso = op.id_operacion_padre
         AND c.tipo_origen = 'PAGO_DEUDA_COMISION'
-    )
+    ),
+    'pd_retorno_id',
+    op_retorno.id,
+    'pd_retorno_id_empresa_ingreso',
+    op_retorno.id_empresa_ingreso,
+    'pd_retorno_id_empresa_cuenta_ingreso',
+    op_retorno.id_empresa_cuenta_ingreso,
+    'pd_retorno_nombre_empresa_ingreso',
+    op_retorno.nombre_empresa_ingreso,
+    'pd_retorno_nombre_banco_empresa_cuenta_ingreso',
+    op_retorno.nombre_banco_empresa_cuenta_ingreso,
+    'pd_retorno_monto_devolucion',
+    op_retorno.monto_devolucion,
+    'pd_retorno_codigos_operacion',
+    op_retorno.codigos_operacion,
+    'pd_retorno_empresas_cuentas',
+    op_retorno.empresas_cuentas
   )
   FROM public.tb_operacion_proceso op
+  LEFT JOIN LATERAL (
+    SELECT
+      (ARRAY_AGG(r.id ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS id,
+      (ARRAY_AGG(r.id_empresa_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS id_empresa_ingreso,
+      (ARRAY_AGG(r.id_empresa_cuenta_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS id_empresa_cuenta_ingreso,
+      (ARRAY_AGG(r.nombre_empresa_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS nombre_empresa_ingreso,
+      (ARRAY_AGG(r.nombre_banco_empresa_cuenta_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS nombre_banco_empresa_cuenta_ingreso,
+      SUM(COALESCE(r.monto_deposito_cliente, r.monto_transferencia_cliente, 0)) AS monto_devolucion,
+      STRING_AGG(NULLIF(BTRIM(COALESCE(r.codigo_operacion_deposito_cliente, '')), ''), E'\n' ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id) AS codigos_operacion,
+      JSONB_AGG(
+        jsonb_build_object(
+          'empresa', r.nombre_empresa_ingreso,
+          'cuenta', r.nombre_banco_empresa_cuenta_ingreso,
+          'codigo', r.codigo_operacion_deposito_cliente,
+          'monto', COALESCE(r.monto_deposito_cliente, r.monto_transferencia_cliente, 0)
+        )
+        ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id
+      ) AS empresas_cuentas
+    FROM public.tb_operacion_proceso r
+    WHERE UPPER(COALESCE(r.tipo_flujo_pago_deuda, '')) = 'RETORNO'
+      AND (
+        r.id = op.id_operacion_match
+        OR r.id_operacion_match = op.id
+        OR r.id_operacion_padre = op.id
+      )
+  ) op_retorno ON true
   WHERE UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'BANCO'
     AND op.ruta_destino = p_ruta
     AND (p_id_empresa_salida IS NULL OR op.id_empresa_salida = p_id_empresa_salida)
@@ -449,6 +751,25 @@ Objetivo:
   Crear una solicitud raiz para atencion al cliente y una operacion hija
   bancaria visible en el tab Pago Deuda de la ruta destino.
 */
+DROP FUNCTION IF EXISTS public.f_post_tb_pago_deuda_solicitud(
+  bigint,
+  character varying,
+  character varying,
+  bigint,
+  character varying,
+  bigint,
+  bigint,
+  character varying,
+  bigint,
+  bigint,
+  character varying,
+  bigint,
+  character varying,
+  character varying,
+  character varying,
+  numeric
+);
+
 CREATE OR REPLACE FUNCTION public.f_post_tb_pago_deuda_solicitud(
   p_id_usuario bigint,
   p_dni_cliente character varying,
@@ -456,6 +777,7 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_pago_deuda_solicitud(
   p_id_banco_cliente bigint,
   p_nombre_banco_cliente character varying,
   p_monto_deposito_cliente bigint,
+  p_id_comunidad bigint DEFAULT NULL,
   p_celular_cliente character varying DEFAULT NULL,
   p_id_operacion bigint DEFAULT NULL,
   p_id_usuario_gestor bigint DEFAULT NULL,
@@ -463,7 +785,9 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_pago_deuda_solicitud(
   p_id_usuario_solicitud bigint DEFAULT NULL,
   p_nombre_usuario_solicitud character varying DEFAULT NULL,
   p_ruta_origen character varying DEFAULT NULL,
-  p_ruta_destino character varying DEFAULT NULL
+  p_ruta_destino character varying DEFAULT NULL,
+  p_comision_servicio_manual numeric DEFAULT NULL,
+  p_tipo_documento_cliente bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -492,12 +816,36 @@ DECLARE
   v_nombre_usuario_solicitud character varying;
   v_ruta_banco character varying;
   v_cuenta_salida record;
+  v_existing record;
+  v_comunidad_id bigint;
+  v_comunidad_nombre character varying;
+  v_comision_servicio_final numeric;
+  v_monto_minimo_deposito_final numeric;
+  v_cuenta_comision record;
 BEGIN
-  SELECT valor, tipo
-  INTO v_dni_parseado, v_tipo_doc
-  FROM public.f_get_tb_parse_documento(p_dni_cliente);
+  IF p_tipo_documento_cliente IS NOT NULL THEN
+    IF p_tipo_documento_cliente NOT IN (1, 2) THEN
+      RETURN jsonb_build_object('error', 'Tipo de documento invalido.');
+    END IF;
 
-  v_tipo_documento := public.f_get_tb_documento_tipo_codigo(v_tipo_doc);
+    v_tipo_documento := p_tipo_documento_cliente;
+    v_dni_parseado := REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g');
+
+    IF v_tipo_documento = 1 AND LENGTH(v_dni_parseado) <> 8 THEN
+      RETURN jsonb_build_object('error', 'El DNI debe tener exactamente 8 dígitos.');
+    END IF;
+
+    IF v_tipo_documento = 2 AND LENGTH(v_dni_parseado) <> 9 THEN
+      RETURN jsonb_build_object('error', 'El CE debe tener exactamente 9 dígitos.');
+    END IF;
+  ELSE
+    SELECT valor, tipo
+    INTO v_dni_parseado, v_tipo_doc
+    FROM public.f_get_tb_parse_documento(p_dni_cliente);
+
+    v_tipo_documento := public.f_get_tb_documento_tipo_codigo(v_tipo_doc);
+  END IF;
+
   v_celular_json := CASE
     WHEN COALESCE(p_celular_cliente, '') <> '' THEN jsonb_build_array(p_celular_cliente)
     ELSE NULL
@@ -519,6 +867,7 @@ BEGIN
         p_numero_documento := v_dni_parseado,
         p_nombre := p_nombre_cliente,
         p_celular := v_celular_json,
+        p_id_comunidad := p_id_comunidad,
         p_id_estado := (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1),
         p_id_usuario := p_id_usuario
       )
@@ -554,6 +903,24 @@ BEGIN
   IF v_regla.id IS NULL THEN
     RETURN jsonb_build_object('error', 'No se encontro una regla activa de Pago Deuda para el banco seleccionado.');
   END IF;
+
+  IF p_comision_servicio_manual IS NOT NULL AND p_comision_servicio_manual < 0 THEN
+    RETURN jsonb_build_object('error', 'La comision especial debe ser mayor o igual a 0.');
+  END IF;
+
+  v_comision_servicio_final := COALESCE(p_comision_servicio_manual, v_regla.comision_servicio);
+  v_monto_minimo_deposito_final := CASE
+    WHEN p_comision_servicio_manual IS NOT NULL THEN 0
+    ELSE v_regla.monto_minimo_deposito_servicio
+  END;
+
+  v_comunidad_id := COALESCE(p_id_comunidad, v_regla.id_comunidad);
+
+  SELECT nombre
+  INTO v_comunidad_nombre
+  FROM public.tb_comunidad
+  WHERE id = v_comunidad_id
+  LIMIT 1;
 
   SELECT id, nombre
   INTO v_estado_pendiente_id, v_estado_pendiente_nombre
@@ -623,10 +990,28 @@ BEGIN
   ORDER BY (ecb.id_banco = p_id_banco_cliente) DESC, rc.flag_caja_ingreso_principal DESC, rc.id ASC
   LIMIT 1;
 
+  SELECT
+    cfg.id_empresa,
+    e.nombre AS empresa_nombre,
+    cfg.id_empresa_cuenta_bancaria,
+    ecb.id_banco,
+    b.nombre AS banco_nombre
+  INTO v_cuenta_comision
+  FROM public.tb_pago_deuda_empresa_comision cfg
+  JOIN public.tb_empresa e ON e.id = cfg.id_empresa
+  JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = cfg.id_empresa_cuenta_bancaria
+  JOIN public.tb_banco b ON b.id = ecb.id_banco
+  WHERE cfg.flag_deposito_comision = true
+    AND cfg.id_estado = 1
+    AND e.id_estado = 1
+    AND ecb.id_estado = 1
+  ORDER BY cfg.id ASC
+  LIMIT 1;
+
   v_calc_serv := public.f_get_tb_operacion_calculo_comision_servicio(
     p_monto_deposito_cliente,
-    v_regla.comision_servicio,
-    v_regla.monto_minimo_deposito_servicio,
+    v_comision_servicio_final,
+    v_monto_minimo_deposito_final,
     v_regla.comision_minima_servicio,
     0
   );
@@ -653,17 +1038,22 @@ BEGIN
       id_banco_cliente, nombre_banco_cliente, monto_deposito_cliente, comision_servicio,
       monto_minimo_deposito_servicio, comision_minima_servicio, comision_monto_extra_servicio,
       resultado_comision_servicio, id_banco_cliente_transferencia, nombre_banco_cliente_transferencia,
+      id_empresa_ingreso, nombre_empresa_ingreso, id_empresa_cuenta_ingreso,
+      id_banco_empresa_cuenta_ingreso, nombre_banco_empresa_cuenta_ingreso,
       id_estado, nombre_estado, id_usuario, nombre_usuario, id_usuario_gestor, nombre_usuario_gestor,
       id_usuario_solicitud, nombre_usuario_solicitud, tipo_flujo_pago_deuda, ruta_origen, ruta_destino,
       fecha_pendiente
     )
     VALUES (
       v_codigo_operacion, v_codigo_servicio_id, v_codigo_servicio_nombre, 'Pago Deuda',
-      v_regla.id_comunidad, (SELECT nombre FROM public.tb_comunidad WHERE id = v_regla.id_comunidad LIMIT 1),
+      v_comunidad_id, v_comunidad_nombre,
       v_regla.tipo_deposito, v_cliente_id, v_dni_parseado, COALESCE(v_cliente_nombre, p_nombre_cliente),
-      p_id_banco_cliente, p_nombre_banco_cliente, p_monto_deposito_cliente, v_regla.comision_servicio,
-      v_regla.monto_minimo_deposito_servicio, v_regla.comision_minima_servicio, 0,
+      p_id_banco_cliente, p_nombre_banco_cliente, p_monto_deposito_cliente, v_comision_servicio_final,
+      v_monto_minimo_deposito_final, v_regla.comision_minima_servicio, 0,
       (v_calc_serv->>'resultado_comision_servicio')::numeric, p_id_banco_cliente, p_nombre_banco_cliente,
+      v_cuenta_comision.id_empresa, v_cuenta_comision.empresa_nombre,
+      v_cuenta_comision.id_empresa_cuenta_bancaria, v_cuenta_comision.id_banco,
+      v_cuenta_comision.banco_nombre,
       v_estado_pendiente_id, v_estado_pendiente_nombre, p_id_usuario, v_username,
       COALESCE(p_id_usuario_gestor, p_id_usuario), COALESCE(v_nombre_usuario_gestor, v_username),
       COALESCE(p_id_usuario_solicitud, p_id_usuario), COALESCE(v_nombre_usuario_solicitud, v_username),
@@ -672,6 +1062,51 @@ BEGIN
     RETURNING id INTO v_root_id;
   ELSE
     v_root_id := p_id_operacion;
+
+    SELECT op.*
+    INTO v_existing
+    FROM public.tb_operacion_proceso op
+    WHERE op.id = v_root_id
+      AND op.id_operacion_padre IS NULL
+      AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'SOLICITUD'
+    LIMIT 1;
+
+    IF v_existing.id IS NULL THEN
+      RETURN jsonb_build_object('error', 'Solicitud de Pago Deuda no encontrada.');
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM public.tb_operacion_proceso h
+      WHERE h.id_operacion_padre = v_root_id
+        AND UPPER(COALESCE(h.tipo_flujo_pago_deuda, '')) = 'BANCO'
+        AND UPPER(COALESCE(h.nombre_estado, '')) <> 'PENDIENTE'
+    ) THEN
+      RETURN jsonb_build_object('error', 'Solo se puede editar una solicitud en paso 1.');
+    END IF;
+
+    UPDATE public.tb_operacion_proceso
+    SET id_comunidad = v_comunidad_id,
+        nombre_comunidad = v_comunidad_nombre,
+        nombre_tipo_deposito = v_regla.tipo_deposito,
+        id_cliente = v_cliente_id,
+        dni_cliente = v_dni_parseado,
+        nombre_cliente = COALESCE(v_cliente_nombre, p_nombre_cliente),
+        id_banco_cliente = p_id_banco_cliente,
+        nombre_banco_cliente = p_nombre_banco_cliente,
+        monto_deposito_cliente = p_monto_deposito_cliente,
+        comision_servicio = v_comision_servicio_final,
+        monto_minimo_deposito_servicio = v_monto_minimo_deposito_final,
+        comision_minima_servicio = v_regla.comision_minima_servicio,
+        comision_monto_extra_servicio = 0,
+        resultado_comision_servicio = (v_calc_serv->>'resultado_comision_servicio')::numeric,
+        id_banco_cliente_transferencia = p_id_banco_cliente,
+        nombre_banco_cliente_transferencia = p_nombre_banco_cliente,
+        id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+        nombre_usuario_gestor = COALESCE(v_nombre_usuario_gestor, nombre_usuario_gestor),
+        id_usuario_solicitud = COALESCE(p_id_usuario_solicitud, id_usuario_solicitud),
+        nombre_usuario_solicitud = COALESCE(v_nombre_usuario_solicitud, nombre_usuario_solicitud)
+    WHERE id = v_root_id;
   END IF;
 
   SELECT id
@@ -691,29 +1126,68 @@ BEGIN
       resultado_comision_servicio, id_empresa_salida, nombre_empresa_salida, id_empresa_cuenta_salida,
       id_banco_empresa_cuenta_salida, nombre_banco_empresa_cuenta_salida, comision_transf_banco_salida,
       comision_transf_inter_banco_salida, resultado_comision_banco_salida, monto_transferencia_cliente,
-      monto_itf_salida, id_banco_cliente_transferencia, nombre_banco_cliente_transferencia, id_estado,
-      nombre_estado, id_usuario, nombre_usuario, id_usuario_gestor, nombre_usuario_gestor,
+      monto_itf_salida, id_banco_cliente_transferencia, nombre_banco_cliente_transferencia,
+      id_empresa_ingreso, nombre_empresa_ingreso, id_empresa_cuenta_ingreso,
+      id_banco_empresa_cuenta_ingreso, nombre_banco_empresa_cuenta_ingreso,
+      id_estado, nombre_estado, id_usuario, nombre_usuario, id_usuario_gestor, nombre_usuario_gestor,
       id_usuario_solicitud, nombre_usuario_solicitud, id_operacion_padre, tipo_flujo_pago_deuda,
       ruta_origen, ruta_destino, fecha_pendiente
     )
     VALUES (
       v_codigo_operacion, v_codigo_servicio_id, v_codigo_servicio_nombre, 'Pago Deuda',
-      v_regla.id_comunidad, (SELECT nombre FROM public.tb_comunidad WHERE id = v_regla.id_comunidad LIMIT 1),
+      v_comunidad_id, v_comunidad_nombre,
       v_regla.tipo_deposito, v_cliente_id, v_dni_parseado, COALESCE(v_cliente_nombre, p_nombre_cliente),
-      p_id_banco_cliente, p_nombre_banco_cliente, p_monto_deposito_cliente, v_regla.comision_servicio,
-      v_regla.monto_minimo_deposito_servicio, v_regla.comision_minima_servicio, 0,
+      p_id_banco_cliente, p_nombre_banco_cliente, p_monto_deposito_cliente, v_comision_servicio_final,
+      v_monto_minimo_deposito_final, v_regla.comision_minima_servicio, 0,
       (v_calc_serv->>'resultado_comision_servicio')::numeric, v_cuenta_salida.id_empresa,
       v_cuenta_salida.nombre_empresa, v_cuenta_salida.id_empresa_cuenta_bancaria, v_cuenta_salida.id_banco,
       v_cuenta_salida.nombre_banco, COALESCE(v_cuenta_salida.comision_transf_banco_salida, 0),
       COALESCE(v_cuenta_salida.comision_transf_inter_banco_salida, 0),
       COALESCE((v_calc_sal->>'resultado_comision_banco_salida')::numeric, 0), p_monto_deposito_cliente,
       COALESCE(v_cuenta_salida.comision_itf_ingreso_salida, 0), p_id_banco_cliente, p_nombre_banco_cliente,
+      v_cuenta_comision.id_empresa, v_cuenta_comision.empresa_nombre,
+      v_cuenta_comision.id_empresa_cuenta_bancaria, v_cuenta_comision.id_banco,
+      v_cuenta_comision.banco_nombre,
       v_estado_pendiente_id, v_estado_pendiente_nombre, p_id_usuario, v_username,
       COALESCE(p_id_usuario_gestor, p_id_usuario), COALESCE(v_nombre_usuario_gestor, v_username),
       COALESCE(p_id_usuario_solicitud, p_id_usuario), COALESCE(v_nombre_usuario_solicitud, v_username),
       v_root_id, 'BANCO', 'deuda', v_ruta_banco, NOW()
     )
     RETURNING id INTO v_child_id;
+  ELSE
+    UPDATE public.tb_operacion_proceso
+    SET id_comunidad = v_comunidad_id,
+        nombre_comunidad = v_comunidad_nombre,
+        nombre_tipo_deposito = v_regla.tipo_deposito,
+        id_cliente = v_cliente_id,
+        dni_cliente = v_dni_parseado,
+        nombre_cliente = COALESCE(v_cliente_nombre, p_nombre_cliente),
+        id_banco_cliente = p_id_banco_cliente,
+        nombre_banco_cliente = p_nombre_banco_cliente,
+        monto_deposito_cliente = p_monto_deposito_cliente,
+        comision_servicio = v_comision_servicio_final,
+        monto_minimo_deposito_servicio = v_monto_minimo_deposito_final,
+        comision_minima_servicio = v_regla.comision_minima_servicio,
+        comision_monto_extra_servicio = 0,
+        resultado_comision_servicio = (v_calc_serv->>'resultado_comision_servicio')::numeric,
+        id_empresa_salida = v_cuenta_salida.id_empresa,
+        nombre_empresa_salida = v_cuenta_salida.nombre_empresa,
+        id_empresa_cuenta_salida = v_cuenta_salida.id_empresa_cuenta_bancaria,
+        id_banco_empresa_cuenta_salida = v_cuenta_salida.id_banco,
+        nombre_banco_empresa_cuenta_salida = v_cuenta_salida.nombre_banco,
+        comision_transf_banco_salida = COALESCE(v_cuenta_salida.comision_transf_banco_salida, 0),
+        comision_transf_inter_banco_salida = COALESCE(v_cuenta_salida.comision_transf_inter_banco_salida, 0),
+        resultado_comision_banco_salida = COALESCE((v_calc_sal->>'resultado_comision_banco_salida')::numeric, 0),
+        monto_transferencia_cliente = p_monto_deposito_cliente,
+        monto_itf_salida = COALESCE(v_cuenta_salida.comision_itf_ingreso_salida, 0),
+        id_banco_cliente_transferencia = p_id_banco_cliente,
+        nombre_banco_cliente_transferencia = p_nombre_banco_cliente,
+        ruta_destino = v_ruta_banco,
+        id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+        nombre_usuario_gestor = COALESCE(v_nombre_usuario_gestor, nombre_usuario_gestor),
+        id_usuario_solicitud = COALESCE(p_id_usuario_solicitud, id_usuario_solicitud),
+        nombre_usuario_solicitud = COALESCE(v_nombre_usuario_solicitud, nombre_usuario_solicitud)
+    WHERE id = v_child_id;
   END IF;
 
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_banco, p_id_usuario);
@@ -724,6 +1198,313 @@ BEGIN
   LIMIT 1;
 
   RETURN v_result;
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_pago_deuda_comision_especial
+Objetivo:
+  Aplicar una comision porcentual manual a una solicitud de Pago Deuda antes de
+  ejecutar la transferencia bancaria. La comision manual reemplaza la regla
+  vigente y se replica en la operacion hija BANCO para mantener el flujo
+  sincronizado.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_comision_especial(
+  p_id_operacion bigint,
+  p_comision_servicio numeric,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_root public.tb_operacion_proceso%ROWTYPE;
+  v_child public.tb_operacion_proceso%ROWTYPE;
+  v_calc jsonb;
+  v_result jsonb;
+BEGIN
+  IF p_id_operacion IS NULL THEN
+    RETURN jsonb_build_object('error', 'Operacion requerida.');
+  END IF;
+
+  IF p_comision_servicio IS NULL OR p_comision_servicio < 0 THEN
+    RETURN jsonb_build_object('error', 'La comision debe ser mayor o igual a 0.');
+  END IF;
+
+  SELECT op.*
+  INTO v_root
+  FROM public.tb_operacion_proceso op
+  WHERE op.id = p_id_operacion
+    AND op.id_operacion_padre IS NULL
+    AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'SOLICITUD'
+  FOR UPDATE;
+
+  IF v_root.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Solicitud de Pago Deuda no encontrada.');
+  END IF;
+
+  SELECT h.*
+  INTO v_child
+  FROM public.tb_operacion_proceso h
+  WHERE h.id_operacion_padre = v_root.id
+    AND UPPER(COALESCE(h.tipo_flujo_pago_deuda, '')) = 'BANCO'
+  ORDER BY h.id
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_child.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de la solicitud.');
+  END IF;
+
+  IF UPPER(COALESCE(v_child.nombre_estado, '')) <> 'PENDIENTE' THEN
+    RETURN jsonb_build_object('error', 'Solo se puede editar la comision en paso 1.');
+  END IF;
+
+  v_calc := public.f_get_tb_operacion_calculo_comision_servicio(
+    COALESCE(v_root.monto_deposito_cliente, 0),
+    p_comision_servicio,
+    0,
+    COALESCE(v_root.comision_minima_servicio, 0),
+    COALESCE(v_root.comision_monto_extra_servicio, 0)
+  );
+
+  UPDATE public.tb_operacion_proceso
+  SET comision_servicio = p_comision_servicio,
+      monto_minimo_deposito_servicio = 0,
+      resultado_comision_servicio = (v_calc->>'resultado_comision_servicio')::numeric,
+      id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+      nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+  WHERE id IN (v_root.id, v_child.id);
+
+  SELECT x
+  INTO v_result
+  FROM public.f_get_tb_pago_deuda(p_id := v_root.id) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_pago_deuda_comision_extra
+Objetivo:
+  Aplicar una comision extra en soles a una solicitud Pago Deuda antes de
+  confirmar la comision final. El monto extra recalcula la comision total y se
+  replica en la operacion hija BANCO.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_comision_extra(
+  p_id_operacion bigint,
+  p_comision_monto_extra_servicio bigint,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_input public.tb_operacion_proceso%ROWTYPE;
+  v_root public.tb_operacion_proceso%ROWTYPE;
+  v_child public.tb_operacion_proceso%ROWTYPE;
+  v_calc jsonb;
+  v_result jsonb;
+BEGIN
+  IF p_id_operacion IS NULL THEN
+    RETURN jsonb_build_object('error', 'Operacion requerida.');
+  END IF;
+
+  IF p_comision_monto_extra_servicio IS NULL OR p_comision_monto_extra_servicio < 0 THEN
+    RETURN jsonb_build_object('error', 'La comision extra debe ser mayor o igual a 0.');
+  END IF;
+
+  SELECT *
+  INTO v_input
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id_operacion
+  FOR UPDATE;
+
+  IF v_input.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Solicitud de Pago Deuda no encontrada.');
+  END IF;
+
+  IF UPPER(COALESCE(v_input.tipo_flujo_pago_deuda, '')) = 'BANCO'
+     AND v_input.id_operacion_padre IS NOT NULL THEN
+    SELECT *
+    INTO v_root
+    FROM public.tb_operacion_proceso
+    WHERE id = v_input.id_operacion_padre
+    FOR UPDATE;
+  ELSE
+    v_root := v_input;
+  END IF;
+
+  IF v_root.id IS NULL
+     OR v_root.id_operacion_padre IS NOT NULL
+     OR UPPER(COALESCE(v_root.tipo_flujo_pago_deuda, '')) <> 'SOLICITUD' THEN
+    RETURN jsonb_build_object('error', 'Solicitud raiz de Pago Deuda no encontrada.');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja c
+    WHERE c.id_operacion_proceso = v_root.id
+      AND c.tipo_origen = 'PAGO_DEUDA_COMISION'
+  ) THEN
+    RETURN jsonb_build_object('error', 'No se puede editar la comision extra de una solicitud pagada.');
+  END IF;
+
+  SELECT *
+  INTO v_child
+  FROM public.tb_operacion_proceso
+  WHERE id_operacion_padre = v_root.id
+    AND UPPER(COALESCE(tipo_flujo_pago_deuda, '')) = 'BANCO'
+  ORDER BY id
+  LIMIT 1
+  FOR UPDATE;
+
+  v_calc := public.f_get_tb_operacion_calculo_comision_servicio(
+    COALESCE(v_root.monto_deposito_cliente, 0),
+    COALESCE(v_root.comision_servicio, 0),
+    COALESCE(v_root.monto_minimo_deposito_servicio, 0),
+    COALESCE(v_root.comision_minima_servicio, 0),
+    p_comision_monto_extra_servicio
+  );
+
+  UPDATE public.tb_operacion_proceso
+  SET comision_monto_extra_servicio = p_comision_monto_extra_servicio,
+      resultado_comision_servicio = (v_calc->>'resultado_comision_servicio')::numeric,
+      id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+      nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+  WHERE id = v_root.id
+     OR id = v_child.id;
+
+  SELECT x
+  INTO v_result
+  FROM public.f_get_tb_pago_deuda(p_id := v_root.id) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
+/*
+Funcion: f_delete_tb_pago_deuda_solicitud
+Objetivo:
+  Eliminar fisicamente una solicitud Pago Deuda y su operacion bancaria hija
+  solo cuando permanece en paso 1, sin devoluciones, match ni movimientos.
+*/
+CREATE OR REPLACE FUNCTION public.f_delete_tb_pago_deuda_solicitud(
+  p_id_operacion bigint,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_input public.tb_operacion_proceso%ROWTYPE;
+  v_root public.tb_operacion_proceso%ROWTYPE;
+  v_child public.tb_operacion_proceso%ROWTYPE;
+  v_ruta_destino character varying;
+  v_deleted_child integer := 0;
+  v_deleted_root integer := 0;
+BEGIN
+  IF p_id_operacion IS NULL THEN
+    RETURN jsonb_build_object('error', 'Operacion requerida.');
+  END IF;
+
+  SELECT *
+  INTO v_input
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id_operacion
+  FOR UPDATE;
+
+  IF v_input.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Solicitud de Pago Deuda no encontrada.');
+  END IF;
+
+  IF UPPER(COALESCE(v_input.tipo_flujo_pago_deuda, '')) = 'BANCO'
+     AND v_input.id_operacion_padre IS NOT NULL THEN
+    SELECT *
+    INTO v_root
+    FROM public.tb_operacion_proceso
+    WHERE id = v_input.id_operacion_padre
+    FOR UPDATE;
+  ELSE
+    v_root := v_input;
+  END IF;
+
+  IF v_root.id IS NULL
+     OR v_root.id_operacion_padre IS NOT NULL
+     OR UPPER(COALESCE(v_root.tipo_flujo_pago_deuda, '')) <> 'SOLICITUD' THEN
+    RETURN jsonb_build_object('error', 'Solicitud raiz de Pago Deuda no encontrada.');
+  END IF;
+
+  SELECT *
+  INTO v_child
+  FROM public.tb_operacion_proceso
+  WHERE id_operacion_padre = v_root.id
+    AND UPPER(COALESCE(tipo_flujo_pago_deuda, '')) = 'BANCO'
+  ORDER BY id
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_child.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Operacion bancaria de Pago Deuda no encontrada.');
+  END IF;
+
+  IF UPPER(COALESCE(v_child.nombre_estado, '')) <> 'PENDIENTE' THEN
+    RETURN jsonb_build_object('error', 'Solo se puede eliminar una solicitud en paso 1.');
+  END IF;
+
+  IF v_root.id_operacion_match IS NOT NULL
+     OR v_child.id_operacion_match IS NOT NULL
+     OR COALESCE(v_root.monto_devuelto, 0) > 0
+     OR COALESCE(v_child.monto_devuelto, 0) > 0 THEN
+    RETURN jsonb_build_object('error', 'No se puede eliminar una solicitud con avance operativo.');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_proceso op
+    WHERE op.id NOT IN (v_root.id, v_child.id)
+      AND (
+        op.id_operacion_padre IN (v_root.id, v_child.id)
+        OR op.id_operacion_match IN (v_root.id, v_child.id)
+      )
+  ) THEN
+    RETURN jsonb_build_object('error', 'No se puede eliminar una solicitud con operaciones relacionadas.');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja oc
+    WHERE oc.id_operacion_proceso IN (v_root.id, v_child.id)
+  ) THEN
+    RETURN jsonb_build_object('error', 'No se puede eliminar una solicitud con movimientos de caja.');
+  END IF;
+
+  v_ruta_destino := v_child.ruta_destino;
+
+  DELETE FROM public.tb_operacion_proceso
+  WHERE id = v_child.id;
+  GET DIAGNOSTICS v_deleted_child = ROW_COUNT;
+
+  DELETE FROM public.tb_operacion_proceso
+  WHERE id = v_root.id;
+  GET DIAGNOSTICS v_deleted_root = ROW_COUNT;
+
+  IF v_ruta_destino IS NOT NULL THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_destino, p_id_usuario);
+  END IF;
+
+  RETURN jsonb_build_object(
+    'eliminado', true,
+    'solicitudes_eliminadas', v_deleted_root,
+    'operaciones_banco_eliminadas', v_deleted_child
+  );
 END;
 $$;
 
@@ -1052,18 +1833,23 @@ BEGIN
     ecb.id_banco,
     ecb.id_empresa,
     e.nombre AS empresa_nombre,
-    b.nombre AS banco_nombre
+    b.nombre AS banco_nombre,
+    cfg.billetera_digital
   INTO v_cuenta
   FROM public.tb_empresa_cuenta_bancaria ecb
   JOIN public.tb_empresa e ON e.id = ecb.id_empresa
   JOIN public.tb_banco b ON b.id = ecb.id_banco
+  JOIN public.tb_pago_deuda_empresa_comision cfg
+    ON cfg.id_empresa_cuenta_bancaria = ecb.id
+   AND cfg.flag_deposito_comision = true
+   AND cfg.id_estado = 1
   WHERE ecb.id = p_id_empresa_cuenta_ingreso
     AND ecb.id_empresa = p_id_empresa_ingreso
     AND ecb.id_estado = 1
   LIMIT 1;
 
   IF v_cuenta.id IS NULL THEN
-    RETURN jsonb_build_object('error', 'Cuenta de comision no encontrada o inactiva.');
+    RETURN jsonb_build_object('error', 'Cuenta de comision no habilitada para deposito.');
   END IF;
 
   UPDATE public.tb_operacion_proceso
@@ -1638,7 +2424,16 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
+  'f_get_tb_pago_deuda_empresa_comision',
+  'f_get_tb_pago_deuda',
+  'f_get_tb_pago_deuda_kpi',
+  'f_patch_tb_pago_deuda_empresa_comision',
   'f_get_tb_pago_deuda_bandeja',
+  'f_post_tb_pago_deuda_solicitud',
+  'f_patch_tb_pago_deuda_comision_especial',
+  'f_patch_tb_pago_deuda_comision_extra',
+  'f_delete_tb_pago_deuda_solicitud',
+  'f_patch_tb_pago_deuda_comision_cuenta',
   'f_patch_tb_pago_deuda_match',
   'f_patch_tb_pago_deuda_pagado',
   'f_patch_tb_pago_deuda_reiniciar_transferencia'

@@ -107,6 +107,7 @@ Motivo:
 - `Retenidos` usa `flag_retenido=true` y no depende del estado comercial.
 - Una operacion retenida puede estar `Pagado` y seguir visible en `Efectivizacion`.
 - Las reglas de cierre/historial no deben contaminar bancos sin retencion.
+- Los tabs `Efectivizacion` y `Retenidos` filtran por `id_empresa_salida` (no `id_empresa_ingreso`), para que al cambiar la empresa de salida con `Emp. Salida` la operacion aparezca en el tab de la empresa destino.
 
 ### POS y Link Pago sin caja
 
@@ -115,6 +116,7 @@ RPCs:
 - `f_get_tb_operacion_asistida_kpi`
 - `f_get_tb_operacion_asistida_bandeja`
 - `f_post_tb_operacion_asistida`
+- `f_patch_tb_operacion_asistida`
 
 Uso:
 
@@ -128,13 +130,15 @@ Reglas:
 - filtran por `fecha_registro`;
 - los KPIs son informativos y suman solo operaciones `Pagado`;
 - POS registra destino bancario y se atiende desde el tab `POS` de la ruta bancaria;
-- Link Pago registra y cambia estado sin generar movimientos.
+- Link Pago registra y cambia estado sin generar movimientos;
+- `f_patch_tb_operacion_asistida` permite editar DNI, nombre, comunidad, monto y entidad tarjeta de una operacion POS/LinkPago existente; recalcula comisiones si cambia el monto.
 
 Componentes:
 
 - `src/features/operaciones/efectivizacion/asistida/pages/asistida-page.tsx`
 - `src/features/operaciones/efectivizacion/asistida/components/asistida-solicitud-form.tsx`
 - `src/features/operaciones/efectivizacion/asistida/components/asistida-operational-board.tsx`
+- `src/features/operaciones/efectivizacion/asistida/components/linkpago-edit-modal.tsx`
 
 ### Carga Excel
 

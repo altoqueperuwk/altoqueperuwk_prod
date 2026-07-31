@@ -1,30 +1,41 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Check, Edit03 } from "@untitledui/icons";
+import { Check, ChevronDown, Coins01, Edit03, Percent01, Trash01 } from "@untitledui/icons";
+import { SubmenuTrigger } from "react-aria-components";
 import { Button } from "@/components/base/buttons/button";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
+import { NativeSelect } from "@/components/base/select/select-native";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { estadoService } from "@/services/estado.service";
-import { empresaCuentaBancariaService } from "@/services/empresa-cuenta-bancaria.service";
-import { clienteService } from "@/services/cliente.service";
+import { bancoService } from "@/services/banco.service";
+import { comunidadService } from "@/services/comunidad.service";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
+import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
 import { OperationToolbar } from "@/features/operaciones/efectivizacion/shared/components/operation-toolbar";
 import {
     CompactBadgeLine,
     CompactCellText,
-    CompactInlineSelect,
     CompactMoneyCell,
-    getSelectValue,
 } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
+import {
+    DocumentoInputGroup,
+    cleanDocumento,
+    getDocumentoValidationMessage,
+    type TipoDocumentoOperacion,
+} from "@/features/operaciones/efectivizacion/shared/components/documento-input-group";
+import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
 import type { OperacionProceso } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 import { cx } from "@/utils/cx";
 
 interface PagoDeudaBoardProps {
+    onChanged?: () => void;
     refreshKey?: number;
+    selectedDate: string;
 }
 
 interface EmpresaCuentaActiva {
@@ -33,6 +44,28 @@ interface EmpresaCuentaActiva {
     empresa_nombre: string;
     id_banco: number;
     banco_nombre: string;
+    billetera_digital: string;
+    flag_deposito_comision: boolean;
+}
+
+interface CatalogItem {
+    id: number;
+    nombre: string;
+}
+
+interface EditSolicitudState {
+    row: OperacionProceso;
+    tipoDocumento: TipoDocumentoOperacion;
+    dni: string;
+    comunidadId: string;
+    bancoId: string;
+    monto: string;
+}
+
+interface ManualCommissionState {
+    row: OperacionProceso;
+    type: "especial" | "extra";
+    value: string;
 }
 
 const filters = ["Todos", "Pendiente Transferencia", "Pendiente Devolución", "Pendiente Comisión"];
@@ -52,7 +85,16 @@ const formatTime = (value?: string | null) => {
     return new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 };
 
+const normalizeFilterToken = (value: string) =>
+    value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toUpperCase();
+
 const getEstadoToken = (estado?: string | null) => estado?.trim().toUpperCase() ?? "";
+
+const inferTipoDocumentoOperacion = (documento?: string | null): TipoDocumentoOperacion =>
+    documento?.replace(/\D/g, "").length === 9 ? 2 : 1;
 
 type PagoDeudaEstadoAccion = "transferencia" | "finalizar" | "none";
 
@@ -60,7 +102,7 @@ export const getPagoDeudaEstadoVisual = (row: OperacionProceso): { action: PagoD
     const estado = getEstadoToken(row.nombre_estado);
     const isTransferido = estado === "PROCESADO" || estado === "PAGADO";
 
-    if (Boolean(row.flag_comision_registrada)) return { action: "none", label: "Finalizado" };
+    if (Boolean(row.flag_comision_registrada)) return { action: "none", label: "Pagado" };
     if (hasDevolucionConfirmada(row)) return { action: "finalizar", label: "Devuelto" };
     if (isTransferido) return { action: "none", label: "Transferido" };
     return { action: "transferencia", label: "Solicitado" };
@@ -130,7 +172,77 @@ export const PagoDeudaSteps = ({ row }: { row: OperacionProceso }) => {
     );
 };
 
-export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
+interface CuentaComisionSelectorProps {
+    cuentasPorEmpresa: { empresa: string; cuentas: EmpresaCuentaActiva[] }[];
+    currentCuenta?: EmpresaCuentaActiva;
+    disabled?: boolean;
+    isSaving?: boolean;
+    onSelect: (idCuenta: string) => void;
+    row: OperacionProceso;
+}
+
+const CuentaComisionSelector = ({
+    cuentasPorEmpresa,
+    currentCuenta,
+    disabled = false,
+    isSaving = false,
+    onSelect,
+    row,
+}: CuentaComisionSelectorProps) => {
+    const cuentaLabel = row.nombre_banco_empresa_cuenta_ingreso || currentCuenta?.banco_nombre || "Cuenta";
+    const billeteraLabel = currentCuenta?.billetera_digital ? ` (${currentCuenta.billetera_digital})` : "";
+    const selectedLabel = `${cuentaLabel}${billeteraLabel}`;
+    const enabledGroups = cuentasPorEmpresa.filter((group) => group.cuentas.length > 0);
+
+    return (
+        <div className="inline-flex max-w-full">
+            <Dropdown.Root>
+                <Button
+                    size="xs"
+                    color="secondary"
+                    iconTrailing={ChevronDown}
+                    isDisabled={disabled || isSaving || enabledGroups.length === 0}
+                    className="max-w-full justify-between"
+                >
+                    <span className="truncate">{selectedLabel}</span>
+                </Button>
+
+                <Dropdown.Popover className="w-60">
+                    <Dropdown.Menu>
+                        {enabledGroups.length ? (
+                            <Dropdown.Section>
+                                {enabledGroups.map((group) => (
+                                    <SubmenuTrigger key={group.empresa}>
+                                        <Dropdown.Item>{group.empresa}</Dropdown.Item>
+                                        <Dropdown.Popover placement="right top" offset={-6} className="w-56">
+                                            <Dropdown.Menu
+                                                onAction={(key) => onSelect(String(key))}
+                                            >
+                                                {group.cuentas.map((cuenta) => (
+                                                    <Dropdown.Item
+                                                        key={cuenta.id}
+                                                        id={String(cuenta.id)}
+                                                        addon={cuenta.billetera_digital || undefined}
+                                                    >
+                                                        {cuenta.banco_nombre}
+                                                    </Dropdown.Item>
+                                                ))}
+                                            </Dropdown.Menu>
+                                        </Dropdown.Popover>
+                                    </SubmenuTrigger>
+                                ))}
+                            </Dropdown.Section>
+                        ) : (
+                            <Dropdown.Item isDisabled>Sin cuentas habilitadas</Dropdown.Item>
+                        )}
+                    </Dropdown.Menu>
+                </Dropdown.Popover>
+            </Dropdown.Root>
+        </div>
+    );
+};
+
+export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: PagoDeudaBoardProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [dni, setDni] = useState("");
@@ -140,28 +252,43 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
     const [cuentasActivas, setCuentasActivas] = useState<EmpresaCuentaActiva[]>([]);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [savingCuentaIds, setSavingCuentaIds] = useState<number[]>([]);
+    const [deletingSolicitud, setDeletingSolicitud] = useState<OperacionProceso | null>(null);
+    const [isDeletingSolicitud, setIsDeletingSolicitud] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isApplyingAction, setIsApplyingAction] = useState(false);
-    const [dniEdit, setDniEdit] = useState<{ row: OperacionProceso; value: string } | null>(null);
-    const [isSavingDni, setIsSavingDni] = useState(false);
+    const [editSolicitud, setEditSolicitud] = useState<EditSolicitudState | null>(null);
+    const [manualCommission, setManualCommission] = useState<ManualCommissionState | null>(null);
+    const [isSavingSolicitud, setIsSavingSolicitud] = useState(false);
+    const [isSavingCommission, setIsSavingCommission] = useState(false);
     const [savingEstadoIds, setSavingEstadoIds] = useState<number[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [actionRefreshKey, setActionRefreshKey] = useState(0);
+    const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
+    const [bancos, setBancos] = useState<CatalogItem[]>([]);
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
 
     const params = useMemo(() => {
-        const values: Record<string, unknown> = {};
+        const values: Record<string, unknown> = {
+            p_fecha_desde: `${selectedDate}T00:00:00`,
+            p_fecha_hasta: `${selectedDate}T23:59:59`,
+        };
         if (dni.trim()) values.p_dni_cliente = dni.trim();
         return values;
-    }, [dni]);
+    }, [dni, selectedDate]);
 
-    const empresasActivas = useMemo(() => {
-        const byId = new Map<number, { label: string; value: string }>();
+    const cuentasComisionHabilitadas = useMemo(
+        () => cuentasActivas.filter((cuenta) => cuenta.flag_deposito_comision),
+        [cuentasActivas],
+    );
+
+    const cuentasPorEmpresa = useMemo(() => {
+        const byId = new Map<number, { empresa: string; cuentas: EmpresaCuentaActiva[] }>();
         cuentasActivas.forEach((cuenta) => {
             if (!byId.has(cuenta.id_empresa)) {
-                byId.set(cuenta.id_empresa, { label: cuenta.empresa_nombre, value: String(cuenta.id_empresa) });
+                byId.set(cuenta.id_empresa, { empresa: cuenta.empresa_nombre, cuentas: [] });
             }
+            if (cuenta.flag_deposito_comision) byId.get(cuenta.id_empresa)?.cuentas.push(cuenta);
         });
         return Array.from(byId.values());
     }, [cuentasActivas]);
@@ -178,32 +305,45 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             })
             .catch(() => addToast("error", "Error al cargar estados."));
 
-        empresaCuentaBancariaService
-            .getList({ p_id_estado: 1 })
+        pagoDeudaService
+            .getEmpresasComision({ p_id_estado: 1 })
             .then((rows) => {
                 if (ignore) return;
                 setCuentasActivas(
                     (rows ?? []).map((row) => ({
-                        id: Number(row.id),
+                        id: Number(row.id_empresa_cuenta_bancaria),
                         id_empresa: Number(row.id_empresa),
                         empresa_nombre: String(row.empresa_nombre ?? ""),
                         id_banco: Number(row.id_banco),
                         banco_nombre: String(row.banco_nombre ?? ""),
+                        billetera_digital: String(row.billetera_digital ?? ""),
+                        flag_deposito_comision: Boolean(row.flag_deposito_comision),
                     })),
                 );
             })
-            .catch(() => addToast("error", "Error al cargar cuentas bancarias."));
+            .catch(() => addToast("error", "Error al cargar empresas de comision."));
 
-        operacionesRpcService
-            .getCajaOperativa({ p_id_estado: 1 })
-            .then((cajas) => {
+        Promise.all([
+            comunidadService.getList({ p_id_estado: 1 }),
+            bancoService.getList({ p_id_estado: 1 }),
+        ])
+            .then(([comunidadRows, bancoRows]) => {
                 if (ignore) return;
-                const setCajas = new Set((cajas ?? []).map((c) => `${c.id_empresa}-${c.id_empresa_cuenta_bancaria}`));
-                setCuentasActivas((current) =>
-                    current.filter((cuenta) => setCajas.has(`${cuenta.id_empresa}-${cuenta.id}`)),
+
+                setComunidades(
+                    (comunidadRows ?? []).map((row) => ({
+                        id: Number(row.id),
+                        nombre: String(row.nombre ?? ""),
+                    })),
+                );
+                setBancos(
+                    (bancoRows ?? []).map((row) => ({
+                        id: Number(row.id),
+                        nombre: String(row.nombre ?? ""),
+                    })),
                 );
             })
-            .catch(() => addToast("error", "Error al cargar cajas operativas."));
+            .catch(() => addToast("error", "Error al cargar catalogos de Pago Deuda."));
 
         return () => {
             ignore = true;
@@ -212,10 +352,11 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
 
     useEffect(() => {
         setSelectedIds([]);
-    }, [activeFilter, dni, refreshKey]);
+    }, [activeFilter, dni, refreshKey, selectedDate]);
 
-    const filterSolicitudes = (rows: OperacionProceso[]) => {
-        if (activeFilter === "Todos") return rows;
+    const filterSolicitudes = (rows: OperacionProceso[], filter: string) => {
+        if (filter === "Todos") return rows;
+        const filterToken = normalizeFilterToken(filter);
 
         return rows.filter((row) => {
             const estado = getEstadoToken(row.nombre_estado);
@@ -223,12 +364,17 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             const hasMatch = hasDevolucionConfirmada(row);
             const hasComision = Boolean(row.flag_comision_registrada);
 
-            if (activeFilter === "Pendiente Transferencia") return !isProcesado;
+            if (filterToken.includes("TRANSFERENCIA")) return !isProcesado;
             if (activeFilter === "Pendiente Devolución") return isProcesado && !hasMatch;
             if (activeFilter === "Pendiente Comisión") return hasMatch && !hasComision;
             return true;
         });
     };
+
+    const solicitudesFiltradas = useMemo(
+        () => filterSolicitudes(solicitudes, activeFilter),
+        [activeFilter, solicitudes],
+    );
 
     useEffect(() => {
         let ignore = false;
@@ -238,7 +384,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         pagoDeudaService
             .getSolicitudes(params)
             .then((result) => {
-                if (!ignore) setSolicitudes(filterSolicitudes(result ?? []));
+                if (!ignore) setSolicitudes(result ?? []);
             })
             .catch((err) => {
                 if (!ignore) setError(err instanceof Error ? err.message : "No se pudo cargar Pago Deuda.");
@@ -284,6 +430,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             });
             updateSolicitud(updated);
             addToast("success", "Cuenta de comision actualizada.");
+            onChanged?.();
         } catch (err) {
             addToast("error", err instanceof Error ? err.message : "No se pudo guardar la cuenta de comision.");
         } finally {
@@ -291,24 +438,35 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         }
     };
 
-    const handleEmpresaChange = (row: OperacionProceso, value: string) => {
-        const cuenta = cuentasActivas.find((item) => item.id_empresa === Number(value));
+    const handleCuentaComisionSelect = (row: OperacionProceso, value: string) => {
+        const cuenta = cuentasComisionHabilitadas.find((item) => item.id === Number(value));
         if (!cuenta) {
-            addToast("error", "La empresa seleccionada no tiene cuentas activas.");
+            addToast("error", "Cuenta de comision no habilitada.");
             return;
         }
 
         void persistComisionCuenta(row, cuenta);
     };
 
-    const handleCuentaChange = (row: OperacionProceso, value: string) => {
-        const cuenta = cuentasActivas.find((item) => item.id === Number(value));
-        if (!cuenta) {
-            addToast("error", "Cuenta bancaria no encontrada.");
-            return;
-        }
+    const handleDeleteSolicitud = async () => {
+        if (!deletingSolicitud) return;
 
-        void persistComisionCuenta(row, cuenta);
+        setIsDeletingSolicitud(true);
+        try {
+            await pagoDeudaService.deleteSolicitud({
+                p_id_operacion: deletingSolicitud.id,
+                p_id_usuario: userId,
+            });
+            setSolicitudes((current) => current.filter((row) => row.id !== deletingSolicitud.id));
+            setSelectedIds((current) => current.filter((id) => id !== deletingSolicitud.id));
+            setDeletingSolicitud(null);
+            addToast("success", "Solicitud eliminada.");
+            onChanged?.();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo eliminar la solicitud.");
+        } finally {
+            setIsDeletingSolicitud(false);
+        }
     };
 
     const handleConfirmarComision = async () => {
@@ -347,6 +505,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             setActiveFilter("Todos");
             setSolicitudes((current) => current.map((row) => updatedRows.find((item) => item.id === row.id) ?? row));
             addToast("success", `Comisiones confirmadas: ${eligible.length}`);
+            onChanged?.();
         } catch (err) {
             const message = err instanceof Error ? err.message : "Error al confirmar comision.";
             addToast("error", message);
@@ -359,30 +518,137 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         if (action === "Confirmar Comision") void handleConfirmarComision();
     };
 
-    const handleDniEditSave = async () => {
-        if (!dniEdit) return;
-        const newDni = dniEdit.value.replace(/\D/g, "").slice(0, 8);
-        if (!newDni) {
-            addToast("error", "El DNI debe tener al menos un digito.");
+    const canEditSolicitud = (row: OperacionProceso) => getPagoDeudaEstadoVisual(row).action === "transferencia";
+
+    const openEditSolicitud = (row: OperacionProceso) => {
+        if (!canEditSolicitud(row)) return;
+
+        setEditSolicitud({
+            row,
+            tipoDocumento: inferTipoDocumentoOperacion(row.dni_cliente),
+            dni: row.dni_cliente ?? "",
+            comunidadId: row.id_comunidad ? String(row.id_comunidad) : "",
+            bancoId: row.id_banco_cliente ? String(row.id_banco_cliente) : "",
+            monto: row.monto_deposito_cliente != null ? String(row.monto_deposito_cliente) : "",
+        });
+    };
+
+    const openManualCommission = (row: OperacionProceso, type: ManualCommissionState["type"]) => {
+        if (type === "especial" && !canEditSolicitud(row)) return;
+        if (type === "extra" && Boolean(row.flag_comision_registrada)) return;
+
+        setManualCommission({
+            row,
+            type,
+            value: String(type === "especial" ? row.comision_servicio ?? 0 : row.comision_monto_extra_servicio ?? 0),
+        });
+    };
+
+    const handleManualCommissionSave = async () => {
+        if (!manualCommission) return;
+
+        const value = Number(manualCommission.value);
+
+        if (!Number.isFinite(value) || value < 0) {
+            addToast("error", "Ingresa un valor mayor o igual a 0.");
             return;
         }
-        setIsSavingDni(true);
+
+        if (manualCommission.type === "extra" && !Number.isInteger(value)) {
+            addToast("error", "La comision extra debe ser un monto entero en soles.");
+            return;
+        }
+
+        setIsSavingCommission(true);
         try {
-            const clientes = await clienteService.getList({ p_numero_documento: newDni });
-            const cliente = clientes?.[0];
-            const payload: Record<string, unknown> = { p_id: dniEdit.row.id, p_dni_cliente: newDni };
-            if (cliente) {
-                payload.p_id_cliente = Number(cliente.id);
-                payload.p_nombre_cliente = String(cliente.nombre ?? "");
-            }
-            const saved = await operacionesRpcService.patchOperacionBase(payload);
+            const saved =
+                manualCommission.type === "especial"
+                    ? await pagoDeudaService.patchComisionEspecial({
+                        p_id_operacion: manualCommission.row.id,
+                        p_comision_servicio: value,
+                        p_id_usuario_gestor: userId,
+                        p_nombre_usuario_gestor: userName,
+                    })
+                    : await pagoDeudaService.patchComisionExtra({
+                        p_id_operacion: manualCommission.row.id,
+                        p_comision_monto_extra_servicio: value,
+                        p_id_usuario_gestor: userId,
+                        p_nombre_usuario_gestor: userName,
+                    });
+
             updateSolicitud(saved);
-            addToast("success", "DNI actualizado.");
+            setManualCommission(null);
+            addToast("success", manualCommission.type === "especial" ? "Comision especial actualizada." : "Comision extra actualizada.");
+            onChanged?.();
         } catch (err) {
-            addToast("error", err instanceof Error ? err.message : "No se pudo actualizar el DNI.");
+            addToast("error", err instanceof Error ? err.message : "No se pudo actualizar la comision.");
         } finally {
-            setIsSavingDni(false);
-            setDniEdit(null);
+            setIsSavingCommission(false);
+        }
+    };
+
+    const handleEditSolicitudSave = async () => {
+        if (!editSolicitud) return;
+
+        const selectedBanco = bancos.find((item) => String(item.id) === editSolicitud.bancoId);
+        const selectedComunidad = comunidades.find((item) => String(item.id) === editSolicitud.comunidadId);
+        const amount = Number(editSolicitud.monto.replace(",", "."));
+        const newDni = cleanDocumento(editSolicitud.dni, editSolicitud.tipoDocumento);
+        const documentoError = getDocumentoValidationMessage(newDni, editSolicitud.tipoDocumento);
+
+        if (!userId) {
+            addToast("error", "No se pudo resolver el usuario actual.");
+            return;
+        }
+
+        if (documentoError) {
+            addToast("error", documentoError);
+            return;
+        }
+
+        if (!selectedComunidad) {
+            addToast("error", "Selecciona una comunidad.");
+            return;
+        }
+
+        if (!selectedBanco) {
+            addToast("error", "Selecciona un banco.");
+            return;
+        }
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+            addToast("error", "El monto debe ser mayor a cero.");
+            return;
+        }
+
+        setIsSavingSolicitud(true);
+        try {
+            const saved = await pagoDeudaService.postSolicitud({
+                p_id_operacion: editSolicitud.row.id,
+                p_id_usuario: userId,
+                p_tipo_documento_cliente: editSolicitud.tipoDocumento,
+                p_dni_cliente: newDni,
+                p_nombre_cliente: editSolicitud.row.nombre_cliente,
+                p_id_banco_cliente: selectedBanco.id,
+                p_nombre_banco_cliente: selectedBanco.nombre,
+                p_monto_deposito_cliente: amount,
+                p_id_comunidad: selectedComunidad.id,
+                p_id_usuario_gestor: userId,
+                p_nombre_usuario_gestor: userName,
+                p_id_usuario_solicitud: editSolicitud.row.id_usuario_solicitud ?? userId,
+                p_nombre_usuario_solicitud: editSolicitud.row.nombre_usuario_solicitud ?? userName,
+                p_ruta_origen: "deuda",
+                p_ruta_destino: "deuda",
+            });
+
+            updateSolicitud(saved);
+            setEditSolicitud(null);
+            addToast("success", "Solicitud actualizada.");
+            onChanged?.();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo actualizar la solicitud.");
+        } finally {
+            setIsSavingSolicitud(false);
         }
     };
 
@@ -403,6 +669,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             });
             updateSolicitud(saved);
             addToast("success", "Transferencia confirmada.");
+            onChanged?.();
         } catch (err) {
             addToast("error", err instanceof Error ? err.message : "No se pudo confirmar la transferencia.");
         } finally {
@@ -420,6 +687,7 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             });
             updateSolicitud(await getSolicitudActualizada(row, saved));
             addToast("success", "Pago Deuda finalizado.");
+            onChanged?.();
         } catch (err) {
             addToast("error", err instanceof Error ? err.message : "No se pudo finalizar Pago Deuda.");
         } finally {
@@ -446,21 +714,23 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
         {
             key: "dni_cliente",
             label: "DNI",
-            render: (row: OperacionProceso) => (
-                <div className="flex items-center gap-1">
-                    <CompactCellText primary={row.dni_cliente ?? "-"} />
-                    <Button size="xs" color="tertiary" iconLeading={Edit03} aria-label="Editar DNI" isDisabled={hasDevolucionConfirmada(row)} onClick={() => setDniEdit({ row, value: row.dni_cliente ?? "" })} />
-                </div>
-            ),
+            render: (row: OperacionProceso) => <CompactCellText primary={row.dni_cliente ?? "-"} />,
         },
         {
             key: "nombre_cliente",
             label: "Cliente",
-            render: (row: OperacionProceso) => <CompactCellText primary={row.nombre_cliente || "-"} className="max-w-44" />,
+            cellClassName: "w-[25ch] max-w-[25ch]",
+            render: (row: OperacionProceso) => (
+                <CompactCellText
+                    primary={row.nombre_cliente || "-"}
+                    className="max-w-[25ch]"
+                    title={row.nombre_cliente || undefined}
+                />
+            ),
         },
         {
             key: "nombre_banco_cliente",
-            label: "Banco",
+            label: "Banco Solicitado",
             render: (row: OperacionProceso) => <CompactCellText primary={row.nombre_banco_cliente ?? "-"} />,
         },
         {
@@ -481,35 +751,27 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             ),
         },
         {
-            key: "empresa_comision",
-            label: "Empresa",
+            key: "monto_devuelto",
+            label: "Monto Devuelto",
             render: (row: OperacionProceso) => (
-                <CompactInlineSelect
-                    aria-label="Empresa de comision"
-                    width="w-52"
-                    value={row.id_empresa_ingreso ? String(row.id_empresa_ingreso) : ""}
-                    disabled={savingCuentaIds.includes(row.id) || !hasDevolucionConfirmada(row) || Boolean(row.flag_comision_registrada)}
-                    onChange={(event) => handleEmpresaChange(row, getSelectValue(event))}
-                    options={[{ label: "Empresa", value: "" }, ...empresasActivas]}
-                />
+                <CompactMoneyCell value={hasDevolucionConfirmada(row) ? row.monto_deposito_cliente : row.monto_devuelto} />
             ),
         },
         {
             key: "cuenta_comision",
-            label: "Cuenta",
+            label: "Cuenta Comision",
+            cellClassName: "w-1 whitespace-nowrap",
             render: (row: OperacionProceso) => {
-                const cuentaOptions = cuentasActivas
-                    .filter((cuenta) => cuenta.id_empresa === Number(row.id_empresa_ingreso))
-                    .map((cuenta) => ({ label: cuenta.banco_nombre, value: String(cuenta.id) }));
+                const currentCuenta = cuentasActivas.find((cuenta) => cuenta.id === Number(row.id_empresa_cuenta_ingreso));
 
                 return (
-                    <CompactInlineSelect
-                        aria-label="Cuenta de comision"
-                        width="w-36"
-                        value={row.id_empresa_cuenta_ingreso ? String(row.id_empresa_cuenta_ingreso) : ""}
-                        disabled={savingCuentaIds.includes(row.id) || !row.id_empresa_ingreso || !hasDevolucionConfirmada(row) || Boolean(row.flag_comision_registrada)}
-                        onChange={(event) => handleCuentaChange(row, getSelectValue(event))}
-                        options={[{ label: "Cuenta", value: "" }, ...cuentaOptions]}
+                    <CuentaComisionSelector
+                        cuentasPorEmpresa={cuentasPorEmpresa}
+                        currentCuenta={currentCuenta}
+                        disabled={!hasDevolucionConfirmada(row) || Boolean(row.flag_comision_registrada)}
+                        isSaving={savingCuentaIds.includes(row.id)}
+                        onSelect={(idCuenta) => handleCuentaComisionSelect(row, idCuenta)}
+                        row={row}
                     />
                 );
             },
@@ -531,6 +793,37 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
             render: (row: OperacionProceso) => (
                 <CompactCellText primary={formatTime(row.fecha_registro) || "-"} secondary={formatDate(row.fecha_registro)} />
             ),
+        },
+        {
+            key: "acciones",
+            label: "Acciones",
+            render: (row: OperacionProceso) => {
+                const canEdit = canEditSolicitud(row);
+                const canEditExtra = !Boolean(row.flag_comision_registrada);
+                const canOpenActions = canEdit || canEditExtra;
+
+                return (
+                    <Dropdown.Root>
+                        <Dropdown.DotsButton aria-label="Acciones de Pago Deuda" isDisabled={!canOpenActions} />
+                        <Dropdown.Popover>
+                            <Dropdown.Menu
+                                onAction={(key) => {
+                                    if (key === "Editar") openEditSolicitud(row);
+                                    if (key === "ComisionEspecial") openManualCommission(row, "especial");
+                                    if (key === "ComisionExtra") openManualCommission(row, "extra");
+                                    if (key === "EliminarSolicitud") setDeletingSolicitud(row);
+                                }}
+                            >
+                                {canEdit && <Dropdown.Item id="Editar" icon={Edit03}>Editar</Dropdown.Item>}
+                                {canEdit && <Dropdown.Item id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
+                                {canEditExtra && <Dropdown.Item id="ComisionExtra" icon={Coins01}>S/ Com. Extra</Dropdown.Item>}
+                                {canEdit && <Dropdown.Separator />}
+                                {canEdit && <Dropdown.Item id="EliminarSolicitud" icon={Trash01}>Eliminar Solicitud</Dropdown.Item>}
+                            </Dropdown.Menu>
+                        </Dropdown.Popover>
+                    </Dropdown.Root>
+                );
+            },
         },
     ];
 
@@ -556,38 +849,117 @@ export const PagoDeudaBoard = ({ refreshKey = 0 }: PagoDeudaBoardProps) => {
 
             <OperationTable
                 columns={columns}
-                data={solicitudes}
+                data={solicitudesFiltradas}
                 emptyText="Sin solicitudes de Pago Deuda."
                 isLoading={isLoading}
                 selectedIds={selectedIds}
                 onToggleRow={handleToggleRow}
             />
-            <ModalOverlay isOpen={dniEdit !== null} onOpenChange={(open) => !open && setDniEdit(null)}>
-                <Modal className="max-w-sm">
-                    <Dialog>
-                        <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                            <div>
-                                <h2 className="text-lg font-semibold text-primary">Editar DNI</h2>
-                                <p className="mt-1 text-sm text-tertiary">
-                                    {dniEdit ? `Operacion ${dniEdit.row.codigo_operacion_deposito_cliente ?? dniEdit.row.id}` : ""}
-                                </p>
+            {editSolicitud && (
+                <ModalOverlay isOpen onOpenChange={(open) => !open && setEditSolicitud(null)}>
+                    <Modal className="max-w-lg">
+                        <Dialog aria-label="Editar solicitud de pago deuda">
+                            <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-primary">Editar Solicitud</h2>
+                                    <p className="mt-1 text-sm text-tertiary">Pago Deuda {editSolicitud.row.id}</p>
+                                </div>
+                                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                                    <DocumentoInputGroup
+                                        isRequired
+                                        tipoDocumento={editSolicitud.tipoDocumento}
+                                        numeroDocumento={editSolicitud.dni}
+                                        onTipoDocumentoChange={(value) =>
+                                            setEditSolicitud((current) => current ? { ...current, tipoDocumento: value, dni: cleanDocumento(current.dni, value) } : current)
+                                        }
+                                        onNumeroDocumentoChange={(value) =>
+                                            setEditSolicitud((current) => current ? { ...current, dni: value } : current)
+                                        }
+                                    />
+                                    <NativeSelect
+                                        size="sm"
+                                        label="Comunidad"
+                                        value={editSolicitud.comunidadId}
+                                        onChange={(event) => {
+                                            const value = event.currentTarget.value;
+                                            setEditSolicitud((current) => current ? { ...current, comunidadId: value } : current);
+                                        }}
+                                        options={[{ label: "Seleccionar", value: "" }, ...comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))]}
+                                    />
+                                    <NativeSelect
+                                        size="sm"
+                                        label="Banco Solicitado"
+                                        value={editSolicitud.bancoId}
+                                        onChange={(event) => {
+                                            const value = event.currentTarget.value;
+                                            setEditSolicitud((current) => current ? { ...current, bancoId: value } : current);
+                                        }}
+                                        options={[{ label: "Seleccionar", value: "" }, ...bancos.map((item) => ({ label: item.nombre, value: String(item.id) }))]}
+                                    />
+                                    <Input
+                                        size="sm"
+                                        label="Monto"
+                                        placeholder="S/ 0.00"
+                                        value={editSolicitud.monto}
+                                        onChange={(value) =>
+                                            setEditSolicitud((current) => current ? { ...current, monto: sanitizeAmountInput(value) } : current)
+                                        }
+                                    />
+                                </div>
+                                <div className="mt-6 flex justify-end gap-2">
+                                    <Button color="secondary" isDisabled={isSavingSolicitud} onClick={() => setEditSolicitud(null)}>Cancelar</Button>
+                                    <Button isLoading={isSavingSolicitud} onClick={() => void handleEditSolicitudSave()}>Guardar</Button>
+                                </div>
                             </div>
-                            <div className="mt-5">
-                                <Input
-                                    size="sm"
-                                    label="DNI"
-                                    value={dniEdit?.value ?? ""}
-                                    onChange={(value) => setDniEdit((current) => current ? { ...current, value } : current)}
-                                />
+                        </Dialog>
+                    </Modal>
+                </ModalOverlay>
+            )}
+            {manualCommission && (
+                <ModalOverlay isOpen onOpenChange={(open) => !open && setManualCommission(null)}>
+                    <Modal className="max-w-sm">
+                        <Dialog aria-label="Comision de pago deuda">
+                            <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-primary">
+                                        {manualCommission.type === "especial" ? "Com. Especial" : "S/ Com. Extra"}
+                                    </h2>
+                                    <p className="mt-1 text-sm text-tertiary">
+                                        {manualCommission.type === "especial"
+                                            ? "Porcentaje manual para esta solicitud."
+                                            : "Monto adicional en soles para esta solicitud."}
+                                    </p>
+                                </div>
+
+                                <div className="mt-5">
+                                    <Input
+                                        size="sm"
+                                        label={manualCommission.type === "especial" ? "Porcentaje" : "Monto"}
+                                        type="number"
+                                        value={manualCommission.value}
+                                        onChange={(value) => setManualCommission((current) => current ? { ...current, value } : current)}
+                                    />
+                                </div>
+
+                                <div className="mt-6 flex justify-end gap-2">
+                                    <Button color="secondary" isDisabled={isSavingCommission} onClick={() => setManualCommission(null)}>Cancelar</Button>
+                                    <Button isLoading={isSavingCommission} onClick={() => void handleManualCommissionSave()}>Guardar</Button>
+                                </div>
                             </div>
-                            <div className="mt-6 flex justify-end gap-2">
-                                <Button color="secondary" onClick={() => setDniEdit(null)}>Cancelar</Button>
-                                <Button isLoading={isSavingDni} onClick={() => void handleDniEditSave()}>Guardar</Button>
-                            </div>
-                        </div>
-                    </Dialog>
-                </Modal>
-            </ModalOverlay>
+                        </Dialog>
+                    </Modal>
+                </ModalOverlay>
+            )}
+            <OperacionConfirmModal
+                confirmLabel="Eliminar"
+                description="Se eliminara la solicitud y su operacion bancaria. Esta accion solo es valida en paso 1."
+                intent="destructive"
+                isLoading={isDeletingSolicitud}
+                isOpen={Boolean(deletingSolicitud)}
+                onClose={() => setDeletingSolicitud(null)}
+                onConfirm={() => void handleDeleteSolicitud()}
+                title="Eliminar Solicitud"
+            />
         </motion.section>
     );
 };

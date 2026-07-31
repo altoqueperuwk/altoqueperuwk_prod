@@ -81,11 +81,6 @@ const toOption = (value: unknown, label: unknown) => ({
 
 const allowedCuentaClienteBanks = ["bcp", "bbva", "scotiabank", "scotibank", "interbank", "banbif"];
 const tipoDepositoVisibleRoutes: OperacionRutaBancaria[] = ["scotiabank", "banbif"];
-const safetyPayModeOptions = [
-    { label: "Automatico", value: "Automatico" },
-    { label: "Manual", value: "Manual" },
-];
-
 const normalizeBankName = (value: unknown) =>
     String(value ?? "")
         .normalize("NFD")
@@ -144,9 +139,8 @@ const formatTime = (value?: string | null) => {
     return new Date(value).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
 };
 
-const getColumnHeaders = (showModalidad: boolean) => [
+const getColumnHeaders = () => [
     { label: "Facturacion" },
-    ...(showModalidad ? [{ label: "Modalidad" }] : []),
     { label: "Cod. Op." },
     { label: "DNI" },
     { label: "Comunidad" },
@@ -235,9 +229,8 @@ export const BancariaEfectivizacionTable = ({
     const paginatedRows = useMemo(() => rows.slice((page - 1) * pageSize, page * pageSize), [page, pageSize, rows]);
     const visibleIds = paginatedRows.map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
-    const showModalidad = ruta === "safetypay";
     const showTipoDeposito = tipoDepositoVisibleRoutes.includes(ruta);
-    const columnHeaders = useMemo(() => getColumnHeaders(showModalidad), [showModalidad]);
+    const columnHeaders = useMemo(() => getColumnHeaders(), []);
     const tableColSpan = columnHeaders.length + (hasSelection ? 1 : 0);
     const activeCompanyAccounts = useMemo(
         () => companies.filter((company) =>
@@ -778,35 +771,7 @@ export const BancariaEfectivizacionTable = ({
                                                 />
                                             )}
                                         </td>
-                                        {showModalidad && (
-                                            <td className="px-2 py-2 align-top">
-                                                <CompactInlineSelect
-                                                    aria-label="Modalidad"
-                                                    width="w-30"
-                                                    disabled={disabledIngreso}
-                                                    value={row.tipo_recaudacion_sf ?? "Automatico"}
-                                                    onChange={(event) => {
-                                                        const modalidad = getSelectValue(event);
-                                                        setSavingIds((current) => [...current, row.id]);
-                                                        void operacionesRpcService
-                                                            .patchOperacionTipoRecaudacionSafetyPay({
-                                                                p_id: row.id,
-                                                                p_tipo_recaudacion_sf: modalidad,
-                                                                p_id_usuario_gestor: user.userId,
-                                                                p_nombre_usuario_gestor: user.userName,
-                                                            })
-                                                            .then((saved) => {
-                                                                setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
-                                                                onRowUpdated(saved);
-                                                                addToast("success", "Modalidad actualizada.");
-                                                            })
-                                                            .catch((err) => addToast("error", err instanceof Error ? err.message : "No se pudo actualizar la modalidad."))
-                                                            .finally(() => setSavingIds((current) => current.filter((id) => id !== row.id)));
-                                                    }}
-                                                    options={safetyPayModeOptions}
-                                                />
-                                            </td>
-                                        )}
+
                                         <td className="px-2 py-2 align-top">
                                             <CompactCellText primary={row.codigo_operacion_deposito_cliente ?? "-"} />
                                             {showTipoDeposito && (

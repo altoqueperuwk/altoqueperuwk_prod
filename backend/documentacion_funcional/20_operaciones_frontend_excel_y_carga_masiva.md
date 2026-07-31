@@ -18,6 +18,7 @@ Reglas vigentes:
 - La fecha operacional del deposito es `fecha_deposito_cliente`.
 - Para Pago Deuda, el match automatico usa la fecha operacional del deposito, no la fecha de carga ni `CURRENT_DATE`.
 - Scotiabank y Banbif pueden retener ingresos si la cuenta bancaria tiene `flag_retencion = true`.
+- `f_post_tb_operacion_proceso_excel` y `f_post_tb_operacion_proceso_excel_ganancia` usan `hora_proceso` del Excel cuando la fecha tiene time `00:00:00`, en lugar de `current_time`.
 
 La seccion antigua de tipos soportados queda reemplazada por esta lista vigente.
 

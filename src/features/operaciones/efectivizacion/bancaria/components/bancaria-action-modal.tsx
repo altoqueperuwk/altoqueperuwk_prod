@@ -46,13 +46,13 @@ export const BancariaActionModal = ({
             return;
         }
 
-        if (action === "Modalidad") {
-            setValue("Automatico");
+        if (action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Transferencia") {
+            setValue(companies[0] ? String(companies[0].id) : "");
             return;
         }
 
-        if (action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Transferencia") {
-            setValue(companies[0] ? String(companies[0].id) : "");
+        if (action === "Modalidad") {
+            setValue("Automatico");
             return;
         }
 
@@ -79,16 +79,16 @@ export const BancariaActionModal = ({
             ? bancariaRouteKeys
                   .filter((route) => route !== currentRuta)
                   .map((route) => ({ label: getRutaLabel(route), value: route }))
-            : action === "Modalidad"
-              ? [
-                    { label: "Automatico", value: "Automatico" },
-                    { label: "Manual", value: "Manual" },
-                ]
             : action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Transferencia"
               ? companies.map((company) => ({
                     label: `${company.nombre_empresa} - ${company.nombre_banco}`,
                     value: String(company.id),
                 }))
+              : action === "Modalidad"
+                ? [
+                    { label: "Automatico", value: "Automatico" },
+                    { label: "Manual", value: "Manual" },
+                ]
               : users.map((user) => ({ label: user.nombre, value: String(user.id) }));
 
     return (
@@ -109,11 +109,11 @@ export const BancariaActionModal = ({
                                 label={
                                     action === "Derivar"
                                         ? "Ruta destino"
-                                        : action === "Modalidad"
-                                          ? "Modalidad"
                                         : action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Transferencia"
                                           ? "Empresa y cuenta"
-                                          : "Usuario gestor"
+                                          : action === "Modalidad"
+                                            ? "Modalidad"
+                                            : "Usuario gestor"
                                 }
                                 value={value}
                                 onChange={(event) => setValue(event.currentTarget.value)}

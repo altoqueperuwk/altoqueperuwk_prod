@@ -125,6 +125,7 @@ export const buildPagoDeudaSalidaPayload = (
 
 export const buildExcelPayload = ({
     activeCompany,
+    fileName,
     rows,
     selectedCommunity,
     service,
@@ -133,6 +134,7 @@ export const buildExcelPayload = ({
     ruta,
 }: {
     activeCompany: RutaOperacionCaja;
+    fileName?: string;
     rows: ExcelRow[];
     selectedCommunity: CatalogRef;
     service: CatalogRef;
@@ -153,6 +155,7 @@ export const buildExcelPayload = ({
     p_nombre_usuario: user.userName,
     p_ruta_actual: ruta,
     p_tipo_recaudacion_sf: ruta === "safetypay" ? tipoRecaudacionSf ?? "Automatico" : null,
+    p_nombre_archivo: fileName ?? null,
 });
 
 const expectDateString = () => new Date().toISOString();

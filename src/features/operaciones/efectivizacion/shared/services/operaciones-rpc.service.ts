@@ -4,9 +4,12 @@ import type {
     CajaOperativaCierre,
     OperacionAsistidaKpi,
     OperacionBandejaBadge,
+    OperacionCargaExcelRollback,
     OperacionCajaMovimiento,
     OperacionEmpresaBadge,
     OperacionProceso,
+    RecaudacionOperacionInfo,
+    RecaudacionReglaAbono,
     RutaOperacionCaja,
     RutaOperacionKpi,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
@@ -99,6 +102,14 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso[]>("f_get_tb_operacion_retencion_bandeja", params);
     },
 
+    getOperacionCargaExcelRollback(params: Record<string, unknown>) {
+        return rpc<OperacionCargaExcelRollback[]>("f_get_tb_operacion_carga_excel_rollback", params);
+    },
+
+    deleteOperacionCargaExcelRollback(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_delete_tb_operacion_carga_excel_rollback", params);
+    },
+
     getPagoDeudaBandeja(params: Record<string, unknown>) {
         return rpc<OperacionProceso[]>("f_get_tb_pago_deuda_bandeja", params);
     },
@@ -113,6 +124,10 @@ export const operacionesRpcService = {
 
     postTransferenciaCaja(params: Record<string, unknown>) {
         return rpc<Record<string, OperacionCajaMovimiento>>("f_post_tb_operacion_caja_transferencia", params);
+    },
+
+    deleteMovimientoCajaManual(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_delete_tb_operacion_caja_manual", params);
     },
 
     postOperacionProceso(params: Record<string, unknown>) {
@@ -148,6 +163,10 @@ export const operacionesRpcService = {
 
     postCajaCierre(params: Record<string, unknown>) {
         return rpc<Record<string, unknown>>("f_post_tb_caja_operativa_cierre", params);
+    },
+
+    deleteUltimoCierreCajaDia(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_delete_tb_caja_operativa_cierre_ultimo_dia", params);
     },
 
     getCajaOperativa(params: Record<string, unknown>) {
@@ -192,6 +211,22 @@ export const operacionesRpcService = {
 
     confirmarOperacionRetencion(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_confirmar_retencion", params);
+    },
+
+    getReglaAbono(params: Record<string, unknown>) {
+        return rpc<RecaudacionReglaAbono[]>("f_get_tb_recaudacion_regla_abono", params);
+    },
+
+    patchReglaAbono(params: Record<string, unknown>) {
+        return rpc<RecaudacionReglaAbono>("f_patch_tb_recaudacion_regla_abono", params);
+    },
+
+    runLiberarRetenciones(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_run_tb_recaudacion_liberar_retenciones", params);
+    },
+
+    getRecaudacionOperacionInfo(params: Record<string, unknown>) {
+        return rpc<RecaudacionOperacionInfo[]>("f_get_tb_recaudacion_operacion_info", params);
     },
 
     patchPagoDeudaSalida(params: Record<string, unknown>) {

@@ -8,6 +8,7 @@ import { X, Check } from "@untitledui/icons";
 import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { reglasEfectivizacionService } from "@/services/reglas-efectivizacion.service";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface ReglasEfectivizacionPopupProps {
   isOpen: boolean;
@@ -41,10 +42,7 @@ export const ReglasEfectivizacionPopup = ({ isOpen, onClose, onSave, item }: Reg
   const [idEstado, setIdEstado] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
 
-  const estadoItems = useMemo(
-    () => (estados || []).map((e) => ({ id: e.id as string | number, label: e.nombre as string })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   const bancoItems = useMemo(
     () => (bancos || []).map((b) => ({ id: b.id as string | number, label: b.nombre as string })),

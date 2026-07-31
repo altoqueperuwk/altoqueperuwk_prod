@@ -7,9 +7,17 @@ import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { bancoService } from "@/services/banco.service";
 import { comunidadService } from "@/services/comunidad.service";
+import { reglasEfectivizacionService } from "@/services/reglas-efectivizacion.service";
 import { InlineFormCard } from "@/features/operaciones/efectivizacion/shared/components/inline-form-card";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
+import {
+    DocumentoInputGroup,
+    cleanDocumento,
+    getDocumentoValidationMessage,
+    type TipoDocumentoOperacion,
+} from "@/features/operaciones/efectivizacion/shared/components/documento-input-group";
+import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
 
 interface PagoDeudaSolicitudFormProps {
     onSaved: () => void;
@@ -25,9 +33,23 @@ interface CatalogItem {
     nombre: string;
 }
 
+interface ReglaPagoDeudaItem {
+    id: number;
+    id_banco: number;
+    id_comunidad: number | null;
+    codigo_servicio_nombre: string;
+    comision_servicio: number;
+}
+
+const formatPercentValue = (value: number | null | undefined) => {
+    if (value == null || !Number.isFinite(Number(value))) return "";
+    return `${Number(value).toLocaleString("es-PE", { maximumFractionDigits: 4 })} %`;
+};
+
 export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
+    const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
     const [nombre, setNombre] = useState("");
     const [monto, setMonto] = useState("");
@@ -35,16 +57,27 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
     const [bancoId, setBancoId] = useState("");
     const [bancos, setBancos] = useState<BancoItem[]>([]);
+    const [reglas, setReglas] = useState<ReglaPagoDeudaItem[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [clienteId, setClienteId] = useState<number | null>(null);
 
-    const { result: clienteLookup, isLoading: isClienteLoading } = useClienteLookup(dni);
+    const { result: clienteLookup, isLoading: isClienteLoading } = useClienteLookup(dni, tipoDocumento);
 
     const selectedBanco = useMemo(() => bancos.find((item) => String(item.id) === bancoId) ?? null, [bancoId, bancos]);
     const selectedCommunity = useMemo(
         () => comunidades.find((item) => String(item.id) === comunidadId) ?? null,
         [comunidadId, comunidades],
     );
+    const selectedRegla = useMemo(() => {
+        if (!selectedBanco) return null;
+
+        const bankRules = reglas.filter((item) => item.id_banco === selectedBanco.id);
+        return (
+            bankRules.find((item) => selectedCommunity && item.id_comunidad === selectedCommunity.id) ??
+            bankRules[0] ??
+            null
+        );
+    }, [reglas, selectedBanco, selectedCommunity]);
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
 
@@ -59,10 +92,10 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
             if (clienteLookup.id_comunidad && !comunidadId) {
                 setComunidadId(String(clienteLookup.id_comunidad));
             }
-        } else if (dni.replace(/\D/g, "").length >= 8) {
+        } else if (!getDocumentoValidationMessage(dni, tipoDocumento)) {
             setClienteId(null);
         }
-    }, [clienteLookup, dni, comunidadId]);
+    }, [clienteLookup, dni, comunidadId, tipoDocumento]);
 
     useEffect(() => {
         let ignore = false;
@@ -96,6 +129,33 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
         };
     }, [addToast, comunidadId, bancoId]);
 
+    useEffect(() => {
+        let ignore = false;
+
+        reglasEfectivizacionService
+            .getList({ p_id_estado: 1 })
+            .then((rows) => {
+                if (ignore) return;
+
+                setReglas(
+                    rows
+                        .filter((row) => String(row.codigo_servicio_nombre ?? "").toUpperCase().includes("PAGO DEUDA"))
+                        .map((row) => ({
+                            id: Number(row.id),
+                            id_banco: Number(row.id_banco),
+                            id_comunidad: row.id_comunidad == null ? null : Number(row.id_comunidad),
+                            codigo_servicio_nombre: String(row.codigo_servicio_nombre ?? ""),
+                            comision_servicio: Number(row.comision_servicio ?? 0),
+                        })),
+                );
+            })
+            .catch(() => addToast("error", "Error al cargar reglas de Pago Deuda."));
+
+        return () => {
+            ignore = true;
+        };
+    }, [addToast]);
+
     const handleSave = async () => {
         const amount = Number(monto.replace(",", "."));
 
@@ -114,8 +174,11 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
             return;
         }
 
-        if (!dni.trim()) {
-            addToast("error", "El DNI es obligatorio.");
+        const cleanDni = cleanDocumento(dni, tipoDocumento);
+        const documentoError = getDocumentoValidationMessage(cleanDni, tipoDocumento);
+
+        if (documentoError) {
+            addToast("error", documentoError);
             return;
         }
 
@@ -129,7 +192,8 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
         try {
             const result = await pagoDeudaService.postSolicitud({
                 p_id_usuario: userId,
-                p_dni_cliente: dni.trim(),
+                p_tipo_documento_cliente: tipoDocumento,
+                p_dni_cliente: cleanDni,
                 p_nombre_cliente: nombre.trim() || null,
                 p_id_banco_cliente: selectedBanco.id,
                 p_nombre_banco_cliente: selectedBanco.nombre,
@@ -148,6 +212,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
             }
 
             setDni("");
+            setTipoDocumento(1);
             setNombre("");
             setMonto("");
             onSaved();
@@ -162,6 +227,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
 
     const handleClear = () => {
         setDni("");
+        setTipoDocumento(1);
         setNombre("");
         setMonto("");
         setClienteId(null);
@@ -171,14 +237,13 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
         <InlineFormCard title="Solicitud Pago Deuda">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
                 <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap xl:flex-nowrap xl:items-end">
-                    <div className="flex w-full max-w-[11ch] min-w-0 flex-col gap-1">
-                        <Input
-                            size="sm"
-                            label="DNI"
-                            placeholder="Documento"
-                            value={dni}
-                            onChange={(value) => setDni(value.slice(0, 10))}
-                            maxLength={10}
+                    <div className="flex w-full max-w-[13rem] min-w-0 flex-col gap-1">
+                        <DocumentoInputGroup
+                            isRequired
+                            tipoDocumento={tipoDocumento}
+                            numeroDocumento={dni}
+                            onTipoDocumentoChange={setTipoDocumento}
+                            onNumeroDocumentoChange={setDni}
                         />
                         {isClienteLoading && <span className="text-xs text-tertiary">Buscando...</span>}
                     </div>
@@ -201,13 +266,27 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                     />
                     <NativeSelect
                         size="sm"
-                        label="Banco Transferir"
+                        label="Banco Solicitado"
                         value={bancoId}
                         onChange={(event) => setBancoId(event.currentTarget.value)}
                         options={bancos.map((item) => ({ label: item.nombre, value: String(item.id) }))}
                         className="min-w-0 flex-1"
                     />
-                    <Input size="sm" label="Monto" placeholder="S/ 0.00" value={monto} onChange={setMonto} className="w-full max-w-[8rem] shrink-0" />
+                    <Input
+                        size="sm"
+                        label="Comision"
+                        value={formatPercentValue(selectedRegla?.comision_servicio)}
+                        isDisabled
+                        className="w-full max-w-[7rem] shrink-0"
+                    />
+                    <Input
+                        size="sm"
+                        label="Monto"
+                        placeholder="S/ 0.00"
+                        value={monto}
+                        onChange={(value) => setMonto(sanitizeAmountInput(value))}
+                        className="w-full max-w-[8rem] shrink-0"
+                    />
                 </div>
                 <div className="flex shrink-0 gap-2">
                     <Button

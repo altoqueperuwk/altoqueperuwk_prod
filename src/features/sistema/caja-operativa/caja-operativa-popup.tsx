@@ -9,6 +9,7 @@ import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { cajaOperativaService } from "@/services/caja-operativa.service";
 import { Check, X } from "@untitledui/icons";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface CajaOperativaPopupProps {
     isOpen: boolean;
@@ -28,6 +29,11 @@ const parseMoney = (value: string) => {
     return Number.isFinite(numberValue) ? numberValue : null;
 };
 
+const canEditSavedSaldo = (value: unknown) => {
+    const parsed = parseMoney(String(value ?? "0"));
+    return parsed !== null && parsed <= 0;
+};
+
 export const CajaOperativaPopup = ({ existingItems = [], isOpen, item, onClose, onSave }: CajaOperativaPopupProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
@@ -38,11 +44,9 @@ export const CajaOperativaPopup = ({ existingItems = [], isOpen, item, onClose, 
     const [saldoInicial, setSaldoInicial] = useState("");
     const [idEstado, setIdEstado] = useState(0);
     const [isSaving, setIsSaving] = useState(false);
+    const canEditSaldoInicial = !isEditing || canEditSavedSaldo(item?.saldo_inicial);
 
-    const estadoItems = useMemo(
-        () => (estados || []).map((estado) => ({ id: estado.id as string | number, label: estado.nombre as string })),
-        [estados],
-    );
+    const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
     const assignedCuentaIds = useMemo(() => {
         const currentCuentaId = isEditing ? Number(item?.id_empresa_cuenta_bancaria ?? 0) : 0;
@@ -218,6 +222,7 @@ export const CajaOperativaPopup = ({ existingItems = [], isOpen, item, onClose, 
                                 size="sm"
                                 type="number"
                                 value={saldoInicial}
+                                isDisabled={!canEditSaldoInicial}
                                 onChange={setSaldoInicial}
                             />
 

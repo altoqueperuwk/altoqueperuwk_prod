@@ -1,6 +1,6 @@
 import { RouteKpiCard } from "@/features/operaciones/efectivizacion/shared/components/route-kpi-card";
 import type { RutaOperacionKpi } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
-import { formatInteger, formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
+import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 
 interface BancariaKpiGridProps {
     isLoading?: boolean;
@@ -9,23 +9,27 @@ interface BancariaKpiGridProps {
 
 export const BancariaKpiGrid = ({ isLoading = false, kpi }: BancariaKpiGridProps) => {
     const cards = [
-        ["Caja Inicial", formatMoney(kpi?.caja_inicial), "text-primary"],
-        ["Caja Actual", formatMoney(kpi?.caja_actual), "text-primary"],
-        ["Caja Recaudación", formatMoney(kpi?.total_recaudado), "text-concept-ingreso"],
-        ["Ingresos", formatMoney(kpi?.ingresos), "text-concept-ingreso"],
-        ["Salidas", formatMoney(kpi?.salidas), "text-concept-salida"],
-        ["Gastos Operacionales", formatMoney(kpi?.gastos_operacionales), "text-concept-gasto"],
-        ["Ganancias", formatMoney(kpi?.ganancias), "text-concept-ganancia"],
-        ["Pendiente a Depositar", formatMoney(kpi?.pendiente_depositar), "text-primary"],
-        ["Retención Recaudación", formatMoney(kpi?.ingresos_retenidos), "text-concept-ingreso"],
-        ["Total Efectivizacion", formatInteger(kpi?.total_efectivizacion), "text-primary"],
-        ["Total Pago Deuda", formatInteger(kpi?.total_pago_deuda), "text-primary"],
+        { label: "Caja Inicial", value: formatMoney(kpi?.caja_inicial), valueClassName: "text-primary", badges: ["Efectivización", "Pago Deuda", "Otros"] },
+        { label: "Caja Actual", value: formatMoney(kpi?.caja_actual), valueClassName: "text-primary", badges: ["Efectivización", "Pago Deuda", "Otros"] },
+        { label: "Caja Recaudación", value: formatMoney(kpi?.total_recaudado), valueClassName: "text-concept-ingreso", badges: ["Efectivización", "Pago Deuda"] },
+        { label: "Ingresos", value: formatMoney(kpi?.ingresos), valueClassName: "text-concept-ingreso", badges: ["Otros"] },
+        { label: "Salidas", value: formatMoney(kpi?.salidas), valueClassName: "text-concept-salida", badges: ["Efectivización", "Pago Deuda", "Otros"] },
+        { label: "Gastos Operacionales", value: formatMoney(kpi?.gastos_operacionales), valueClassName: "text-concept-gasto", badges: ["Efectivización", "Pago Deuda"] },
+        { label: "Ganancias", value: formatMoney(kpi?.ganancias), valueClassName: "text-concept-ganancia", badges: ["Efectivización", "Pago Deuda"] },
+        { label: "Retención Recaudación", value: formatMoney(kpi?.ingresos_retenidos), valueClassName: "text-concept-ingreso", badges: ["Efectivización", "Pago Deuda"] },
     ] as const;
 
     return (
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
-            {cards.map(([label, value, valueClassName]) => (
-                <RouteKpiCard isLoading={isLoading} key={label} label={label} value={value} valueClassName={valueClassName} />
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
+            {cards.map((card) => (
+                <RouteKpiCard
+                    badges={card.badges}
+                    isLoading={isLoading}
+                    key={card.label}
+                    label={card.label}
+                    value={card.value}
+                    valueClassName={card.valueClassName}
+                />
             ))}
         </section>
     );

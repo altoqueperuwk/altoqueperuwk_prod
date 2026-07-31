@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reporte de Cierre - Hueso Cash S.A.</title>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    * { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+        font-family:'Inter', sans-serif;
+        background-color:#F4F6F9;
+        color:#1E2A38;
+        line-height:1.35;
+        font-size:11px;
+        -webkit-print-color-adjust:exact;
+    }
+
+    .container { max-width:794px; margin:0 auto; padding:20px; }
+
+
+    /* ============ ACCIONES DEL REPORTE ============ */
+    .report-actions {
+        max-width:794px; margin:16px auto 0; padding:0 20px;
+        display:flex; justify-content:flex-end;
+    }
+    .pdf-button {
+        border:none; border-radius:9px; padding:11px 18px; cursor:pointer;
+        background:#1E2A38; color:#fff; font-family:inherit;
+        font-size:13px; font-weight:700; display:inline-flex;
+        align-items:center; gap:8px; box-shadow:0 4px 12px rgba(30,42,56,.16);
+        transition:transform .15s ease, background-color .15s ease;
+    }
+    .pdf-button:hover { background:#2D3F52; transform:translateY(-1px); }
+    .pdf-button:disabled { cursor:wait; opacity:.7; transform:none; }
+    .pdf-button svg { width:16px; height:16px; fill:currentColor; }
+
+    /* ============ CABECERA ============ */
+    .cover {
+        background:linear-gradient(135deg, #1E2A38 0%, #2D3F52 100%);
+        color:white;
+        padding:20px 22px;
+        border-radius:10px;
+        margin-bottom:14px;
+        position:relative;
+        overflow:hidden;
+    }
+    .cover::before {
+        content:'';
+        position:absolute; top:0; right:0;
+        width:220px; height:100%;
+        background:rgba(184,146,74,.12);
+        transform:skewX(-15deg);
+    }
+    .cover-row {
+        display:flex; align-items:center; justify-content:space-between;
+        position:relative; z-index:1;
+    }
+    .cover-row-top {
+        margin-bottom:11px; padding-bottom:10px;
+        border-bottom:1px solid rgba(255,255,255,.1);
+    }
+    .cover-brand-text {
+        font-size:13px; font-weight:700; letter-spacing:1px;
+        text-transform:uppercase; color:#fff;
+    }
+    .cover-brand-text .wk { color:#D9BE8C; }
+    .cover-title { font-size:13px; font-weight:700; letter-spacing:1px; color:#fff; }
+
+    .cover-meta { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; position:relative; z-index:1; }
+    .cover-meta-item { display:flex; flex-direction:column; }
+    .cover-meta-label { color:#64748B; font-size:7.5px; text-transform:uppercase; letter-spacing:.7px; margin-bottom:2px; }
+    .cover-meta-value { color:white; font-weight:600; font-size:9px; }
+
+    /* ============ SECTION HEADER ============ */
+    .section-header {
+        display:flex; align-items:center; justify-content:space-between;
+        margin:16px 0 7px; padding-bottom:6px; border-bottom:none;
+    }
+    .section-header-left { display:flex; align-items:center; gap:12px; }
+    .section-number {
+        background-color:#1E2A38; color:white; width:28px; height:28px;
+        border-radius:8px; display:flex; align-items:center; justify-content:center;
+        font-size:13px; font-weight:700;
+    }
+    .section-header h2 {
+        font-size:10.5px; font-weight:700; color:#1E2A38;
+        display:flex; align-items:center; gap:6px; line-height:1.2;
+    }
+    .count-badge {
+        display:inline-flex; align-items:center; justify-content:center;
+        min-width:16px; height:16px;
+        background-color:#1E2A38; color:#fff; font-size:8.5px; font-weight:700;
+        padding:0 5px; border-radius:5px; line-height:1;
+    }
+    .section-count { font-size:12px; color:#94A3B8; font-weight:500; }
+
+    /* ============ KPI GRID ============ */
+    .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:6px; }
+    .kpi-card {
+        background-color:white; border-radius:7px; padding:8px 9px;
+        border:1px solid #E5E7EB; position:relative;
+    }
+
+    .kpi-label { font-size:8.5px; color:#374151; font-weight:500; margin-bottom:4px; }
+    .kpi-value { font-size:13px; font-weight:700; margin-bottom:5px; font-variant-numeric:tabular-nums; }
+    .kpi-value.neutral { color:#111827; }
+    .kpi-value.green { color:#10B981; }
+    .kpi-value.coral { color:#F0654B; }
+
+    .kpi-tags { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
+    .kpi-tag {
+        color:#64748B; font-size:6.8px; font-weight:500;
+        padding:0; border:none; background:none;
+    }
+    .kpi-tag:not(:last-child)::after {
+        content:'·';
+        margin-left:4px;
+        color:#94A3B8;
+        font-weight:700;
+    }
+    .dot { width:6px; height:6px; border-radius:50%; background-color:currentColor; display:inline-block; }
+
+    /* ============ TABLES ============ */
+    .table-container {
+        background-color:white; border-radius:6px; overflow:visible;
+        border:1px solid #E5E7EB; margin-bottom:5px;
+        box-shadow:0 1px 2px rgba(16,24,40,.04);
+    }
+    table { width:100%; border-collapse:collapse; }
+    thead { background-color:#1E2A38; }
+    th {
+        color:white; font-weight:600; font-size:6.6px; text-transform:uppercase;
+        letter-spacing:.1px; padding:5px 4px; text-align:left; white-space:nowrap;
+    }
+    th.num { text-align:right; }
+    td {
+        padding:4px 4px; border-bottom:1px solid #F1F5F9; font-size:7px;
+        color:#334155; white-space:nowrap;
+    }
+    /* Todas las celdas de detalle mantienen el mismo estilo visual. */
+    tbody tr:not(.total-row) td {
+        font-family:'Inter', sans-serif;
+        font-size:7px;
+        font-weight:400;
+        color:#334155;
+    }
+    td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    td.muted { color:inherit; }
+    tbody tr:hover { background-color:#F8FAFC; }
+    tbody tr:last-child td { border-bottom:none; }
+
+    .total-row { background-color:#F8FAFC; font-weight:700; }
+    .total-row td { color:#1E2A38; border-top:1px solid #E2E8F0; border-bottom:none; }
+
+    /* ============ FOOTER ============ */
+    .footer {
+        margin-top:16px; padding-top:9px; border-top:1px solid #E2E8F0;
+        display:flex; justify-content:space-between; font-size:7px; color:#94A3B8;
+    }
+    .footer-confidential { display:flex; align-items:center; gap:6px; }
+    .footer-confidential .dot { background-color:#DC2626; }
+
+    @page { size:A4 portrait; margin:7mm; }
+
+    .kpi-card, .cover { break-inside:avoid; page-break-inside:avoid; }
+    .section-header { break-after:avoid; page-break-after:avoid; }
+    table { break-inside:auto; page-break-inside:auto; }
+    tbody { break-inside:auto; page-break-inside:auto; }
+    tr { break-inside:avoid; page-break-inside:avoid; }
+    thead { display:table-header-group; }
+    tfoot { display:table-footer-group; }
+
+    /* Modo alto volumen: permite cientos de filas sin comprimir todo en una sola página. */
+    @media print {
+        html, body { font-size:10px; line-height:1.25; }
+        th { padding:4px 3px; font-size:6.3px; }
+        td, tbody tr:not(.total-row) td { padding:3.5px 3px; font-size:6.7px; }
+        thead { display:table-header-group; }
+        tfoot { display:table-footer-group; }
+        body { background-color:white; }
+        .container { padding:0; width:100%; max-width:100%; }
+        .cover { border-radius:0; }
+        .report-actions { display:none !important; }
+    }
+    @media (max-width:768px) {
+        .kpi-grid { grid-template-columns:repeat(2,1fr); }
+        .cover-meta { flex-direction:column; gap:15px; }
+        .container { padding:20px; }
+        .report-actions { padding:0 20px; }
+    }
+</style>
+</head>
+<body>
+<div class="report-actions" data-html2canvas-ignore="true">
+    <button id="downloadPdfBtn" class="pdf-button" type="button" onclick="downloadReportPdf()">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16.5 7.5 12l1.4-1.4 2.1 2.1V4h2v8.7l2.1-2.1 1.4 1.4-4.5 4.5ZM5 20c-.55 0-1.02-.2-1.41-.59A1.92 1.92 0 0 1 3 18v-3h2v3h14v-3h2v3c0 .55-.2 1.02-.59 1.41-.39.39-.86.59-1.41.59H5Z"/></svg>
+        Descargar PDF
+    </button>
+</div>
+
+<div id="reportContent" class="container">
+
+    <!-- CABECERA -->
+    <div class="cover">
+        <div class="cover-row cover-row-top">
+            <div class="cover-brand-text">Altoque Perú <span class="wk">WK</span></div>
+            <div class="cover-title">Reporte de Cierre de Caja</div>
+        </div>
+        <div class="cover-meta">
+            <div class="cover-meta-item">
+                <span class="cover-meta-label">Fecha de Emisión</span>
+                <span class="cover-meta-value">21/07/2026 · 04:28 a.m.</span>
+            </div>
+            <div class="cover-meta-item">
+                <span class="cover-meta-label">Operaciones Pagadas</span>
+                <span class="cover-meta-value">6</span>
+            </div>
+            <div class="cover-meta-item">
+                <span class="cover-meta-label">Operaciones Pendientes</span>
+                <span class="cover-meta-value">0</span>
+            </div>
+            <div class="cover-meta-item">
+                <span class="cover-meta-label">Pendiente Transferir</span>
+                <span class="cover-meta-value">S/. 0.00</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1. KPIs -->
+    <div class="section-header">
+        <div class="section-header-left">
+            <h2>Hueso Cash S.A. <span class="count-badge">BCP</span></h2>
+        </div>
+    </div>
+
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Caja Inicial</div>
+            <div class="kpi-value neutral">S/ 400,000.00</div>
+            <div class="kpi-tags">
+                <span class="kpi-tag">Efectivización</span>
+                <span class="kpi-tag">Pago Deuda</span>
+                <span class="kpi-tag">Movimientos</span>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Caja Actual</div>
+            <div class="kpi-value neutral">S/ 394,280.20</div>
+            <div class="kpi-tags">
+                <span class="kpi-tag">Efectivización</span>
+                <span class="kpi-tag">Pago Deuda</span>
+                <span class="kpi-tag">Movimientos</span>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Caja Recaudación</div>
+            <div class="kpi-value green">S/ 38,000.00</div>
+            <div class="kpi-tags">
+                <span class="kpi-tag">Efectivización</span>
+                <span class="kpi-tag">Pago Deuda</span>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Ingresos</div>
+            <div class="kpi-value green">S/ 23,500.00</div>
+            <div class="kpi-tags">
+                <span class="kpi-tag">Movimientos</span>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Salidas</div>
+            <div class="kpi-value coral">S/ 51,680.00</div>
+            <div class="kpi-tags">
+                <span class="kpi-tag">Efectivización</span>
+                <span class="kpi-tag">Pago Deuda</span>
+                <span class="kpi-tag">Movimientos</span>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Gastos Operacionales</div>
+            <div class="kpi-value coral">S/ 39.80</div>
+            <div class="kpi-tags">
+                <span class="kpi-tag">Efectivización</span>
+                <span class="kpi-tag">Pago Deuda</span>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Ganancias</div>
+            <div class="kpi-value green">S/ 286.80</div>
+            <div class="kpi-tags">
+                <span class="kpi-tag">Efectivización</span>
+                <span class="kpi-tag">Pago Deuda</span>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Retención Recaudación</div>
+            <div class="kpi-value green">S/ 0.00</div>
+            <div class="kpi-tags">
+                <span class="kpi-tag">Efectivización</span>
+                <span class="kpi-tag">Pago Deuda</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- EFECTIVIZACIONES -->
+    <div class="section-header">
+        <div class="section-header-left">
+            <h2>Efectivizaciones <span class="count-badge">5</span></h2>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Facturación</th>
+                    <th>Cod. Op.</th>
+                    <th>DNI</th>
+                    <th>Comunidad</th>
+                    <th>Cuenta</th>
+                    <th class="num">Monto Cliente</th>
+                    <th class="num">% Com.</th>
+                    <th class="num">Comisión</th>
+                    <th class="num">Ganancia</th>
+                    <th class="num">Transferido</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="muted">Boleta 4080326</td><td>4080326</td><td>25766601</td><td>ATK1</td><td>BCP</td>
+                    <td class="num">5,000.00</td><td class="num">1%</td><td class="num">50.00</td><td class="num">44.80</td><td class="num">4,950.00</td>
+                    <td>Pagado</td>
+                </tr>
+                <tr>
+                    <td class="muted">Boleta 4084661</td><td>4084661</td><td>15735628</td><td>ATK1</td><td>BCP</td>
+                    <td class="num">5,000.00</td><td class="num">1%</td><td class="num">50.00</td><td class="num">44.80</td><td class="num">4,950.00</td>
+                    <td>Pagado</td>
+                </tr>
+                <tr>
+                    <td class="muted">Boleta 4099264</td><td>4099264</td><td>19870229</td><td>ATK1</td><td>BCP</td>
+                    <td class="num">5,000.00</td><td class="num">1%</td><td class="num">50.00</td><td class="num">44.80</td><td class="num">4,950.00</td>
+                    <td>Pagado</td>
+                </tr>
+                <tr>
+                    <td class="muted">Boleta 4152281</td><td>4152281</td><td>44787028</td><td>ATK1</td><td>BCP</td>
+                    <td class="num">12,000.00</td><td class="num">1%</td><td class="num">120.00</td><td class="num">107.60</td><td class="num">11,880.00</td>
+                    <td>Pagado</td>
+                </tr>
+                <tr>
+                    <td class="muted">Boleta 4226268</td><td>4226268</td><td>43343435</td><td>ATK1</td><td>BCP</td>
+                    <td class="num">5,000.00</td><td class="num">1%</td><td class="num">50.00</td><td class="num">44.80</td><td class="num">4,950.00</td>
+                    <td>Pagado</td>
+                </tr>
+                <tr class="total-row">
+                    <td colspan="5">TOTALES</td>
+                    <td class="num">32,000.00</td><td></td><td class="num">320.00</td><td class="num">286.80</td><td class="num">31,680.00</td><td></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- PAGO DEUDA -->
+    <div class="section-header">
+        <div class="section-header-left">
+            <h2>Pago Deuda <span class="count-badge">1</span></h2>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Código</th>
+                    <th>DNI</th>
+                    <th>Cliente</th>
+                    <th>Empresa Salida</th>
+                    <th>Cuenta</th>
+                    <th class="num">Transferencia</th>
+                    <th>Empresa Ingreso</th>
+                    <th>Cuenta</th>
+                    <th class="num">Devolución</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="muted">87541</td><td>47356534</td><td>Jhon</td>
+                    <td>Hueso Cash S.A.</td><td>BCP</td><td class="num">6,000.00</td>
+                    <td>Hueso Cash S.A.</td><td>BCP</td><td class="num">6,000.00</td>
+                </tr>
+                <tr class="total-row">
+                    <td colspan="5">TOTALES</td>
+                    <td class="num">6,000.00</td><td></td><td></td><td class="num">6,000.00</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+
+    <!-- POS -->
+    <div class="section-header">
+        <div class="section-header-left">
+            <h2>POS <span class="count-badge">0</span></h2>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Facturación</th>
+                    <th>Cod. Op.</th>
+                    <th>DNI</th>
+                    <th>Comunidad</th>
+                    <th>Cuenta</th>
+                    <th class="num">Monto Cliente</th>
+                    <th class="num">% Com.</th>
+                    <th class="num">Comisión</th>
+                    <th class="num">Ganancia</th>
+                    <th class="num">Transferido</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td colspan="11" style="text-align:center;">Sin registros</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- MOVIMIENTOS -->
+    <div class="section-header">
+        <div class="section-header-left">
+            <h2>Movimientos <span class="count-badge">3</span></h2>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Origen</th>
+                    <th>Tipo</th>
+                    <th>DNI</th>
+                    <th>Detalle</th>
+                    <th class="num">Ingreso</th>
+                    <th class="num">Salida</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="muted">Otros</td><td>Ingreso</td><td>—</td>
+                    <td>Transferencia</td><td class="num">8,000.00</td><td class="num">0.00</td>
+                </tr>
+                <tr>
+                    <td class="muted">Otros</td><td>Salida</td><td>—</td>
+                    <td>Laptop</td><td class="num">0.00</td><td class="num">2,000.00</td>
+                </tr>
+                <tr>
+                    <td class="muted">Transferencia Interna</td><td>Salida</td><td>—</td>
+                    <td>Mover saldo Hueso Cash S.A.</td><td class="num">0.00</td><td class="num">12,000.00</td>
+                </tr>
+                <tr class="total-row">
+                    <td colspan="4">TOTALES</td>
+                    <td class="num">8,000.00</td><td class="num">14,000.00</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+
+    <!-- PENDIENTES -->
+    <div class="section-header">
+        <div class="section-header-left">
+            <h2>Pendientes <span class="count-badge">0</span></h2>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Servicio</th>
+                    <th>Facturación</th>
+                    <th>Cod. Op.</th>
+                    <th>DNI</th>
+                    <th>Comunidad</th>
+                    <th>Cuenta</th>
+                    <th class="num">Monto Cliente</th>
+                    <th class="num">% Com.</th>
+                    <th class="num">Comisión</th>
+                    <th class="num">Ganancia</th>
+                    <th class="num">Transferido</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td colspan="12" style="text-align:center;">Sin registros</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer">
+        <div>Hueso Cash S.A. · AlToque Perú WK · Reporte de Cierre · 2026</div>
+        <div class="footer-confidential">
+            <span class="dot"></span>
+            Documento confidencial — Uso interno autorizado
+        </div>
+    </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script>
+    async function downloadReportPdf() {
+        const button = document.getElementById('downloadPdfBtn');
+        const report = document.getElementById('reportContent');
+        const originalText = button.innerHTML;
+
+        button.disabled = true;
+        button.textContent = 'Generando PDF...';
+
+        const options = {
+            margin: [7, 7, 7, 7],
+            filename: 'reporte_cierre_caja_hueso_cash.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: '#FFFFFF',
+                scrollY: 0
+            },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['css', 'legacy'], avoid: ['.cover', '.kpi-card', '.section-header'] }
+        };
+
+        try {
+            await html2pdf().set(options).from(report).save();
+        } catch (error) {
+            console.error('No se pudo generar el PDF:', error);
+            alert('No se pudo generar el PDF. Verifica tu conexión e inténtalo nuevamente.');
+        } finally {
+            button.disabled = false;
+            button.innerHTML = originalText;
+        }
+    }
+</script>
+
+</body>
+</html>

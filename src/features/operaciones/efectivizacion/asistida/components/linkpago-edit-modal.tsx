@@ -13,6 +13,13 @@ import { estadoService } from "@/services/estado.service";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { OperacionProceso } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
+import {
+    DocumentoInputGroup,
+    cleanDocumento,
+    getDocumentoValidationMessage,
+    type TipoDocumentoOperacion,
+} from "@/features/operaciones/efectivizacion/shared/components/documento-input-group";
+import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
 
 interface CatalogItem {
     id: number;
@@ -33,15 +40,14 @@ interface LinkPagoEditModalProps {
     onSaved: () => void;
 }
 
-const getTipoDocumento = (dni: string) => {
-    const digits = dni.replace(/\D/g, "");
-    return digits.length === 11 ? 2 : 1;
-};
+const inferTipoDocumentoOperacion = (documento?: string | null): TipoDocumentoOperacion =>
+    documento?.replace(/\D/g, "").length === 9 ? 2 : 1;
 
 export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkPagoEditModalProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [entidadTarjetaId, setEntidadTarjetaId] = useState("");
+    const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
     const [nombre, setNombre] = useState("");
     const [comunidadId, setComunidadId] = useState("");
@@ -54,6 +60,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
 
     const { result: clienteLookup, isLoading: isClienteLoading } = useClienteLookup(
         isOpen ? dni : "",
+        tipoDocumento,
     );
 
     const entidadTarjetaList = useMemo(
@@ -79,6 +86,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
 
         if (operation) {
             setEntidadTarjetaId(String(operation.id_banco_cliente ?? ""));
+            setTipoDocumento(inferTipoDocumentoOperacion(operation.dni_cliente));
             setDni(operation.dni_cliente ?? "");
             setNombre(operation.nombre_cliente ?? "");
             setComunidadId(String(operation.id_comunidad ?? ""));
@@ -127,11 +135,11 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
             setClienteId(clienteLookup.id);
             setNombre(clienteLookup.nombre);
             setOriginalCelulares(clienteLookup.celular);
-        } else if (dni.replace(/\D/g, "").length >= 8) {
+        } else if (!getDocumentoValidationMessage(dni, tipoDocumento)) {
             setClienteId(null);
             setOriginalCelulares([]);
         }
-    }, [clienteLookup, dni]);
+    }, [clienteLookup, dni, tipoDocumento]);
 
     const handleSave = async () => {
         const amount = Number(monto.replace(",", "."));
@@ -141,8 +149,11 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
             return;
         }
 
-        if (!dni.trim()) {
-            addToast("error", "El DNI es obligatorio.");
+        const cleanDni = cleanDocumento(dni, tipoDocumento);
+        const documentoError = getDocumentoValidationMessage(cleanDni, tipoDocumento);
+
+        if (documentoError) {
+            addToast("error", documentoError);
             return;
         }
 
@@ -159,7 +170,6 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
         setIsSaving(true);
 
         try {
-            const cleanDni = dni.replace(/\D/g, "");
             const targetClienteId = clienteId;
 
             if (targetClienteId) {
@@ -171,7 +181,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
                 }
             } else {
                 await clienteService.create({
-                    p_tipo_documento: getTipoDocumento(cleanDni),
+                    p_tipo_documento: tipoDocumento,
                     p_numero_documento: cleanDni,
                     p_nombre: nombre.trim(),
                     p_id_comunidad: Number(comunidadId),
@@ -183,6 +193,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
             const result = await operacionesRpcService.patchOperacionAsistida({
                 p_id: operation!.id,
                 p_id_banco_cliente: selectedEntidadTarjeta.id,
+                p_tipo_documento_cliente: tipoDocumento,
                 p_dni_cliente: cleanDni,
                 p_nombre_cliente: nombre.trim() || null,
                 p_id_comunidad: selectedCommunity.id,
@@ -236,13 +247,12 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
                                 ]}
                             />
                             <div className="flex flex-col gap-1">
-                                <Input
-                                    size="sm"
-                                    label="DNI"
-                                    placeholder="Documento"
-                                    value={dni}
-                                    onChange={(value) => setDni(value.slice(0, 10))}
-                                    maxLength={10}
+                                <DocumentoInputGroup
+                                    isRequired
+                                    tipoDocumento={tipoDocumento}
+                                    numeroDocumento={dni}
+                                    onTipoDocumentoChange={setTipoDocumento}
+                                    onNumeroDocumentoChange={setDni}
                                 />
                                 {isClienteLoading && <span className="text-xs text-tertiary">Buscando...</span>}
                             </div>
@@ -261,7 +271,13 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
                                 onChange={(event) => setComunidadId(event.currentTarget.value)}
                                 options={comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))}
                             />
-                            <Input size="sm" label="Monto" placeholder="S/ 0.00" value={monto} onChange={setMonto} />
+                            <Input
+                                size="sm"
+                                label="Monto"
+                                placeholder="S/ 0.00"
+                                value={monto}
+                                onChange={(value) => setMonto(sanitizeAmountInput(value))}
+                            />
                         </div>
 
                         <div className="flex justify-end gap-2">

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
-export const useRouteCompanies = (ruta: string) => {
+export const useRouteCompanies = (ruta: string, refreshKey: string | number = 0) => {
     const [data, setData] = useState<RutaOperacionCaja[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -29,7 +29,7 @@ export const useRouteCompanies = (ruta: string) => {
         return () => {
             ignore = true;
         };
-    }, [ruta]);
+    }, [refreshKey, ruta]);
 
     return { data, error, isLoading };
 };

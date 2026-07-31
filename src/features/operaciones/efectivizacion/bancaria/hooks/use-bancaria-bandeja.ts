@@ -10,6 +10,9 @@ import { getPagoDeudaEstadoVisual } from "@/features/operaciones/pago-deuda/comp
 export type BancariaTab = "Efectivizacion" | "Pago Deuda" | "Derivados" | "POS" | "Movimientos" | "Retenidos";
 const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif", "safetypay"]);
 
+const toLimaDayStart = (date: string) => `${date}T00:00:00-05:00`;
+const toLimaDayEnd = (date: string) => `${date}T23:59:59-05:00`;
+
 export interface MovimientoMerged {
     id: number;
     tipo_origen: string;
@@ -94,10 +97,10 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
 export const tabContracts: Record<BancariaTab, { filters: string[]; actions: string[] }> = {
     Efectivizacion: {
         filters: ["Todos", "Pendientes", "Pagados"],
-        actions: ["Emp. Ingreso", "Emp. Salida", "Pagar", "Derivar", "Directo", "Reiniciar"],
+        actions: ["Eliminar", "Emp. Salida", "Pagar", "Derivar", "Directo", "Reiniciar"],
     },
     "Pago Deuda": {
-        filters: ["Todos", "Solicitado", "Transferido", "Devuelto", "Finalizado"],
+        filters: ["Todos", "Solicitado", "Transferido", "Devuelto", "Pagado"],
         actions: ["Emp. Salida", "Transferencia", "Reiniciar"],
     },
     Derivados: {
@@ -114,7 +117,7 @@ export const tabContracts: Record<BancariaTab, { filters: string[]; actions: str
     },
     Retenidos: {
         filters: [],
-        actions: ["Confirmar"],
+        actions: ["Procesar Abonos Vencidos", "Confirmar"],
     },
 };
 
@@ -206,15 +209,11 @@ export const useBancariaBandeja = ({
             base.p_tipo_servicio = "EFECTIVIZACION";
             base.p_ruta_destino = ruta;
             base.p_flag_derivado = false;
-            if (dateFrom) base.p_fecha_deposito_desde = `${dateFrom}T00:00:00`;
-            if (dateTo) base.p_fecha_deposito_hasta = `${dateTo}T23:59:59`;
+            if (dateFrom) base.p_fecha_deposito_desde = toLimaDayStart(dateFrom);
+            if (dateTo) base.p_fecha_deposito_hasta = toLimaDayEnd(dateTo);
             if (activeCompanyId) base.p_id_empresa_salida = activeCompanyId;
             if (activeAccountId) {
-                if (ruta === "safetypay") {
-                    base.p_id_empresa_cuenta_salida = activeAccountId;
-                } else {
-                    base.p_id_empresa_cuenta_ingreso = activeAccountId;
-                }
+                base.p_id_empresa_cuenta_salida = activeAccountId;
             }
         }
 
@@ -236,8 +235,8 @@ export const useBancariaBandeja = ({
         if (tab === "Retenidos") {
             base.p_ruta_destino = ruta;
             base.p_flag_retenido = true;
-            if (dateFrom) base.p_fecha_deposito_desde = `${dateFrom}T00:00:00`;
-            if (dateTo) base.p_fecha_deposito_hasta = `${dateTo}T23:59:59`;
+            if (dateFrom) base.p_fecha_deposito_desde = toLimaDayStart(dateFrom);
+            if (dateTo) base.p_fecha_deposito_hasta = toLimaDayEnd(dateTo);
             if (activeAccountId) base.p_id_empresa_cuenta_ingreso = activeAccountId;
         }
 
@@ -255,8 +254,8 @@ export const useBancariaBandeja = ({
 
         if (dni.trim()) payload.p_dni_cliente = dni.trim();
         if (code.trim()) payload.p_codigo_operacion = code.trim();
-        if (dateFrom) payload.p_fecha_deposito_desde = `${dateFrom}T00:00:00`;
-        if (dateTo) payload.p_fecha_deposito_hasta = `${dateTo}T23:59:59`;
+        if (dateFrom) payload.p_fecha_deposito_desde = toLimaDayStart(dateFrom);
+        if (dateTo) payload.p_fecha_deposito_hasta = toLimaDayEnd(dateTo);
         if (historyDate) {
             payload.p_fecha_caja_cierre_desde = `${historyDate}T00:00:00`;
             payload.p_fecha_caja_cierre_hasta = `${historyDate}T23:59:59`;
@@ -277,9 +276,7 @@ export const useBancariaBandeja = ({
                     row.ruta_destino === ruta &&
                     row.flag_derivado === false &&
                     (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
-                    (!activeAccountId || (ruta === "safetypay"
-                        ? row.id_empresa_cuenta_salida === activeAccountId
-                        : row.id_empresa_cuenta_ingreso === activeAccountId))
+                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)
                 );
             }
 
@@ -378,7 +375,7 @@ export const useBancariaBandeja = ({
                 : operacionesRpcService.getOperaciones(params);
 
         request
-            .then((result) => {
+            .then(async (result) => {
                 if (ignore) return;
                 if (tab === "Movimientos") {
                     const raw = (result ?? []) as OperacionCajaMovimiento[];
@@ -388,7 +385,18 @@ export const useBancariaBandeja = ({
                     setOperaciones([]);
                 } else {
                     const rows = (result ?? []) as OperacionProceso[];
-                    setOperaciones(tab === "Pago Deuda" ? filterPagoDeudaByVisualState(rows, activeFilter) : rows);
+                    if (tab === "Retenidos" && activeAccountId && rows.length) {
+                        const infoRows = await operacionesRpcService.getRecaudacionOperacionInfo({
+                            p_ids_operacion: rows.map((row) => row.id),
+                            p_ruta: ruta,
+                            p_id_empresa_cuenta_bancaria: activeAccountId,
+                        });
+                        if (ignore) return;
+                        const infoById = new Map(infoRows.map((item) => [Number(item.id_operacion), item]));
+                        setOperaciones(rows.map((row) => ({ ...row, ...(infoById.get(row.id) ?? {}) })));
+                    } else {
+                        setOperaciones(tab === "Pago Deuda" ? filterPagoDeudaByVisualState(rows, activeFilter) : rows);
+                    }
                     setMovimientos([]);
                 }
             })

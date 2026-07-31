@@ -20,25 +20,28 @@ const parseJsonArray = (value: unknown): string[] => {
     return [];
 };
 
-export const useClienteLookup = (dni: string) => {
+const getExpectedDocumentoLength = (tipoDocumento: number) => (Number(tipoDocumento) === 2 ? 9 : 8);
+
+export const useClienteLookup = (numeroDocumento: string, tipoDocumento = 1) => {
     const [result, setResult] = useState<ClienteLookupResult | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
-        const cleanDni = dni.replace(/\D/g, "");
-        if (cleanDni.length < 8) {
+        const cleanDocumento = numeroDocumento.replace(/\D/g, "");
+        if (cleanDocumento.length !== getExpectedDocumentoLength(tipoDocumento)) {
             setResult(null);
             setIsLoading(false);
             return;
         }
 
         setIsLoading(true);
+        setResult(null);
         if (timerRef.current) clearTimeout(timerRef.current);
 
         timerRef.current = setTimeout(() => {
             clienteService
-                .getList({ p_numero_documento: cleanDni, p_id_estado: 1 })
+                .getList({ p_tipo_documento: tipoDocumento, p_numero_documento: cleanDocumento, p_id_estado: 1 })
                 .then((rows) => {
                     if (rows.length > 0) {
                         const row = rows[0];
@@ -59,7 +62,7 @@ export const useClienteLookup = (dni: string) => {
         return () => {
             if (timerRef.current) clearTimeout(timerRef.current);
         };
-    }, [dni]);
+    }, [numeroDocumento, tipoDocumento]);
 
     return { result, isLoading };
 };

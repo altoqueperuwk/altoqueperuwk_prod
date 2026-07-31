@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDate } from "@internationalized/date";
-import { Calendar as CalendarIcon, Settings01 } from "@untitledui/icons";
+import { Calendar as CalendarIcon } from "@untitledui/icons";
 import { AppLayout } from "@/components/application/app-layout";
 import { Calendar } from "@/components/application/date-picker/calendar";
 import { Button } from "@/components/base/buttons/button";
-import { RouteConfigDrawer } from "@/features/operaciones/efectivizacion/shared/components/route-config-drawer";
+import { OperacionConfigDropdown } from "@/features/operaciones/efectivizacion/shared/components/operacion-config-dropdown";
+import { OperacionReglasEfectivizacionModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-reglas-efectivizacion-modal";
 import { useRouteCompanies } from "@/features/operaciones/efectivizacion/shared/hooks/use-route-companies";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { OperacionAsistidaKpi, OperacionRuta } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
@@ -27,7 +28,7 @@ const stringToCalendarDate = (str: string) => {
 
 export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
     const [refreshKey, setRefreshKey] = useState(0);
-    const [isConfigOpen, setIsConfigOpen] = useState(false);
+    const [isReglasOpen, setIsReglasOpen] = useState(false);
     const [selectedDate, setSelectedDate] = useState(getTodayValue);
     const [isCalendarOpen, setIsCalendarOpen] = useState(false);
     const [kpi, setKpi] = useState<OperacionAsistidaKpi | null>(null);
@@ -62,10 +63,10 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
     }, [refreshKey, ruta, selectedDate]);
 
     const kpiCards = [
-        { label: "Comisiones", value: formatMoney(kpi?.comisiones), tone: "text-concept-ingreso" },
-        { label: "Gastos", value: formatMoney(kpi?.gastos), tone: "text-concept-gasto" },
-        { label: "Ganancia", value: formatMoney(kpi?.ganancia), tone: "text-concept-ganancia" },
-        { label: "Salidas", value: formatMoney(kpi?.salidas), tone: "text-concept-salida" },
+        { label: "Comisiones", value: formatMoney(kpi?.comisiones), tone: "text-concept-ingreso", badges: ["Efectivización"] },
+        { label: "Gastos", value: formatMoney(kpi?.gastos), tone: "text-concept-gasto", badges: ["Efectivización"] },
+        { label: "Ganancia", value: formatMoney(kpi?.ganancia), tone: "text-concept-ganancia", badges: ["Efectivización"] },
+        { label: "Salidas", value: formatMoney(kpi?.salidas), tone: "text-concept-salida", badges: ["Efectivización"] },
     ];
 
     const handleCalendarChange = (date: any) => {
@@ -94,15 +95,14 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
                                 </div>
                             )}
                         </div>
-                        <Button size="sm" color="primary" iconLeading={Settings01} onClick={() => setIsConfigOpen(true)}>
-                            Configuracion
-                        </Button>
+                        <OperacionConfigDropdown onOpenReglas={() => setIsReglasOpen(true)} />
                     </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     {kpiCards.map((card) => (
                         <RouteKpiCard
+                            badges={card.badges}
                             key={card.label}
                             isLoading={isKpiLoading}
                             label={card.label}
@@ -134,11 +134,11 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
                     onChanged={() => setRefreshKey((value) => value + 1)}
                 />
 
-                <RouteConfigDrawer
+                <OperacionReglasEfectivizacionModal
                     activeCompany={primaryCompany}
-                    cajas={cajas}
-                    isOpen={isConfigOpen}
-                    onClose={() => setIsConfigOpen(false)}
+                    isOpen={isReglasOpen}
+                    onClose={() => setIsReglasOpen(false)}
+                    onSaved={() => setRefreshKey((value) => value + 1)}
                     ruta={ruta}
                 />
             </div>

@@ -1,5 +1,38 @@
 ﻿-- ============================================================================
--- 12. TB_OPERACION_PROCESO
+-- 12. TB_OPERACION_CARGA_EXCEL
+-- ============================================================================
+
+/*
+Tabla: tb_operacion_carga_excel
+Objetivo:
+  Agrupar las operaciones creadas por una misma carga Excel para permitir un
+  rollback completo cuando el usuario cargo el archivo en la empresa equivocada.
+
+Regla:
+  - el lote solo se conserva si al menos una fila fue procesada;
+  - no se usa como auditoria historica permanente: puede borrarse junto con
+    sus operaciones y movimientos cuando el rollback esta permitido.
+*/
+CREATE TABLE IF NOT EXISTS public.tb_operacion_carga_excel (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  nombre_archivo character varying,
+  ruta character varying,
+  id_empresa_ingreso bigint,
+  nombre_empresa_ingreso character varying,
+  id_empresa_cuenta_ingreso bigint,
+  id_banco bigint,
+  nombre_banco character varying,
+  filas_procesadas integer NOT NULL DEFAULT 0,
+  filas_omitidas integer NOT NULL DEFAULT 0,
+  filas_error integer NOT NULL DEFAULT 0,
+  id_usuario bigint,
+  nombre_usuario character varying,
+  fecha_carga timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT tb_operacion_carga_excel_pkey PRIMARY KEY (id)
+);
+
+-- ============================================================================
+-- 13. TB_OPERACION_PROCESO
 -- ============================================================================
 
 /*
@@ -112,10 +145,14 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
   observacion_tiempo text,
   tipo_facturacion character varying DEFAULT 'Boleta',
   tipo_recaudacion_sf character varying,
+  id_carga_excel bigint,
+  nombre_carga_excel character varying,
+  fecha_carga_excel timestamp with time zone,
   id_caja_cierre bigint,
   fecha_caja_cierre timestamp with time zone,
   fecha_registro timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT tb_operacion_proceso_pkey PRIMARY KEY (id)
+  CONSTRAINT tb_operacion_proceso_pkey PRIMARY KEY (id),
+  CONSTRAINT tb_operacion_proceso_fk_carga_excel FOREIGN KEY (id_carga_excel) REFERENCES public.tb_operacion_carga_excel(id)
 );
 
 DO $$
@@ -293,6 +330,40 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'tipo_recaudacion_sf'
   ) THEN
     ALTER TABLE public.tb_operacion_proceso ADD COLUMN tipo_recaudacion_sf character varying;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'id_carga_excel'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN id_carga_excel bigint;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'nombre_carga_excel'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN nombre_carga_excel character varying;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'fecha_carga_excel'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN fecha_carga_excel timestamp with time zone;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'tb_operacion_proceso_fk_carga_excel'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso
+      ADD CONSTRAINT tb_operacion_proceso_fk_carga_excel
+      FOREIGN KEY (id_carga_excel) REFERENCES public.tb_operacion_carga_excel(id);
   END IF;
 END;
 $$;
@@ -541,6 +612,80 @@ Regla de fase:
   - si la ruta bancaria viene informada, el ingreso se valida contra el banco
     de la ruta; la caja primaria solo se usa como default si no llega empresa
 */
+DROP FUNCTION IF EXISTS public.f_post_tb_operacion_proceso(
+  bigint,
+  character varying,
+  character varying,
+  bigint,
+  character varying,
+  character varying,
+  bigint,
+  character varying,
+  character varying,
+  bigint,
+  character varying,
+  bigint,
+  character varying,
+  timestamp with time zone,
+  bigint,
+  character varying,
+  bigint,
+  bigint,
+  character varying,
+  boolean,
+  numeric,
+  numeric,
+  numeric,
+  numeric,
+  numeric,
+  numeric,
+  numeric,
+  numeric,
+  bigint,
+  numeric,
+  bigint,
+  character varying,
+  bigint,
+  bigint,
+  character varying,
+  numeric,
+  numeric,
+  numeric,
+  numeric,
+  numeric,
+  bigint,
+  character varying,
+  bigint,
+  character varying,
+  bigint,
+  character varying,
+  bigint,
+  character varying,
+  bigint,
+  character varying,
+  bigint,
+  character varying,
+  bigint,
+  character varying,
+  character varying,
+  character varying,
+  boolean,
+  timestamp with time zone,
+  bigint,
+  character varying,
+  boolean,
+  timestamp with time zone,
+  bigint,
+  character varying,
+  text,
+  timestamp with time zone,
+  timestamp with time zone,
+  character varying,
+  text,
+  character varying,
+  character varying
+);
+
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso(
   p_id_codigo_servicio bigint DEFAULT NULL,
   p_nombre_codigo_servicio character varying DEFAULT NULL,
@@ -610,7 +755,8 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso(
   p_error_motivo character varying DEFAULT NULL,
   p_observacion_tiempo text DEFAULT NULL,
   p_tipo_facturacion character varying DEFAULT NULL,
-  p_ruta_actual character varying DEFAULT NULL
+  p_ruta_actual character varying DEFAULT NULL,
+  p_tipo_documento_cliente bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -670,7 +816,23 @@ BEGIN
   END IF;
 
   IF v_cliente_id IS NULL AND COALESCE(p_dni_cliente, '') <> '' THEN
-    IF LENGTH(REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g')) = 11 THEN
+    p_dni_cliente := REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g');
+
+    IF p_tipo_documento_cliente IS NOT NULL THEN
+      IF p_tipo_documento_cliente NOT IN (1, 2) THEN
+        RETURN jsonb_build_object('error', 'Tipo de documento invalido.');
+      END IF;
+
+      v_tipo_documento := p_tipo_documento_cliente;
+
+      IF v_tipo_documento = 1 AND LENGTH(p_dni_cliente) <> 8 THEN
+        RETURN jsonb_build_object('error', 'El DNI debe tener exactamente 8 dígitos.');
+      END IF;
+
+      IF v_tipo_documento = 2 AND LENGTH(p_dni_cliente) <> 9 THEN
+        RETURN jsonb_build_object('error', 'El CE debe tener exactamente 9 dígitos.');
+      END IF;
+    ELSIF LENGTH(p_dni_cliente) = 11 THEN
       v_tipo_documento := public.f_get_tb_documento_tipo_codigo('RUC');
     END IF;
 
@@ -1083,6 +1245,10 @@ BEGIN
 
   IF v_caja_result ? 'error' THEN
     RETURN v_caja_result;
+  END IF;
+
+  IF to_regprocedure('public.f_patch_tb_recaudacion_confirmar_si_vencida(bigint,bigint,character varying)') IS NOT NULL THEN
+    PERFORM public.f_patch_tb_recaudacion_confirmar_si_vencida(v_id, p_id_usuario, p_nombre_usuario);
   END IF;
 
   IF UPPER(COALESCE(p_nombre_estado, '')) = 'PAGADO' THEN
@@ -2421,7 +2587,8 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso_excel(
   p_id_usuario bigint,
   p_nombre_usuario character varying DEFAULT NULL,
   p_ruta_actual character varying DEFAULT NULL,
-  p_tipo_recaudacion_sf character varying DEFAULT NULL
+  p_tipo_recaudacion_sf character varying DEFAULT NULL,
+  p_nombre_archivo character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -2475,6 +2642,9 @@ DECLARE
   v_nombre_banco_ingreso_final character varying;
   v_caja_result jsonb;
   v_tipo_recaudacion_sf character varying;
+  v_id_carga_excel bigint;
+  v_nombre_archivo_final character varying;
+  v_fecha_carga_excel timestamp with time zone;
 BEGIN
   SELECT username INTO v_username
   FROM public.tb_usuario
@@ -2700,6 +2870,32 @@ BEGIN
       )
     );
   END IF;
+
+  v_nombre_archivo_final := COALESCE(NULLIF(BTRIM(p_nombre_archivo), ''), 'Archivo sin nombre');
+
+  INSERT INTO public.tb_operacion_carga_excel (
+    nombre_archivo,
+    ruta,
+    id_empresa_ingreso,
+    nombre_empresa_ingreso,
+    id_empresa_cuenta_ingreso,
+    id_banco,
+    nombre_banco,
+    id_usuario,
+    nombre_usuario
+  )
+  VALUES (
+    v_nombre_archivo_final,
+    p_ruta_actual,
+    v_id_empresa_ingreso_final,
+    v_nombre_empresa_ingreso_final,
+    v_id_empresa_cuenta_ingreso,
+    v_id_banco_ingreso_final,
+    COALESCE(v_nombre_banco_ingreso_final, (SELECT nombre FROM public.tb_banco WHERE id = v_id_banco_ingreso_final LIMIT 1)),
+    p_id_usuario,
+    v_username
+  )
+  RETURNING id, fecha_carga INTO v_id_carga_excel, v_fecha_carga_excel;
 
   FOR v_fila IN
     SELECT *
@@ -2969,6 +3165,9 @@ BEGIN
       motivo_retencion,
       fecha_pendiente,
       tipo_recaudacion_sf,
+      id_carga_excel,
+      nombre_carga_excel,
+      fecha_carga_excel,
       tipo_facturacion
     )
     VALUES (
@@ -3034,6 +3233,9 @@ BEGIN
       END,
       NOW(),
       v_tipo_recaudacion_sf,
+      v_id_carga_excel,
+      v_nombre_archivo_final,
+      v_fecha_carga_excel,
       'Boleta'
     )
     RETURNING id INTO v_new_id;
@@ -3059,6 +3261,10 @@ BEGIN
       CONTINUE;
     END IF;
 
+    IF to_regprocedure('public.f_patch_tb_recaudacion_confirmar_si_vencida(bigint,bigint,character varying)') IS NOT NULL THEN
+      PERFORM public.f_patch_tb_recaudacion_confirmar_si_vencida(v_new_id, p_id_usuario, v_username);
+    END IF;
+
     v_detalle := v_detalle || jsonb_build_object(
       'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
       'codigo_operacion', v_fila.codigo_operacion,
@@ -3067,6 +3273,24 @@ BEGIN
     );
     v_filas_procesadas := v_filas_procesadas + 1;
   END LOOP;
+
+  IF v_id_carga_excel IS NOT NULL THEN
+    IF v_filas_procesadas = 0
+       AND NOT EXISTS (
+         SELECT 1
+         FROM public.tb_operacion_proceso
+         WHERE id_carga_excel = v_id_carga_excel
+       ) THEN
+      DELETE FROM public.tb_operacion_carga_excel
+      WHERE id = v_id_carga_excel;
+    ELSE
+      UPDATE public.tb_operacion_carga_excel
+      SET filas_procesadas = v_filas_procesadas,
+          filas_omitidas = v_filas_omitidas,
+          filas_error = v_filas_error
+      WHERE id = v_id_carga_excel;
+    END IF;
+  END IF;
 
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(p_ruta_actual, p_id_usuario);
 
@@ -3103,7 +3327,8 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso_excel_ganancia(
   p_id_banco bigint,
   p_id_usuario bigint,
   p_nombre_usuario character varying DEFAULT NULL,
-  p_ruta_actual character varying DEFAULT NULL
+  p_ruta_actual character varying DEFAULT NULL,
+  p_nombre_archivo character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -3144,6 +3369,9 @@ DECLARE
   v_id_banco_ingreso_final bigint;
   v_nombre_banco_ingreso_final character varying;
   v_caja_result jsonb;
+  v_id_carga_excel bigint;
+  v_nombre_archivo_final character varying;
+  v_fecha_carga_excel timestamp with time zone;
 BEGIN
   SELECT username INTO v_username
   FROM public.tb_usuario
@@ -3311,6 +3539,32 @@ BEGIN
       )
     );
   END IF;
+
+  v_nombre_archivo_final := COALESCE(NULLIF(BTRIM(p_nombre_archivo), ''), 'Archivo sin nombre');
+
+  INSERT INTO public.tb_operacion_carga_excel (
+    nombre_archivo,
+    ruta,
+    id_empresa_ingreso,
+    nombre_empresa_ingreso,
+    id_empresa_cuenta_ingreso,
+    id_banco,
+    nombre_banco,
+    id_usuario,
+    nombre_usuario
+  )
+  VALUES (
+    v_nombre_archivo_final,
+    p_ruta_actual,
+    v_id_empresa_ingreso_final,
+    v_nombre_empresa_ingreso_final,
+    v_id_empresa_cuenta_ingreso,
+    v_id_banco_ingreso_final,
+    COALESCE(v_nombre_banco_ingreso_final, (SELECT nombre FROM public.tb_banco WHERE id = v_id_banco_ingreso_final LIMIT 1)),
+    p_id_usuario,
+    v_username
+  )
+  RETURNING id, fecha_carga INTO v_id_carga_excel, v_fecha_carga_excel;
 
   IF v_flag_retencion_parcial_cuenta THEN
     PERFORM public.f_patch_tb_operacion_caja_confirmar_retencion(oc.id)
@@ -3480,6 +3734,9 @@ BEGIN
       flag_derivado,
       flag_retenido,
       fecha_pendiente,
+      id_carga_excel,
+      nombre_carga_excel,
+      fecha_carga_excel,
       tipo_facturacion
     )
     VALUES (
@@ -3533,6 +3790,9 @@ BEGIN
       false,
       false,
       NOW(),
+      v_id_carga_excel,
+      v_nombre_archivo_final,
+      v_fecha_carga_excel,
       'Boleta'
     )
     RETURNING id INTO v_new_id;
@@ -3588,6 +3848,24 @@ BEGIN
     v_filas_procesadas := v_filas_procesadas + 1;
   END LOOP;
 
+  IF v_id_carga_excel IS NOT NULL THEN
+    IF v_filas_procesadas = 0
+       AND NOT EXISTS (
+         SELECT 1
+         FROM public.tb_operacion_proceso
+         WHERE id_carga_excel = v_id_carga_excel
+       ) THEN
+      DELETE FROM public.tb_operacion_carga_excel
+      WHERE id = v_id_carga_excel;
+    ELSE
+      UPDATE public.tb_operacion_carga_excel
+      SET filas_procesadas = v_filas_procesadas,
+          filas_omitidas = v_filas_omitidas,
+          filas_error = v_filas_error
+      WHERE id = v_id_carga_excel;
+    END IF;
+  END IF;
+
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(p_ruta_actual, p_id_usuario);
 
   RETURN jsonb_build_object(
@@ -3595,6 +3873,247 @@ BEGIN
     'filas_omitidas', v_filas_omitidas,
     'filas_error', v_filas_error,
     'detalle', v_detalle
+  );
+END;
+$$;
+
+/*
+Funcion: f_get_tb_operacion_carga_excel_rollback
+Objetivo:
+  Listar los lotes Excel disponibles para rollback operativo por ruta y cuenta
+  activa. Un lote solo esta disponible si todas sus operaciones siguen
+  Pendiente y ningun movimiento asociado pertenece a un cierre de caja.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_carga_excel_rollback(
+  p_ruta character varying DEFAULT NULL,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_fecha_carga_desde timestamp with time zone DEFAULT NULL,
+  p_fecha_carga_hasta timestamp with time zone DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  WITH lote_resumen AS (
+    SELECT
+      ce.id,
+      ce.nombre_archivo,
+      ce.ruta,
+      ce.id_empresa_ingreso,
+      ce.nombre_empresa_ingreso,
+      ce.id_empresa_cuenta_ingreso,
+      ce.fecha_carga,
+      COUNT(op.id)::integer AS total_operaciones,
+      COUNT(op.id) FILTER (
+        WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PENDIENTE'
+      )::integer AS operaciones_no_pendientes,
+      COUNT(DISTINCT oc.id) FILTER (
+        WHERE oc.id_caja_cierre IS NOT NULL
+      )::integer AS movimientos_cerrados
+    FROM public.tb_operacion_carga_excel ce
+    JOIN public.tb_operacion_proceso op ON op.id_carga_excel = ce.id
+    LEFT JOIN public.tb_operacion_caja oc ON oc.id_operacion_proceso = op.id
+    WHERE (p_ruta IS NULL OR LOWER(COALESCE(ce.ruta, '')) = LOWER(p_ruta))
+      AND (p_id_empresa IS NULL OR ce.id_empresa_ingreso = p_id_empresa)
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR ce.id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
+      AND (p_fecha_carga_desde IS NULL OR ce.fecha_carga >= p_fecha_carga_desde)
+      AND (p_fecha_carga_hasta IS NULL OR ce.fecha_carga <= p_fecha_carga_hasta)
+    GROUP BY
+      ce.id,
+      ce.nombre_archivo,
+      ce.ruta,
+      ce.id_empresa_ingreso,
+      ce.nombre_empresa_ingreso,
+      ce.id_empresa_cuenta_ingreso,
+      ce.fecha_carga
+  )
+  SELECT jsonb_build_object(
+    'id', lr.id,
+    'nombre_excel', COALESCE(lr.nombre_archivo, 'Archivo sin nombre'),
+    'fecha_carga', lr.fecha_carga,
+    'ruta', lr.ruta,
+    'id_empresa', lr.id_empresa_ingreso,
+    'empresa', lr.nombre_empresa_ingreso,
+    'id_empresa_cuenta_bancaria', lr.id_empresa_cuenta_ingreso,
+    'total_operaciones', lr.total_operaciones,
+    'disponible', (lr.operaciones_no_pendientes = 0 AND lr.movimientos_cerrados = 0),
+    'detalle', CASE
+      WHEN lr.operaciones_no_pendientes = 0 AND lr.movimientos_cerrados = 0
+        THEN 'Todas las operaciones estan en estado Pendiente.'
+      WHEN lr.movimientos_cerrados > 0
+        THEN 'El lote tiene movimientos cerrados por caja.'
+      ELSE 'Todas las operaciones deben estar en estado Pendiente.'
+    END,
+    'operaciones_no_pendientes', lr.operaciones_no_pendientes,
+    'movimientos_cerrados', lr.movimientos_cerrados
+  )
+  FROM lote_resumen lr
+  WHERE lr.total_operaciones > 0
+  ORDER BY lr.fecha_carga DESC, lr.id DESC;
+END;
+$$;
+
+/*
+Funcion: f_delete_tb_operacion_carga_excel_rollback
+Objetivo:
+  Revertir y eliminar fisicamente un lote Excel completo cuando todas sus
+  operaciones siguen pendientes y sin movimientos cerrados.
+*/
+CREATE OR REPLACE FUNCTION public.f_delete_tb_operacion_carga_excel_rollback(
+  p_id_carga_excel bigint,
+  p_id_usuario bigint DEFAULT NULL,
+  p_nombre_usuario character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_lote record;
+  v_mov record;
+  v_operaciones_eliminadas integer := 0;
+  v_movimientos_revertidos integer := 0;
+  v_rutas character varying[];
+  v_ruta character varying;
+BEGIN
+  SELECT *
+  INTO v_lote
+  FROM public.tb_operacion_carga_excel
+  WHERE id = p_id_carga_excel
+  LIMIT 1
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('error', 'La carga Excel no existe.');
+  END IF;
+
+  SELECT COUNT(*)::integer
+  INTO v_operaciones_eliminadas
+  FROM public.tb_operacion_proceso op
+  WHERE op.id_carga_excel = p_id_carga_excel;
+
+  IF v_operaciones_eliminadas = 0 THEN
+    DELETE FROM public.tb_operacion_carga_excel
+    WHERE id = p_id_carga_excel;
+
+    RETURN jsonb_build_object(
+      'id_carga_excel', p_id_carga_excel,
+      'operaciones_eliminadas', 0,
+      'movimientos_revertidos', 0,
+      'lote_eliminado', true
+    );
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_proceso op
+    WHERE op.id_carga_excel = p_id_carga_excel
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PENDIENTE'
+  ) THEN
+    RETURN jsonb_build_object('error', 'Todas las operaciones deben estar en estado Pendiente.');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja oc
+    JOIN public.tb_operacion_proceso op ON op.id = oc.id_operacion_proceso
+    WHERE op.id_carga_excel = p_id_carga_excel
+      AND oc.id_caja_cierre IS NOT NULL
+  ) THEN
+    RETURN jsonb_build_object('error', 'El lote tiene movimientos cerrados por caja.');
+  END IF;
+
+  SELECT ARRAY(
+    SELECT DISTINCT ruta
+    FROM (
+      SELECT ruta_origen AS ruta
+      FROM public.tb_operacion_proceso
+      WHERE id_carga_excel = p_id_carga_excel
+
+      UNION
+
+      SELECT ruta_destino AS ruta
+      FROM public.tb_operacion_proceso
+      WHERE id_carga_excel = p_id_carga_excel
+    ) r
+    WHERE ruta IS NOT NULL
+  )
+  INTO v_rutas;
+
+  UPDATE public.tb_operacion_caja oc
+  SET id_operacion_caja_relacionada = NULL
+  WHERE oc.id_operacion_caja_relacionada IN (
+    SELECT rel.id
+    FROM public.tb_operacion_caja rel
+    JOIN public.tb_operacion_proceso op ON op.id = rel.id_operacion_proceso
+    WHERE op.id_carga_excel = p_id_carga_excel
+  );
+
+  FOR v_mov IN
+    SELECT oc.*
+    FROM public.tb_operacion_caja oc
+    JOIN public.tb_operacion_proceso op ON op.id = oc.id_operacion_proceso
+    WHERE op.id_carga_excel = p_id_carga_excel
+      AND oc.id_caja_cierre IS NULL
+    ORDER BY oc.id DESC
+  LOOP
+    PERFORM public.f_apply_tb_operacion_caja_delta(
+      p_id_caja := v_mov.id_caja,
+      p_tipo_movimiento := v_mov.tipo_movimiento,
+      p_nombre_estado := v_mov.nombre_estado,
+      p_monto_ingreso := COALESCE(v_mov.monto_ingreso, 0),
+      p_monto_gasto := COALESCE(v_mov.monto_gasto, 0),
+      p_monto_ganancia := COALESCE(v_mov.monto_ganancia, 0),
+      p_monto_salida := COALESCE(v_mov.monto_salida, 0),
+      p_flag_contabiliza_operacion := COALESCE(v_mov.flag_contabiliza_operacion, true),
+      p_factor := -1,
+      p_id_usuario := p_id_usuario
+    );
+
+    v_movimientos_revertidos := v_movimientos_revertidos + 1;
+  END LOOP;
+
+  DELETE FROM public.tb_operacion_caja oc
+  USING public.tb_operacion_proceso op
+  WHERE op.id = oc.id_operacion_proceso
+    AND op.id_carga_excel = p_id_carga_excel;
+
+  UPDATE public.tb_operacion_proceso op
+  SET id_operacion_match = NULL
+  WHERE op.id_operacion_match IN (
+    SELECT id
+    FROM public.tb_operacion_proceso
+    WHERE id_carga_excel = p_id_carga_excel
+  );
+
+  UPDATE public.tb_operacion_proceso op
+  SET id_operacion_padre = NULL
+  WHERE op.id_operacion_padre IN (
+    SELECT id
+    FROM public.tb_operacion_proceso
+    WHERE id_carga_excel = p_id_carga_excel
+  );
+
+  DELETE FROM public.tb_operacion_proceso
+  WHERE id_carga_excel = p_id_carga_excel;
+
+  DELETE FROM public.tb_operacion_carga_excel
+  WHERE id = p_id_carga_excel;
+
+  FOREACH v_ruta IN ARRAY COALESCE(v_rutas, ARRAY[]::character varying[]) LOOP
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta, p_id_usuario);
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta, p_id_usuario);
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'id_carga_excel', p_id_carga_excel,
+    'operaciones_eliminadas', v_operaciones_eliminadas,
+    'movimientos_revertidos', v_movimientos_revertidos,
+    'lote_eliminado', true
   );
 END;
 $$;
@@ -3671,12 +4190,10 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
+  'f_delete_tb_operacion_carga_excel_rollback',
+  'f_get_tb_operacion_carga_excel_rollback',
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',
-  'f_post_tb_operacion_proceso_excel_ganancia',
-  'f_patch_tb_operacion_proceso_base',
-  'f_patch_tb_operacion_proceso_pagado',
-  'f_patch_tb_operacion_proceso_tipo_recaudacion_sf',
-  'f_patch_tb_operacion_proceso_reanudar'
+  'f_post_tb_operacion_proceso_excel_ganancia'
 )
 ORDER BY n.nspname, p.proname;

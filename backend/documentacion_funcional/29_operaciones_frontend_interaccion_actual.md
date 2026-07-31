@@ -203,7 +203,8 @@ En Scotiabank/Banbif, `Efectivizacion` puede contar operaciones retenidas `Pendi
 
 ### Badges por empresa
 
-La fila de empresas muestra distribucion del tab activo:
+La fila de empresas muestra distribucion del tab activo.
+En rutas con retencion (Scotiabank, Banbif, SafetyPay), los badges de `Efectivizacion` y `Retenidos` agrupan por `id_empresa_salida`, no por `id_empresa_ingreso`.
 
 - Si `Derivados` tiene 3, las empresas pueden mostrar `1` y `2`.
 - En `Retenidos`, el conteo corresponde a retenciones abiertas del ciclo actual.
@@ -254,6 +255,7 @@ En `/operaciones/linkpago`:
 - se registra la operacion sin banco destino;
 - queda como `ruta_origen = 'linkpago'` y `ruta_destino = 'linkpago'`;
 - permite cambiar estado desde la bandeja;
+- permite editar la operacion via `LinkPagoEditModal` que llama `f_patch_tb_operacion_asistida` (modifica DNI, nombre, comunidad, monto, entidad tarjeta);
 - no se crea movimiento de caja.
 
 ### KPIs asistidos

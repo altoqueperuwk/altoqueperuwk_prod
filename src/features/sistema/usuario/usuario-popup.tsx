@@ -10,6 +10,7 @@ import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { usuarioService } from "@/services/usuario.service";
 import { rolService } from "@/services/rol.service";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface UsuarioPopupProps {
   isOpen: boolean;
@@ -39,14 +40,7 @@ export const UsuarioPopup = ({ isOpen, onClose, onSave, item }: UsuarioPopupProp
 
   const [roles, setRoles] = useState<Record<string, unknown>[]>([]);
 
-  const estadoItems = useMemo(
-    () =>
-      (estados || []).map((e) => ({
-        id: e.id as string | number,
-        label: e.nombre as string,
-      })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   const rolItems = useMemo(
     () =>

@@ -8,6 +8,7 @@ import { X, Check } from "@untitledui/icons";
 import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { comunidadService } from "@/services/comunidad.service";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface ComunidadPopupProps {
   isOpen: boolean;
@@ -30,14 +31,7 @@ export const ComunidadPopup = ({ isOpen, onClose, onSave, item }: ComunidadPopup
   const [idEstado, setIdEstado] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
 
-  const estadoItems = useMemo(
-    () =>
-      (estados || []).map((e) => ({
-        id: e.id as string | number,
-        label: e.nombre as string,
-      })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   useEffect(() => {
     if (isOpen) {

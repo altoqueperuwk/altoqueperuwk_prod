@@ -16,6 +16,13 @@ import { operacionesRpcService } from "@/features/operaciones/efectivizacion/sha
 import type { OperacionRuta, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
+import {
+    DocumentoInputGroup,
+    cleanDocumento,
+    getDocumentoValidationMessage,
+    type TipoDocumentoOperacion,
+} from "@/features/operaciones/efectivizacion/shared/components/documento-input-group";
+import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
 
 interface AsistidaSolicitudFormProps {
     activeCompany: RutaOperacionCaja | null;
@@ -37,15 +44,11 @@ interface BancoDestino {
 
 const getServicioNeedle = (ruta: OperacionRuta) => (ruta === "pos" ? "POS" : "LINK");
 
-const getTipoDocumento = (dni: string) => {
-    const digits = dni.replace(/\D/g, "");
-    return digits.length === 11 ? 2 : 1;
-};
-
 export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: AsistidaSolicitudFormProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [codigoOperacion, setCodigoOperacion] = useState("");
+    const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
     const [nombre, setNombre] = useState("");
     const [celulares, setCelulares] = useState<string[]>([]);
@@ -63,7 +66,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const [originalCelulares, setOriginalCelulares] = useState<string[]>([]);
     const [originalComunidadId, setOriginalComunidadId] = useState("");
 
-    const { result: clienteLookup, isLoading: isClienteLoading } = useClienteLookup(dni);
+    const { result: clienteLookup, isLoading: isClienteLoading } = useClienteLookup(dni, tipoDocumento);
 
     const selectedCommunity = useMemo(
         () => comunidades.find((item) => String(item.id) === comunidadId) ?? null,
@@ -112,12 +115,12 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 setComunidadId(String(clienteLookup.id_comunidad));
             }
             setOriginalComunidadId(String(clienteLookup.id_comunidad));
-        } else if (dni.replace(/\D/g, "").length >= 8) {
+        } else if (!getDocumentoValidationMessage(dni, tipoDocumento)) {
             setClienteId(null);
             setOriginalCelulares([]);
             setOriginalComunidadId("");
         }
-    }, [clienteLookup, dni, comunidadId]);
+    }, [clienteLookup, dni, comunidadId, tipoDocumento]);
 
     useEffect(() => {
         let ignore = false;
@@ -193,7 +196,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     }, [addToast, ruta]);
 
     const handleSaveCliente = async () => {
-        const cleanDni = dni.replace(/\D/g, "");
+        const cleanDni = cleanDocumento(dni, tipoDocumento);
         if (!cleanDni) return;
 
         if (clienteId) {
@@ -208,7 +211,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             }
         } else {
             await clienteService.create({
-                p_tipo_documento: getTipoDocumento(cleanDni),
+                p_tipo_documento: tipoDocumento,
                 p_numero_documento: cleanDni,
                 p_nombre: nombre.trim(),
                 p_celular: celulares.length > 0 ? celulares : null,
@@ -249,8 +252,11 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             return;
         }
 
-        if (!dni.trim()) {
-            addToast("error", "El DNI es obligatorio.");
+        const cleanDni = cleanDocumento(dni, tipoDocumento);
+        const documentoError = getDocumentoValidationMessage(cleanDni, tipoDocumento);
+
+        if (documentoError) {
+            addToast("error", documentoError);
             return;
         }
 
@@ -272,7 +278,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_tipo_servicio: routeLabel.toUpperCase(),
                 p_id_comunidad: selectedCommunity.id,
                 p_nombre_comunidad: selectedCommunity.nombre,
-                p_dni_cliente: dni.replace(/\D/g, ""),
+                p_tipo_documento_cliente: tipoDocumento,
+                p_dni_cliente: cleanDni,
                 p_monto_deposito_cliente: amount,
                 p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null,
                 p_id_estado: estadoRequerido.id,
@@ -294,6 +301,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
 
             setCodigoOperacion("");
             setDni("");
+            setTipoDocumento(1);
             setNombre("");
             setCelulares([]);
             setMonto("");
@@ -315,6 +323,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const handleClear = () => {
         setCodigoOperacion("");
         setDni("");
+        setTipoDocumento(1);
         setNombre("");
         setCelulares([]);
         setMonto("");
@@ -345,14 +354,13 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                             className="min-w-0 flex-1"
                         />
                     )}
-                    <div className="flex w-full max-w-[11ch] min-w-0 flex-col gap-1">
-                        <Input
-                            size="sm"
-                            label="DNI"
-                            placeholder="Documento"
-                            value={dni}
-                            onChange={(value) => setDni(value.slice(0, 10))}
-                            maxLength={10}
+                    <div className="flex w-full max-w-[13rem] min-w-0 flex-col gap-1">
+                        <DocumentoInputGroup
+                            isRequired
+                            tipoDocumento={tipoDocumento}
+                            numeroDocumento={dni}
+                            onTipoDocumentoChange={setTipoDocumento}
+                            onNumeroDocumentoChange={setDni}
                         />
                         {isClienteLoading && <span className="text-xs text-tertiary">Buscando...</span>}
                     </div>
@@ -389,7 +397,14 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                             className="min-w-0 flex-1"
                         />
                     )}
-                    <Input size="sm" label="Monto" placeholder="S/ 0.00" value={monto} onChange={setMonto} className="w-full max-w-[8rem] shrink-0" />
+                    <Input
+                        size="sm"
+                        label="Monto"
+                        placeholder="S/ 0.00"
+                        value={monto}
+                        onChange={(value) => setMonto(sanitizeAmountInput(value))}
+                        className="w-full max-w-[8rem] shrink-0"
+                    />
                 </div>
                 <div className="flex shrink-0 gap-2">
                     <Button

@@ -4,6 +4,7 @@ import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { Button } from "@/components/base/buttons/button";
 import { useSessionCache } from "@/providers/session-cache-provider";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 import { SearchMd, Plus, X } from "@untitledui/icons";
 
 interface FilterBarProps {
@@ -35,10 +36,7 @@ export const FilterBar: FC<FilterBarProps> = ({
 
     const estadoItems = [
         { id: 0, label: "Todos" },
-        ...(estados || []).map((e) => ({
-            id: e.id as string | number,
-            label: e.nombre as string,
-        })),
+        ...getCoreEstadoItems(estados),
     ];
 
     return (

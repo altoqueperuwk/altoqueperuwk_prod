@@ -43,6 +43,10 @@ export const isBancariaActionDisabled = ({
         return activeTab !== "Efectivizacion" || !hasSelection || companyCount === 0;
     }
 
+    if (action === "Eliminar") {
+        return activeTab !== "Efectivizacion";
+    }
+
     if (action === "Emp. Salida") {
         return !["Efectivizacion", "Pago Deuda", "Derivados"].includes(activeTab) || !hasSelection || companyCount === 0;
     }
@@ -61,6 +65,10 @@ export const isBancariaActionDisabled = ({
 
     if (action === "Confirmar") {
         return activeTab !== "Retenidos" || !hasSelection;
+    }
+
+    if (action === "Procesar Abonos Vencidos") {
+        return activeTab !== "Retenidos";
     }
 
     return true;

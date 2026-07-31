@@ -9,6 +9,7 @@ import { reglasEfectivizacionService } from "@/services/reglas-efectivizacion.se
 import { ReglasEfectivizacionTable } from "./reglas-efectivizacion-table";
 import { ReglasEfectivizacionPopup } from "./reglas-efectivizacion-popup";
 import { ReglasEfectivizacionHistoryDrawer } from "./reglas-efectivizacion-history-drawer";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 export const ReglasEfectivizacionPage = () => {
   const { addToast } = useToast();
@@ -29,10 +30,7 @@ export const ReglasEfectivizacionPage = () => {
 
   const estadoItems = [
     { id: 0, label: "Todos" },
-    ...(estados || []).map((e) => ({
-      id: e.id as number,
-      label: e.nombre as string,
-    })),
+    ...getCoreEstadoItems(estados),
   ];
   const servicioItems = [
     { id: 0, label: "Todos" },

@@ -12,6 +12,7 @@ import { useToast } from "@/providers/toast-provider";
 import { permisoUsuarioService } from "@/services/permiso-usuario.service";
 import { usuarioService } from "@/services/usuario.service";
 import { permisoMenuService } from "@/services/permiso-menu.service";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface PermisoUsuarioPopupProps {
   isOpen: boolean;
@@ -43,14 +44,7 @@ export const PermisoUsuarioPopup = ({ isOpen, onClose, onSave, item }: PermisoUs
   const [bulkMenus, setBulkMenus] = useState<Record<string, boolean>>({});
   const [isBulkSaving, setIsBulkSaving] = useState(false);
 
-  const estadoItems = useMemo(
-    () =>
-      (estados || []).map((e) => ({
-        id: e.id as string | number,
-        label: e.nombre as string,
-      })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   const usuarioItems = useMemo(
     () =>

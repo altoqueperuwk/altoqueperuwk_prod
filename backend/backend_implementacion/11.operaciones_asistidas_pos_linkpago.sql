@@ -10,6 +10,8 @@ Objetivo:
 Reglas:
   - solo aplica para pos y linkpago;
   - filtra por fecha_registro;
+  - POS arrastra pendientes de dias previos solo cuando se consulta el dia
+    actual; en historico solo considera operaciones Pagado;
   - suma solo operaciones Pagado;
   - comisiones refleja lo cobrado al cliente;
   - ganancia refleja comisiones menos gastos operativos;
@@ -44,8 +46,37 @@ AS $$
     FROM public.tb_operacion_proceso op
     WHERE LOWER(COALESCE(p_ruta, '')) IN ('pos', 'linkpago')
       AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(p_ruta)
-      AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
-      AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+      AND (
+        (p_fecha_registro_desde IS NULL AND p_fecha_registro_hasta IS NULL)
+        OR (
+          LOWER(COALESCE(p_ruta, '')) = 'pos'
+          AND COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
+          AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date = (now() AT TIME ZONE 'America/Lima')::date
+          AND (
+            (
+              (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
+              AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+            )
+            OR (
+              UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PAGADO'
+              AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+            )
+          )
+        )
+        OR (
+          LOWER(COALESCE(p_ruta, '')) = 'pos'
+          AND COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
+          AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date <> (now() AT TIME ZONE 'America/Lima')::date
+          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+          AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
+          AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+        )
+        OR (
+          LOWER(COALESCE(p_ruta, '')) = 'linkpago'
+          AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
+          AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+        )
+      )
   )
   SELECT
     LOWER(p_ruta)::character varying AS ruta,
@@ -89,7 +120,9 @@ $$;
 Funcion: f_get_tb_operacion_asistida_bandeja
 Objetivo:
   Consultar la bandeja operativa de POS y Link Pago por fecha de registro,
-  sin depender de caja, cierre o movimientos financieros.
+  sin depender de caja, cierre o movimientos financieros. POS arrastra
+  pendientes de dias previos solo cuando se consulta el dia actual; en
+  historico solo muestra operaciones Pagado.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_asistida_bandeja(
   p_ruta character varying,
@@ -109,8 +142,37 @@ AS $$
   FROM public.tb_operacion_proceso op
   WHERE LOWER(COALESCE(p_ruta, '')) IN ('pos', 'linkpago')
     AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(p_ruta)
-    AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
-    AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+    AND (
+      (p_fecha_registro_desde IS NULL AND p_fecha_registro_hasta IS NULL)
+      OR (
+        LOWER(COALESCE(p_ruta, '')) = 'pos'
+        AND COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
+        AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date = (now() AT TIME ZONE 'America/Lima')::date
+        AND (
+          (
+            (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
+            AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+          )
+          OR (
+            UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PAGADO'
+            AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+          )
+        )
+      )
+      OR (
+        LOWER(COALESCE(p_ruta, '')) = 'pos'
+        AND COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
+        AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date <> (now() AT TIME ZONE 'America/Lima')::date
+        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+        AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
+        AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+      )
+      OR (
+        LOWER(COALESCE(p_ruta, '')) = 'linkpago'
+        AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
+        AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+      )
+    )
     AND (p_nombre_estado IS NULL OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = UPPER(BTRIM(p_nombre_estado)))
     AND (p_dni_cliente IS NULL OR COALESCE(op.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
     AND (p_codigo_operacion IS NULL OR COALESCE(op.codigo_operacion_deposito_cliente, '') ILIKE '%' || p_codigo_operacion || '%')
@@ -133,6 +195,29 @@ Reglas:
   - calcula comisiones automaticamente usando las funciones de calculo;
   - no llama a funciones de tb_operacion_caja.
 */
+DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida(
+  character varying,
+  bigint,
+  character varying,
+  character varying,
+  bigint,
+  character varying,
+  character varying,
+  numeric,
+  character varying,
+  bigint,
+  character varying,
+  bigint,
+  character varying,
+  bigint,
+  character varying,
+  bigint,
+  character varying,
+  bigint,
+  bigint,
+  timestamp with time zone
+);
+
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
   p_ruta character varying,
   p_id_codigo_servicio bigint,
@@ -153,7 +238,8 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
   p_nombre_usuario_solicitud character varying DEFAULT NULL,
   p_id_banco_destino bigint DEFAULT NULL,
   p_id_banco_cliente bigint DEFAULT NULL,
-  p_fecha_registro timestamp with time zone DEFAULT NULL
+  p_fecha_registro timestamp with time zone DEFAULT NULL,
+  p_tipo_documento_cliente bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -202,6 +288,8 @@ BEGIN
   IF v_ruta = 'linkpago' AND p_id_banco_cliente IS NULL THEN
     RETURN jsonb_build_object('error', 'Selecciona la entidad tarjeta para Link Pago.');
   END IF;
+
+  p_dni_cliente := REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g');
 
   IF v_ruta = 'pos' AND p_id_banco_destino IS NOT NULL THEN
     SELECT rc.ruta, rc.id_empresa, e.nombre AS nombre_empresa,
@@ -325,10 +413,26 @@ BEGIN
     WHERE b.id = p_id_banco_cliente AND b.id_estado = 1;
   END IF;
 
-  v_tipo_documento := public.f_get_tb_documento_tipo_codigo('DNI');
+  IF p_tipo_documento_cliente IS NOT NULL THEN
+    IF p_tipo_documento_cliente NOT IN (1, 2) THEN
+      RETURN jsonb_build_object('error', 'Tipo de documento invalido.');
+    END IF;
 
-  IF LENGTH(REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g')) = 11 THEN
-    v_tipo_documento := public.f_get_tb_documento_tipo_codigo('RUC');
+    v_tipo_documento := p_tipo_documento_cliente;
+
+    IF v_tipo_documento = 1 AND LENGTH(p_dni_cliente) <> 8 THEN
+      RETURN jsonb_build_object('error', 'El DNI debe tener exactamente 8 dígitos.');
+    END IF;
+
+    IF v_tipo_documento = 2 AND LENGTH(p_dni_cliente) <> 9 THEN
+      RETURN jsonb_build_object('error', 'El CE debe tener exactamente 9 dígitos.');
+    END IF;
+  ELSE
+    v_tipo_documento := public.f_get_tb_documento_tipo_codigo('DNI');
+
+    IF LENGTH(p_dni_cliente) = 11 THEN
+      v_tipo_documento := public.f_get_tb_documento_tipo_codigo('RUC');
+    END IF;
   END IF;
 
   SELECT id, nombre
@@ -531,6 +635,10 @@ DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
   bigint, bigint, character varying, character varying, bigint,
   character varying, numeric, bigint, character varying
 );
+DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
+  bigint, bigint, character varying, character varying, bigint,
+  character varying, numeric, bigint, character varying, bigint
+);
 
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_id bigint,
@@ -541,7 +649,8 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_nombre_comunidad character varying DEFAULT NULL,
   p_monto_deposito_cliente numeric DEFAULT NULL,
   p_id_usuario bigint DEFAULT NULL,
-  p_nombre_usuario character varying DEFAULT NULL
+  p_nombre_usuario character varying DEFAULT NULL,
+  p_tipo_documento_cliente bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -588,6 +697,7 @@ BEGIN
   END IF;
 
   p_dni_cliente := COALESCE(p_dni_cliente, v_actual.dni_cliente);
+  p_dni_cliente := REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g');
   p_nombre_cliente := COALESCE(p_nombre_cliente, v_actual.nombre_cliente);
   p_id_comunidad := COALESCE(p_id_comunidad, v_actual.id_comunidad);
   p_nombre_comunidad := COALESCE(p_nombre_comunidad, v_actual.nombre_comunidad);
@@ -635,9 +745,25 @@ BEGIN
   v_id_banco_empresa_cuenta_salida := COALESCE(v_id_banco_empresa_cuenta_ingreso, v_actual.id_banco_empresa_cuenta_salida);
   v_nombre_banco_empresa_cuenta_salida := COALESCE(v_nombre_banco_empresa_cuenta_ingreso, v_actual.nombre_banco_empresa_cuenta_salida);
 
-  v_tipo_documento := public.f_get_tb_documento_tipo_codigo('DNI');
-  IF LENGTH(REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g')) = 11 THEN
-    v_tipo_documento := public.f_get_tb_documento_tipo_codigo('RUC');
+  IF p_tipo_documento_cliente IS NOT NULL THEN
+    IF p_tipo_documento_cliente NOT IN (1, 2) THEN
+      RETURN jsonb_build_object('error', 'Tipo de documento invalido.');
+    END IF;
+
+    v_tipo_documento := p_tipo_documento_cliente;
+
+    IF v_tipo_documento = 1 AND LENGTH(p_dni_cliente) <> 8 THEN
+      RETURN jsonb_build_object('error', 'El DNI debe tener exactamente 8 dígitos.');
+    END IF;
+
+    IF v_tipo_documento = 2 AND LENGTH(p_dni_cliente) <> 9 THEN
+      RETURN jsonb_build_object('error', 'El CE debe tener exactamente 9 dígitos.');
+    END IF;
+  ELSE
+    v_tipo_documento := public.f_get_tb_documento_tipo_codigo('DNI');
+    IF LENGTH(p_dni_cliente) = 11 THEN
+      v_tipo_documento := public.f_get_tb_documento_tipo_codigo('RUC');
+    END IF;
   END IF;
 
   SELECT id, nombre INTO v_cliente_id, v_cliente_nombre

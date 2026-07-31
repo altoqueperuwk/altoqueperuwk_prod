@@ -269,7 +269,9 @@ El lector soporta:
 - fecha con hora;
 - texto parseable por `Date`.
 
-Cuando una fecha no tiene hora, se normaliza a `00:00:00` o se completa luego en backend segun la regla vigente.
+Cuando una fecha no tiene hora, se normaliza a `00:00:00` o se completa luego en backend con `hora_proceso` de la fila (si existe) o `current_time` como fallback.
+
+Regla backend vigente (`f_post_tb_operacion_proceso_excel`, `f_post_tb_operacion_proceso_excel_ganancia`): si `fecha_pago` llega con time `00:00:00`, se reemplaza con `hora_proceso` de la misma fila cuando esta informada, o con `current_time` como fallback. Esto aplica a bancos que envian hora por separado (Scotiabank, Banbif).
 
 SafetyPay usa una normalizacion adicional:
 

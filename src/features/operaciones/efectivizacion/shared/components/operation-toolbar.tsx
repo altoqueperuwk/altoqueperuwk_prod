@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 
@@ -8,6 +9,7 @@ interface OperationToolbarProps {
     dateFrom?: string;
     dateTo?: string;
     dni: string;
+    extraFilters?: ReactNode;
     filters: string[];
     isActionDisabled?: (action: string) => boolean;
     onAction?: (action: string) => void;
@@ -26,6 +28,7 @@ export const OperationToolbar = ({
     dateFrom = "",
     dateTo = "",
     dni,
+    extraFilters,
     filters,
     isActionDisabled,
     onAction,
@@ -59,6 +62,7 @@ export const OperationToolbar = ({
                     onChange={onDniChange}
                     className="w-44"
                 />
+                {extraFilters}
                 {showDateRange && (
                     <>
                         <Input

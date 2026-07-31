@@ -41,6 +41,7 @@ Estas rutas:
 - no requiere banco destino;
 - queda con `ruta_origen = 'linkpago'` y `ruta_destino = 'linkpago'`;
 - permite cambio de estado operativo;
+- permite edicion de campos (DNI, nombre, comunidad, monto, entidad tarjeta) via modal con `f_patch_tb_operacion_asistida`;
 - no crea movimientos de caja ni depende de cierre.
 
 ## KPIs asistidos
@@ -108,6 +109,14 @@ La pagina `/operaciones/pos` y `/operaciones/linkpago` comparten el mismo layout
 | Hora | `fecha_registro` | hora + fecha |
 
 La columna `Codigo Operacion` esta oculta en POS.
+
+### Columnas datatable Link Pago
+
+La bandeja de Link Pago usa las mismas columnas que POS pero con toolbar inline que reemplaza los botones de accion: boton `Editar` (icono `Edit03`) abre `LinkPagoEditModal` para modificar DNI, nombre, comunidad, monto o entidad tarjeta; boton `Pendiente`/`Pagado` cambia estado.
+
+### Componente `LinkPagoEditModal`
+
+`components/linkpago-edit-modal.tsx`: modal de edicion con campos `Entidad Tarjeta | DNI | Nombre | Comunidad | Monto`. Al guardar llama `f_patch_tb_operacion_asistida` con los campos modificados. La entidad tarjeta solo se muestra en operaciones POS (con `id_banco_cliente`).
 
 ### Hook de busqueda de cliente
 

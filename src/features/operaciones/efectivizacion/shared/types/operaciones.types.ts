@@ -71,6 +71,48 @@ export interface OperacionEmpresaBadge {
     cantidad: number;
 }
 
+export interface OperacionCargaExcelRollback {
+    id: number;
+    nombre_excel: string;
+    fecha_carga: string;
+    ruta: string | null;
+    id_empresa: number | null;
+    empresa: string | null;
+    id_empresa_cuenta_bancaria: number | null;
+    total_operaciones: number;
+    disponible: boolean;
+    detalle: string;
+    operaciones_no_pendientes?: number | null;
+    movimientos_cerrados?: number | null;
+}
+
+export interface RecaudacionReglaAbono {
+    id: number;
+    ruta: string;
+    id_empresa: number;
+    id_empresa_cuenta_bancaria: number;
+    hora_corte: string;
+    dias_habiles_abono: number;
+    hora_liberacion: string;
+    flag_liberacion_automatica: boolean;
+    id_estado: number;
+    empresa?: string | null;
+    banco?: string | null;
+    estado?: string | null;
+    id_usuario?: number | null;
+    fecha_registro?: string | null;
+    fecha_actualizacion?: string | null;
+}
+
+export interface RecaudacionOperacionInfo {
+    id_operacion: number;
+    fecha_corte_recaudacion?: string | null;
+    fecha_estimada_abono?: string | null;
+    fecha_liberacion_abono?: string | null;
+    flag_liberable_abono?: boolean | null;
+    estado_lote_abono?: string | null;
+}
+
 export interface OperacionProceso {
     id: number;
     id_codigo_servicio?: number | null;
@@ -119,6 +161,7 @@ export interface OperacionProceso {
     tipo_facturacion?: string | null;
     tipo_recaudacion_sf?: string | null;
     nombre_usuario_gestor?: string | null;
+    id_usuario_solicitud?: number | null;
     nombre_usuario_solicitud?: string | null;
     nombre_usuario_deriva?: string | null;
     nombre_usuario_retiene?: string | null;
@@ -126,6 +169,19 @@ export interface OperacionProceso {
     id_operacion_match?: number | null;
     id_operacion_banco?: number | null;
     flag_comision_registrada?: boolean | null;
+    pd_retorno_id?: number | null;
+    pd_retorno_id_empresa_ingreso?: number | null;
+    pd_retorno_id_empresa_cuenta_ingreso?: number | null;
+    pd_retorno_nombre_empresa_ingreso?: string | null;
+    pd_retorno_nombre_banco_empresa_cuenta_ingreso?: string | null;
+    pd_retorno_monto_devolucion?: number | null;
+    pd_retorno_codigos_operacion?: string | null;
+    pd_retorno_empresas_cuentas?: Array<{
+        empresa?: string | null;
+        cuenta?: string | null;
+        codigo?: string | null;
+        monto?: number | null;
+    }> | null;
     tipo_flujo_pago_deuda?: string | null;
     ruta_origen: string | null;
     ruta_destino: string | null;
@@ -136,6 +192,11 @@ export interface OperacionProceso {
     fecha_pagado?: string | null;
     fecha_derivacion?: string | null;
     fecha_retencion?: string | null;
+    fecha_corte_recaudacion?: string | null;
+    fecha_estimada_abono?: string | null;
+    fecha_liberacion_abono?: string | null;
+    flag_liberable_abono?: boolean | null;
+    estado_lote_abono?: string | null;
     motivo_retencion?: string | null;
     fecha_registro: string;
     monto_devuelto?: number | null;

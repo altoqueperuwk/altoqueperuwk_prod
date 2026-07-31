@@ -8,6 +8,7 @@ import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { Plus, X, Check } from "@untitledui/icons";
 import { empresaCuentaBancariaService } from "@/services/empresa-cuenta-bancaria.service";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface EmpresaCuentasModalProps {
   isOpen: boolean;
@@ -73,10 +74,7 @@ export const EmpresaCuentasModal = ({ isOpen, onClose, empresa }: EmpresaCuentas
   const [rows, setRows] = useState<CuentaRow[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
-  const estadoItems = useMemo(
-    () => (estados || []).map((e) => ({ id: e.id as string | number, label: e.nombre as string })),
-    [estados],
-  );
+  const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
   const bancoItems = useMemo(
     () => (bancos || []).map((b) => ({ id: b.id as string | number, label: b.nombre as string })),
@@ -125,8 +123,8 @@ export const EmpresaCuentasModal = ({ isOpen, onClose, empresa }: EmpresaCuentas
   const handleRetencionUpdate = (key: string, tipo: "total" | "parcial") => {
     setRows((prev) => prev.map((r) => r.key === key ? {
       ...r,
-      flag_retencion: tipo === "total",
-      flag_retencion_parcial: tipo === "parcial",
+      flag_retencion: tipo === "total" ? !r.flag_retencion : false,
+      flag_retencion_parcial: tipo === "parcial" ? !r.flag_retencion_parcial : false,
     } : r));
   };
 

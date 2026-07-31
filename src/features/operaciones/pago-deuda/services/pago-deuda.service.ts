@@ -17,6 +17,10 @@ export const pagoDeudaService = {
         return rpc<OperacionProceso[]>("f_get_tb_pago_deuda", params);
     },
 
+    getKpi(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>[]>("f_get_tb_pago_deuda_kpi", params);
+    },
+
     getMatches(params: Record<string, unknown>) {
         return rpc<OperacionProceso[]>("f_get_tb_pago_deuda_match", params);
     },
@@ -35,6 +39,26 @@ export const pagoDeudaService = {
 
     patchComisionCuenta(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_pago_deuda_comision_cuenta", params);
+    },
+
+    patchComisionEspecial(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_pago_deuda_comision_especial", params);
+    },
+
+    patchComisionExtra(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_pago_deuda_comision_extra", params);
+    },
+
+    getEmpresasComision(params: Record<string, unknown> = {}) {
+        return rpc<Record<string, unknown>[]>("f_get_tb_pago_deuda_empresa_comision", params);
+    },
+
+    patchEmpresaComision(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_patch_tb_pago_deuda_empresa_comision", params);
+    },
+
+    deleteSolicitud(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_delete_tb_pago_deuda_solicitud", params);
     },
 
     patchMatch(params: Record<string, unknown>) {

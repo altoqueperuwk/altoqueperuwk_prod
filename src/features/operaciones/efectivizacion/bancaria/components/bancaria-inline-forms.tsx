@@ -12,6 +12,12 @@ import { empresaCuentaBancariaService } from "@/services/empresa-cuenta-bancaria
 import { estadoService } from "@/services/estado.service";
 import { InlineFormCard } from "@/features/operaciones/efectivizacion/shared/components/inline-form-card";
 import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
+import {
+    DocumentoInputGroup,
+    cleanDocumento,
+    getDocumentoValidationMessage,
+    type TipoDocumentoOperacion,
+} from "@/features/operaciones/efectivizacion/shared/components/documento-input-group";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type {
     CajaOperativa,
@@ -20,6 +26,7 @@ import type {
     RutaOperacionCaja,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
+import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
 import { findCodigoServicioForRuta } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { cx } from "@/utils/cx";
 
@@ -332,6 +339,7 @@ export const BancariaInlineForms = ({
     const [movementConcept, setMovementConcept] = useState("");
     const [isSavingMovement, setIsSavingMovement] = useState(false);
     const [manualCode, setManualCode] = useState("");
+    const [manualTipoDocumento, setManualTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [manualDni, setManualDni] = useState("");
     const [manualAmount, setManualAmount] = useState("");
     const [manualCommunityId, setManualCommunityId] = useState("");
@@ -601,8 +609,11 @@ export const BancariaInlineForms = ({
             return;
         }
 
-        if (!manualDni.trim()) {
-            addToast("error", "El DNI es obligatorio.");
+        const cleanManualDni = cleanDocumento(manualDni, manualTipoDocumento);
+        const documentoError = getDocumentoValidationMessage(cleanManualDni, manualTipoDocumento);
+
+        if (documentoError) {
+            addToast("error", documentoError);
             return;
         }
 
@@ -621,7 +632,8 @@ export const BancariaInlineForms = ({
                 p_tipo_servicio: "EFECTIVIZACION",
                 p_id_comunidad: selectedCommunity.id,
                 p_nombre_comunidad: selectedCommunity.nombre,
-                p_dni_cliente: manualDni.trim(),
+                p_tipo_documento_cliente: manualTipoDocumento,
+                p_dni_cliente: cleanManualDni,
                 p_monto_deposito_cliente: amount,
                 p_codigo_operacion_deposito_cliente: manualCode.trim(),
                 p_fecha_deposito_cliente: now,
@@ -642,6 +654,7 @@ export const BancariaInlineForms = ({
             }
 
             setManualCode("");
+            setManualTipoDocumento(1);
             setManualDni("");
             setManualAmount("");
             onSaved();
@@ -656,8 +669,14 @@ export const BancariaInlineForms = ({
 
     const activeCajaBadges = (
         <div className="flex max-w-56 flex-wrap justify-end gap-1">
-            <CompactBadgeLine color="brand">{activeCompany?.nombre_empresa ?? "Empresa"}</CompactBadgeLine>
-            <CompactBadgeLine>{activeCompany?.nombre_banco ?? firstCuenta?.nombre_banco ?? "Cuenta"}</CompactBadgeLine>
+            {[activeCompany?.nombre_empresa ?? "Empresa", activeCompany?.nombre_banco ?? firstCuenta?.nombre_banco ?? "Cuenta"].map((label) => (
+                <span
+                    key={label}
+                    className="max-w-full truncate rounded-md border border-secondary bg-secondary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-secondary"
+                >
+                    {label}
+                </span>
+            ))}
         </div>
     );
 
@@ -684,7 +703,11 @@ export const BancariaInlineForms = ({
                             />
                         </Field>
                         <Field className="col-span-1" label="Monto a Depositar">
-                            <CompactInput placeholder="S/ 0.00" value={transferAmount} onChange={setTransferAmount} />
+                            <CompactInput
+                                placeholder="S/ 0.00"
+                                value={transferAmount}
+                                onChange={(value) => setTransferAmount(sanitizeAmountInput(value))}
+                            />
                         </Field>
                     </div>
                     <FormActions isSaving={isSavingTransfer} onCancel={() => setTransferAmount("")} onSave={handleSaveTransfer} />
@@ -706,7 +729,11 @@ export const BancariaInlineForms = ({
                             />
                         </Field>
                         <Field label="Monto">
-                            <CompactInput placeholder="S/ 0.00" value={movementAmount} onChange={setMovementAmount} />
+                            <CompactInput
+                                placeholder="S/ 0.00"
+                                value={movementAmount}
+                                onChange={(value) => setMovementAmount(sanitizeAmountInput(value))}
+                            />
                         </Field>
                         <Field className="col-span-2" label="Concepto">
                             <CompactInput value={movementConcept} onChange={setMovementConcept} />
@@ -734,11 +761,21 @@ export const BancariaInlineForms = ({
                             <Field label="Codigo Operacion">
                                 <CompactInput value={manualCode} onChange={setManualCode} />
                             </Field>
-                            <Field label="DNI">
-                                <CompactInput value={manualDni} onChange={setManualDni} />
+                            <Field label="Documento">
+                                <DocumentoInputGroup
+                                    label=""
+                                    tipoDocumento={manualTipoDocumento}
+                                    numeroDocumento={manualDni}
+                                    onTipoDocumentoChange={setManualTipoDocumento}
+                                    onNumeroDocumentoChange={setManualDni}
+                                />
                             </Field>
                             <Field label="Monto">
-                                <CompactInput placeholder="S/ 0.00" value={manualAmount} onChange={setManualAmount} />
+                                <CompactInput
+                                    placeholder="S/ 0.00"
+                                    value={manualAmount}
+                                    onChange={(value) => setManualAmount(sanitizeAmountInput(value))}
+                                />
                             </Field>
                             <Field label="Comunidad">
                                 <CompactSelect
@@ -752,6 +789,7 @@ export const BancariaInlineForms = ({
                             isSaving={isSavingManual}
                             onCancel={() => {
                                 setManualCode("");
+                                setManualTipoDocumento(1);
                                 setManualDni("");
                                 setManualAmount("");
                             }}

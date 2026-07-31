@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle, File07, Trash01, UploadCloud02, XClose } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
-import { Tabs } from "@/components/application/tabs/tabs";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { codigoServicioService } from "@/services/codigo-servicio.service";
@@ -41,32 +40,6 @@ const formatFileSize = (bytes: number) => {
 };
 
 const getCounterValue = (result: Record<string, unknown> | null, key: string) => Number(result?.[key] ?? 0);
-type SafetyPayMode = "Manual" | "Automatico";
-
-const SafetyPayModeTabs = ({ value, onChange }: { value: SafetyPayMode; onChange: (value: SafetyPayMode) => void }) => (
-    <Tabs
-        className="w-max shrink-0"
-        selectedKey={value}
-        onSelectionChange={(key) => onChange(String(key) === "Manual" ? "Manual" : "Automatico")}
-    >
-        <Tabs.List type="button-border" size="sm" aria-label="Modalidad SafetyPay">
-            {(["Automatico", "Manual"] as SafetyPayMode[]).map((item) => (
-                <Tabs.Item
-                    id={item}
-                    key={item}
-                    className={({ isSelected }) =>
-                        isSelected
-                            ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
-                            : ""
-                    }
-                >
-                    {item}
-                </Tabs.Item>
-            ))}
-        </Tabs.List>
-    </Tabs>
-);
-
 export const BancariaExcelUpload = ({
     activeCompany,
     activeCompanyId,
@@ -86,7 +59,6 @@ export const BancariaExcelUpload = ({
     const [serviceItems, setServiceItems] = useState<CatalogItem[]>([]);
     const [result, setResult] = useState<Record<string, unknown> | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
-    const [safetyPayMode, setSafetyPayMode] = useState<SafetyPayMode>("Automatico");
 
     const selectedCommunity = useMemo(
         () => communities.find((item) => String(item.id) === communityId) ?? null,
@@ -140,7 +112,6 @@ export const BancariaExcelUpload = ({
 
     useEffect(() => {
         resetUpload();
-        if (ruta === "safetypay") setSafetyPayMode("Automatico");
     }, [activeCompany?.id_empresa, activeCompany?.id_empresa_cuenta_bancaria, ruta]);
 
     const handleFile = async (file: File) => {
@@ -199,10 +170,10 @@ export const BancariaExcelUpload = ({
         try {
             const payload = buildExcelPayload({
                 activeCompany,
+                fileName,
                 rows,
                 selectedCommunity,
                 service,
-                tipoRecaudacionSf: safetyPayMode,
                 user: { userId, userName },
                 ruta,
             });
@@ -226,7 +197,6 @@ export const BancariaExcelUpload = ({
                     <div className="inline-block min-w-max">
                         <div className="flex items-center gap-3">
                             <EmpresaTabs companies={companies} activeCompanyId={activeCompanyId} onChange={onCompanyChange} />
-                            {ruta === "safetypay" && <SafetyPayModeTabs value={safetyPayMode} onChange={setSafetyPayMode} />}
                         </div>
                     </div>
                 </div>

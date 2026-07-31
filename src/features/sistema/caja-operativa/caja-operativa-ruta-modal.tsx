@@ -10,6 +10,7 @@ import { useToast } from "@/providers/toast-provider";
 import { cajaOperativaService } from "@/services/caja-operativa.service";
 import { Check, Plus, X } from "@untitledui/icons";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
+import { getCoreEstadoItems } from "@/utils/estado-options";
 
 interface CajaOperativaRutaModalProps {
     isOpen: boolean;
@@ -52,10 +53,7 @@ export const CajaOperativaRutaModal = ({ isOpen, caja, onClose, onSave }: CajaOp
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
-    const estadoItems = useMemo(
-        () => (estados || []).map((estado) => ({ id: estado.id as string | number, label: estado.nombre as string })),
-        [estados],
-    );
+    const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
     const activoId = useMemo(() => getActivoId(estadoItems), [estadoItems]);
 
     useEffect(() => {
