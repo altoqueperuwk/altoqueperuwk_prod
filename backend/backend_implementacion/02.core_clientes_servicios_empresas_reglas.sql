@@ -968,13 +968,6 @@ BEGIN
 END;
 $$;
 
-UPDATE public.tb_empresa_cuenta_bancaria ecb
-SET flag_retencion = true
-FROM public.tb_banco b
-WHERE b.id = ecb.id_banco
-  AND ecb.flag_retencion = false
-  AND UPPER(COALESCE(b.nombre, '')) IN ('SCOTIABANK', 'BANBIF');
-
 DROP TRIGGER IF EXISTS trg_tb_empresa_cuenta_bancaria_his ON public.tb_empresa_cuenta_bancaria;
 CREATE TRIGGER trg_tb_empresa_cuenta_bancaria_his
 AFTER INSERT OR UPDATE ON public.tb_empresa_cuenta_bancaria
@@ -1125,10 +1118,6 @@ AS $$
 DECLARE
   v_id bigint;
 BEGIN
-  IF COALESCE(p_flag_retencion, false) AND p_flag_retencion_parcial THEN
-    RETURN jsonb_build_object('error', 'Solo puede activarse un tipo de retencion.');
-  END IF;
-
   INSERT INTO public.tb_empresa_cuenta_bancaria (
     id_empresa, id_banco, flag_por_sol_comision_banco_ingreso, flag_retencion, flag_retencion_parcial,
     comision_itf_ingreso_salida, comision_banco_ingreso,
@@ -1140,17 +1129,8 @@ BEGIN
     p_id_empresa,
     p_id_banco,
     COALESCE(p_flag_por_sol_comision_banco_ingreso, false),
-    COALESCE(
-      p_flag_retencion,
-      EXISTS (
-        SELECT 1
-        FROM public.tb_banco b
-        WHERE b.id = p_id_banco
-          AND UPPER(COALESCE(b.nombre, '')) IN ('SCOTIABANK', 'BANBIF')
-      ),
-      false
-    ),
-    p_flag_retencion_parcial,
+    false,
+    false,
     COALESCE(p_comision_itf_ingreso_salida, 0), COALESCE(p_comision_banco_ingreso, 0),
     COALESCE(p_comision_minimo_banco_ingreso, 0), COALESCE(p_comision_igv_banco_ingreso, 0),
     COALESCE(p_comision_transf_banco_salida, 0), COALESCE(p_comision_transf_inter_banco_salida, 0),
@@ -1196,16 +1176,12 @@ DECLARE
 BEGIN
   SELECT * INTO v_actual FROM public.tb_empresa_cuenta_bancaria WHERE id = p_id LIMIT 1;
 
-  IF COALESCE(p_flag_retencion, v_actual.flag_retencion) AND COALESCE(p_flag_retencion_parcial, v_actual.flag_retencion_parcial) THEN
-    RETURN jsonb_build_object('error', 'Solo puede activarse un tipo de retencion.');
-  END IF;
-
   UPDATE public.tb_empresa_cuenta_bancaria
   SET id_empresa = COALESCE(p_id_empresa, id_empresa),
       id_banco = COALESCE(p_id_banco, id_banco),
       flag_por_sol_comision_banco_ingreso = COALESCE(p_flag_por_sol_comision_banco_ingreso, flag_por_sol_comision_banco_ingreso),
-      flag_retencion = COALESCE(p_flag_retencion, flag_retencion),
-      flag_retencion_parcial = COALESCE(p_flag_retencion_parcial, flag_retencion_parcial),
+      flag_retencion = false,
+      flag_retencion_parcial = false,
       comision_itf_ingreso_salida = COALESCE(p_comision_itf_ingreso_salida, comision_itf_ingreso_salida),
       comision_banco_ingreso = COALESCE(p_comision_banco_ingreso, comision_banco_ingreso),
       comision_minimo_banco_ingreso = COALESCE(p_comision_minimo_banco_ingreso, comision_minimo_banco_ingreso),

@@ -80,8 +80,6 @@ export const EmpresaCuentaBancariaPopup = ({ isOpen, onClose, onSave, item, defa
         setComisionIgvBancoIngreso(item.comision_igv_banco_ingreso != null ? String(item.comision_igv_banco_ingreso) : "");
         setComisionTransfBancoSalida(item.comision_transf_banco_salida != null ? String(item.comision_transf_banco_salida) : "");
         setComisionTransfInterBancoSalida(item.comision_transf_inter_banco_salida != null ? String(item.comision_transf_inter_banco_salida) : "");
-        setFlagRetencion(!!item.flag_retencion);
-        setFlagRetencionParcial(!!item.flag_retencion_parcial);
         setIdEstado(Number(item.id_estado ?? 0));
       } else {
         setIdEmpresa(defaultIdEmpresa || 0);
@@ -115,8 +113,6 @@ export const EmpresaCuentaBancariaPopup = ({ isOpen, onClose, onSave, item, defa
         p_comision_igv_banco_ingreso: parseNumber(comisionIgvBancoIngreso),
         p_comision_transf_banco_salida: parseNumber(comisionTransfBancoSalida),
         p_comision_transf_inter_banco_salida: parseNumber(comisionTransfInterBancoSalida),
-        p_flag_retencion: flagRetencion,
-        p_flag_retencion_parcial: flagRetencionParcial,
         p_id_estado: idEstado as number,
       };
 
@@ -185,7 +181,7 @@ export const EmpresaCuentaBancariaPopup = ({ isOpen, onClose, onSave, item, defa
               <Input label="Comisión Transf. Interbancaria Salida" placeholder="S/ 0.00" size="sm" type="number"
                 value={comisionTransfInterBancoSalida} onChange={setComisionTransfInterBancoSalida} />
 
-              <div className="rounded-lg border border-secondary p-3">
+              <div className="hidden">
                 <p className="mb-2 text-sm font-medium text-primary">Tipo de Retención</p>
                 <label className="flex items-center gap-2 py-1">
                   <input type="checkbox" checked={flagRetencion} onChange={() => { setFlagRetencion(!flagRetencion); setFlagRetencionParcial(false); }}

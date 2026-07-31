@@ -99,8 +99,8 @@ export const EmpresaCuentasModal = ({ isOpen, onClose, empresa }: EmpresaCuentas
           comision_igv_banco_ingreso: r.comision_igv_banco_ingreso != null ? String(r.comision_igv_banco_ingreso) : "",
           comision_transf_banco_salida: r.comision_transf_banco_salida != null ? String(r.comision_transf_banco_salida) : "",
           comision_transf_inter_banco_salida: r.comision_transf_inter_banco_salida != null ? String(r.comision_transf_inter_banco_salida) : "",
-          flag_retencion: !!r.flag_retencion,
-          flag_retencion_parcial: !!r.flag_retencion_parcial,
+          flag_retencion: false,
+          flag_retencion_parcial: false,
           id_estado: (r.id_estado as number) || 0,
         }));
         setRows(loadedRows);
@@ -120,14 +120,6 @@ export const EmpresaCuentasModal = ({ isOpen, onClose, empresa }: EmpresaCuentas
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
   };
 
-  const handleRetencionUpdate = (key: string, tipo: "total" | "parcial") => {
-    setRows((prev) => prev.map((r) => r.key === key ? {
-      ...r,
-      flag_retencion: tipo === "total" ? !r.flag_retencion : false,
-      flag_retencion_parcial: tipo === "parcial" ? !r.flag_retencion_parcial : false,
-    } : r));
-  };
-
   const handleSave = async () => {
     setIsSaving(true);
     try {
@@ -142,8 +134,6 @@ export const EmpresaCuentasModal = ({ isOpen, onClose, empresa }: EmpresaCuentas
           p_comision_igv_banco_ingreso: parseNumber(row.comision_igv_banco_ingreso),
           p_comision_transf_banco_salida: parseNumber(row.comision_transf_banco_salida),
           p_comision_transf_inter_banco_salida: parseNumber(row.comision_transf_inter_banco_salida),
-          p_flag_retencion: row.flag_retencion,
-          p_flag_retencion_parcial: row.flag_retencion_parcial,
           p_id_estado: row.id_estado || activoId || 0,
         };
 
@@ -193,14 +183,13 @@ export const EmpresaCuentasModal = ({ isOpen, onClose, empresa }: EmpresaCuentas
                       <th className="px-2 py-2.5 text-xs font-medium text-tertiary uppercase tracking-wider">Com. IGV</th>
                       <th className="px-2 py-2.5 text-xs font-medium text-tertiary uppercase tracking-wider">Com. Transf.</th>
                       <th className="px-2 py-2.5 text-xs font-medium text-tertiary uppercase tracking-wider">Com. Transf. Inter.</th>
-                      <th className="px-2 py-2.5 text-xs font-medium text-tertiary uppercase tracking-wider">Retención</th>
                       <th className="px-2 py-2.5 text-xs font-medium text-tertiary uppercase tracking-wider">Estado</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-secondary">
                     {rows.length === 0 ? (
                       <tr>
-                          <td colSpan={10} className="px-4 py-12 text-center">
+                          <td colSpan={9} className="px-4 py-12 text-center">
                           <p className="text-sm text-tertiary">No hay cuentas bancarias asociadas.</p>
                         </td>
                       </tr>
@@ -250,22 +239,6 @@ export const EmpresaCuentasModal = ({ isOpen, onClose, empresa }: EmpresaCuentas
                             <Input size="sm" placeholder="S/ 0.00" type="number"
                               value={row.comision_transf_inter_banco_salida}
                               onChange={(v) => handleUpdateRow(row.key, "comision_transf_inter_banco_salida", v)} />
-                          </td>
-                          <td className="px-2 py-2">
-                            <div className="flex flex-col gap-0.5">
-                              <label className="flex items-center gap-1 cursor-pointer">
-                                <input type="checkbox" checked={row.flag_retencion}
-                                  onChange={() => handleRetencionUpdate(row.key, "total")}
-                                  className="size-3.5 rounded border-secondary accent-brand" />
-                                <span className="text-xs text-tertiary">Total</span>
-                              </label>
-                              <label className="flex items-center gap-1 cursor-pointer">
-                                <input type="checkbox" checked={row.flag_retencion_parcial}
-                                  onChange={() => handleRetencionUpdate(row.key, "parcial")}
-                                  className="size-3.5 rounded border-secondary accent-brand" />
-                                <span className="text-xs text-tertiary">Parcial</span>
-                              </label>
-                            </div>
                           </td>
                           <td className="px-2 py-2">
                             <Select size="sm" placeholder="Estado"

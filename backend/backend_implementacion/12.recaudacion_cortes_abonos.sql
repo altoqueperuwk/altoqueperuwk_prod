@@ -34,6 +34,53 @@ CREATE TABLE IF NOT EXISTS public.tb_recaudacion_regla_abono (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tb_recaudacion_regla_abono_ruta_cuenta
   ON public.tb_recaudacion_regla_abono (lower(ruta), id_empresa_cuenta_bancaria);
 
+-- Migracion de compatibilidad:
+-- Las retenciones ya no se gobiernan desde tb_empresa_cuenta_bancaria.
+-- Si alguna cuenta venia marcada con el flujo anterior, se convierte en regla
+-- activa de abono y luego se apagan los flags legados para evitar doble fuente.
+INSERT INTO public.tb_recaudacion_regla_abono (
+  ruta,
+  id_empresa,
+  id_empresa_cuenta_bancaria,
+  hora_corte,
+  dias_habiles_abono,
+  hora_liberacion,
+  flag_liberacion_automatica,
+  id_estado,
+  id_usuario
+)
+SELECT DISTINCT
+  LOWER(roc.ruta),
+  ecb.id_empresa,
+  ecb.id,
+  CASE
+    WHEN LOWER(roc.ruta) IN ('scotiabank', 'banbif') THEN '21:00'::time
+    ELSE '00:00'::time
+  END,
+  CASE
+    WHEN LOWER(roc.ruta) = 'safetypay' THEN 2
+    ELSE 1
+  END,
+  '06:00'::time,
+  false,
+  1,
+  ecb.id_usuario
+FROM public.tb_empresa_cuenta_bancaria ecb
+JOIN public.tb_ruta_operacion_caja roc
+  ON roc.id_empresa = ecb.id_empresa
+ AND roc.id_empresa_cuenta_bancaria = ecb.id
+WHERE COALESCE(ecb.flag_retencion, false) = true
+   OR COALESCE(ecb.flag_retencion_parcial, false) = true
+ON CONFLICT ((LOWER(ruta)), id_empresa_cuenta_bancaria) DO UPDATE
+SET id_estado = 1,
+    fecha_actualizacion = now();
+
+UPDATE public.tb_empresa_cuenta_bancaria
+SET flag_retencion = false,
+    flag_retencion_parcial = false
+WHERE COALESCE(flag_retencion, false) = true
+   OR COALESCE(flag_retencion_parcial, false) = true;
+
 /*
 Funcion: f_get_tb_recaudacion_cuenta_flag_retenida
 Objetivo:

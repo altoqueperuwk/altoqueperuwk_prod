@@ -97,8 +97,12 @@ BEGIN
     rc.id_usuario,
     u.nombre AS nombre_usuario,
     rc.fecha_registro,
-    ecb.flag_retencion,
-    ecb.flag_retencion_parcial
+    CASE
+      WHEN to_regprocedure('public.f_get_tb_recaudacion_cuenta_flag_retenida(character varying,bigint)') IS NOT NULL
+        THEN public.f_get_tb_recaudacion_cuenta_flag_retenida(rc.ruta, rc.id_empresa_cuenta_bancaria)
+      ELSE false
+    END AS flag_retencion_cuenta,
+    false AS flag_retencion_parcial_cuenta
   FROM public.tb_ruta_operacion_caja rc
   JOIN public.tb_empresa e ON e.id = rc.id_empresa
   JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
@@ -2025,33 +2029,6 @@ BEGIN
       AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
   ) r;
 
-  PERFORM public.f_patch_tb_operacion_caja_confirmar_retencion(oc.id)
-  FROM public.tb_operacion_caja oc
-  JOIN public.tb_operacion_proceso op ON op.id = oc.id_operacion_proceso
-  JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id_empresa = v_caja.id_empresa
-    AND ecb.id = v_caja.id_empresa_cuenta_bancaria
-  WHERE oc.id_caja = p_id_caja
-    AND op.flag_retenido = true
-    AND ecb.flag_retencion_parcial = true;
-
-  UPDATE public.tb_operacion_proceso op
-  SET flag_retenido = false
-  FROM public.tb_empresa_cuenta_bancaria ecb
-  WHERE op.flag_retenido = true
-    AND ecb.id_empresa = v_caja.id_empresa
-    AND ecb.id = v_caja.id_empresa_cuenta_bancaria
-    AND ecb.flag_retencion_parcial = true
-    AND (
-      (
-        op.id_empresa_ingreso = v_caja.id_empresa
-        AND op.id_empresa_cuenta_ingreso = v_caja.id_empresa_cuenta_bancaria
-      )
-      OR (
-        op.id_empresa_salida = v_caja.id_empresa
-        AND op.id_empresa_cuenta_salida = v_caja.id_empresa_cuenta_bancaria
-      )
-    );
-
   RETURN COALESCE(v_result, '{}'::jsonb) || jsonb_build_object(
     'operaciones_congeladas', v_operaciones_congeladas,
     'movimientos_congelados', v_movimientos_congelados
@@ -2117,41 +2094,7 @@ BEGIN
     RETURN jsonb_build_object('error', 'No se puede reabrir el cierre porque existen movimientos posteriores en la caja.');
   END IF;
 
-  UPDATE public.tb_operacion_caja oc
-  SET id_estado = COALESCE((
-        SELECT est.id
-        FROM public.tb_estado est
-        WHERE UPPER(BTRIM(COALESCE(est.nombre, ''))) = 'RETENIDO'
-        LIMIT 1
-      ), oc.id_estado),
-      nombre_estado = 'Retenido',
-      saldo_actual = oc.saldo_anterior,
-      id_usuario = COALESCE(p_id_usuario, oc.id_usuario)
-  FROM public.tb_operacion_proceso op
-  JOIN public.tb_empresa_cuenta_bancaria ecb
-    ON ecb.id = v_cierre.id_empresa_cuenta_bancaria
-   AND ecb.id_empresa = v_cierre.id_empresa
-  WHERE oc.id_caja = p_id_caja
-    AND oc.id_operacion_proceso = op.id
-    AND op.id_caja_cierre = v_cierre.id
-    AND ecb.flag_retencion_parcial = true
-    AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
-    AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) <> 'RETENIDO';
-
-  GET DIAGNOSTICS v_retenciones_revertidas = ROW_COUNT;
-
-  UPDATE public.tb_operacion_proceso op
-  SET flag_retenido = true
-  FROM public.tb_operacion_caja oc
-  JOIN public.tb_empresa_cuenta_bancaria ecb
-    ON ecb.id = v_cierre.id_empresa_cuenta_bancaria
-   AND ecb.id_empresa = v_cierre.id_empresa
-  WHERE op.id_caja_cierre = v_cierre.id
-    AND oc.id_operacion_proceso = op.id
-    AND oc.id_caja = p_id_caja
-    AND ecb.flag_retencion_parcial = true
-    AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
-    AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) = 'RETENIDO';
+  v_retenciones_revertidas := 0;
 
   UPDATE public.tb_operacion_proceso
   SET id_caja_cierre = NULL,
@@ -3385,7 +3328,7 @@ BEGIN
       c.id_empresa_cuenta_bancaria,
       ecb.id_banco,
       b.nombre AS nombre_banco,
-      (COALESCE(ecb.flag_retencion, false) OR COALESCE(c.flag_retencion, false)) AS flag_retencion
+      false AS flag_retencion
     INTO v_caja_destino
     FROM public.tb_caja_operativa c
     JOIN public.tb_empresa e ON e.id = c.id_empresa
@@ -3400,8 +3343,7 @@ BEGIN
     END IF;
 
     v_id_caja := v_caja_destino.id;
-    v_flag_retencion := COALESCE(v_op.flag_retenido, false)
-      OR (v_existente IS NULL AND COALESCE(v_caja_destino.flag_retencion, false));
+    v_flag_retencion := COALESCE(v_op.flag_retenido, false);
     IF v_flag_retencion AND v_estado_retenido_id IS NOT NULL THEN
       v_estado_id := v_estado_retenido_id;
       v_estado_nombre := v_estado_retenido_nombre;

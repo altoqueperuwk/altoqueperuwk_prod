@@ -1002,7 +1002,6 @@ BEGIN
     ecb.id,
     ecb.comision_itf_ingreso_salida,
     ecb.flag_por_sol_comision_banco_ingreso,
-    ecb.flag_retencion,
     ecb.comision_banco_ingreso,
     ecb.comision_minimo_banco_ingreso,
     ecb.comision_igv_banco_ingreso
@@ -1010,7 +1009,6 @@ BEGIN
     v_id_ecb_ingreso,
     v_itf_cuenta,
     v_flag_por_sol_comision_banco_ingreso_val,
-    v_flag_retencion_cuenta_val,
     v_comision_banco_ingreso_val,
     v_comision_minimo_banco_ingreso_val,
     v_comision_igv_banco_ingreso_val
@@ -1024,6 +1022,15 @@ BEGIN
     RETURN jsonb_build_object(
       'error', 'No existe una cuenta bancaria activa de ingreso para la empresa y banco de la ruta.'
     );
+  END IF;
+
+  IF to_regprocedure('public.f_get_tb_recaudacion_cuenta_flag_retenida(character varying,bigint)') IS NOT NULL THEN
+    v_flag_retencion_cuenta_val := public.f_get_tb_recaudacion_cuenta_flag_retenida(
+      v_ruta_kpi,
+      v_id_ecb_ingreso
+    );
+  ELSE
+    v_flag_retencion_cuenta_val := false;
   END IF;
 
   IF COALESCE(p_dni_cliente, '') <> ''
@@ -2837,8 +2844,6 @@ BEGIN
     ecb.id,
     ecb.comision_itf_ingreso_salida,
     ecb.flag_por_sol_comision_banco_ingreso,
-    ecb.flag_retencion,
-    ecb.flag_retencion_parcial,
     ecb.comision_banco_ingreso,
     ecb.comision_minimo_banco_ingreso,
     ecb.comision_igv_banco_ingreso
@@ -2846,8 +2851,6 @@ BEGIN
     v_id_empresa_cuenta_ingreso,
     v_itf_cuenta,
     v_flag_por_sol_comision_banco_ingreso,
-    v_flag_retencion_cuenta,
-    v_flag_retencion_parcial_cuenta,
     v_comision_banco_ingreso,
     v_comision_minimo_banco_ingreso,
     v_comision_igv_banco_ingreso
@@ -2870,6 +2873,16 @@ BEGIN
       )
     );
   END IF;
+
+  IF to_regprocedure('public.f_get_tb_recaudacion_cuenta_flag_retenida(character varying,bigint)') IS NOT NULL THEN
+    v_flag_retencion_cuenta := public.f_get_tb_recaudacion_cuenta_flag_retenida(
+      p_ruta_actual,
+      v_id_empresa_cuenta_ingreso
+    );
+  ELSE
+    v_flag_retencion_cuenta := false;
+  END IF;
+  v_flag_retencion_parcial_cuenta := false;
 
   v_nombre_archivo_final := COALESCE(NULLIF(BTRIM(p_nombre_archivo), ''), 'Archivo sin nombre');
 
@@ -3222,12 +3235,12 @@ BEGIN
       p_ruta_actual,
       COALESCE(p_ruta_actual, NULL),
       false,
-      COALESCE(v_flag_retencion_cuenta OR v_flag_retencion_parcial_cuenta, false),
-      CASE WHEN COALESCE(v_flag_retencion_cuenta OR v_flag_retencion_parcial_cuenta, false) THEN NOW() ELSE NULL END,
-      CASE WHEN COALESCE(v_flag_retencion_cuenta OR v_flag_retencion_parcial_cuenta, false) THEN p_id_usuario ELSE NULL END,
-      CASE WHEN COALESCE(v_flag_retencion_cuenta OR v_flag_retencion_parcial_cuenta, false) THEN v_username ELSE NULL END,
+      COALESCE(v_flag_retencion_cuenta, false),
+      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN NOW() ELSE NULL END,
+      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN p_id_usuario ELSE NULL END,
+      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN v_username ELSE NULL END,
       CASE
-        WHEN COALESCE(v_flag_retencion_cuenta OR v_flag_retencion_parcial_cuenta, false)
+        WHEN COALESCE(v_flag_retencion_cuenta, false)
           THEN 'Retencion automatica por cuenta bancaria'
         ELSE NULL
       END,
@@ -3565,24 +3578,6 @@ BEGIN
     v_username
   )
   RETURNING id, fecha_carga INTO v_id_carga_excel, v_fecha_carga_excel;
-
-  IF v_flag_retencion_parcial_cuenta THEN
-    PERFORM public.f_patch_tb_operacion_caja_confirmar_retencion(oc.id)
-    FROM public.tb_operacion_caja oc
-    JOIN public.tb_operacion_proceso op ON op.id = oc.id_operacion_proceso
-    WHERE op.flag_retenido = true
-      AND oc.id_empresa = v_id_empresa_ingreso_final
-      AND oc.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_ingreso
-      AND UPPER(COALESCE(oc.nombre_estado, '')) = 'RETENIDO';
-
-    UPDATE public.tb_operacion_proceso op
-    SET flag_retenido = false
-    FROM public.tb_operacion_caja oc
-    WHERE op.id = oc.id_operacion_proceso
-      AND op.flag_retenido = true
-      AND oc.id_empresa = v_id_empresa_ingreso_final
-      AND oc.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_ingreso;
-  END IF;
 
   FOR v_fila IN
     SELECT *
