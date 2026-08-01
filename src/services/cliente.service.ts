@@ -30,4 +30,19 @@ export const clienteService = {
     if (error) throw error;
     return (data || []) as Record<string, unknown>[];
   },
+
+  async getAtencionKpi(filters = {}) {
+    const { data, error } = await supabase.rpc("f_get_tb_cliente_atencion_kpi", filters);
+    if (error) throw error;
+    return (data || {}) as Record<string, unknown>;
+  },
+
+  async bulkCreate(rows: Record<string, unknown>[], userId?: number) {
+    const { data, error } = await supabase.rpc("f_post_tb_cliente_carga_masiva", {
+      p_datos_clientes_json: rows,
+      p_id_usuario: userId ?? null,
+    });
+    if (error) throw error;
+    return (data || {}) as Record<string, unknown>;
+  },
 };

@@ -13,7 +13,7 @@ const emptyBadges: BadgeMap = {
     POS: 0,
     Retenidos: 0,
 };
-const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif", "safetypay"]);
+const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
 
 export const useBancariaTabBadges = (
     ruta: OperacionRutaBancaria,

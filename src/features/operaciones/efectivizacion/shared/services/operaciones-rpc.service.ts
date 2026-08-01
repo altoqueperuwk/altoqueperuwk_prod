@@ -185,6 +185,14 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_reanudar", params);
     },
 
+    deleteOperacionProceso(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_patch_tb_operacion_proceso_eliminar", params);
+    },
+
+    restoreOperacionProceso(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_restaurar", params);
+    },
+
     patchOperacionDirectoCaja(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_directo_caja", params);
     },

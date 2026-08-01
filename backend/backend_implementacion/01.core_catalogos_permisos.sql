@@ -16,7 +16,7 @@
 --
 -- Convenciones adoptadas para el modelo compacto:
 --   - campos json conceptuales:
---       tb_cliente.celular                -> jsonb
+--       tb_cliente.celular                -> bigint
 --       tb_banco.nombre_equivalencia      -> jsonb
 --   - campos compactados tipo catalogo:
 --       tb_codigo_servicio.tipo           -> character varying

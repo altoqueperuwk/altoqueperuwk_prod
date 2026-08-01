@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Coins01, Copy01, Edit03, Eye, Percent01, RefreshCcw02 } from "@untitledui/icons";
+import { ChevronLeft, ChevronRight, Coins01, Copy01, Edit03, Eye, Percent01, RefreshCcw02, Trash01 } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
@@ -60,10 +60,12 @@ interface BancariaEfectivizacionTableProps {
     estadoPagado: EstadoRef | null;
     estadoPendiente: EstadoRef | null;
     isLoading?: boolean;
-    mode?: "efectivizacion" | "derivaciones";
+    mode?: "efectivizacion" | "derivaciones" | "eliminados";
     onMetricsChanged: () => void;
     onRefresh: () => void;
     onRowUpdated: (row: OperacionProceso) => void;
+    onDeleteOperation?: (row: OperacionProceso) => void;
+    onRestoreOperation?: (row: OperacionProceso) => void;
     onToggleRow?: (id: number) => void;
     ruta: OperacionRutaBancaria;
     selectedIds?: number[];
@@ -71,6 +73,10 @@ interface BancariaEfectivizacionTableProps {
 }
 
 const isPagado = (row: OperacionProceso) => (row.nombre_estado ?? "").toUpperCase() === "PAGADO";
+const isDeletable = (row: OperacionProceso) => {
+    const estado = (row.nombre_estado ?? "").toUpperCase();
+    return estado === "PENDIENTE" || estado === "RETENIDO" || Boolean(row.flag_retenido);
+};
 
 const toNumber = (value: unknown) => Number(value ?? 0);
 
@@ -166,6 +172,8 @@ export const BancariaEfectivizacionTable = ({
     onMetricsChanged,
     onRefresh,
     onRowUpdated,
+    onDeleteOperation,
+    onRestoreOperation,
     onToggleRow,
     ruta,
     selectedIds = [],
@@ -351,8 +359,9 @@ export const BancariaEfectivizacionTable = ({
     };
 
     const isDerivaciones = mode === "derivaciones";
-    const readOnlyIngreso = (row: OperacionProceso) => isDerivaciones || isPagado(row) || savingIds.includes(row.id);
-    const readOnlySalida = (row: OperacionProceso) => isPagado(row) || savingIds.includes(row.id);
+    const isEliminados = mode === "eliminados";
+    const readOnlyIngreso = (row: OperacionProceso) => isDerivaciones || isEliminados || isPagado(row) || savingIds.includes(row.id);
+    const readOnlySalida = (row: OperacionProceso) => isEliminados || isPagado(row) || savingIds.includes(row.id);
 
     const handleDniEditSave = async () => {
         if (!dniEdit) return;
@@ -681,6 +690,14 @@ export const BancariaEfectivizacionTable = ({
         if (action === "DirectoCaja") {
             await handleDirectoCaja(row);
         }
+
+        if (action === "EliminarOperacion") {
+            onDeleteOperation?.(row);
+        }
+
+        if (action === "RestaurarOperacion") {
+            onRestoreOperation?.(row);
+        }
     };
 
     const empresaSalidaValue = (row: OperacionProceso) =>
@@ -884,7 +901,7 @@ export const BancariaEfectivizacionTable = ({
                                             <Button
                                                 size="xs"
                                                 color={isPagado(row) ? "secondary" : "primary"}
-                                                isDisabled={rowSaving || isPagado(row) || !estadoPagado}
+                                                isDisabled={rowSaving || isEliminados || isPagado(row) || !estadoPagado}
                                                 onClick={() => estadoPagado && void handleEstado(row, String(estadoPagado.id))}
                                             >
                                                 {isPagado(row) ? "Pagado" : "Pendiente"}
@@ -914,11 +931,18 @@ export const BancariaEfectivizacionTable = ({
                                                     <Dropdown.Menu
                                                         onAction={(key) => void handleAction(row, String(key))}
                                                     >
-                                                        {isPagado(row) && <Dropdown.Item id="Reanudar" icon={RefreshCcw02}>Reanudar</Dropdown.Item>}
-                                                        {!isPagado(row) && <Dropdown.Item id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
-                                                        {!isPagado(row) && <Dropdown.Item id="ComisionExtra" icon={Coins01}>Com. Extra</Dropdown.Item>}
-                                                        {!isPagado(row) && mode === "efectivizacion" && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo</Dropdown.Item>}
-                                                        <Dropdown.Item id="Visualizar" icon={Eye}>Visualizar</Dropdown.Item>
+                                                        {mode === "eliminados" ? (
+                                                            <Dropdown.Item id="RestaurarOperacion" icon={RefreshCcw02}>Restaurar</Dropdown.Item>
+                                                        ) : (
+                                                            <>
+                                                                {isPagado(row) && <Dropdown.Item id="Reanudar" icon={RefreshCcw02}>Reanudar</Dropdown.Item>}
+                                                                {!isPagado(row) && <Dropdown.Item id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
+                                                                {!isPagado(row) && <Dropdown.Item id="ComisionExtra" icon={Coins01}>Com. Extra</Dropdown.Item>}
+                                                                {!isPagado(row) && mode === "efectivizacion" && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo</Dropdown.Item>}
+                                                                {isDeletable(row) && mode === "efectivizacion" && <Dropdown.Item id="EliminarOperacion" icon={Trash01}>Eliminar Operacion</Dropdown.Item>}
+                                                                <Dropdown.Item id="Visualizar" icon={Eye}>Visualizar</Dropdown.Item>
+                                                            </>
+                                                        )}
                                                     </Dropdown.Menu>
                                                 </Dropdown.Popover>
                                             </Dropdown.Root>

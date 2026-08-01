@@ -7,8 +7,8 @@ import type {
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { getPagoDeudaEstadoVisual } from "@/features/operaciones/pago-deuda/components/pago-deuda-board";
 
-export type BancariaTab = "Efectivizacion" | "Pago Deuda" | "Derivados" | "POS" | "Movimientos" | "Retenidos";
-const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif", "safetypay"]);
+export type BancariaTab = "Efectivizacion" | "Pago Deuda" | "Derivados" | "POS" | "Movimientos" | "Retenidos" | "Eliminados";
+const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
 
 const toLimaDayStart = (date: string) => `${date}T00:00:00-05:00`;
 const toLimaDayEnd = (date: string) => `${date}T23:59:59-05:00`;
@@ -103,7 +103,7 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
 export const tabContracts: Record<BancariaTab, { filters: string[]; actions: string[] }> = {
     Efectivizacion: {
         filters: ["Todos", "Pendientes", "Pagados"],
-        actions: ["Eliminar", "Emp. Salida", "Pagar", "Derivar", "Directo", "Reiniciar"],
+        actions: ["Eliminar Excel", "Emp. Salida", "Pagar", "Derivar", "Directo", "Reiniciar"],
     },
     "Pago Deuda": {
         filters: ["Todos", "Solicitado", "Transferido", "Devuelto", "Pagado"],
@@ -124,6 +124,10 @@ export const tabContracts: Record<BancariaTab, { filters: string[]; actions: str
     Retenidos: {
         filters: [],
         actions: ["Forzar Abono"],
+    },
+    Eliminados: {
+        filters: [],
+        actions: [],
     },
 };
 
@@ -246,6 +250,15 @@ export const useBancariaBandeja = ({
             if (activeAccountId) base.p_id_empresa_cuenta_ingreso = activeAccountId;
         }
 
+        if (tab === "Eliminados") {
+            base.p_tipo_servicio = "EFECTIVIZACION";
+            base.p_ruta_destino = ruta;
+            base.p_flag_derivado = false;
+            base.p_id_estado = 10;
+            if (activeCompanyId) base.p_id_empresa_salida = activeCompanyId;
+            if (activeAccountId) base.p_id_empresa_cuenta_salida = activeAccountId;
+        }
+
         return base;
     }, [activeAccountId, activeCompanyId, activeFilter, code, dateFrom, dateTo, dni, historyDate, ruta, tab]);
 
@@ -319,6 +332,16 @@ export const useBancariaBandeja = ({
 
             if (tab === "Retenidos") {
                 return row.ruta_destino === ruta && row.flag_retenido === true && (!activeAccountId || row.id_empresa_cuenta_ingreso === activeAccountId);
+            }
+
+            if (tab === "Eliminados") {
+                return (
+                    row.id_estado === 10 &&
+                    row.ruta_destino === ruta &&
+                    (row.tipo_servicio ?? "").toUpperCase() === "EFECTIVIZACION" &&
+                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
+                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)
+                );
             }
 
             return true;

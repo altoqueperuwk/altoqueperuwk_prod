@@ -8,14 +8,14 @@ Objetivo:
   Registrar clientes del sistema compacto.
 
 Compactacion aplicada:
-  El campo `celular` se modela como jsonb para absorber multiples celulares.
+  El campo `celular` se modela como bigint para conservar un unico Whatsapp.
 */
 CREATE TABLE IF NOT EXISTS public.tb_cliente (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   tipo_documento bigint NOT NULL DEFAULT 1,
   numero_documento character varying NOT NULL,
   nombre character varying,
-  celular jsonb NOT NULL DEFAULT '[]'::jsonb,
+  celular bigint,
   id_comunidad bigint,
   id_estado bigint NOT NULL,
   id_usuario bigint,
@@ -69,6 +69,44 @@ BEGIN
 END;
 $$;
 
+-- ============================================================================
+-- ALTER TABLE: migracion de celular jsonb a Whatsapp unico bigint
+-- ============================================================================
+DO $$
+DECLARE
+  v_celular_type text;
+BEGIN
+  SELECT data_type
+  INTO v_celular_type
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'tb_cliente'
+    AND column_name = 'celular';
+
+  IF v_celular_type = 'jsonb' THEN
+    ALTER TABLE public.tb_cliente ADD COLUMN IF NOT EXISTS celular_whatsapp_tmp bigint;
+
+    UPDATE public.tb_cliente
+    SET celular_whatsapp_tmp = NULLIF(
+      regexp_replace(
+        CASE
+          WHEN jsonb_typeof(celular) = 'array' THEN COALESCE(celular ->> 0, '')
+          WHEN jsonb_typeof(celular) = 'string' THEN COALESCE(celular #>> '{}', '')
+          ELSE ''
+        END,
+        '\D',
+        '',
+        'g'
+      ),
+      ''
+    )::bigint;
+
+    ALTER TABLE public.tb_cliente DROP COLUMN celular;
+    ALTER TABLE public.tb_cliente RENAME COLUMN celular_whatsapp_tmp TO celular;
+  END IF;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.f_private_append_snapshot_his()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -98,6 +136,13 @@ AFTER INSERT OR UPDATE ON public.tb_cliente
 FOR EACH ROW
 EXECUTE FUNCTION public.f_private_append_snapshot_his();
 
+DROP FUNCTION IF EXISTS public.f_get_tb_cliente(bigint, bigint, character varying, character varying, jsonb, bigint, bigint, bigint, timestamp with time zone, timestamp with time zone);
+DROP FUNCTION IF EXISTS public.f_get_tb_cliente_his(bigint, bigint, character varying, character varying, jsonb, bigint, bigint, bigint, timestamp with time zone, timestamp with time zone);
+DROP FUNCTION IF EXISTS public.f_post_tb_cliente(bigint, character varying, character varying, jsonb, bigint, bigint, bigint);
+DROP FUNCTION IF EXISTS public.f_post_tb_cliente(bigint, character varying, character varying, bigint, bigint, bigint, bigint, boolean);
+DROP FUNCTION IF EXISTS public.f_patch_tb_cliente(bigint, bigint, character varying, character varying, jsonb, bigint, bigint, bigint);
+DROP FUNCTION IF EXISTS public.f_patch_tb_cliente(bigint, bigint, character varying, character varying, bigint, bigint, bigint, bigint);
+
 /*
 Funcion: f_get_tb_cliente
 Objetivo:
@@ -108,12 +153,14 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_cliente(
   p_tipo_documento bigint DEFAULT NULL,
   p_numero_documento character varying DEFAULT NULL,
   p_nombre character varying DEFAULT NULL,
-  p_celular jsonb DEFAULT NULL,
+  p_celular bigint DEFAULT NULL,
   p_id_comunidad bigint DEFAULT NULL,
   p_id_estado bigint DEFAULT NULL,
   p_id_usuario bigint DEFAULT NULL,
   p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL
+  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL,
+  p_flag_sin_nombre boolean DEFAULT NULL,
+  p_flag_sin_celular boolean DEFAULT NULL
 )
 RETURNS SETOF jsonb
 LANGUAGE sql
@@ -142,13 +189,15 @@ AS $$
     AND (p_tipo_documento IS NULL OR t.tipo_documento = p_tipo_documento)
     AND (p_numero_documento IS NULL OR t.numero_documento ILIKE '%' || p_numero_documento || '%')
     AND (p_nombre IS NULL OR COALESCE(t.nombre, '') ILIKE '%' || p_nombre || '%')
-    AND (p_celular IS NULL OR t.celular = p_celular)
+    AND (p_celular IS NULL OR COALESCE(t.celular::text, '') ILIKE '%' || p_celular::text || '%')
     AND (p_id_comunidad IS NULL OR t.id_comunidad = p_id_comunidad)
     AND (p_id_estado IS NULL OR t.id_estado = p_id_estado)
     AND (p_id_usuario IS NULL OR t.id_usuario = p_id_usuario)
     AND (p_fecha_registro_desde IS NULL OR t.fecha_registro >= p_fecha_registro_desde)
     AND (p_fecha_registro_hasta IS NULL OR t.fecha_registro <= p_fecha_registro_hasta)
-  ORDER BY t.id;
+    AND (p_flag_sin_nombre IS NULL OR p_flag_sin_nombre = false OR NULLIF(BTRIM(COALESCE(t.nombre, '')), '') IS NULL)
+    AND (p_flag_sin_celular IS NULL OR p_flag_sin_celular = false OR t.celular IS NULL)
+  ORDER BY t.id DESC;
 $$;
 
 CREATE OR REPLACE FUNCTION public.f_get_tb_cliente_his(
@@ -156,12 +205,14 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_cliente_his(
   p_tipo_documento bigint DEFAULT NULL,
   p_numero_documento character varying DEFAULT NULL,
   p_nombre character varying DEFAULT NULL,
-  p_celular jsonb DEFAULT NULL,
+  p_celular bigint DEFAULT NULL,
   p_id_comunidad bigint DEFAULT NULL,
   p_id_estado bigint DEFAULT NULL,
   p_id_usuario bigint DEFAULT NULL,
   p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL
+  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL,
+  p_flag_sin_nombre boolean DEFAULT NULL,
+  p_flag_sin_celular boolean DEFAULT NULL
 )
 RETURNS SETOF jsonb
 LANGUAGE sql
@@ -174,25 +225,80 @@ AS $$
     AND (p_tipo_documento IS NULL OR t.tipo_documento = p_tipo_documento)
     AND (p_numero_documento IS NULL OR t.numero_documento ILIKE '%' || p_numero_documento || '%')
     AND (p_nombre IS NULL OR COALESCE(t.nombre, '') ILIKE '%' || p_nombre || '%')
-    AND (p_celular IS NULL OR t.celular = p_celular)
+    AND (p_celular IS NULL OR COALESCE(t.celular::text, '') ILIKE '%' || p_celular::text || '%')
     AND (p_id_comunidad IS NULL OR t.id_comunidad = p_id_comunidad)
     AND (p_id_estado IS NULL OR t.id_estado = p_id_estado)
     AND (p_id_usuario IS NULL OR t.id_usuario = p_id_usuario)
     AND (p_fecha_registro_desde IS NULL OR t.fecha_registro >= p_fecha_registro_desde)
     AND (p_fecha_registro_hasta IS NULL OR t.fecha_registro <= p_fecha_registro_hasta)
+    AND (p_flag_sin_nombre IS NULL OR p_flag_sin_nombre = false OR NULLIF(BTRIM(COALESCE(t.nombre, '')), '') IS NULL)
+    AND (p_flag_sin_celular IS NULL OR p_flag_sin_celular = false OR t.celular IS NULL)
   ORDER BY t.fecha_registro, t.id;
+$$;
+
+CREATE OR REPLACE FUNCTION public.f_get_tb_cliente_atencion_kpi(
+  p_tipo_documento bigint DEFAULT NULL,
+  p_numero_documento character varying DEFAULT NULL,
+  p_celular bigint DEFAULT NULL,
+  p_id_comunidad bigint DEFAULT NULL,
+  p_id_estado bigint DEFAULT NULL,
+  p_flag_sin_nombre boolean DEFAULT NULL,
+  p_flag_sin_celular boolean DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH base AS (
+    SELECT t.*
+    FROM public.tb_cliente t
+    WHERE (p_tipo_documento IS NULL OR t.tipo_documento = p_tipo_documento)
+      AND (p_numero_documento IS NULL OR t.numero_documento ILIKE '%' || p_numero_documento || '%')
+      AND (p_celular IS NULL OR COALESCE(t.celular::text, '') ILIKE '%' || p_celular::text || '%')
+      AND (p_id_comunidad IS NULL OR t.id_comunidad = p_id_comunidad)
+      AND (p_id_estado IS NULL OR t.id_estado = p_id_estado)
+      AND (p_flag_sin_nombre IS NULL OR p_flag_sin_nombre = false OR NULLIF(BTRIM(COALESCE(t.nombre, '')), '') IS NULL)
+      AND (p_flag_sin_celular IS NULL OR p_flag_sin_celular = false OR t.celular IS NULL)
+  ),
+  comunidad_totales AS (
+    SELECT jsonb_agg(
+      jsonb_build_object(
+        'id_comunidad', c.id,
+        'comunidad_nombre', c.nombre,
+        'total', COALESCE(x.total, 0)
+      )
+      ORDER BY c.nombre
+    ) AS comunidades
+    FROM public.tb_comunidad c
+    LEFT JOIN (
+      SELECT id_comunidad, COUNT(*)::bigint AS total
+      FROM base
+      WHERE id_comunidad IS NOT NULL
+      GROUP BY id_comunidad
+    ) x ON x.id_comunidad = c.id
+    WHERE c.id_estado = 1
+  )
+  SELECT jsonb_build_object(
+    'total_cliente', COUNT(*)::bigint,
+    'total_sin_nombre', COUNT(*) FILTER (WHERE NULLIF(BTRIM(COALESCE(nombre, '')), '') IS NULL)::bigint,
+    'total_con_whatsapp', COUNT(*) FILTER (WHERE celular IS NOT NULL)::bigint,
+    'total_sin_whatsapp', COUNT(*) FILTER (WHERE celular IS NULL)::bigint,
+    'comunidades', COALESCE((SELECT comunidades FROM comunidad_totales), '[]'::jsonb)
+  )
+  FROM base;
 $$;
 
 /*
 Funcion: f_post_tb_cliente
 Objetivo:
-  Crear un cliente y materializar sus celulares en jsonb.
+  Crear un cliente con un unico Whatsapp.
 */
 CREATE OR REPLACE FUNCTION public.f_post_tb_cliente(
   p_tipo_documento bigint,
   p_numero_documento character varying,
   p_nombre character varying DEFAULT NULL,
-  p_celular jsonb DEFAULT NULL,
+  p_celular bigint DEFAULT NULL,
   p_id_comunidad bigint DEFAULT NULL,
   p_id_estado bigint DEFAULT NULL,
   p_id_usuario bigint DEFAULT NULL
@@ -205,7 +311,7 @@ DECLARE
   v_id bigint;
 BEGIN
   INSERT INTO public.tb_cliente (tipo_documento, numero_documento, nombre, celular, id_comunidad, id_estado, id_usuario)
-  VALUES (p_tipo_documento, p_numero_documento, p_nombre, COALESCE(p_celular, '[]'::jsonb), p_id_comunidad, p_id_estado, p_id_usuario)
+  VALUES (p_tipo_documento, p_numero_documento, p_nombre, p_celular, p_id_comunidad, p_id_estado, p_id_usuario)
   RETURNING id INTO v_id;
 
   RETURN (
@@ -226,10 +332,11 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_cliente(
   p_tipo_documento bigint DEFAULT NULL,
   p_numero_documento character varying DEFAULT NULL,
   p_nombre character varying DEFAULT NULL,
-  p_celular jsonb DEFAULT NULL,
+  p_celular bigint DEFAULT NULL,
   p_id_comunidad bigint DEFAULT NULL,
   p_id_estado bigint DEFAULT NULL,
-  p_id_usuario bigint DEFAULT NULL
+  p_id_usuario bigint DEFAULT NULL,
+  p_flag_limpiar_celular boolean DEFAULT false
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -240,7 +347,7 @@ BEGIN
   SET tipo_documento = COALESCE(p_tipo_documento, tipo_documento),
       numero_documento = COALESCE(p_numero_documento, numero_documento),
       nombre = COALESCE(p_nombre, nombre),
-      celular = COALESCE(p_celular, celular),
+      celular = CASE WHEN p_flag_limpiar_celular THEN NULL ELSE COALESCE(p_celular, celular) END,
       id_comunidad = COALESCE(p_id_comunidad, id_comunidad),
       id_estado = COALESCE(p_id_estado, id_estado),
       id_usuario = COALESCE(p_id_usuario, id_usuario)
@@ -254,13 +361,219 @@ BEGIN
 END;
 $$;
 
+/*
+Funcion: f_post_tb_cliente_carga_masiva
+Objetivo:
+  Procesar hasta 10,000 clientes desde una sola carga JSON sin abortar el lote
+  cuando una fila individual contiene errores.
+*/
+CREATE OR REPLACE FUNCTION public.f_post_tb_cliente_carga_masiva(
+  p_datos_clientes_json jsonb,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_item jsonb;
+  v_fila bigint;
+  v_documento text;
+  v_nombre text;
+  v_codigo text;
+  v_telefono text;
+  v_tipo_documento bigint;
+  v_id_comunidad bigint;
+  v_nombre_comunidad text;
+  v_id_comunidad_default bigint;
+  v_nombre_comunidad_default text;
+  v_id_estado bigint;
+  v_celular bigint;
+  v_id_cliente bigint;
+  v_estado text;
+  v_motivo text;
+  v_detalle jsonb := '[]'::jsonb;
+  v_filas_procesadas bigint := 0;
+  v_filas_actualizadas bigint := 0;
+  v_filas_omitidas bigint := 0;
+  v_filas_error bigint := 0;
+  v_normalized_code text;
+BEGIN
+  IF jsonb_typeof(COALESCE(p_datos_clientes_json, '[]'::jsonb)) <> 'array' THEN
+    RETURN jsonb_build_object(
+      'filas_procesadas', 0,
+      'filas_actualizadas', 0,
+      'filas_omitidas', 0,
+      'filas_error', 1,
+      'detalle', jsonb_build_array(jsonb_build_object('fila', 0, 'estado', 'ERROR', 'motivo', 'El archivo no contiene una lista de filas valida.'))
+    );
+  END IF;
+
+  IF jsonb_array_length(p_datos_clientes_json) > 10000 THEN
+    RETURN jsonb_build_object(
+      'filas_procesadas', 0,
+      'filas_actualizadas', 0,
+      'filas_omitidas', 0,
+      'filas_error', 1,
+      'detalle', jsonb_build_array(jsonb_build_object('fila', 0, 'estado', 'ERROR', 'motivo', 'La carga no puede superar 10,000 registros.'))
+    );
+  END IF;
+
+  SELECT e.id
+  INTO v_id_estado
+  FROM public.tb_estado e
+  WHERE UPPER(BTRIM(COALESCE(e.nombre, ''))) = 'ACTIVO'
+  ORDER BY e.id
+  LIMIT 1;
+
+  SELECT c.id, c.nombre
+  INTO v_id_comunidad_default, v_nombre_comunidad_default
+  FROM public.tb_comunidad c
+  WHERE c.id_estado = v_id_estado
+  ORDER BY c.id
+  LIMIT 1;
+
+  IF v_id_estado IS NULL THEN
+    RETURN jsonb_build_object(
+      'filas_procesadas', 0,
+      'filas_actualizadas', 0,
+      'filas_omitidas', 0,
+      'filas_error', 1,
+      'detalle', jsonb_build_array(jsonb_build_object('fila', 0, 'estado', 'ERROR', 'motivo', 'No existe un estado Activo configurado.'))
+    );
+  END IF;
+
+  IF v_id_comunidad_default IS NULL THEN
+    RETURN jsonb_build_object(
+      'filas_procesadas', 0,
+      'filas_actualizadas', 0,
+      'filas_omitidas', 0,
+      'filas_error', 1,
+      'detalle', jsonb_build_array(jsonb_build_object('fila', 0, 'estado', 'ERROR', 'motivo', 'No existe una comunidad activa configurada.'))
+    );
+  END IF;
+
+  FOR v_item, v_fila IN
+    SELECT value, ordinality
+    FROM jsonb_array_elements(p_datos_clientes_json) WITH ORDINALITY
+  LOOP
+    BEGIN
+      v_documento := regexp_replace(BTRIM(COALESCE(v_item->>'dni', '')), '\D', '', 'g');
+      v_nombre := NULLIF(BTRIM(COALESCE(v_item->>'nombre', '')), '');
+      v_codigo := BTRIM(COALESCE(v_item->>'codigo', ''));
+      v_telefono := regexp_replace(BTRIM(COALESCE(v_item->>'telefono_whatsapp', v_item->>'telefono', v_item->>'whatsapp', '')), '\D', '', 'g');
+      v_tipo_documento := CASE WHEN LENGTH(v_documento) = 8 THEN 1 WHEN LENGTH(v_documento) = 9 THEN 2 ELSE NULL END;
+
+      IF v_tipo_documento IS NULL THEN
+        v_filas_error := v_filas_error + 1;
+        v_detalle := v_detalle || jsonb_build_array(jsonb_build_object('fila', v_fila, 'estado', 'ERROR', 'motivo', 'El documento debe tener 8 digitos para DNI o 9 digitos para CE.'));
+        CONTINUE;
+      END IF;
+
+      IF LENGTH(v_telefono) > 9 THEN
+        v_telefono := RIGHT(v_telefono, 9);
+      END IF;
+      v_celular := NULLIF(v_telefono, '')::bigint;
+
+      v_normalized_code := UPPER(BTRIM(v_codigo));
+      v_normalized_code := CASE v_normalized_code
+        WHEN 'ATK' THEN 'ATK1'
+        WHEN 'ATK 0,5' THEN 'ATK50'
+        WHEN 'ATK 1' THEN 'ATK1'
+        WHEN 'ATK 1%' THEN 'ATK1'
+        WHEN 'ATK 30' THEN 'ATK30'
+        WHEN 'ATK 50' THEN 'ATK50'
+        WHEN 'ATK1' THEN 'ATK1'
+        WHEN 'ATK30' THEN 'ATK30'
+        WHEN 'ATK50' THEN 'ATK50'
+        WHEN 'BETO 30' THEN 'BETO30'
+        WHEN 'BETO30' THEN 'BETO30'
+        WHEN 'CCFVIP30' THEN 'CCFVIP30'
+        WHEN 'JACK 1' THEN 'JACK30'
+        WHEN 'JACK 30' THEN 'JACK30'
+        WHEN 'JACK30' THEN 'JACK30'
+        WHEN 'LUIS 30' THEN 'LUIS30'
+        WHEN 'LUIS30' THEN 'LUIS30'
+        WHEN 'MARRTIN 30' THEN 'MARTIN30'
+        WHEN 'MARRTIN30' THEN 'MARTIN30'
+        WHEN 'MARTIN 30' THEN 'MARTIN30'
+        WHEN 'MARTIN30' THEN 'MARTIN30'
+        WHEN 'REMY' THEN 'REMY'
+        WHEN 'REMY 1' THEN 'REMY'
+        WHEN 'REMY1' THEN 'REMY'
+        ELSE v_normalized_code
+      END;
+
+      SELECT c.id, c.nombre
+      INTO v_id_comunidad, v_nombre_comunidad
+      FROM public.tb_comunidad c
+      WHERE c.id_estado = v_id_estado
+        AND UPPER(BTRIM(c.nombre)) = v_normalized_code
+      ORDER BY c.id
+      LIMIT 1;
+
+      IF v_id_comunidad IS NULL THEN
+        v_id_comunidad := v_id_comunidad_default;
+        v_nombre_comunidad := v_nombre_comunidad_default;
+        v_motivo := format('Codigo de comunidad no reconocido; se asigno %s.', v_nombre_comunidad_default);
+      ELSE
+        v_motivo := NULL;
+      END IF;
+
+      SELECT c.id
+      INTO v_id_cliente
+      FROM public.tb_cliente c
+      WHERE c.tipo_documento = v_tipo_documento
+        AND c.numero_documento = v_documento
+      FOR UPDATE;
+
+      IF v_id_cliente IS NULL THEN
+        INSERT INTO public.tb_cliente (tipo_documento, numero_documento, nombre, celular, id_comunidad, id_estado, id_usuario)
+        VALUES (v_tipo_documento, v_documento, v_nombre, v_celular, v_id_comunidad, v_id_estado, p_id_usuario)
+        RETURNING id INTO v_id_cliente;
+        v_estado := 'PROCESADO';
+        v_filas_procesadas := v_filas_procesadas + 1;
+      ELSE
+        UPDATE public.tb_cliente
+        SET nombre = v_nombre,
+            celular = v_celular,
+            id_comunidad = v_id_comunidad,
+            id_usuario = COALESCE(p_id_usuario, id_usuario)
+        WHERE id = v_id_cliente;
+        v_estado := 'ACTUALIZADO';
+        v_filas_actualizadas := v_filas_actualizadas + 1;
+      END IF;
+
+      v_detalle := v_detalle || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+        'fila', v_fila,
+        'estado', v_estado,
+        'numero_documento', v_documento,
+        'comunidad', v_nombre_comunidad,
+        'motivo', v_motivo
+      )));
+    EXCEPTION WHEN OTHERS THEN
+      v_filas_error := v_filas_error + 1;
+      v_detalle := v_detalle || jsonb_build_array(jsonb_build_object('fila', v_fila, 'estado', 'ERROR', 'motivo', SQLERRM));
+    END;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'filas_procesadas', v_filas_procesadas,
+    'filas_actualizadas', v_filas_actualizadas,
+    'filas_omitidas', v_filas_omitidas,
+    'filas_error', v_filas_error,
+    'detalle', v_detalle
+  );
+END;
+$$;
+
 SELECT 'DROP FUNCTION IF EXISTS ' ||
        n.nspname || '.' ||
        p.proname || '(' ||
        pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_get_tb_cliente', 'f_get_tb_cliente_his', 'f_post_tb_cliente', 'f_patch_tb_cliente')
+WHERE p.proname IN ('f_get_tb_cliente', 'f_get_tb_cliente_his', 'f_get_tb_cliente_atencion_kpi', 'f_post_tb_cliente', 'f_patch_tb_cliente', 'f_post_tb_cliente_carga_masiva')
 ORDER BY n.nspname, p.proname;
 
 -- ============================================================================

@@ -21,9 +21,9 @@ describe("action-rules", () => {
         expect(isBancariaActionDisabled({ ...base, action: "Emp. Ingreso", companyCount: 0 })).toBe(true);
     });
 
-    it("enables Eliminar only for Efectivizacion without requiring selected rows", () => {
-        expect(isBancariaActionDisabled({ ...base, action: "Eliminar", hasSelection: false })).toBe(false);
-        expect(isBancariaActionDisabled({ ...base, action: "Eliminar", activeTab: "Derivados" })).toBe(true);
+    it("enables Eliminar Excel only for Efectivizacion without requiring selected rows", () => {
+        expect(isBancariaActionDisabled({ ...base, action: "Eliminar Excel", hasSelection: false })).toBe(false);
+        expect(isBancariaActionDisabled({ ...base, action: "Eliminar Excel", activeTab: "Derivados" })).toBe(true);
     });
 
     it("enables Emp. Salida for Efectivizacion, Pago Deuda and Derivados with companies and selected rows", () => {

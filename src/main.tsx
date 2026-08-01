@@ -20,6 +20,7 @@ import { UsuarioPage } from "@/features/sistema/usuario/usuario-page";
 import { PermisoMenuPage } from "@/features/sistema/permiso-menu/permiso-menu-page";
 import { PermisoUsuarioPage } from "@/features/sistema/permiso-usuario/permiso-usuario-page";
 import { ClientePage } from "@/features/sistema/cliente/cliente-page";
+import { AtencionClientePage } from "@/features/atencion/cliente/atencion-cliente-page";
 import { BancoPage } from "@/features/sistema/banco/banco-page";
 import { EmpresaPage } from "@/features/sistema/empresa/empresa-page";
 import { EmpresaCuentaBancariaPage } from "@/features/sistema/empresa-cuenta-bancaria/empresa-cuenta-bancaria-page";
@@ -76,6 +77,8 @@ function AppRoutes() {
                 <Route path="/sistema/reglas-efectivizacion" element={<ReglasEfectivizacionPage />} />
                 <Route path="/sistema/caja-operativa" element={<CajaOperativaPage />} />
                 <Route path="/sistema/empresa/:empresaId/cuentas" element={<EmpresaCuentaBancariaPage />} />
+
+                <Route path="/atencion/cliente" element={<AtencionClientePage />} />
 
                 <Route path="/operaciones/bcp" element={<BancariaPage ruta="bcp" />} />
                 <Route path="/operaciones/bbva" element={<BancariaPage ruta="bbva" />} />

@@ -205,7 +205,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
 
             if (celularesChanged || comunidadChanged) {
                 await clienteService.update(clienteId, {
-                    p_celular: celulares.length > 0 ? celulares : null,
+                    p_celular: celulares.length > 0 ? Number(celulares[0]) : null,
                     p_id_comunidad: Number(comunidadId),
                 });
             }
@@ -214,7 +214,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_tipo_documento: tipoDocumento,
                 p_numero_documento: cleanDni,
                 p_nombre: nombre.trim(),
-                p_celular: celulares.length > 0 ? celulares : null,
+                p_celular: celulares.length > 0 ? Number(celulares[0]) : null,
                 p_id_comunidad: Number(comunidadId),
                 p_id_estado: (await estadoService.getList({})).find((e) => String(e.nombre).toUpperCase() === "ACTIVO")?.id,
                 p_id_usuario: userId,

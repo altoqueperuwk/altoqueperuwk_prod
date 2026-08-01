@@ -482,6 +482,7 @@ AS $$
   SELECT to_jsonb(t)
   FROM public.tb_operacion_proceso t
   WHERE (p_id IS NULL OR t.id = p_id)
+    AND (p_id_estado IS NOT NULL OR COALESCE(t.id_estado, 0) <> 10)
     AND (p_id_codigo_servicio IS NULL OR t.id_codigo_servicio = p_id_codigo_servicio)
     AND (p_nombre_codigo_servicio IS NULL OR t.nombre_codigo_servicio ILIKE '%' || p_nombre_codigo_servicio || '%')
     AND (p_tipo_servicio IS NULL OR COALESCE(t.tipo_servicio, '') ILIKE '%' || p_tipo_servicio || '%')
@@ -569,6 +570,269 @@ AS $$
       )
     )
   ORDER BY t.id DESC;
+$$;
+
+-- ============================================================================
+-- 13.1. RESPALDO DE OPERACIONES DE EFECTIVIZACION ELIMINADAS
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso_eliminada (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_operacion_proceso bigint NOT NULL,
+  id_estado_anterior bigint,
+  nombre_estado_anterior character varying,
+  flag_retenido_anterior boolean NOT NULL DEFAULT false,
+  movimientos_snapshot jsonb NOT NULL DEFAULT '[]'::jsonb,
+  id_usuario bigint,
+  fecha_eliminacion timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT tb_operacion_proceso_eliminada_pkey PRIMARY KEY (id),
+  CONSTRAINT tb_operacion_proceso_eliminada_uq UNIQUE (id_operacion_proceso),
+  CONSTRAINT tb_operacion_proceso_eliminada_fk_operacion
+    FOREIGN KEY (id_operacion_proceso) REFERENCES public.tb_operacion_proceso(id),
+  CONSTRAINT tb_operacion_proceso_eliminada_fk_estado
+    FOREIGN KEY (id_estado_anterior) REFERENCES public.tb_estado(id),
+  CONSTRAINT tb_operacion_proceso_eliminada_fk_usuario
+    FOREIGN KEY (id_usuario) REFERENCES public.tb_usuario(id)
+);
+
+/*
+Funcion: f_patch_tb_operacion_proceso_eliminar
+Objetivo:
+  Aplicar soft delete a una efectivizacion pendiente o retenida, revirtiendo
+  primero sus movimientos abiertos y conservando un snapshot para restaurar.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_eliminar(
+  p_id bigint,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actual record;
+  v_mov record;
+  v_estado_eliminado_id bigint;
+  v_estado_eliminado_nombre character varying;
+  v_snapshot jsonb := '[]'::jsonb;
+  v_usuario bigint;
+  v_ruta character varying;
+BEGIN
+  SELECT * INTO v_actual
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id
+  FOR UPDATE;
+
+  IF v_actual.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion no existe.');
+  END IF;
+
+  IF UPPER(COALESCE(v_actual.tipo_servicio, v_actual.nombre_codigo_servicio, '')) <> 'EFECTIVIZACION' THEN
+    RETURN jsonb_build_object('error', 'Solo se pueden eliminar operaciones de efectivizacion.');
+  END IF;
+
+  IF UPPER(COALESCE(v_actual.nombre_estado, '')) NOT IN ('PENDIENTE', 'RETENIDO')
+     AND NOT COALESCE(v_actual.flag_retenido, false) THEN
+    RETURN jsonb_build_object('error', 'Solo se pueden eliminar operaciones Pendiente o Retenido.');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja c
+    WHERE c.id_operacion_proceso = p_id
+      AND c.id_caja_cierre IS NOT NULL
+  ) THEN
+    RETURN jsonb_build_object('error', 'No se puede eliminar una operacion con movimientos cerrados por caja.');
+  END IF;
+
+  SELECT id, nombre INTO v_estado_eliminado_id, v_estado_eliminado_nombre
+  FROM public.tb_estado
+  WHERE id = 10 OR UPPER(nombre) = 'ELIMINADO'
+  ORDER BY id
+  LIMIT 1;
+
+  IF v_estado_eliminado_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No existe el estado Eliminado (id 10).');
+  END IF;
+
+  v_usuario := COALESCE(p_id_usuario, v_actual.id_usuario_gestor, v_actual.id_usuario);
+  SELECT COALESCE(v_actual.ruta_destino, v_actual.ruta_origen) INTO v_ruta;
+
+  SELECT COALESCE(jsonb_agg(to_jsonb(c) ORDER BY c.id), '[]'::jsonb)
+  INTO v_snapshot
+  FROM public.tb_operacion_caja c
+  WHERE c.id_operacion_proceso = p_id
+    AND c.id_caja_cierre IS NULL;
+
+  INSERT INTO public.tb_operacion_proceso_eliminada (
+    id_operacion_proceso,
+    id_estado_anterior,
+    nombre_estado_anterior,
+    flag_retenido_anterior,
+    movimientos_snapshot,
+    id_usuario
+  )
+  VALUES (
+    p_id,
+    v_actual.id_estado,
+    CASE WHEN COALESCE(v_actual.flag_retenido, false) THEN 'Retenido' ELSE v_actual.nombre_estado END,
+    COALESCE(v_actual.flag_retenido, false),
+    v_snapshot,
+    v_usuario
+  )
+  ON CONFLICT (id_operacion_proceso) DO UPDATE SET
+    id_estado_anterior = EXCLUDED.id_estado_anterior,
+    nombre_estado_anterior = EXCLUDED.nombre_estado_anterior,
+    flag_retenido_anterior = EXCLUDED.flag_retenido_anterior,
+    movimientos_snapshot = EXCLUDED.movimientos_snapshot,
+    id_usuario = EXCLUDED.id_usuario,
+    fecha_eliminacion = now();
+
+  FOR v_mov IN
+    SELECT *
+    FROM public.tb_operacion_caja
+    WHERE id_operacion_proceso = p_id
+      AND id_caja_cierre IS NULL
+    ORDER BY id
+  LOOP
+    PERFORM public.f_apply_tb_operacion_caja_delta(
+      p_id_caja := v_mov.id_caja,
+      p_tipo_movimiento := v_mov.tipo_movimiento,
+      p_nombre_estado := v_mov.nombre_estado,
+      p_monto_ingreso := v_mov.monto_ingreso,
+      p_monto_gasto := v_mov.monto_gasto,
+      p_monto_ganancia := v_mov.monto_ganancia,
+      p_monto_salida := v_mov.monto_salida,
+      p_flag_contabiliza_operacion := v_mov.flag_contabiliza_operacion,
+      p_factor := -1,
+      p_id_usuario := v_usuario
+    );
+
+    UPDATE public.tb_operacion_caja
+    SET id_operacion_caja_relacionada = NULL
+    WHERE id_operacion_caja_relacionada = v_mov.id;
+
+    DELETE FROM public.tb_operacion_caja WHERE id = v_mov.id;
+  END LOOP;
+
+  UPDATE public.tb_operacion_proceso
+  SET id_estado = v_estado_eliminado_id,
+      nombre_estado = v_estado_eliminado_nombre,
+      flag_retenido = false,
+      id_usuario_gestor = COALESCE(p_id_usuario, id_usuario_gestor),
+      fecha_retencion = NULL,
+      id_usuario_retiene = NULL,
+      nombre_usuario_retiene = NULL,
+      motivo_retencion = NULL
+  WHERE id = p_id;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta, v_usuario);
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta, v_usuario);
+
+  RETURN jsonb_build_object(
+    'id', p_id,
+    'id_estado', v_estado_eliminado_id,
+    'nombre_estado', v_estado_eliminado_nombre,
+    'movimientos_revertidos', jsonb_array_length(v_snapshot)
+  );
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_operacion_proceso_restaurar
+Objetivo:
+  Restaurar una operacion eliminada al estado y flujo que tenia antes del
+  soft delete, reconstruyendo sus movimientos abiertos.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_restaurar(
+  p_id bigint,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actual record;
+  v_backup record;
+  v_mov jsonb;
+  v_restored jsonb;
+  v_usuario bigint;
+  v_ruta character varying;
+  v_previous_name character varying;
+  v_previous_id bigint;
+BEGIN
+  SELECT * INTO v_actual
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id
+  FOR UPDATE;
+
+  IF v_actual.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion no existe.');
+  END IF;
+
+  IF COALESCE(v_actual.id_estado, 0) <> 10
+     AND UPPER(COALESCE(v_actual.nombre_estado, '')) <> 'ELIMINADO' THEN
+    RETURN jsonb_build_object('error', 'La operacion no esta eliminada.');
+  END IF;
+
+  SELECT * INTO v_backup
+  FROM public.tb_operacion_proceso_eliminada
+  WHERE id_operacion_proceso = p_id
+  FOR UPDATE;
+
+  IF v_backup.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No existe respaldo para restaurar la operacion.');
+  END IF;
+
+  v_usuario := COALESCE(p_id_usuario, v_actual.id_usuario_gestor, v_actual.id_usuario);
+  v_ruta := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
+  v_previous_id := v_backup.id_estado_anterior;
+  v_previous_name := CASE
+    WHEN v_backup.flag_retenido_anterior THEN 'Retenido'
+    ELSE v_backup.nombre_estado_anterior
+  END;
+
+  UPDATE public.tb_operacion_proceso
+  SET id_estado = v_previous_id,
+      nombre_estado = v_previous_name,
+      flag_retenido = v_backup.flag_retenido_anterior,
+      fecha_retencion = CASE WHEN v_backup.flag_retenido_anterior THEN COALESCE(fecha_retencion, now()) ELSE fecha_retencion END,
+      id_usuario_gestor = COALESCE(p_id_usuario, id_usuario_gestor)
+  WHERE id = p_id;
+
+  FOR v_mov IN SELECT value FROM jsonb_array_elements(v_backup.movimientos_snapshot)
+  LOOP
+    v_restored := public.f_post_tb_operacion_caja_desde_proceso(
+      p_id_operacion_proceso := p_id,
+      p_tipo_origen := v_mov->>'tipo_origen',
+      p_tipo_movimiento := v_mov->>'tipo_movimiento',
+      p_id_usuario := v_usuario,
+      p_nombre_usuario := NULL,
+      p_id_estado := v_previous_id
+    );
+
+    IF v_restored IS NULL OR v_restored ? 'error' THEN
+      RAISE EXCEPTION '%', COALESCE(v_restored->>'error', 'No se pudo reconstruir un movimiento de la operacion.');
+    END IF;
+  END LOOP;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta, v_usuario);
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta, v_usuario);
+
+  DELETE FROM public.tb_operacion_proceso_eliminada WHERE id_operacion_proceso = p_id;
+
+  RETURN (
+    SELECT x FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x LIMIT 1
+  );
+EXCEPTION WHEN OTHERS THEN
+  UPDATE public.tb_operacion_proceso
+  SET id_estado = 10,
+      nombre_estado = COALESCE((SELECT nombre FROM public.tb_estado WHERE id = 10), 'Eliminado'),
+      flag_retenido = false
+  WHERE id = p_id;
+  RETURN jsonb_build_object('error', SQLERRM);
+END;
 $$;
 
 /*
@@ -4185,6 +4449,9 @@ JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_delete_tb_operacion_carga_excel_rollback',
   'f_get_tb_operacion_carga_excel_rollback',
+  'f_get_tb_operacion_proceso',
+  'f_patch_tb_operacion_proceso_eliminar',
+  'f_patch_tb_operacion_proceso_restaurar',
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',
   'f_post_tb_operacion_proceso_excel_ganancia'

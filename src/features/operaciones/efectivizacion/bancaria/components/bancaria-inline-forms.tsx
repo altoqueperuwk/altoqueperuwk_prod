@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Save01, XClose } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
@@ -28,6 +28,8 @@ import type {
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
 import { findCodigoServicioForRuta } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
+import { formatMovimientoOrigen, formatMovimientoTipo } from "@/features/operaciones/efectivizacion/shared/utils/movement-labels";
+import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
 import { cx } from "@/utils/cx";
 
 interface BancariaInlineFormsProps {
@@ -285,10 +287,10 @@ const MiniMovimientosTable = ({
                                 return (
                                     <tr key={row.id}>
                                         <td className="whitespace-nowrap px-3 py-2 text-sm text-secondary">
-                                            <CompactBadgeLine color="brand">{row.tipo_origen}</CompactBadgeLine>
+                                            <CompactBadgeLine color="brand">{formatMovimientoOrigen(row.tipo_origen)}</CompactBadgeLine>
                                         </td>
                                         <td className="whitespace-nowrap px-3 py-2 text-sm text-secondary">
-                                            <CompactBadgeLine color={isIngreso ? "success" : "error"}>{row.tipo_movimiento}</CompactBadgeLine>
+                                            <CompactBadgeLine color={isIngreso ? "success" : "error"}>{formatMovimientoTipo(row.tipo_movimiento)}</CompactBadgeLine>
                                         </td>
                                         <td className="whitespace-nowrap px-3 py-2 text-sm tabular-nums">
                                             <span className={isIngreso ? "font-medium text-concept-ingreso" : "font-medium text-concept-salida"}>
@@ -349,6 +351,8 @@ export const BancariaInlineForms = ({
     const [estadoPendiente, setEstadoPendiente] = useState<CatalogItem | null>(null);
     const [cuentasActivas, setCuentasActivas] = useState<EmpresaCuentaActiva[]>([]);
     const [cajasOperativas, setCajasOperativas] = useState<CajaOperativa[]>([]);
+    const { result: clienteLookup, isLoading: isClienteLoading } = useClienteLookup(manualDni, manualTipoDocumento);
+    const previousManualDocumentoRef = useRef<string | null>(null);
 
     const companyName = activeCompany?.nombre_empresa ?? "Empresa";
     const firstCuenta = activeCompanyCajas[0];
@@ -407,6 +411,21 @@ export const BancariaInlineForms = ({
     );
     const codigoEfectivizacion = useMemo(() => findCodigoServicioForRuta(codigoItems, ruta), [codigoItems, ruta]);
     const placeholderOption = { label: "Seleccionar", value: "" };
+
+    useEffect(() => {
+        const documentoKey = `${manualTipoDocumento}:${manualDni}`;
+        if (previousManualDocumentoRef.current !== null && previousManualDocumentoRef.current !== documentoKey) {
+            const defaultCommunity = comunidades[0];
+            if (defaultCommunity) setManualCommunityId(String(defaultCommunity.id));
+        }
+        previousManualDocumentoRef.current = documentoKey;
+    }, [comunidades, manualDni, manualTipoDocumento]);
+
+    useEffect(() => {
+        if (clienteLookup?.id_comunidad) {
+            setManualCommunityId(String(clienteLookup.id_comunidad));
+        }
+    }, [clienteLookup]);
 
     useEffect(() => {
         const first = activeCompanyCajas[0];
@@ -762,13 +781,16 @@ export const BancariaInlineForms = ({
                                 <CompactInput value={manualCode} onChange={setManualCode} />
                             </Field>
                             <Field label="Documento">
-                                <DocumentoInputGroup
-                                    label=""
-                                    tipoDocumento={manualTipoDocumento}
-                                    numeroDocumento={manualDni}
-                                    onTipoDocumentoChange={setManualTipoDocumento}
-                                    onNumeroDocumentoChange={setManualDni}
-                                />
+                                <div className="flex min-w-0 flex-col gap-1">
+                                    <DocumentoInputGroup
+                                        label=""
+                                        tipoDocumento={manualTipoDocumento}
+                                        numeroDocumento={manualDni}
+                                        onTipoDocumentoChange={setManualTipoDocumento}
+                                        onNumeroDocumentoChange={setManualDni}
+                                    />
+                                    {isClienteLoading && <span className="text-xs text-tertiary">Buscando comunidad...</span>}
+                                </div>
                             </Field>
                             <Field label="Monto">
                                 <CompactInput

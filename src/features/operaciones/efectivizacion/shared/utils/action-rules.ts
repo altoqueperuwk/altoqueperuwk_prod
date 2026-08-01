@@ -43,7 +43,7 @@ export const isBancariaActionDisabled = ({
         return activeTab !== "Efectivizacion" || !hasSelection || companyCount === 0;
     }
 
-    if (action === "Eliminar") {
+    if (action === "Eliminar Excel") {
         return activeTab !== "Efectivizacion";
     }
 

@@ -51,7 +51,7 @@ BEGIN
   END IF;
 END;
 $$;
-
+-- Fin del script.
 -- Migracion de compatibilidad:
 -- Las retenciones ya no se gobiernan desde tb_empresa_cuenta_bancaria.
 -- Si alguna cuenta venia marcada con el flujo anterior, se convierte en regla
@@ -86,6 +86,7 @@ BEGIN
     END,
     CASE
       WHEN LOWER(roc.ruta) = 'safetypay' THEN 2
+      WHEN LOWER(roc.ruta) = 'bcp' THEN 0
       ELSE 1
     END,
     CASE
@@ -95,6 +96,7 @@ BEGIN
     END,
     CASE
       WHEN LOWER(roc.ruta) IN ('scotiabank', 'banbif') THEN 'CORTE'
+      WHEN LOWER(roc.ruta) = 'bcp' THEN 'CORTE'
       ELSE 'DEPOSITO'
     END,
     false,
@@ -117,17 +119,26 @@ BEGIN
      OR COALESCE(flag_retencion_parcial, false) = true;
 END;
 $$;
-
 -- Backfill de reglas existentes a las definiciones de negocio:
 -- horas de abono y base de calculo por entidad. Corre siempre (idempotente).
 UPDATE public.tb_recaudacion_regla_abono
-SET hora_liberacion = CASE
+SET hora_corte = CASE
+      WHEN LOWER(ruta) = 'bcp' THEN '00:00'::time
+      WHEN LOWER(ruta) IN ('scotiabank', 'banbif') THEN '21:00'::time
+      ELSE hora_corte
+    END,
+    dias_habiles_abono = CASE
+      WHEN LOWER(ruta) = 'bcp' THEN 0
+      ELSE dias_habiles_abono
+    END,
+    hora_liberacion = CASE
+      WHEN LOWER(ruta) = 'bcp' THEN '00:00'::time
       WHEN LOWER(ruta) = 'safetypay' THEN '14:00'::time
       WHEN LOWER(ruta) IN ('scotiabank', 'banbif') THEN '21:00'::time
-      ELSE '00:00'::time
+      ELSE hora_liberacion
     END,
     base_calculo_abono = CASE
-      WHEN LOWER(ruta) IN ('scotiabank', 'banbif') THEN 'CORTE'
+      WHEN LOWER(ruta) IN ('bcp', 'scotiabank', 'banbif') THEN 'CORTE'
       ELSE 'DEPOSITO'
     END,
     fecha_actualizacion = now()
@@ -162,7 +173,6 @@ BEGIN
   );
 END;
 $$;
-
 CREATE TABLE IF NOT EXISTS public.tb_recaudacion_lote (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   ruta character varying NOT NULL,
@@ -204,7 +214,8 @@ Objetivo:
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_calendario_habil_sumar(
   p_fecha_base date,
-  p_dias_habiles integer
+  p_dias_habiles integer,
+  p_ruta character varying DEFAULT NULL
 )
 RETURNS date
 LANGUAGE plpgsql
@@ -215,6 +226,7 @@ DECLARE
   v_fecha date := p_fecha_base;
   v_restantes integer := GREATEST(COALESCE(p_dias_habiles, 0), 0);
   v_flag_habil boolean;
+  v_tipo_dia character varying;
 BEGIN
   IF p_fecha_base IS NULL THEN
     RETURN NULL;
@@ -227,13 +239,26 @@ BEGIN
   WHILE v_restantes > 0 LOOP
     v_fecha := v_fecha + 1;
 
-    SELECT ch.flag_habil
-    INTO v_flag_habil
+    SELECT ch.flag_habil, ch.tipo_dia
+    INTO v_flag_habil, v_tipo_dia
     FROM public.tb_calendario_habil ch
     WHERE ch.fecha = v_fecha
       AND COALESCE(ch.id_estado, 1) = 1;
 
-    IF COALESCE(v_flag_habil, EXTRACT(ISODOW FROM v_fecha) BETWEEN 1 AND 5) THEN
+    IF LOWER(COALESCE(p_ruta, '')) = 'bcp'
+       AND EXTRACT(ISODOW FROM v_fecha) = 6
+       AND UPPER(BTRIM(COALESCE(v_tipo_dia, ''))) = 'FIN_SEMANA' THEN
+      v_flag_habil := true;
+    END IF;
+
+    IF COALESCE(
+      v_flag_habil,
+      CASE
+        WHEN LOWER(COALESCE(p_ruta, '')) = 'bcp'
+          THEN EXTRACT(ISODOW FROM v_fecha) BETWEEN 1 AND 6
+        ELSE EXTRACT(ISODOW FROM v_fecha) BETWEEN 1 AND 5
+      END
+    ) THEN
       v_restantes := v_restantes - 1;
     END IF;
   END LOOP;
@@ -250,7 +275,8 @@ Objetivo:
   cortes de fin de semana/feriado.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_calendario_es_habil(
-  p_fecha date
+  p_fecha date,
+  p_ruta character varying DEFAULT NULL
 )
 RETURNS boolean
 LANGUAGE plpgsql
@@ -259,18 +285,32 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_flag_habil boolean;
+  v_tipo_dia character varying;
 BEGIN
   IF p_fecha IS NULL THEN
     RETURN false;
   END IF;
 
-  SELECT ch.flag_habil
-  INTO v_flag_habil
+  SELECT ch.flag_habil, ch.tipo_dia
+  INTO v_flag_habil, v_tipo_dia
   FROM public.tb_calendario_habil ch
   WHERE ch.fecha = p_fecha
     AND COALESCE(ch.id_estado, 1) = 1;
 
-  RETURN COALESCE(v_flag_habil, EXTRACT(ISODOW FROM p_fecha) BETWEEN 1 AND 5);
+  IF LOWER(COALESCE(p_ruta, '')) = 'bcp'
+     AND EXTRACT(ISODOW FROM p_fecha) = 6
+     AND UPPER(BTRIM(COALESCE(v_tipo_dia, ''))) = 'FIN_SEMANA' THEN
+    v_flag_habil := true;
+  END IF;
+
+  RETURN COALESCE(
+    v_flag_habil,
+    CASE
+      WHEN LOWER(COALESCE(p_ruta, '')) = 'bcp'
+        THEN EXTRACT(ISODOW FROM p_fecha) BETWEEN 1 AND 6
+      ELSE EXTRACT(ISODOW FROM p_fecha) BETWEEN 1 AND 5
+    END
+  );
 END;
 $$;
 
@@ -280,14 +320,13 @@ Objetivo:
   Calcular corte, fecha estimada de abono y fecha/hora liberable por cuenta.
 
 Reglas de negocio (base_calculo_abono):
-  - DEPOSITO (SafetyPay, BCP): la base del abono es el dia del deposito.
-    Si el deposito cayo en dia no habil (feriado/fin de semana), la base se
-    efectiviza al siguiente dia habil. El lote se genera diariamente.
+  - BCP usa CORTE y 0 dias adicionales: la fecha de corte se desplaza al
+    siguiente dia disponible de abono, incluyendo sabados y excluyendo
+    domingos/feriados.
+  - DEPOSITO (SafetyPay): la base del abono es el dia del deposito.
   - CORTE (Scotiabank, BanBif): la base del abono es la fecha del corte.
-    Si el corte cae en dia no habil, el lote y la base se desplazan al
-    siguiente dia habil (las operaciones se acumulan al proximo lote).
-  En ambos casos el dia base no cuenta: la fecha estimada de abono es el
-  enesimo dia habil posterior a la base efectivizada.
+  La fecha original del deposito determina el calculo; la fecha de carga no
+  inicia un nuevo conteo.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_recaudacion_fecha_liberacion(
   p_id_empresa_cuenta_bancaria bigint,
@@ -306,6 +345,7 @@ DECLARE
   v_base_abono date;
   v_fecha_estimada date;
   v_fecha_liberacion timestamp with time zone;
+  v_ruta character varying;
 BEGIN
   IF p_id_empresa_cuenta_bancaria IS NULL OR p_fecha_deposito IS NULL THEN
     RETURN jsonb_build_object('error', 'Cuenta y fecha de deposito son requeridas.');
@@ -324,6 +364,14 @@ BEGIN
     RETURN jsonb_build_object('error', 'No existe regla activa de abono para la cuenta.');
   END IF;
 
+  v_ruta := LOWER(COALESCE(p_ruta, v_regla.ruta));
+  IF v_ruta = 'bcp' THEN
+    v_regla.hora_corte := '00:00'::time;
+    v_regla.dias_habiles_abono := 0;
+    v_regla.hora_liberacion := '00:00'::time;
+    v_regla.base_calculo_abono := 'CORTE';
+  END IF;
+
   v_deposito_local := p_fecha_deposito AT TIME ZONE 'America/Lima';
 
   IF v_deposito_local::time < v_regla.hora_corte THEN
@@ -338,7 +386,7 @@ BEGIN
     v_base_abono := v_deposito_local::date;
   END IF;
 
-  WHILE NOT public.f_get_tb_calendario_es_habil(v_base_abono) LOOP
+  WHILE NOT public.f_get_tb_calendario_es_habil(v_base_abono, v_ruta) LOOP
     v_base_abono := v_base_abono + 1;
   END LOOP;
 
@@ -346,7 +394,7 @@ BEGIN
     v_fecha_corte_local := (v_base_abono + v_regla.hora_corte)::timestamp without time zone;
   END IF;
 
-  v_fecha_estimada := public.f_get_tb_calendario_habil_sumar(v_base_abono, v_regla.dias_habiles_abono);
+  v_fecha_estimada := public.f_get_tb_calendario_habil_sumar(v_base_abono, v_regla.dias_habiles_abono, v_ruta);
   v_fecha_liberacion := ((v_fecha_estimada + v_regla.hora_liberacion)::timestamp AT TIME ZONE 'America/Lima');
 
   RETURN jsonb_build_object(
@@ -417,7 +465,17 @@ BEGIN
     FROM public.tb_recaudacion_lote l
     WHERE LOWER(l.ruta) = LOWER(COALESCE(v_op.ruta_destino, v_op.ruta_origen))
       AND l.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_ingreso
-      AND l.fecha_corte = (v_info->>'fecha_corte')::timestamp with time zone
+      AND (
+        (
+          LOWER(COALESCE(v_op.ruta_destino, v_op.ruta_origen)) = 'bcp'
+          AND l.fecha_estimada_abono = (v_info->>'fecha_estimada_abono')::date
+          AND l.fecha_liberacion = (v_info->>'fecha_liberacion')::timestamp with time zone
+        )
+        OR (
+          LOWER(COALESCE(v_op.ruta_destino, v_op.ruta_origen)) <> 'bcp'
+          AND l.fecha_corte = (v_info->>'fecha_corte')::timestamp with time zone
+        )
+      )
     LIMIT 1;
 
     IF v_lote_id IS NULL THEN
@@ -515,11 +573,7 @@ BEGIN
         CROSS JOIN LATERAL (
           SELECT public.f_get_tb_recaudacion_fecha_liberacion(
             r.id_empresa_cuenta_bancaria,
-            (CASE
-              WHEN UPPER(COALESCE(r.base_calculo_abono, 'DEPOSITO')) = 'CORTE'
-                THEN l.fecha_corte::date
-              ELSE l.fecha_corte::date - 1
-            END + '12:00'::time) AT TIME ZONE 'America/Lima',
+            (l.fecha_corte::date - 1 + '12:00'::time) AT TIME ZONE 'America/Lima',
             r.ruta
           ) AS info
         ) cal
@@ -535,11 +589,7 @@ BEGIN
         CROSS JOIN LATERAL (
           SELECT public.f_get_tb_recaudacion_fecha_liberacion(
             r.id_empresa_cuenta_bancaria,
-            (CASE
-              WHEN UPPER(COALESCE(r.base_calculo_abono, 'DEPOSITO')) = 'CORTE'
-                THEN l.fecha_corte::date
-              ELSE l.fecha_corte::date - 1
-            END + '12:00'::time) AT TIME ZONE 'America/Lima',
+            (l.fecha_corte::date - 1 + '12:00'::time) AT TIME ZONE 'America/Lima',
             r.ruta
           ) AS info
         ) cal
@@ -751,17 +801,6 @@ Funcion: f_patch_tb_recaudacion_regla_abono
 Objetivo:
   Crear o actualizar regla de abono por ruta/cuenta.
 */
-DROP FUNCTION IF EXISTS public.f_patch_tb_recaudacion_regla_abono(
-  p_ruta character varying,
-  p_id_empresa bigint,
-  p_id_empresa_cuenta_bancaria bigint,
-  p_hora_corte time without time zone,
-  p_dias_habiles_abono integer,
-  p_hora_liberacion time without time zone,
-  p_flag_liberacion_automatica boolean,
-  p_id_estado bigint,
-  p_id_usuario bigint
-);
 CREATE OR REPLACE FUNCTION public.f_patch_tb_recaudacion_regla_abono(
   p_ruta character varying,
   p_id_empresa bigint,
@@ -800,6 +839,10 @@ BEGIN
     RETURN jsonb_build_object('error', 'base_calculo_abono debe ser DEPOSITO o CORTE.');
   END IF;
 
+  IF LOWER(BTRIM(p_ruta)) = 'bcp' THEN
+    v_base_calculo := 'CORTE';
+  END IF;
+
   INSERT INTO public.tb_recaudacion_regla_abono (
     ruta,
     id_empresa,
@@ -817,9 +860,9 @@ BEGIN
     LOWER(BTRIM(p_ruta)),
     p_id_empresa,
     p_id_empresa_cuenta_bancaria,
-    COALESCE(p_hora_corte, '00:00'::time),
-    COALESCE(p_dias_habiles_abono, 1),
-    COALESCE(p_hora_liberacion, '00:00'::time),
+    CASE WHEN LOWER(BTRIM(p_ruta)) = 'bcp' THEN '00:00'::time ELSE COALESCE(p_hora_corte, '00:00'::time) END,
+    CASE WHEN LOWER(BTRIM(p_ruta)) = 'bcp' THEN 0 ELSE COALESCE(p_dias_habiles_abono, 1) END,
+    CASE WHEN LOWER(BTRIM(p_ruta)) = 'bcp' THEN '00:00'::time ELSE COALESCE(p_hora_liberacion, '00:00'::time) END,
     v_base_calculo,
     COALESCE(p_flag_liberacion_automatica, false),
     COALESCE(p_id_estado, 1),
@@ -912,22 +955,3 @@ BEGIN
 END;
 $$;
 
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN (
-  'f_get_tb_calendario_es_habil',
-  'f_get_tb_calendario_habil_sumar',
-  'f_get_tb_recaudacion_cuenta_flag_retenida',
-  'f_get_tb_recaudacion_fecha_liberacion',
-  'f_sync_tb_recaudacion_lotes',
-  'f_run_tb_recaudacion_liberar_retenciones',
-  'f_patch_tb_recaudacion_confirmar_si_vencida',
-  'f_get_tb_recaudacion_regla_abono',
-  'f_patch_tb_recaudacion_regla_abono',
-  'f_get_tb_recaudacion_operacion_info'
-)
-ORDER BY n.nspname, p.proname;

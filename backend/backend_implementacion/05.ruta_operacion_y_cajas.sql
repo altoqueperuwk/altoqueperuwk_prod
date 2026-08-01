@@ -855,6 +855,7 @@ BEGIN
     FROM public.tb_operacion_proceso op
     WHERE COALESCE(op.ruta_destino, op.ruta_origen) = p_ruta
       AND op.id_caja_cierre IS NULL
+      AND COALESCE(op.id_estado, 0) <> 10
   )
   UPDATE public.tb_ruta_operacion_kpi k
   SET pendiente_depositar = t.pendiente_depositar,
@@ -903,6 +904,7 @@ AS $$
     SELECT op.*
     FROM public.tb_operacion_proceso op
     WHERE COALESCE(op.ruta_destino, op.ruta_origen) = p_ruta
+      AND COALESCE(op.id_estado, 0) <> 10
       AND (
         (
           p_fecha_caja_cierre_desde IS NULL
@@ -1003,6 +1005,7 @@ AS $$
     SELECT op.*
     FROM public.tb_operacion_proceso op
     WHERE COALESCE(op.ruta_destino, op.ruta_origen) = p_ruta
+      AND COALESCE(op.id_estado, 0) <> 10
       AND (
         (
           p_fecha_caja_cierre_desde IS NULL
@@ -4394,12 +4397,15 @@ WHERE p.proname IN (
   'f_get_reporte_cierre',
   'f_get_tb_caja_operativa',
   'f_get_tb_operacion_caja',
+  'f_get_tb_operacion_bandeja_badges',
+  'f_get_tb_operacion_empresa_badges',
   'f_get_tb_ruta_operacion_caja',
   'f_patch_tb_caja_operativa',
   'f_patch_tb_operacion_proceso_retornar_retencion',
   'f_patch_tb_ruta_operacion_caja',
   'f_post_tb_caja_operativa',
   'f_post_tb_ruta_operacion_caja',
-  'f_sync_tb_ruta_operacion_caja_principal'
+  'f_sync_tb_ruta_operacion_caja_principal',
+  'f_sync_tb_ruta_operacion_kpi_operacion'
 )
 ORDER BY n.nspname, p.proname;

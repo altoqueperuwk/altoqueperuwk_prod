@@ -800,7 +800,7 @@ DECLARE
   v_dni_parseado character varying;
   v_tipo_doc character varying;
   v_tipo_documento bigint;
-  v_celular_json jsonb;
+  v_celular_cliente bigint;
   v_estado_pendiente_id bigint;
   v_estado_pendiente_nombre character varying;
   v_username character varying;
@@ -846,10 +846,7 @@ BEGIN
     v_tipo_documento := public.f_get_tb_documento_tipo_codigo(v_tipo_doc);
   END IF;
 
-  v_celular_json := CASE
-    WHEN COALESCE(p_celular_cliente, '') <> '' THEN jsonb_build_array(p_celular_cliente)
-    ELSE NULL
-  END;
+  v_celular_cliente := NULLIF(REGEXP_REPLACE(COALESCE(p_celular_cliente, ''), '[^0-9]', '', 'g'), '')::bigint;
 
   SELECT id, nombre
   INTO v_cliente_id, v_cliente_nombre
@@ -866,7 +863,7 @@ BEGIN
         p_tipo_documento := v_tipo_documento,
         p_numero_documento := v_dni_parseado,
         p_nombre := p_nombre_cliente,
-        p_celular := v_celular_json,
+        p_celular := v_celular_cliente,
         p_id_comunidad := p_id_comunidad,
         p_id_estado := (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1),
         p_id_usuario := p_id_usuario
@@ -875,7 +872,7 @@ BEGIN
   ELSIF COALESCE(p_celular_cliente, '') <> '' THEN
     PERFORM public.f_patch_tb_cliente(
       p_id := v_cliente_id,
-      p_celular := v_celular_json,
+      p_celular := v_celular_cliente,
       p_id_usuario := p_id_usuario
     );
   END IF;

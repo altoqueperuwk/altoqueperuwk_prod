@@ -132,6 +132,7 @@ DECLARE
   v_usuario_admin_id bigint;
   v_menu_sistema_id bigint;
   v_menu_operaciones_id bigint;
+  v_menu_atencion_id bigint;
   v_menu_seguimientos_id bigint;
   v_menu_dashboard_id bigint;
   v_menu_reportes_id bigint;
@@ -185,6 +186,21 @@ BEGIN
 
   IF NOT EXISTS (
     SELECT 1 FROM public.tb_permiso_menu
+    WHERE lower(nombre) = 'atencion al cliente' AND ruta IS NULL
+  ) THEN
+    PERFORM public.f_post_tb_permiso_menu(
+      p_nombre := 'Atencion al Cliente',
+      p_id_padre := NULL,
+      p_ruta := NULL,
+      p_icono := 'users',
+      p_orden := 30,
+      p_id_estado := v_estado_activo_id,
+      p_id_usuario := v_usuario_admin_id
+    );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.tb_permiso_menu
     WHERE lower(nombre) = 'seguimientos' AND ruta IS NULL
   ) THEN
     PERFORM public.f_post_tb_permiso_menu(
@@ -192,7 +208,7 @@ BEGIN
       p_id_padre := NULL,
       p_ruta := NULL,
       p_icono := 'activity',
-      p_orden := 30,
+      p_orden := 40,
       p_id_estado := v_estado_activo_id,
       p_id_usuario := v_usuario_admin_id
     );
@@ -207,7 +223,7 @@ BEGIN
       p_id_padre := NULL,
       p_ruta := NULL,
       p_icono := 'bar-chart',
-      p_orden := 40,
+      p_orden := 50,
       p_id_estado := v_estado_activo_id,
       p_id_usuario := v_usuario_admin_id
     );
@@ -222,7 +238,7 @@ BEGIN
       p_id_padre := NULL,
       p_ruta := NULL,
       p_icono := 'file-text',
-      p_orden := 50,
+      p_orden := 60,
       p_id_estado := v_estado_activo_id,
       p_id_usuario := v_usuario_admin_id
     );
@@ -236,6 +252,11 @@ BEGIN
   SELECT id INTO v_menu_operaciones_id
   FROM public.tb_permiso_menu
   WHERE lower(nombre) = 'operaciones' AND ruta IS NULL
+  LIMIT 1;
+
+  SELECT id INTO v_menu_atencion_id
+  FROM public.tb_permiso_menu
+  WHERE lower(nombre) = 'atencion al cliente' AND ruta IS NULL
   LIMIT 1;
 
   SELECT id INTO v_menu_seguimientos_id
@@ -318,6 +339,11 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.tb_permiso_menu WHERE ruta = '/operaciones/deuda') THEN
     PERFORM public.f_post_tb_permiso_menu('Deuda', v_menu_operaciones_id, '/operaciones/deuda', 'credit-card-deuda', 29, v_estado_activo_id, v_usuario_admin_id);
+  END IF;
+
+  -- Hijos de Atencion al Cliente
+  IF NOT EXISTS (SELECT 1 FROM public.tb_permiso_menu WHERE ruta = '/atencion/cliente') THEN
+    PERFORM public.f_post_tb_permiso_menu('Clientes', v_menu_atencion_id, '/atencion/cliente', 'user-square', 31, v_estado_activo_id, v_usuario_admin_id);
   END IF;
 
   -- Grupos futuros iniciales

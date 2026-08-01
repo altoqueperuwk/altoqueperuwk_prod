@@ -7,7 +7,7 @@ import { Button } from "@/components/base/buttons/button";
 import { FilterBar } from "@/components/shared/filter-bar";
 import { DataTable, type ColumnDef } from "@/components/shared/data-table";
 import { clienteService } from "@/services/cliente.service";
-import { ClientePopup } from "./cliente-popup";
+import { ClienteWhatsappPopup } from "./cliente-whatsapp-popup";
 import { ClienteHistoryDrawer } from "./cliente-history-drawer";
 
 export const ClientePage = () => {
@@ -59,6 +59,7 @@ export const ClientePage = () => {
     { key: "tipo_documento", header: "Tipo Doc.", render: (value: unknown) => Number(value) === 1 ? "DNI" : "CE" },
     { key: "numero_documento", header: "Nro. Documento" },
     { key: "nombre", header: "Nombre" },
+    { key: "celular", header: "Whatsapp", render: (value: unknown) => value ? String(value) : "-" },
     { key: "comunidad_nombre", header: "Comunidad" },
   ];
 
@@ -84,7 +85,7 @@ export const ClientePage = () => {
             </>
           )}
         />
-        <ClientePopup isOpen={isPopupOpen} onClose={handlePopupClose} onSave={handlePopupSave} item={selectedItem} />
+        <ClienteWhatsappPopup isOpen={isPopupOpen} onClose={handlePopupClose} onSave={handlePopupSave} item={selectedItem} />
         <ClienteHistoryDrawer isOpen={isHistoryOpen} onClose={handleHistoryClose} itemId={historyItemId} />
       </div>
     </AppLayout>

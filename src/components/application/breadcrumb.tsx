@@ -17,6 +17,8 @@ const routeLabels: Record<string, string> = {
     "/sistema/reglas-efectivizacion": "Reglas Efectivizacion",
     "/sistema/caja-operativa": "Caja Operativa",
     "/sistema": "Sistema",
+    "/atencion": "Atencion al Cliente",
+    "/atencion/cliente": "Clientes",
     "/operaciones": "Operaciones",
     "/operaciones/bcp": "BCP",
     "/operaciones/bbva": "BBVA",

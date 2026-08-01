@@ -1,10 +1,10 @@
 -- ============================================================================
--- RETENCIONES SCOTIABANK / BANBIF / SAFETYPAY
+-- RETENCIONES BCP / SCOTIABANK / BANBIF / SAFETYPAY
 -- ============================================================================
 --
 -- Objetivo:
 --   Separar las consultas operativas de retenciones de las consultas generales.
---   Estas funciones solo aplican a las rutas scotiabank, banbif y safetypay.
+--   Estas funciones solo aplican a las rutas bcp, scotiabank, banbif y safetypay.
 
 /*
 Funcion: f_get_tb_operacion_retencion_bandeja
@@ -40,7 +40,7 @@ AS $$
     SELECT op.*
     FROM public.tb_operacion_proceso op
     CROSS JOIN args a
-    WHERE a.ruta IN ('scotiabank', 'banbif', 'safetypay')
+    WHERE a.ruta IN ('bcp', 'scotiabank', 'banbif', 'safetypay')
       AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
       AND (p_codigo_operacion IS NULL OR COALESCE(op.codigo_operacion_deposito_cliente, '') ILIKE '%' || p_codigo_operacion || '%')
       AND (p_dni_cliente IS NULL OR COALESCE(op.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
@@ -149,7 +149,7 @@ AS $$
     SELECT op.*
     FROM public.tb_operacion_proceso op
     CROSS JOIN args a
-    WHERE a.ruta IN ('scotiabank', 'banbif', 'safetypay')
+    WHERE a.ruta IN ('bcp', 'scotiabank', 'banbif', 'safetypay')
       AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
       AND (
         (
@@ -245,7 +245,7 @@ AS $$
     SELECT op.*
     FROM public.tb_operacion_proceso op
     CROSS JOIN args a
-    WHERE a.ruta IN ('scotiabank', 'banbif', 'safetypay')
+    WHERE a.ruta IN ('bcp', 'scotiabank', 'banbif', 'safetypay')
       AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
       AND (
         (

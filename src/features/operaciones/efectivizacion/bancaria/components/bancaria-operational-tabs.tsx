@@ -26,6 +26,7 @@ import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/
 import { downloadCsv } from "@/features/operaciones/efectivizacion/shared/utils/csv";
 import { isDigitalWalletBank } from "@/features/operaciones/efectivizacion/shared/utils/digital-wallet";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
+import { formatMovimientoOrigen, formatMovimientoTipo } from "@/features/operaciones/efectivizacion/shared/utils/movement-labels";
 import { isBancariaActionDisabled, procesoActionTabs } from "@/features/operaciones/efectivizacion/shared/utils/action-rules";
 import {
     buildOperacionDerivacionPayload,
@@ -54,8 +55,9 @@ import {
 } from "@/features/operaciones/pago-deuda/components/pago-deuda-board";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 
-const tabs: BancariaTab[] = ["Efectivizacion", "Pago Deuda", "Derivados", "POS", "Movimientos", "Retenidos"];
-const retentionRoutes = new Set<OperacionRutaBancaria>(["scotiabank", "banbif", "safetypay"]);
+const tabs: BancariaTab[] = ["Efectivizacion", "Pago Deuda", "Derivados", "POS", "Movimientos", "Retenidos", "Eliminados"];
+const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
+const softDeleteRoutes = new Set<OperacionRutaBancaria>(["bcp", "bbva", "scotiabank", "banbif", "interbank", "safetypay"]);
 
 interface BancariaOperationalTabsProps {
     activeAccountId: number | null;
@@ -93,7 +95,7 @@ const getMovementColumns = (
     onDelete?: (row: MovimientoMerged) => void,
     onReturnRetencion?: (row: MovimientoMerged) => void,
 ) => [
-    { key: "tipo_origen", label: "Origen", render: (row: MovimientoMerged) => <CompactBadgeLine color="brand">{row.tipo_origen}</CompactBadgeLine> },
+    { key: "tipo_origen", label: "Origen", render: (row: MovimientoMerged) => <CompactBadgeLine color="brand">{formatMovimientoOrigen(row.tipo_origen)}</CompactBadgeLine> },
     ...(showModalidad ? [{
         key: "tipo_recaudacion_sf",
         label: "Modalidad",
@@ -108,11 +110,11 @@ const getMovementColumns = (
         label: "Movimiento",
         render: (row: MovimientoMerged) => (
             <div className="flex flex-wrap gap-1">
-                {row.movimientos.map((mov) => (
-                    <CompactBadgeLine key={mov} color={mov.toUpperCase() === "INGRESO" ? "success" : "error"}>
-                        {mov}
-                    </CompactBadgeLine>
-                ))}
+                        {row.movimientos.map((mov) => (
+                            <CompactBadgeLine key={mov} color={mov.toUpperCase() === "INGRESO" ? "success" : "error"}>
+                                {formatMovimientoTipo(mov)}
+                            </CompactBadgeLine>
+                        ))}
             </div>
         ),
     },
@@ -331,15 +333,20 @@ export const BancariaOperationalTabs = ({
     const [isDeletingMovement, setIsDeletingMovement] = useState(false);
     const [movementToReturn, setMovementToReturn] = useState<MovimientoMerged | null>(null);
     const [isReturningRetention, setIsReturningRetention] = useState(false);
+    const [operationToDelete, setOperationToDelete] = useState<OperacionProceso | null>(null);
+    const [operationToRestore, setOperationToRestore] = useState<OperacionProceso | null>(null);
+    const [isProcessingOperationDelete, setIsProcessingOperationDelete] = useState(false);
+    const [isProcessingOperationRestore, setIsProcessingOperationRestore] = useState(false);
     const handledDownloadKeyRef = useRef(0);
     const isActiveDigitalWallet = isDigitalWalletBank(activeCompanyCaja);
     const visibleTabs = useMemo(
         () => {
             if (isActiveDigitalWallet) return [] as BancariaTab[];
-            if (ruta === "safetypay") return ["Efectivizacion", "POS", "Movimientos", "Retenidos"] as BancariaTab[];
+            if (ruta === "safetypay") return ["Efectivizacion", "POS", "Movimientos", "Retenidos", "Eliminados"] as BancariaTab[];
             const hasRetencion = retentionRoutes.has(ruta) ||
                 companies.some((c) => c.flag_retencion_cuenta);
-            return hasRetencion ? tabs : tabs.filter((tab) => tab !== "Retenidos");
+            const available = hasRetencion ? tabs : tabs.filter((tab) => tab !== "Retenidos");
+            return softDeleteRoutes.has(ruta) ? available : available.filter((tab) => tab !== "Eliminados");
         },
         [isActiveDigitalWallet, ruta, companies],
     );
@@ -403,7 +410,7 @@ export const BancariaOperationalTabs = ({
         if (ruta === "safetypay" && currentTab === "Efectivizacion") {
             return {
                 ...base,
-                actions: ["Eliminar", "Emp. Salida", "Pagar", "Derivar", "Directo", "Reiniciar"],
+                actions: ["Eliminar Excel", "Emp. Salida", "Pagar", "Derivar", "Directo", "Reiniciar"],
             };
         }
 
@@ -542,8 +549,47 @@ export const BancariaOperationalTabs = ({
         }
     }, [addToast, movementToReturn, onChanged, onMetricsChanged, userId, userName]);
 
+    const handleDeleteOperation = useCallback(async () => {
+        if (!operationToDelete) return;
+        setIsProcessingOperationDelete(true);
+        try {
+            await operacionesRpcService.deleteOperacionProceso({ p_id: operationToDelete.id, p_id_usuario: userId });
+            addToast("success", "Operacion eliminada correctamente.");
+            setOperationToDelete(null);
+            setSelectedIds([]);
+            setActionRefreshKey((value) => value + 1);
+            setMetricsRefreshKey((value) => value + 1);
+            onChanged?.();
+            onMetricsChanged?.();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo eliminar la operacion.");
+        } finally {
+            setIsProcessingOperationDelete(false);
+        }
+    }, [addToast, onChanged, onMetricsChanged, operationToDelete, userId]);
+
+    const handleRestoreOperation = useCallback(async () => {
+        if (!operationToRestore) return;
+        setIsProcessingOperationRestore(true);
+        try {
+            await operacionesRpcService.restoreOperacionProceso({ p_id: operationToRestore.id, p_id_usuario: userId });
+            addToast("success", "Operacion restaurada correctamente.");
+            setOperationToRestore(null);
+            setSelectedIds([]);
+            setActionRefreshKey((value) => value + 1);
+            setMetricsRefreshKey((value) => value + 1);
+            onChanged?.();
+            onMetricsChanged?.();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo restaurar la operacion.");
+        } finally {
+            setIsProcessingOperationRestore(false);
+        }
+    }, [addToast, onChanged, onMetricsChanged, operationToRestore, userId]);
+
     const operationColumnsByTab = useMemo(() => ({
         Efectivizacion: baseOperationColumns,
+        Eliminados: baseOperationColumns,
         "Pago Deuda": [
             { key: "pasos", label: "Pasos", render: (row: OperacionProceso) => <PagoDeudaSteps row={row} /> },
             { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => (
@@ -796,7 +842,7 @@ export const BancariaOperationalTabs = ({
     };
 
     const handleAction = async (action: string) => {
-        if (action === "Eliminar") {
+        if (action === "Eliminar Excel") {
             if (!activeCompanyId || !activeAccountId) {
                 addToast("error", "Selecciona una empresa y cuenta antes de eliminar una carga.");
                 return;
@@ -1245,7 +1291,7 @@ export const BancariaOperationalTabs = ({
 
             {currentTab === "Movimientos" ? (
                 <OperationTable columns={currentMovementColumns} data={movimientos} emptyText="Sin movimientos para esta bandeja." isLoading={isLoading} />
-            ) : currentTab === "Efectivizacion" || currentTab === "Derivados" ? (
+            ) : currentTab === "Efectivizacion" || currentTab === "Derivados" || currentTab === "Eliminados" ? (
                 <BancariaEfectivizacionTable
                     activeAccountId={activeAccountId}
                     activeCompanyId={activeCompanyId}
@@ -1255,13 +1301,15 @@ export const BancariaOperationalTabs = ({
                     estadoPagado={estadoPagado}
                     estadoPendiente={estadoPendiente}
                     isLoading={isLoading}
-                    mode={currentTab === "Derivados" ? "derivaciones" : "efectivizacion"}
+                    mode={currentTab === "Derivados" ? "derivaciones" : currentTab === "Eliminados" ? "eliminados" : "efectivizacion"}
                     onMetricsChanged={refreshMetrics}
                     onRefresh={() => {
                         setActionRefreshKey((value) => value + 1);
                         onChanged?.();
                     }}
                     onRowUpdated={replaceOperacion}
+                    onDeleteOperation={setOperationToDelete}
+                    onRestoreOperation={setOperationToRestore}
                     ruta={ruta}
                     selectedIds={selectedIds}
                     user={{ userId, userName }}
@@ -1286,6 +1334,29 @@ export const BancariaOperationalTabs = ({
                 ruta={ruta}
                 onClose={() => setIsRollbackModalOpen(false)}
                 onProcess={handleRollbackExcel}
+            />
+            <OperacionConfirmModal
+                confirmLabel="Eliminar"
+                description="La operacion pasara a Eliminado. Se revertira su impacto abierto en caja y podra restaurarse posteriormente."
+                intent="destructive"
+                isLoading={isProcessingOperationDelete}
+                isOpen={operationToDelete !== null}
+                onClose={() => {
+                    if (!isProcessingOperationDelete) setOperationToDelete(null);
+                }}
+                onConfirm={() => void handleDeleteOperation()}
+                title="Eliminar operacion"
+            />
+            <OperacionConfirmModal
+                confirmLabel="Restaurar"
+                description="La operacion volvera a su estado anterior y se reconstruira su impacto contable abierto."
+                isLoading={isProcessingOperationRestore}
+                isOpen={operationToRestore !== null}
+                onClose={() => {
+                    if (!isProcessingOperationRestore) setOperationToRestore(null);
+                }}
+                onConfirm={() => void handleRestoreOperation()}
+                title="Restaurar operacion"
             />
             <OperacionConfirmModal
                 confirmLabel="Eliminar"

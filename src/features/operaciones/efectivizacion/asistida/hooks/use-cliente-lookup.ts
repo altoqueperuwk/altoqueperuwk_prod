@@ -11,13 +11,14 @@ export interface ClienteLookupResult {
 const parseJsonArray = (value: unknown): string[] => {
     if (!value) return [];
     if (Array.isArray(value)) return value.filter((v) => typeof v === "string") as string[];
+    if (typeof value === "number") return [String(value)];
     try {
         const parsed = typeof value === "string" ? JSON.parse(value) : value;
         if (Array.isArray(parsed)) return parsed.filter((v: unknown) => typeof v === "string") as string[];
     } catch {
         /* ignore */
     }
-    return [];
+    return typeof value === "string" ? [value] : [];
 };
 
 const getExpectedDocumentoLength = (tipoDocumento: number) => (Number(tipoDocumento) === 2 ? 9 : 8);
