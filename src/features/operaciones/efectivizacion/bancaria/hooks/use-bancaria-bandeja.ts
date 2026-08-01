@@ -290,12 +290,24 @@ export const useBancariaBandeja = ({
             }
 
             if (tab === "Efectivizacion") {
+                const currentRoute = String(ruta ?? "").toLowerCase();
+                const isFrozenOrigin =
+                    row.flag_derivado === true &&
+                    String(row.ruta_origen ?? "").toLowerCase() === currentRoute;
+
                 return (
+                    row.id_estado !== 10 &&
                     (row.tipo_servicio ?? "").toUpperCase() === "EFECTIVIZACION" &&
-                    row.ruta_destino === ruta &&
-                    row.flag_derivado === false &&
-                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
-                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)
+                    ((!isFrozenOrigin &&
+                        String(row.ruta_destino ?? "").toLowerCase() === currentRoute &&
+                        row.flag_derivado === false &&
+                        (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
+                        (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)) ||
+                        (isFrozenOrigin &&
+                            (!activeCompanyId ||
+                                (row.id_empresa_salida_origen ?? row.id_empresa_salida) === activeCompanyId) &&
+                            (!activeAccountId ||
+                                (row.id_empresa_cuenta_salida_origen ?? row.id_empresa_cuenta_salida) === activeAccountId)))
                 );
             }
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { findExcelHeaderIndex, getExcelAliases, mapExcelRows, normalizeExcelHeader, parseBcpTxtRows } from "./excel-parser";
+import JSZip from "jszip";
+import * as XLSX from "xlsx";
+import { findExcelHeaderIndex, getExcelAliases, mapExcelRows, normalizeExcelHeader, parseBcpTxtRows, readExcelRowsFromFile } from "./excel-parser";
 
 describe("excel-parser", () => {
     it("normalizes accents, separators and spaces", () => {
@@ -71,5 +73,30 @@ describe("excel-parser", () => {
 
     it("throws when no compatible header exists", () => {
         expect(() => mapExcelRows([["foo", "bar"]])).toThrow("No se encontraron encabezados de columna en el archivo.");
+    });
+
+    it("combines compatible files from a ZIP in archive order", async () => {
+        const archive = new JSZip();
+        const workbook = [
+            ["DNI", "Importe", "Nro Operacion", "Fecha Pago", "Hora", "Banco", "Estado"],
+            ["12345678", "100.50", "OP-1", "2026-07-13", "10:00", "BCP", "OK"],
+        ];
+        const workbookWithSheet = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbookWithSheet, XLSX.utils.aoa_to_sheet(workbook), "Datos");
+        const validBuffer = XLSX.write(workbookWithSheet, { type: "array", bookType: "xlsx" });
+
+        archive.file("01.xlsx", validBuffer);
+        archive.file("02.xlsx", validBuffer);
+        archive.file("notas.pdf", "ignorado");
+
+        const zipBuffer = await archive.generateAsync({ type: "arraybuffer" });
+        const zipFile = {
+            name: "carga-bancaria.zip",
+            arrayBuffer: async () => zipBuffer,
+        } as File;
+        const rows = await readExcelRowsFromFile(zipFile, "default");
+
+        expect(rows).toHaveLength(2);
+        expect(rows.map((row) => row.codigo_operacion)).toEqual(["OP-1", "OP-1"]);
     });
 });

@@ -41,6 +41,7 @@ AS $$
     FROM public.tb_operacion_proceso op
     CROSS JOIN args a
     WHERE a.ruta IN ('bcp', 'scotiabank', 'banbif', 'safetypay')
+      AND (a.tab = 'ELIMINADOS' OR COALESCE(op.id_estado, 0) <> 10)
       AND (
         (a.tab = 'EFECTIVIZACION' AND (
           LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
@@ -133,6 +134,13 @@ AS $$
         a.filtro_estado = 'TODOS'
         OR UPPER(BTRIM(COALESCE(b.nombre_estado, ''))) = a.filtro_estado
       )
+    )
+    OR (
+      a.tab = 'ELIMINADOS'
+      AND b.id_estado = 10
+      AND UPPER(COALESCE(b.tipo_servicio, '')) = 'EFECTIVIZACION'
+      AND (p_id_empresa IS NULL OR b.id_empresa_salida = p_id_empresa)
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
     )
   ORDER BY b.id DESC;
 $$;

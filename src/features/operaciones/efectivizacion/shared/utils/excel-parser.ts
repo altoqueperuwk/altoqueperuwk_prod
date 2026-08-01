@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 import type { OperacionRutaBancaria } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
 export type ExcelRow = {
@@ -33,6 +34,16 @@ export type HeaderMatch = {
     idxBancoIngreso: number;
     idxEstado: number;
 };
+
+export class PartialExcelArchiveError extends Error {
+    constructor(
+        message: string,
+        public readonly rows: ExcelRow[],
+    ) {
+        super(message);
+        this.name = "PartialExcelArchiveError";
+    }
+}
 
 const excelHeaderConfig: Record<`/operaciones/${OperacionRutaBancaria}`, HeaderAliasConfig> = {
     "/operaciones/bcp": {
@@ -78,7 +89,7 @@ const excelHeaderConfig: Record<`/operaciones/${OperacionRutaBancaria}`, HeaderA
 const defaultHeaderConfig: HeaderAliasConfig = {
     dni: ["DNI", "Documento", "Numero documento", "Nro documento", "Doc", "RUC"],
     monto: ["Monto", "Importe", "Amount", "Valor", "Total"],
-    codigo_operacion: ["Codigo operacion", "Codigo", "Operacion", "Nro operacion", "Num operacion", "Id operacion"],
+    codigo_operacion: ["Codigo operacion", "Codigo", "Operacion", "Nro operacion", "Num operacion", "Id operacion", "Transaction ID"],
     fecha_pago: ["Fecha pago", "Fecha", "Fecha deposito", "Fecha operacion"],
     hora_proceso: ["Hora proceso", "Hora", "Hora pago", "Hora operacion"],
     nombre_cliente_banco_ingreso: ["Banco", "Banco cliente", "Banco ingreso", "Entidad", "Nombre banco"],
@@ -455,12 +466,15 @@ export const mapExcelRows = (rows: unknown[][], route: ExcelParserRoute = "defau
     return mappedRows;
 };
 
-export const readExcelRowsFromFile = async (file: File, route: ExcelParserRoute): Promise<ExcelRow[]> => {
+const supportedArchiveExtensions = new Set(["xlsx", "xls", "html", "htm", "txt"]);
+
+const getFileExtension = (fileName: string) => fileName.split(".").pop()?.toLowerCase() ?? "";
+
+const readExcelRowsFromBuffer = async (buffer: ArrayBuffer, fileName: string, route: ExcelParserRoute): Promise<ExcelRow[]> => {
     const config = getExcelConfig(route);
     if (!config) throw new Error("No hay configuracion de columnas para esta ruta.");
 
-    const buffer = await file.arrayBuffer();
-    const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+    const extension = getFileExtension(fileName);
 
     if (extension === "txt") {
         if (!isBcpRoute(route)) throw new Error("El formato .txt solo esta soportado para BCP.");
@@ -472,8 +486,65 @@ export const readExcelRowsFromFile = async (file: File, route: ExcelParserRoute)
         return txtRows;
     }
 
-    const matrix = readMatrix(buffer, config, file.name);
+    const matrix = readMatrix(buffer, config, fileName);
     if (!matrix || matrix.length < 2) throw new Error("No se pudo leer el archivo o esta vacio.");
 
     return mapExcelRows(matrix, route);
+};
+
+export const readExcelRowsFromFile = async (file: File, route: ExcelParserRoute): Promise<ExcelRow[]> => {
+    const extension = getFileExtension(file.name);
+
+    if (extension !== "zip") {
+        return readExcelRowsFromBuffer(await file.arrayBuffer(), file.name, route);
+    }
+
+    let archive: JSZip;
+    try {
+        archive = await JSZip.loadAsync(await file.arrayBuffer());
+    } catch {
+        throw new Error("No se pudo abrir el archivo ZIP. Verifica que no este corrupto.");
+    }
+
+    const entries: Array<{ name: string; entry: JSZip.JSZipObject }> = [];
+    archive.forEach((name, entry) => {
+        const internalName = name.replaceAll("\\", "/");
+        const baseName = internalName.split("/").pop() ?? "";
+        const internalExtension = getFileExtension(baseName);
+
+        if (!entry.dir && baseName && !baseName.startsWith(".") && !internalName.startsWith("__MACOSX/") && supportedArchiveExtensions.has(internalExtension)) {
+            entries.push({ name: internalName, entry });
+        }
+    });
+
+    if (!entries.length) {
+        throw new Error("El ZIP no contiene archivos compatibles para procesar.");
+    }
+
+    const rows: ExcelRow[] = [];
+    const errors: string[] = [];
+
+    for (const { name, entry } of entries) {
+        try {
+            const buffer = await entry.async("arraybuffer");
+            const parsedRows = await readExcelRowsFromBuffer(buffer, name, route);
+            rows.push(...parsedRows);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "No se pudo leer el archivo.";
+            errors.push(`${name}: ${message}`);
+        }
+    }
+
+    if (!rows.length) {
+        throw new Error(`No se encontraron archivos procesables dentro del ZIP. ${errors.join(" ")}`.trim());
+    }
+
+    if (errors.length) {
+        throw new PartialExcelArchiveError(
+            `Se procesaron archivos validos, pero algunos no pudieron leerse: ${errors.join(" | ")}`,
+            rows,
+        );
+    }
+
+    return rows;
 };

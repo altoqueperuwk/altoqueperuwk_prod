@@ -8,6 +8,7 @@ import { comunidadService } from "@/services/comunidad.service";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import {
+    PartialExcelArchiveError,
     readExcelRowsFromFile,
     type ExcelRow,
 } from "@/features/operaciones/efectivizacion/shared/utils/excel-parser";
@@ -124,9 +125,10 @@ export const BancariaExcelUpload = ({
             const isHtml = extension === "html" || extension === "htm";
             const isExcel = extension === "xlsx" || extension === "xls";
             const isTxt = extension === "txt";
+            const isZip = extension === "zip";
 
-            if (!isHtml && !isExcel && !isTxt) {
-                throw new Error("Formato no soportado. Usa .xlsx, .xls, .html, .htm o .txt.");
+            if (!isHtml && !isExcel && !isTxt && !isZip) {
+                throw new Error("Formato no soportado. Usa .zip, .xlsx, .xls, .html, .htm o .txt.");
             }
 
             const mappedRows = await readExcelRowsFromFile(file, ruta);
@@ -136,6 +138,12 @@ export const BancariaExcelUpload = ({
             setRows(mappedRows);
             addToast("success", `Archivo cargado: ${mappedRows.length} filas.`);
         } catch (err) {
+            if (err instanceof PartialExcelArchiveError) {
+                setRows(err.rows);
+                addToast("info", `${err.message} Se conservaron ${err.rows.length} filas validas.`);
+                return;
+            }
+
             setFileName("");
             setRows([]);
             setFileSize(0);
@@ -218,11 +226,11 @@ export const BancariaExcelUpload = ({
                     >
                         <UploadCloud02 className="mb-5 size-10 text-fg-quaternary" />
                         <span className="text-sm font-semibold text-primary">Selecciona o arrastra un archivo</span>
-                        <span className="mt-2 text-xs text-tertiary">.xlsx, .xls, .html, .htm, .txt</span>
+                        <span className="mt-2 text-xs text-tertiary">.zip, .xlsx, .xls, .html, .htm, .txt</span>
                         <input
                             key={`${activeCompany?.id_empresa ?? "sin-empresa"}-${fileName}`}
                             type="file"
-                            accept=".xlsx,.xls,.html,.htm,.txt"
+                            accept=".zip,.xlsx,.xls,.html,.htm,.txt"
                             className="sr-only"
                             onChange={(event) => {
                                 const file = event.currentTarget.files?.[0];
