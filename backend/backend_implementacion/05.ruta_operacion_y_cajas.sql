@@ -51,6 +51,14 @@ Objetivo:
   Consultar la configuracion operativa de empresas/cuentas habilitadas por ruta,
   indicando ademas si una de ellas es la caja primaria de ingreso.
 */
+DROP FUNCTION IF EXISTS public.f_get_tb_ruta_operacion_caja(
+  p_id bigint,
+  p_ruta character varying,
+  p_id_empresa bigint,
+  p_id_empresa_cuenta_bancaria bigint,
+  p_flag_caja_ingreso_principal boolean,
+  p_id_estado bigint
+);
 CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_caja(
   p_id bigint DEFAULT NULL,
   p_ruta character varying DEFAULT NULL,
@@ -74,8 +82,7 @@ RETURNS TABLE (
   id_usuario bigint,
   nombre_usuario character varying,
   fecha_registro timestamp with time zone,
-  flag_retencion_cuenta boolean,
-  flag_retencion_parcial_cuenta boolean
+  flag_retencion_cuenta boolean
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -101,8 +108,7 @@ BEGIN
       WHEN to_regprocedure('public.f_get_tb_recaudacion_cuenta_flag_retenida(character varying,bigint)') IS NOT NULL
         THEN public.f_get_tb_recaudacion_cuenta_flag_retenida(rc.ruta, rc.id_empresa_cuenta_bancaria)
       ELSE false
-    END AS flag_retencion_cuenta,
-    false AS flag_retencion_parcial_cuenta
+    END AS flag_retencion_cuenta
   FROM public.tb_ruta_operacion_caja rc
   JOIN public.tb_empresa e ON e.id = rc.id_empresa
   JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
@@ -1208,8 +1214,8 @@ Objetivo:
 Reglas principales:
   - una empresa no puede repetir la misma cuenta bancaria en mÃ¡s de una caja;
   - saldo_inicial y saldo_actual nacen en la misma caja;
-  - flag_retencion queda disponible para futuras reglas de negocio, pero no
-    activa todavÃ­a una capa adicional de cÃ¡lculo.
+  - la retencion se gobierna desde tb_recaudacion_regla_abono (archivo 12),
+    no desde la caja.
 */
 CREATE TABLE IF NOT EXISTS public.tb_caja_operativa (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -1226,7 +1232,6 @@ CREATE TABLE IF NOT EXISTS public.tb_caja_operativa (
   ganancia_retenido numeric NOT NULL DEFAULT 0,
   salida numeric NOT NULL DEFAULT 0,
   operaciones integer NOT NULL DEFAULT 0,
-  flag_retencion boolean NOT NULL DEFAULT false,
   id_estado bigint NOT NULL,
   id_usuario bigint,
   fecha_apertura timestamp with time zone NOT NULL DEFAULT now(),
@@ -1289,6 +1294,21 @@ BEGIN
 END;
 $$;
 
+-- ============================================================================
+-- DROP COLUMN: quitar flag_retencion de tb_caja_operativa
+-- La retencion ahora se gobierna desde tb_recaudacion_regla_abono (archivo 12).
+-- ============================================================================
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_caja_operativa' AND column_name = 'flag_retencion'
+  ) THEN
+    ALTER TABLE public.tb_caja_operativa DROP COLUMN flag_retencion;
+  END IF;
+END;
+$$;
+
 /*
 Funcion: f_get_tb_caja_operativa
 Objetivo:
@@ -1296,6 +1316,12 @@ Objetivo:
   estado y usuario. Se usa como funciÃ³n base para listar y tambiÃ©n para devolver
   el snapshot final despuÃ©s de crear o editar.
 */
+DROP FUNCTION IF EXISTS public.f_get_tb_caja_operativa(
+  p_id bigint,
+  p_id_empresa bigint,
+  p_id_empresa_cuenta_bancaria bigint,
+  p_id_estado bigint
+);
 CREATE OR REPLACE FUNCTION public.f_get_tb_caja_operativa(
   p_id bigint DEFAULT NULL,
   p_id_empresa bigint DEFAULT NULL,
@@ -1320,7 +1346,6 @@ RETURNS TABLE (
   ganancia_retenido numeric,
   salida numeric,
   operaciones integer,
-  flag_retencion boolean,
   id_estado bigint,
   nombre_estado character varying,
   id_usuario bigint,
@@ -1351,7 +1376,6 @@ BEGIN
     c.ganancia_retenido,
     c.salida,
     c.operaciones,
-    c.flag_retencion,
     c.id_estado,
     est.nombre AS nombre_estado,
     c.id_usuario,
@@ -1379,6 +1403,23 @@ Objetivo:
   empresa elegida. No crea movimientos ni historial; solo registra el punto de
   partida operativo.
 */
+DROP FUNCTION IF EXISTS public.f_post_tb_caja_operativa(
+  p_id_empresa bigint,
+  p_id_empresa_cuenta_bancaria bigint,
+  p_saldo_inicial numeric,
+  p_saldo_actual numeric,
+  p_ingresos numeric,
+  p_ingresos_retenido numeric,
+  p_gastos numeric,
+  p_ganancia numeric,
+  p_ganancia_retenido numeric,
+  p_salida numeric,
+  p_operaciones integer,
+  p_flag_retencion boolean,
+  p_id_estado bigint,
+  p_id_usuario bigint,
+  p_fecha_apertura timestamp with time zone
+);
 CREATE OR REPLACE FUNCTION public.f_post_tb_caja_operativa(
   p_id_empresa bigint,
   p_id_empresa_cuenta_bancaria bigint,
@@ -1391,7 +1432,6 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_caja_operativa(
   p_ganancia_retenido numeric DEFAULT 0,
   p_salida numeric DEFAULT 0,
   p_operaciones integer DEFAULT 0,
-  p_flag_retencion boolean DEFAULT NULL,
   p_id_estado bigint DEFAULT NULL,
   p_id_usuario bigint DEFAULT NULL,
   p_fecha_apertura timestamp with time zone DEFAULT now()
@@ -1407,8 +1447,7 @@ DECLARE
 BEGIN
   SELECT
     ecb.id,
-    ecb.id_empresa,
-    ecb.flag_retencion
+    ecb.id_empresa
   INTO v_cuenta
   FROM public.tb_empresa_cuenta_bancaria ecb
   WHERE ecb.id = p_id_empresa_cuenta_bancaria
@@ -1445,7 +1484,6 @@ BEGIN
     ganancia_retenido,
     salida,
     operaciones,
-    flag_retencion,
     id_estado,
     id_usuario,
     fecha_apertura
@@ -1464,7 +1502,6 @@ BEGIN
     COALESCE(p_ganancia_retenido, 0),
     COALESCE(p_salida, 0),
     COALESCE(p_operaciones, 0),
-    COALESCE(p_flag_retencion, v_cuenta.flag_retencion, false),
     p_id_estado,
     p_id_usuario,
     COALESCE(p_fecha_apertura, now())
@@ -1492,9 +1529,27 @@ $$;
 Funcion: f_patch_tb_caja_operativa
 Objetivo:
   Editar una caja compacta ya existente. Permite cambiar empresa, cuenta, saldos,
-  estado, usuario y bandera de retenciÃ³n, manteniendo la validaciÃ³n de coherencia
-  entre empresa y cuenta bancaria.
+  estado y usuario, manteniendo la validaciÃ³n de coherencia entre empresa y
+  cuenta bancaria.
 */
+DROP FUNCTION IF EXISTS public.f_patch_tb_caja_operativa(
+  p_id bigint,
+  p_id_empresa bigint,
+  p_id_empresa_cuenta_bancaria bigint,
+  p_saldo_inicial numeric,
+  p_saldo_actual numeric,
+  p_ingresos numeric,
+  p_ingresos_retenido numeric,
+  p_gastos numeric,
+  p_ganancia numeric,
+  p_ganancia_retenido numeric,
+  p_salida numeric,
+  p_operaciones integer,
+  p_flag_retencion boolean,
+  p_id_estado bigint,
+  p_id_usuario bigint,
+  p_fecha_apertura timestamp with time zone
+);
 CREATE OR REPLACE FUNCTION public.f_patch_tb_caja_operativa(
   p_id bigint,
   p_id_empresa bigint DEFAULT NULL,
@@ -1508,7 +1563,6 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_caja_operativa(
   p_ganancia_retenido numeric DEFAULT NULL,
   p_salida numeric DEFAULT NULL,
   p_operaciones integer DEFAULT NULL,
-  p_flag_retencion boolean DEFAULT NULL,
   p_id_estado bigint DEFAULT NULL,
   p_id_usuario bigint DEFAULT NULL,
   p_fecha_apertura timestamp with time zone DEFAULT NULL
@@ -1541,8 +1595,7 @@ BEGIN
 
   SELECT
     ecb.id,
-    ecb.id_empresa,
-    ecb.flag_retencion
+    ecb.id_empresa
   INTO v_cuenta
   FROM public.tb_empresa_cuenta_bancaria ecb
   WHERE ecb.id = v_cuenta_final
@@ -1580,7 +1633,6 @@ BEGIN
       ganancia_retenido = COALESCE(p_ganancia_retenido, ganancia_retenido),
       salida = COALESCE(p_salida, salida),
       operaciones = COALESCE(p_operaciones, operaciones),
-      flag_retencion = COALESCE(p_flag_retencion, v_cuenta.flag_retencion, flag_retencion),
       id_estado = v_estado_final,
       id_usuario = COALESCE(p_id_usuario, id_usuario),
       fecha_apertura = COALESCE(p_fecha_apertura, fecha_apertura)
@@ -2770,7 +2822,8 @@ AS $$
     'tipo_facturacion', t.tipo_facturacion,
     'id_caja_cierre', t.id_caja_cierre,
     'fecha_caja_cierre', t.fecha_caja_cierre,
-    'fecha_registro', t.fecha_registro
+    'fecha_registro', t.fecha_registro,
+    'flag_paso_retencion', (op.fecha_retencion IS NOT NULL)
   )
   FROM public.tb_operacion_caja t
   LEFT JOIN public.tb_operacion_proceso op ON op.id = t.id_operacion_proceso
@@ -3327,8 +3380,7 @@ BEGIN
       e.nombre AS nombre_empresa,
       c.id_empresa_cuenta_bancaria,
       ecb.id_banco,
-      b.nombre AS nombre_banco,
-      false AS flag_retencion
+      b.nombre AS nombre_banco
     INTO v_caja_destino
     FROM public.tb_caja_operativa c
     JOIN public.tb_empresa e ON e.id = c.id_empresa
@@ -4174,6 +4226,161 @@ BEGIN
 END;
 $$;
 
+/*
+Funcion: f_patch_tb_operacion_proceso_retornar_retencion
+Objetivo:
+  Devolver una operacion ya liberada hacia la retencion: revierte el impacto en
+  caja del abono confirmado, reetiqueta el movimiento INGRESO como RETENIDO y
+  vuelve a marcar la operacion como retenida. Solo aplica a retenciones
+  liberadas (fecha_retencion no nula) con caja abierta y saldo suficiente.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_retornar_retencion(
+  p_id bigint,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_op record;
+  v_mov record;
+  v_caja record;
+  v_nombre_usuario character varying;
+  v_estado_retenido_id bigint;
+  v_estado_retenido_nombre character varying;
+  v_saldo_nuevo numeric;
+BEGIN
+  SELECT *
+  INTO v_op
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id
+  LIMIT 1;
+
+  IF v_op.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Operacion no encontrada.');
+  END IF;
+
+  IF v_op.fecha_retencion IS NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion no paso por retencion.');
+  END IF;
+
+  IF p_nombre_usuario_gestor IS NOT NULL THEN
+    v_nombre_usuario := p_nombre_usuario_gestor;
+  ELSIF p_id_usuario_gestor IS NOT NULL THEN
+    SELECT nombre
+    INTO v_nombre_usuario
+    FROM public.tb_usuario
+    WHERE id = p_id_usuario_gestor
+    LIMIT 1;
+  ELSE
+    v_nombre_usuario := COALESCE(v_op.nombre_usuario_gestor, v_op.nombre_usuario);
+  END IF;
+
+  SELECT *
+  INTO v_mov
+  FROM public.tb_operacion_caja c
+  WHERE c.id_operacion_proceso = p_id
+    AND c.tipo_movimiento = 'INGRESO'
+    AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+  ORDER BY c.id
+  LIMIT 1;
+
+  IF v_mov.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro el movimiento de ingreso de la operacion.');
+  END IF;
+
+  IF v_mov.id_caja_cierre IS NOT NULL THEN
+    RETURN jsonb_build_object('error', 'No se puede retornar una retencion con caja cerrada.');
+  END IF;
+
+  IF UPPER(COALESCE(v_mov.nombre_estado, '')) = 'RETENIDO' THEN
+    RETURN jsonb_build_object('error', 'La retencion ya se encuentra retenida.');
+  END IF;
+
+  SELECT id, nombre
+  INTO v_estado_retenido_id, v_estado_retenido_nombre
+  FROM public.tb_estado
+  WHERE UPPER(BTRIM(nombre)) = 'RETENIDO'
+  LIMIT 1;
+
+  IF v_estado_retenido_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro el estado RETENIDO.');
+  END IF;
+
+  SELECT c.id, c.saldo_actual
+  INTO v_caja
+  FROM public.tb_caja_operativa c
+  WHERE c.id = v_mov.id_caja
+  LIMIT 1;
+
+  IF v_caja.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La caja del movimiento no existe.');
+  END IF;
+
+  v_saldo_nuevo := COALESCE(v_caja.saldo_actual, 0) - COALESCE(v_mov.monto_ingreso, 0);
+
+  IF v_saldo_nuevo < 0 THEN
+    RETURN jsonb_build_object('error', 'Saldo insuficiente en caja para retornar la retencion.');
+  END IF;
+
+  UPDATE public.tb_caja_operativa
+  SET saldo_actual = v_saldo_nuevo,
+      saldo_total = v_saldo_nuevo,
+      total_recaudado = GREATEST(COALESCE(total_recaudado, 0) -
+        CASE WHEN UPPER(v_mov.tipo_origen) IN ('EFECTIVIZACION', 'PAGO_DEUDA', 'PAGO_DEUDA_DEVOLUCION', 'PAGO_DEUDA_COMISION')
+          THEN COALESCE(v_mov.monto_ingreso, 0) ELSE 0 END, 0),
+      ingresos = GREATEST(COALESCE(ingresos, 0) -
+        CASE WHEN UPPER(v_mov.tipo_origen) NOT IN ('EFECTIVIZACION', 'PAGO_DEUDA', 'PAGO_DEUDA_DEVOLUCION', 'PAGO_DEUDA_COMISION')
+          THEN COALESCE(v_mov.monto_ingreso, 0) ELSE 0 END, 0),
+      ingresos_retenido = COALESCE(ingresos_retenido, 0) + COALESCE(v_mov.monto_ingreso, 0),
+      ganancia = GREATEST(COALESCE(ganancia, 0) - COALESCE(v_mov.monto_ganancia, 0), 0),
+      ganancia_retenido = COALESCE(ganancia_retenido, 0) + COALESCE(v_mov.monto_ganancia, 0),
+      id_usuario = COALESCE(p_id_usuario_gestor, id_usuario)
+  WHERE id = v_mov.id_caja;
+
+  UPDATE public.tb_operacion_caja
+  SET id_estado = v_estado_retenido_id,
+      nombre_estado = v_estado_retenido_nombre,
+      saldo_actual = v_saldo_nuevo,
+      id_usuario = COALESCE(p_id_usuario_gestor, id_usuario),
+      nombre_usuario = COALESCE(v_nombre_usuario, nombre_usuario)
+  WHERE id = v_mov.id;
+
+  UPDATE public.tb_operacion_proceso
+  SET flag_retenido = true,
+      id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+      nombre_usuario_gestor = COALESCE(v_nombre_usuario, nombre_usuario_gestor)
+  WHERE id = p_id;
+
+  IF to_regprocedure('public.f_sync_tb_recaudacion_lotes(character varying,bigint,bigint)') IS NOT NULL THEN
+    PERFORM public.f_sync_tb_recaudacion_lotes(
+      COALESCE(v_op.ruta_destino, v_op.ruta_origen),
+      v_op.id_empresa_cuenta_ingreso,
+      p_id_usuario_gestor
+    );
+  END IF;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario_gestor)
+  FROM public.tb_ruta_operacion_caja rc
+  WHERE rc.id_empresa = v_mov.id_empresa
+    AND rc.id_empresa_cuenta_bancaria = v_mov.id_empresa_cuenta_bancaria
+    AND rc.id_estado = 1;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(
+    COALESCE(v_op.ruta_destino, v_op.ruta_origen),
+    COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario)
+  );
+
+  RETURN (
+    SELECT x
+    FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
+    LIMIT 1
+  );
+END;
+$$;
+
 
 SELECT 'DROP FUNCTION IF EXISTS ' ||
        n.nspname || '.' ||
@@ -4185,8 +4392,13 @@ WHERE p.proname IN (
   'f_delete_tb_operacion_caja_manual',
   'f_delete_tb_caja_operativa_cierre_ultimo_dia',
   'f_get_reporte_cierre',
+  'f_get_tb_caja_operativa',
+  'f_get_tb_operacion_caja',
+  'f_get_tb_ruta_operacion_caja',
   'f_patch_tb_caja_operativa',
+  'f_patch_tb_operacion_proceso_retornar_retencion',
   'f_patch_tb_ruta_operacion_caja',
+  'f_post_tb_caja_operativa',
   'f_post_tb_ruta_operacion_caja',
   'f_sync_tb_ruta_operacion_caja_principal'
 )

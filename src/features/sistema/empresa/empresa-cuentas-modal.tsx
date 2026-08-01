@@ -21,8 +21,6 @@ interface CuentaRow {
   id?: number;
   id_banco: number;
   flag_por_sol: boolean;
-  flag_retencion: boolean;
-  flag_retencion_parcial: boolean;
   comision_itf_ingreso_salida: string;
   comision_banco_ingreso: string;
   comision_minimo_banco_ingreso: string;
@@ -41,8 +39,6 @@ const EMPTY_ROW: CuentaRow = {
   key: "",
   id_banco: 0,
   flag_por_sol: false,
-  flag_retencion: false,
-  flag_retencion_parcial: false,
   comision_itf_ingreso_salida: "0.005",
   comision_banco_ingreso: "",
   comision_minimo_banco_ingreso: "",
@@ -99,8 +95,6 @@ export const EmpresaCuentasModal = ({ isOpen, onClose, empresa }: EmpresaCuentas
           comision_igv_banco_ingreso: r.comision_igv_banco_ingreso != null ? String(r.comision_igv_banco_ingreso) : "",
           comision_transf_banco_salida: r.comision_transf_banco_salida != null ? String(r.comision_transf_banco_salida) : "",
           comision_transf_inter_banco_salida: r.comision_transf_inter_banco_salida != null ? String(r.comision_transf_inter_banco_salida) : "",
-          flag_retencion: false,
-          flag_retencion_parcial: false,
           id_estado: (r.id_estado as number) || 0,
         }));
         setRows(loadedRows);

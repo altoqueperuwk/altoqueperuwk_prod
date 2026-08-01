@@ -26,7 +26,6 @@ export interface RutaOperacionCaja {
     nombre_usuario: string | null;
     fecha_registro: string;
     flag_retencion_cuenta?: boolean | null;
-    flag_retencion_parcial_cuenta?: boolean | null;
 }
 
 export interface RutaOperacionKpi {
@@ -94,6 +93,7 @@ export interface RecaudacionReglaAbono {
     hora_corte: string;
     dias_habiles_abono: number;
     hora_liberacion: string;
+    base_calculo_abono: string;
     flag_liberacion_automatica: boolean;
     id_estado: number;
     empresa?: string | null;
@@ -200,7 +200,6 @@ export interface OperacionProceso {
     motivo_retencion?: string | null;
     fecha_registro: string;
     monto_devuelto?: number | null;
-    flag_retencion_parcial?: boolean | null;
 }
 
 export interface OperacionCajaMovimiento {
@@ -225,6 +224,7 @@ export interface OperacionCajaMovimiento {
     nombre_estado: string;
     tipo_facturacion: string | null;
     fecha_registro: string;
+    flag_paso_retencion?: boolean | null;
 }
 
 export interface CajaOperativa {
@@ -245,7 +245,6 @@ export interface CajaOperativa {
     ganancia_retenido: number;
     salida: number;
     operaciones: number;
-    flag_retencion: boolean;
     id_estado: number;
     nombre_estado: string;
     id_usuario: number | null;

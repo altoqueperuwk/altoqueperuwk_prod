@@ -213,6 +213,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_confirmar_retencion", params);
     },
 
+    retornarRetencion(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_retornar_retencion", params);
+    },
+
     getReglaAbono(params: Record<string, unknown>) {
         return rpc<RecaudacionReglaAbono[]>("f_get_tb_recaudacion_regla_abono", params);
     },

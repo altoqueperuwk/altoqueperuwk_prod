@@ -18,11 +18,11 @@ interface OperacionReglasAbonoModalProps {
     ruta: OperacionRutaBancaria;
 }
 
-const routeDefaults: Partial<Record<OperacionRutaBancaria, { horaCorte: string; dias: string; horaLiberacion: string }>> = {
-    bcp: { horaCorte: "00:00", dias: "1", horaLiberacion: "06:00" },
-    scotiabank: { horaCorte: "21:00", dias: "1", horaLiberacion: "06:00" },
-    banbif: { horaCorte: "21:00", dias: "1", horaLiberacion: "06:00" },
-    safetypay: { horaCorte: "00:00", dias: "2", horaLiberacion: "06:00" },
+const routeDefaults: Partial<Record<OperacionRutaBancaria, { horaCorte: string; dias: string; horaLiberacion: string; baseCalculo: string }>> = {
+    bcp: { horaCorte: "00:00", dias: "1", horaLiberacion: "00:00", baseCalculo: "DEPOSITO" },
+    scotiabank: { horaCorte: "21:00", dias: "1", horaLiberacion: "21:00", baseCalculo: "CORTE" },
+    banbif: { horaCorte: "21:00", dias: "1", horaLiberacion: "21:00", baseCalculo: "CORTE" },
+    safetypay: { horaCorte: "00:00", dias: "2", horaLiberacion: "14:00", baseCalculo: "DEPOSITO" },
 };
 
 const normalizeTime = (value: unknown, fallback: string) => {
@@ -35,6 +35,11 @@ const estadoOptions = [
     { value: "2", label: "Inactivo" },
 ];
 
+const baseCalculoOptions = [
+    { value: "DEPOSITO", label: "Deposito (dia del deposito)" },
+    { value: "CORTE", label: "Corte (fecha del corte)" },
+];
+
 export const OperacionReglasAbonoModal = ({
     activeCompanyCaja,
     isOpen,
@@ -44,11 +49,12 @@ export const OperacionReglasAbonoModal = ({
 }: OperacionReglasAbonoModalProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
-    const defaults = routeDefaults[ruta] ?? { horaCorte: "00:00", dias: "1", horaLiberacion: "06:00" };
+    const defaults = routeDefaults[ruta] ?? { horaCorte: "00:00", dias: "1", horaLiberacion: "00:00", baseCalculo: "DEPOSITO" };
     const [rule, setRule] = useState<RecaudacionReglaAbono | null>(null);
     const [horaCorte, setHoraCorte] = useState(defaults.horaCorte);
     const [diasHabiles, setDiasHabiles] = useState(defaults.dias);
     const [horaLiberacion, setHoraLiberacion] = useState(defaults.horaLiberacion);
+    const [baseCalculo, setBaseCalculo] = useState(defaults.baseCalculo);
     const [liberacionAutomatica, setLiberacionAutomatica] = useState(false);
     const [estado, setEstado] = useState("1");
     const [isLoading, setIsLoading] = useState(false);
@@ -66,6 +72,7 @@ export const OperacionReglasAbonoModal = ({
         setHoraCorte(defaults.horaCorte);
         setDiasHabiles(defaults.dias);
         setHoraLiberacion(defaults.horaLiberacion);
+        setBaseCalculo(defaults.baseCalculo);
         setLiberacionAutomatica(false);
         setEstado("1");
 
@@ -86,6 +93,7 @@ export const OperacionReglasAbonoModal = ({
                     setHoraCorte(normalizeTime(current.hora_corte, defaults.horaCorte));
                     setDiasHabiles(String(current.dias_habiles_abono ?? defaults.dias));
                     setHoraLiberacion(normalizeTime(current.hora_liberacion, defaults.horaLiberacion));
+                    setBaseCalculo(String(current.base_calculo_abono ?? defaults.baseCalculo));
                     setLiberacionAutomatica(Boolean(current.flag_liberacion_automatica));
                     setEstado(String(current.id_estado ?? 1));
                 }
@@ -121,6 +129,7 @@ export const OperacionReglasAbonoModal = ({
                 p_hora_corte: horaCorte,
                 p_dias_habiles_abono: dias,
                 p_hora_liberacion: horaLiberacion,
+                p_base_calculo_abono: baseCalculo,
                 p_flag_liberacion_automatica: liberacionAutomatica,
                 p_id_estado: Number(estado),
                 p_id_usuario: businessUser?.id ? Number(businessUser.id) : null,
@@ -140,7 +149,8 @@ export const OperacionReglasAbonoModal = ({
         <ModalOverlay isOpen={isOpen} onOpenChange={(open) => !open && onClose()} isDismissable>
             <Modal className="w-full max-w-xl">
                 <Dialog>
-                    <div className="flex flex-col gap-5">
+                    <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                        <div className="flex flex-col gap-5">
                         <div>
                             <h2 className="text-lg font-semibold text-primary">Reglas de Abono</h2>
                             <p className="mt-1 text-sm text-tertiary">{title}</p>
@@ -175,6 +185,13 @@ export const OperacionReglasAbonoModal = ({
                                     onChange={setHoraLiberacion}
                                 />
                                 <NativeSelect
+                                    label="Base de Calculo del Abono"
+                                    options={baseCalculoOptions}
+                                    value={baseCalculo}
+                                    disabled={isLoading}
+                                    onChange={(event) => setBaseCalculo(event.target.value)}
+                                />
+                                <NativeSelect
                                     label="Estado"
                                     options={estadoOptions}
                                     value={estado}
@@ -205,6 +222,7 @@ export const OperacionReglasAbonoModal = ({
                             <Button color="primary" isLoading={isSaving} isDisabled={!activeCompanyCaja || isLoading} onClick={handleSave}>
                                 Guardar
                             </Button>
+                        </div>
                         </div>
                     </div>
                 </Dialog>

@@ -15,6 +15,7 @@ const toLimaDayEnd = (date: string) => `${date}T23:59:59-05:00`;
 
 export interface MovimientoMerged {
     id: number;
+    id_operacion_proceso: number | null;
     tipo_origen: string;
     movimientos: string[];
     tipo_servicio: string;
@@ -29,6 +30,7 @@ export interface MovimientoMerged {
     monto_ganancia: number;
     tipo_facturacion: string;
     fecha_registro: string;
+    flag_paso_retencion?: boolean | null;
 }
 
 const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] => {
@@ -54,6 +56,7 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
 
         merged.push({
             id: primary.id,
+            id_operacion_proceso: primary.id_operacion_proceso ?? null,
             tipo_origen: primary.tipo_origen,
             movimientos: group.map((r) => r.tipo_movimiento),
             tipo_servicio: primary.tipo_servicio ?? primary.nombre_codigo_servicio ?? "",
@@ -68,12 +71,14 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
             monto_ganancia: ingreso?.monto_ganancia ?? 0,
             tipo_facturacion: primary.tipo_facturacion ?? "Boleta",
             fecha_registro: primary.fecha_registro,
+            flag_paso_retencion: ingreso?.flag_paso_retencion ?? primary.flag_paso_retencion ?? false,
         });
     }
 
     for (const row of standalone) {
         merged.push({
             id: row.id,
+            id_operacion_proceso: row.id_operacion_proceso ?? null,
             tipo_origen: row.tipo_origen,
             movimientos: [row.tipo_movimiento],
             tipo_servicio: row.tipo_servicio ?? row.nombre_codigo_servicio ?? "",
@@ -88,6 +93,7 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
             monto_ganancia: row.monto_ganancia,
             tipo_facturacion: row.tipo_facturacion ?? "Boleta",
             fecha_registro: row.fecha_registro,
+            flag_paso_retencion: row.flag_paso_retencion ?? false,
         });
     }
 
@@ -117,7 +123,7 @@ export const tabContracts: Record<BancariaTab, { filters: string[]; actions: str
     },
     Retenidos: {
         filters: [],
-        actions: ["Procesar Abonos Vencidos", "Confirmar"],
+        actions: ["Forzar Abono"],
     },
 };
 

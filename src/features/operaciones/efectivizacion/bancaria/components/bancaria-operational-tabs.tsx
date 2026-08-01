@@ -8,7 +8,7 @@ import { clienteService } from "@/services/cliente.service";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Edit03, Trash01 } from "@untitledui/icons";
+import { Edit03, ReverseLeft, Trash01 } from "@untitledui/icons";
 import { EmpresaTabs } from "@/features/operaciones/efectivizacion/shared/components/empresa-tabs";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
@@ -82,7 +82,17 @@ const baseOperationColumns = [
     { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
 ];
 
-const getMovementColumns = (showModalidad: boolean, onDelete?: (row: MovimientoMerged) => void) => [
+const isDeletableMovement = (row: MovimientoMerged) => {
+    if (row.id_operacion_proceso != null) return false;
+    const origen = (row.tipo_origen ?? "").trim().toUpperCase().replaceAll("_", " ");
+    return origen === "OTROS" || origen === "TRANSFERENCIA INTERNA";
+};
+
+const getMovementColumns = (
+    showModalidad: boolean,
+    onDelete?: (row: MovimientoMerged) => void,
+    onReturnRetencion?: (row: MovimientoMerged) => void,
+) => [
     { key: "tipo_origen", label: "Origen", render: (row: MovimientoMerged) => <CompactBadgeLine color="brand">{row.tipo_origen}</CompactBadgeLine> },
     ...(showModalidad ? [{
         key: "tipo_recaudacion_sf",
@@ -155,18 +165,32 @@ const getMovementColumns = (showModalidad: boolean, onDelete?: (row: MovimientoM
         ),
     },
     { key: "fecha_registro", label: "Fecha", render: (row: MovimientoMerged) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
-    ...(onDelete ? [{
+    ...(onDelete || onReturnRetencion ? [{
         key: "acciones",
         label: "Acciones",
         render: (row: MovimientoMerged) => (
-            <Button
-                size="xs"
-                color="tertiary"
-                iconLeading={Trash01}
-                aria-label="Eliminar movimiento"
-                title="Eliminar movimiento"
-                onClick={() => onDelete(row)}
-            />
+            <div className="flex items-center gap-1">
+                {onReturnRetencion && row.flag_paso_retencion && row.movimientos.includes("INGRESO") && (
+                    <Button
+                        size="xs"
+                        color="tertiary"
+                        iconLeading={ReverseLeft}
+                        aria-label="Retornar retencion"
+                        title="Retornar retencion"
+                        onClick={() => onReturnRetencion(row)}
+                    />
+                )}
+                {onDelete && isDeletableMovement(row) && (
+                    <Button
+                        size="xs"
+                        color="tertiary"
+                        iconLeading={Trash01}
+                        aria-label="Eliminar movimiento"
+                        title="Eliminar movimiento"
+                        onClick={() => onDelete(row)}
+                    />
+                )}
+            </div>
         ),
     }] : []),
 ];
@@ -305,6 +329,8 @@ export const BancariaOperationalTabs = ({
     const [isRollbackProcessing, setIsRollbackProcessing] = useState(false);
     const [movementToDelete, setMovementToDelete] = useState<MovimientoMerged | null>(null);
     const [isDeletingMovement, setIsDeletingMovement] = useState(false);
+    const [movementToReturn, setMovementToReturn] = useState<MovimientoMerged | null>(null);
+    const [isReturningRetention, setIsReturningRetention] = useState(false);
     const handledDownloadKeyRef = useRef(0);
     const isActiveDigitalWallet = isDigitalWalletBank(activeCompanyCaja);
     const visibleTabs = useMemo(
@@ -312,7 +338,7 @@ export const BancariaOperationalTabs = ({
             if (isActiveDigitalWallet) return [] as BancariaTab[];
             if (ruta === "safetypay") return ["Efectivizacion", "POS", "Movimientos", "Retenidos"] as BancariaTab[];
             const hasRetencion = retentionRoutes.has(ruta) ||
-                companies.some((c) => c.flag_retencion_parcial_cuenta);
+                companies.some((c) => c.flag_retencion_cuenta);
             return hasRetencion ? tabs : tabs.filter((tab) => tab !== "Retenidos");
         },
         [isActiveDigitalWallet, ruta, companies],
@@ -492,6 +518,30 @@ export const BancariaOperationalTabs = ({
         }
     }, [addToast, movementToDelete, onChanged, onMetricsChanged, userId]);
 
+    const handleReturnRetencion = useCallback(async () => {
+        if (!movementToReturn?.id_operacion_proceso) return;
+
+        setIsReturningRetention(true);
+        try {
+            await operacionesRpcService.retornarRetencion({
+                p_id: movementToReturn.id_operacion_proceso,
+                p_id_usuario_gestor: userId,
+                p_nombre_usuario_gestor: userName,
+            });
+            addToast("success", "Retencion retornada: la operacion volvio al tab Retenidos y la caja fue revertida.");
+            setMovementToReturn(null);
+            setSelectedIds([]);
+            setActionRefreshKey((value) => value + 1);
+            setMetricsRefreshKey((value) => value + 1);
+            onChanged?.();
+            onMetricsChanged?.();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo retornar la retencion.");
+        } finally {
+            setIsReturningRetention(false);
+        }
+    }, [addToast, movementToReturn, onChanged, onMetricsChanged, userId, userName]);
+
     const operationColumnsByTab = useMemo(() => ({
         Efectivizacion: baseOperationColumns,
         "Pago Deuda": [
@@ -577,13 +627,11 @@ export const BancariaOperationalTabs = ({
         Retenidos: [
             { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
             { key: "dni_cliente", label: "DNI" },
-            { key: "nombre_cliente", label: "Cliente" },
-            { key: "nombre_estado", label: "Estado" },
             { key: "monto_transferencia_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
-            { key: "nombre_usuario_retiene", label: "Retiene" },
+            { key: "fecha_deposito_cliente", label: "Fecha Deposito", render: (row: OperacionProceso) => row.fecha_deposito_cliente ? new Date(row.fecha_deposito_cliente).toLocaleString("es-PE") : "-" },
+            { key: "fecha_corte_recaudacion", label: "Fecha Corte", render: (row: OperacionProceso) => row.fecha_corte_recaudacion ? new Date(row.fecha_corte_recaudacion).toLocaleString("es-PE") : "-" },
+            { key: "fecha_liberacion_abono", label: "Fecha Abono", render: (row: OperacionProceso) => row.fecha_liberacion_abono ? new Date(row.fecha_liberacion_abono).toLocaleString("es-PE") : "-" },
             { key: "motivo_retencion", label: "Motivo" },
-            { key: "fecha_corte_recaudacion", label: "Corte", render: (row: OperacionProceso) => row.fecha_corte_recaudacion ? new Date(row.fecha_corte_recaudacion).toLocaleString("es-PE") : "-" },
-            { key: "fecha_liberacion_abono", label: "Abono Estimado", render: (row: OperacionProceso) => row.fecha_liberacion_abono ? new Date(row.fecha_liberacion_abono).toLocaleString("es-PE") : "-" },
             {
                 key: "flag_liberable_abono",
                 label: "Liberable",
@@ -593,12 +641,11 @@ export const BancariaOperationalTabs = ({
                     </CompactBadgeLine>
                 ),
             },
-            { key: "fecha_deposito_cliente", label: "Deposito", render: (row: OperacionProceso) => row.fecha_deposito_cliente ? new Date(row.fecha_deposito_cliente).toLocaleDateString("es-PE") : "" },
         ],
     } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [handlePagoDeudaTransferenciaRow, handlePosEstadoRow, isHistoryMode, savingPagoDeudaEstadoIds, savingPosEstadoIds]);
     const currentOperationColumns = currentTab === "Movimientos" ? baseOperationColumns : operationColumnsByTab[currentTab];
     const currentMovementColumns = useMemo(
-        () => getMovementColumns(ruta === "safetypay", isHistoryMode ? undefined : setMovementToDelete),
+        () => getMovementColumns(ruta === "safetypay", isHistoryMode ? undefined : setMovementToDelete, isHistoryMode ? undefined : setMovementToReturn),
         [isHistoryMode, ruta],
     );
     const selectedOperations = operaciones.filter((row) => selectedIds.includes(row.id));
@@ -808,41 +855,7 @@ export const BancariaOperationalTabs = ({
             return;
         }
 
-        if (action === "Procesar Abonos Vencidos") {
-            if (!activeAccountId) {
-                addToast("error", "Selecciona una cuenta antes de procesar abonos.");
-                return;
-            }
-
-            setIsApplyingAction(true);
-
-            try {
-                const result = await operacionesRpcService.runLiberarRetenciones({
-                    p_ruta: ruta,
-                    p_id_usuario: userId,
-                    p_id_empresa_cuenta_bancaria: activeAccountId,
-                });
-                const liberadas = Number(result.operaciones_liberadas ?? 0);
-                const errores = Number(result.operaciones_error ?? 0);
-
-                setSelectedIds([]);
-                refreshBandeja();
-                refreshMetrics();
-                addToast(
-                    errores > 0 ? "error" : "success",
-                    errores > 0
-                        ? `Abonos procesados con errores. Liberadas: ${liberadas}. Errores: ${errores}.`
-                        : `Abonos vencidos liberados: ${liberadas}.`,
-                );
-            } catch (err) {
-                addToast("error", err instanceof Error ? err.message : "Error al procesar abonos vencidos.");
-            } finally {
-                setIsApplyingAction(false);
-            }
-            return;
-        }
-
-        if (action === "Confirmar") {
+        if (action === "Forzar Abono") {
             if (!selectedIds.length) {
                 addToast("error", "Selecciona al menos una operación.");
                 return;
@@ -864,9 +877,9 @@ export const BancariaOperationalTabs = ({
 
                 setSelectedIds([]);
                 applyUpdatedRows(updatedRows);
-                addToast("success", `Retenciones confirmadas: ${selectedIds.length}`);
+                addToast("success", `Abonos forzados: ${selectedIds.length}`);
             } catch (err) {
-                const message = err instanceof Error ? err.message : "Error al confirmar retenciones.";
+                const message = err instanceof Error ? err.message : "Error al forzar abonos.";
                 addToast("error", message);
             } finally {
                 setIsApplyingAction(false);
@@ -1208,15 +1221,16 @@ export const BancariaOperationalTabs = ({
             <OperationToolbar
                 activeFilter={activeFilter}
                 actions={contract.actions}
-                code={currentTab === "Efectivizacion" ? code : undefined}
+                code={currentTab === "Efectivizacion" || currentTab === "Retenidos" ? code : undefined}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
+                dateRangeLabel={currentTab === "Retenidos" ? "Fecha Deposito" : undefined}
                 dni={dni}
                 filters={contract.filters}
                 showDateRange={currentTab === "Retenidos"}
                 onDateFromChange={setDateFrom}
                 onDateToChange={setDateTo}
-                onCodeChange={currentTab === "Efectivizacion" ? setCode : undefined}
+                onCodeChange={currentTab === "Efectivizacion" || currentTab === "Retenidos" ? setCode : undefined}
                 onDniChange={setDni}
                 onFilterChange={setActiveFilter}
                 isActionDisabled={isActionDisabled}
@@ -1288,6 +1302,17 @@ export const BancariaOperationalTabs = ({
                 }}
                 onConfirm={() => void handleDeleteMovement()}
                 title="Eliminar movimiento"
+            />
+            <OperacionConfirmModal
+                confirmLabel="Retornar"
+                description="La operacion volvera al tab Retenidos, se reetiquetara su movimiento como RETENIDO y se revertira el impacto del abono en la caja actual. Si su abono estimado ya vencio, podra liberarse nuevamente con el job o con Forzar Abono."
+                isLoading={isReturningRetention}
+                isOpen={movementToReturn !== null}
+                onClose={() => {
+                    if (!isReturningRetention) setMovementToReturn(null);
+                }}
+                onConfirm={() => void handleReturnRetencion()}
+                title="Retornar retencion"
             />
             <BancariaActionModal
                 action={pendingAction === "Match" ? null : pendingAction}

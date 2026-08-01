@@ -45,8 +45,6 @@ interface CuentaDraft {
     comision_igv_banco_ingreso: string;
     comision_transf_banco_salida: string;
     comision_transf_inter_banco_salida: string;
-    flag_retencion: boolean;
-    flag_retencion_parcial: boolean;
     id_estado: string;
 }
 
@@ -99,8 +97,6 @@ const buildCuentaDraft = (row: Record<string, unknown>): CuentaDraft => ({
     comision_igv_banco_ingreso: row.comision_igv_banco_ingreso == null ? "" : String(row.comision_igv_banco_ingreso),
     comision_transf_banco_salida: row.comision_transf_banco_salida == null ? "" : String(row.comision_transf_banco_salida),
     comision_transf_inter_banco_salida: row.comision_transf_inter_banco_salida == null ? "" : String(row.comision_transf_inter_banco_salida),
-    flag_retencion: Boolean(row.flag_retencion),
-    flag_retencion_parcial: Boolean(row.flag_retencion_parcial),
     id_estado: row.id_estado == null ? "" : String(row.id_estado),
 });
 
@@ -123,8 +119,6 @@ const toCuentaComparable = (row: CuentaDraft) => ({
     comision_igv_banco_ingreso: row.comision_igv_banco_ingreso.trim(),
     comision_transf_banco_salida: row.comision_transf_banco_salida.trim(),
     comision_transf_inter_banco_salida: row.comision_transf_inter_banco_salida.trim(),
-    flag_retencion: row.flag_retencion,
-    flag_retencion_parcial: row.flag_retencion_parcial,
     id_estado: row.id_estado,
 });
 
@@ -256,8 +250,6 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
             comision_igv_banco_ingreso: "",
             comision_transf_banco_salida: "0",
             comision_transf_inter_banco_salida: "",
-            flag_retencion: false,
-            flag_retencion_parcial: false,
             id_estado: String(activeEstadoId),
         };
         setCuentas((current) => [row, ...current]);
@@ -301,8 +293,6 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
                 row.comision_igv_banco_ingreso.trim() ||
                 row.comision_transf_banco_salida.trim() ||
                 row.comision_transf_inter_banco_salida.trim() ||
-                row.flag_retencion ||
-                row.flag_retencion_parcial ||
                 row.id_estado,
             );
         }
@@ -454,8 +444,6 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
                 p_comision_igv_banco_ingreso: parseNumber(row.comision_igv_banco_ingreso),
                 p_comision_transf_banco_salida: parseNumber(row.comision_transf_banco_salida),
                 p_comision_transf_inter_banco_salida: parseNumber(row.comision_transf_inter_banco_salida),
-                p_flag_retencion: row.flag_retencion,
-                p_flag_retencion_parcial: row.flag_retencion_parcial,
                 p_id_estado: Number(row.id_estado),
             };
 
@@ -656,7 +644,6 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
                                                 <th className="w-32 px-3 py-3 text-xs font-medium uppercase text-tertiary">Com. Minima</th>
                                                 <th className="w-28 px-3 py-3 text-xs font-medium uppercase text-tertiary">Com. IGV</th>
                                                 <th className="w-36 px-3 py-3 text-xs font-medium uppercase text-tertiary">Com. Transf. Inter.</th>
-                                                <th className="min-w-32 px-3 py-3 text-xs font-medium uppercase text-tertiary">Retencion</th>
                                                 <th className="min-w-32 px-3 py-3 text-xs font-medium uppercase text-tertiary">Estado</th>
                                                 <th className="px-3 py-3 text-xs font-medium uppercase text-tertiary">Acciones</th>
                                             </tr>
@@ -664,15 +651,15 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
                                         <tbody className="divide-y divide-secondary">
                                             {!selectedEmpresaId ? (
                                                 <tr>
-                                                    <td colSpan={10} className="px-4 py-10 text-center text-sm text-tertiary">Selecciona una empresa para ver sus cuentas.</td>
+                                                    <td colSpan={9} className="px-4 py-10 text-center text-sm text-tertiary">Selecciona una empresa para ver sus cuentas.</td>
                                                 </tr>
                                             ) : isLoadingCuentas ? (
                                                 <tr>
-                                                    <td colSpan={10} className="px-4 py-10 text-center text-sm text-tertiary">Cargando cuentas...</td>
+                                                    <td colSpan={9} className="px-4 py-10 text-center text-sm text-tertiary">Cargando cuentas...</td>
                                                 </tr>
                                             ) : cuentas.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={10} className="px-4 py-10 text-center text-sm text-tertiary">No hay cuentas bancarias registradas.</td>
+                                                    <td colSpan={9} className="px-4 py-10 text-center text-sm text-tertiary">No hay cuentas bancarias registradas.</td>
                                                 </tr>
                                             ) : cuentas.map((row) => {
                                                 const isEditing = row.isNew || editingCuentaKey === row.key;
@@ -765,32 +752,6 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
                                                             />
                                                         ) : (
                                                             <span className="font-medium text-primary">{row.comision_transf_inter_banco_salida || "-"}</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-3 py-3">
-                                                        {isEditing ? (
-                                                            <div className="grid gap-1">
-                                                                <Checkbox
-                                                                    label="Total"
-                                                                    isSelected={row.flag_retencion}
-                                                                    onChange={(value) => {
-                                                                        updateCuenta(row.key, "flag_retencion", value);
-                                                                        if (value) updateCuenta(row.key, "flag_retencion_parcial", false);
-                                                                    }}
-                                                                />
-                                                                <Checkbox
-                                                                    label="Parcial"
-                                                                    isSelected={row.flag_retencion_parcial}
-                                                                    onChange={(value) => {
-                                                                        updateCuenta(row.key, "flag_retencion_parcial", value);
-                                                                        if (value) updateCuenta(row.key, "flag_retencion", false);
-                                                                    }}
-                                                                />
-                                                            </div>
-                                                        ) : (
-                                                            <span className="font-medium text-primary">
-                                                                {row.flag_retencion ? "Total" : row.flag_retencion_parcial ? "Parcial" : "-"}
-                                                            </span>
                                                         )}
                                                     </td>
                                                     <td className="px-3 py-3">

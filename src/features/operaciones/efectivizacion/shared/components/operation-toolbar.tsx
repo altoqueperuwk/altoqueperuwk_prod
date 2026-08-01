@@ -8,6 +8,7 @@ interface OperationToolbarProps {
     code?: string;
     dateFrom?: string;
     dateTo?: string;
+    dateRangeLabel?: string;
     dni: string;
     extraFilters?: ReactNode;
     filters: string[];
@@ -27,6 +28,7 @@ export const OperationToolbar = ({
     code = "",
     dateFrom = "",
     dateTo = "",
+    dateRangeLabel,
     dni,
     extraFilters,
     filters,
@@ -65,6 +67,9 @@ export const OperationToolbar = ({
                 {extraFilters}
                 {showDateRange && (
                     <>
+                        {dateRangeLabel && (
+                            <span className="ml-2 shrink-0 text-sm font-medium text-secondary">{dateRangeLabel}</span>
+                        )}
                         <Input
                             size="sm"
                             label=""

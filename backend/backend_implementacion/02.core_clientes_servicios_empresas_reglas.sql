@@ -879,7 +879,6 @@ CREATE TABLE IF NOT EXISTS public.tb_empresa_cuenta_bancaria (
   id_empresa bigint NOT NULL,
   id_banco bigint NOT NULL,
   flag_por_sol_comision_banco_ingreso boolean NOT NULL DEFAULT false,
-  flag_retencion boolean NOT NULL DEFAULT false,
   comision_itf_ingreso_salida numeric NOT NULL DEFAULT 0,
   comision_banco_ingreso numeric NOT NULL DEFAULT 0,
   comision_minimo_banco_ingreso numeric NOT NULL DEFAULT 0,
@@ -907,26 +906,23 @@ END;
 $$;
 
 -- ============================================================================
--- ALTER TABLE: agregar flag_retencion a tb_empresa_cuenta_bancaria
+-- DROP COLUMN: quitar flag_retencion / flag_retencion_parcial de tb_empresa_cuenta_bancaria
+-- La retencion ahora se gobierna desde tb_recaudacion_regla_abono (archivo 12).
 -- ============================================================================
 DO $$
 BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'tb_empresa_cuenta_bancaria' AND column_name = 'flag_retencion'
   ) THEN
-    ALTER TABLE public.tb_empresa_cuenta_bancaria ADD COLUMN flag_retencion boolean NOT NULL DEFAULT false;
+    ALTER TABLE public.tb_empresa_cuenta_bancaria DROP COLUMN flag_retencion;
   END IF;
-END;
-$$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'tb_empresa_cuenta_bancaria' AND column_name = 'flag_retencion_parcial'
   ) THEN
-    ALTER TABLE public.tb_empresa_cuenta_bancaria ADD COLUMN flag_retencion_parcial boolean NOT NULL DEFAULT false;
+    ALTER TABLE public.tb_empresa_cuenta_bancaria DROP COLUMN flag_retencion_parcial;
   END IF;
 END;
 $$;
@@ -946,24 +942,23 @@ BEGIN
 END;
 $$;
 
+-- ============================================================================
+-- DROP COLUMN: quitar flag_retencion / flag_retencion_parcial de tb_empresa_cuenta_bancaria_his
+-- ============================================================================
 DO $$
 BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'tb_empresa_cuenta_bancaria_his' AND column_name = 'flag_retencion'
   ) THEN
-    ALTER TABLE public.tb_empresa_cuenta_bancaria_his ADD COLUMN flag_retencion boolean NOT NULL DEFAULT false;
+    ALTER TABLE public.tb_empresa_cuenta_bancaria_his DROP COLUMN flag_retencion;
   END IF;
-END;
-$$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'tb_empresa_cuenta_bancaria_his' AND column_name = 'flag_retencion_parcial'
   ) THEN
-    ALTER TABLE public.tb_empresa_cuenta_bancaria_his ADD COLUMN flag_retencion_parcial boolean NOT NULL DEFAULT false;
+    ALTER TABLE public.tb_empresa_cuenta_bancaria_his DROP COLUMN flag_retencion_parcial;
   END IF;
 END;
 $$;
@@ -979,13 +974,29 @@ Funcion: f_get_tb_empresa_cuenta_bancaria
 Objetivo:
   Consultar cuentas bancarias de empresa con empresa y banco enriquecidos.
 */
+DROP FUNCTION IF EXISTS public.f_get_tb_empresa_cuenta_bancaria(
+  p_id bigint,
+  p_id_empresa bigint,
+  p_id_banco bigint,
+  p_flag_por_sol_comision_banco_ingreso boolean,
+  p_flag_retencion boolean,
+  p_flag_retencion_parcial boolean,
+  p_comision_itf_ingreso_salida numeric,
+  p_comision_banco_ingreso numeric,
+  p_comision_minimo_banco_ingreso numeric,
+  p_comision_igv_banco_ingreso numeric,
+  p_comision_transf_banco_salida numeric,
+  p_comision_transf_inter_banco_salida numeric,
+  p_id_estado bigint,
+  p_id_usuario bigint,
+  p_fecha_registro_desde timestamp with time zone,
+  p_fecha_registro_hasta timestamp with time zone
+);
 CREATE OR REPLACE FUNCTION public.f_get_tb_empresa_cuenta_bancaria(
   p_id bigint DEFAULT NULL,
   p_id_empresa bigint DEFAULT NULL,
   p_id_banco bigint DEFAULT NULL,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT NULL,
-  p_flag_retencion boolean DEFAULT NULL,
-  p_flag_retencion_parcial boolean DEFAULT NULL,
   p_comision_itf_ingreso_salida numeric DEFAULT NULL,
   p_comision_banco_ingreso numeric DEFAULT NULL,
   p_comision_minimo_banco_ingreso numeric DEFAULT NULL,
@@ -1009,8 +1020,6 @@ AS $$
     'id_banco', t.id_banco,
     'banco_nombre', b.nombre,
     'flag_por_sol_comision_banco_ingreso', t.flag_por_sol_comision_banco_ingreso,
-    'flag_retencion', t.flag_retencion,
-    'flag_retencion_parcial', t.flag_retencion_parcial,
     'comision_itf_ingreso_salida', t.comision_itf_ingreso_salida,
     'comision_banco_ingreso', t.comision_banco_ingreso,
     'comision_minimo_banco_ingreso', t.comision_minimo_banco_ingreso,
@@ -1032,8 +1041,6 @@ AS $$
     AND (p_id_empresa IS NULL OR t.id_empresa = p_id_empresa)
     AND (p_id_banco IS NULL OR t.id_banco = p_id_banco)
     AND (p_flag_por_sol_comision_banco_ingreso IS NULL OR t.flag_por_sol_comision_banco_ingreso = p_flag_por_sol_comision_banco_ingreso)
-    AND (p_flag_retencion IS NULL OR t.flag_retencion = p_flag_retencion)
-    AND (p_flag_retencion_parcial IS NULL OR t.flag_retencion_parcial = p_flag_retencion_parcial)
     AND (p_comision_itf_ingreso_salida IS NULL OR t.comision_itf_ingreso_salida = p_comision_itf_ingreso_salida)
     AND (p_comision_banco_ingreso IS NULL OR t.comision_banco_ingreso = p_comision_banco_ingreso)
     AND (p_comision_minimo_banco_ingreso IS NULL OR t.comision_minimo_banco_ingreso = p_comision_minimo_banco_ingreso)
@@ -1047,13 +1054,29 @@ AS $$
   ORDER BY t.id;
 $$;
 
+DROP FUNCTION IF EXISTS public.f_get_tb_empresa_cuenta_bancaria_his(
+  p_id bigint,
+  p_id_empresa bigint,
+  p_id_banco bigint,
+  p_flag_por_sol_comision_banco_ingreso boolean,
+  p_flag_retencion boolean,
+  p_flag_retencion_parcial boolean,
+  p_comision_itf_ingreso_salida numeric,
+  p_comision_banco_ingreso numeric,
+  p_comision_minimo_banco_ingreso numeric,
+  p_comision_igv_banco_ingreso numeric,
+  p_comision_transf_banco_salida numeric,
+  p_comision_transf_inter_banco_salida numeric,
+  p_id_estado bigint,
+  p_id_usuario bigint,
+  p_fecha_registro_desde timestamp with time zone,
+  p_fecha_registro_hasta timestamp with time zone
+);
 CREATE OR REPLACE FUNCTION public.f_get_tb_empresa_cuenta_bancaria_his(
   p_id bigint DEFAULT NULL,
   p_id_empresa bigint DEFAULT NULL,
   p_id_banco bigint DEFAULT NULL,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT NULL,
-  p_flag_retencion boolean DEFAULT NULL,
-  p_flag_retencion_parcial boolean DEFAULT NULL,
   p_comision_itf_ingreso_salida numeric DEFAULT NULL,
   p_comision_banco_ingreso numeric DEFAULT NULL,
   p_comision_minimo_banco_ingreso numeric DEFAULT NULL,
@@ -1076,8 +1099,6 @@ AS $$
     AND (p_id_empresa IS NULL OR t.id_empresa = p_id_empresa)
     AND (p_id_banco IS NULL OR t.id_banco = p_id_banco)
     AND (p_flag_por_sol_comision_banco_ingreso IS NULL OR t.flag_por_sol_comision_banco_ingreso = p_flag_por_sol_comision_banco_ingreso)
-    AND (p_flag_retencion IS NULL OR t.flag_retencion = p_flag_retencion)
-    AND (p_flag_retencion_parcial IS NULL OR t.flag_retencion_parcial = p_flag_retencion_parcial)
     AND (p_comision_itf_ingreso_salida IS NULL OR t.comision_itf_ingreso_salida = p_comision_itf_ingreso_salida)
     AND (p_comision_banco_ingreso IS NULL OR t.comision_banco_ingreso = p_comision_banco_ingreso)
     AND (p_comision_minimo_banco_ingreso IS NULL OR t.comision_minimo_banco_ingreso = p_comision_minimo_banco_ingreso)
@@ -1096,12 +1117,25 @@ Funcion: f_post_tb_empresa_cuenta_bancaria
 Objetivo:
   Crear una cuenta bancaria operativa asociada a una empresa.
 */
+DROP FUNCTION IF EXISTS public.f_post_tb_empresa_cuenta_bancaria(
+  p_id_empresa bigint,
+  p_id_banco bigint,
+  p_flag_por_sol_comision_banco_ingreso boolean,
+  p_flag_retencion boolean,
+  p_flag_retencion_parcial boolean,
+  p_comision_itf_ingreso_salida numeric,
+  p_comision_banco_ingreso numeric,
+  p_comision_minimo_banco_ingreso numeric,
+  p_comision_igv_banco_ingreso numeric,
+  p_comision_transf_banco_salida numeric,
+  p_comision_transf_inter_banco_salida numeric,
+  p_id_estado bigint,
+  p_id_usuario bigint
+);
 CREATE OR REPLACE FUNCTION public.f_post_tb_empresa_cuenta_bancaria(
   p_id_empresa bigint,
   p_id_banco bigint,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT false,
-  p_flag_retencion boolean DEFAULT NULL,
-  p_flag_retencion_parcial boolean DEFAULT false,
   p_comision_itf_ingreso_salida numeric DEFAULT 0,
   p_comision_banco_ingreso numeric DEFAULT 0,
   p_comision_minimo_banco_ingreso numeric DEFAULT 0,
@@ -1119,7 +1153,7 @@ DECLARE
   v_id bigint;
 BEGIN
   INSERT INTO public.tb_empresa_cuenta_bancaria (
-    id_empresa, id_banco, flag_por_sol_comision_banco_ingreso, flag_retencion, flag_retencion_parcial,
+    id_empresa, id_banco, flag_por_sol_comision_banco_ingreso,
     comision_itf_ingreso_salida, comision_banco_ingreso,
     comision_minimo_banco_ingreso, comision_igv_banco_ingreso,
     comision_transf_banco_salida, comision_transf_inter_banco_salida,
@@ -1129,8 +1163,6 @@ BEGIN
     p_id_empresa,
     p_id_banco,
     COALESCE(p_flag_por_sol_comision_banco_ingreso, false),
-    false,
-    false,
     COALESCE(p_comision_itf_ingreso_salida, 0), COALESCE(p_comision_banco_ingreso, 0),
     COALESCE(p_comision_minimo_banco_ingreso, 0), COALESCE(p_comision_igv_banco_ingreso, 0),
     COALESCE(p_comision_transf_banco_salida, 0), COALESCE(p_comision_transf_inter_banco_salida, 0),
@@ -1151,13 +1183,27 @@ Funcion: f_patch_tb_empresa_cuenta_bancaria
 Objetivo:
   Actualizar una cuenta bancaria operativa existente.
 */
+DROP FUNCTION IF EXISTS public.f_patch_tb_empresa_cuenta_bancaria(
+  p_id bigint,
+  p_id_empresa bigint,
+  p_id_banco bigint,
+  p_flag_por_sol_comision_banco_ingreso boolean,
+  p_flag_retencion boolean,
+  p_flag_retencion_parcial boolean,
+  p_comision_itf_ingreso_salida numeric,
+  p_comision_banco_ingreso numeric,
+  p_comision_minimo_banco_ingreso numeric,
+  p_comision_igv_banco_ingreso numeric,
+  p_comision_transf_banco_salida numeric,
+  p_comision_transf_inter_banco_salida numeric,
+  p_id_estado bigint,
+  p_id_usuario bigint
+);
 CREATE OR REPLACE FUNCTION public.f_patch_tb_empresa_cuenta_bancaria(
   p_id bigint,
   p_id_empresa bigint DEFAULT NULL,
   p_id_banco bigint DEFAULT NULL,
   p_flag_por_sol_comision_banco_ingreso boolean DEFAULT NULL,
-  p_flag_retencion boolean DEFAULT NULL,
-  p_flag_retencion_parcial boolean DEFAULT NULL,
   p_comision_itf_ingreso_salida numeric DEFAULT NULL,
   p_comision_banco_ingreso numeric DEFAULT NULL,
   p_comision_minimo_banco_ingreso numeric DEFAULT NULL,
@@ -1180,8 +1226,6 @@ BEGIN
   SET id_empresa = COALESCE(p_id_empresa, id_empresa),
       id_banco = COALESCE(p_id_banco, id_banco),
       flag_por_sol_comision_banco_ingreso = COALESCE(p_flag_por_sol_comision_banco_ingreso, flag_por_sol_comision_banco_ingreso),
-      flag_retencion = false,
-      flag_retencion_parcial = false,
       comision_itf_ingreso_salida = COALESCE(p_comision_itf_ingreso_salida, comision_itf_ingreso_salida),
       comision_banco_ingreso = COALESCE(p_comision_banco_ingreso, comision_banco_ingreso),
       comision_minimo_banco_ingreso = COALESCE(p_comision_minimo_banco_ingreso, comision_minimo_banco_ingreso),

@@ -2614,7 +2614,6 @@ DECLARE
   v_comision_minimo_banco_ingreso numeric := 0;
   v_comision_igv_banco_ingreso numeric := 0;
   v_flag_retencion_cuenta boolean := false;
-  v_flag_retencion_parcial_cuenta boolean := false;
   v_regla record;
   v_regla_cliente record;
   v_dni_parseado character varying;
@@ -2882,7 +2881,6 @@ BEGIN
   ELSE
     v_flag_retencion_cuenta := false;
   END IF;
-  v_flag_retencion_parcial_cuenta := false;
 
   v_nombre_archivo_final := COALESCE(NULLIF(BTRIM(p_nombre_archivo), ''), 'Archivo sin nombre');
 

@@ -42,8 +42,6 @@ export const EmpresaCuentaBancariaPopup = ({ isOpen, onClose, onSave, item, defa
   const [comisionIgvBancoIngreso, setComisionIgvBancoIngreso] = useState("");
   const [comisionTransfBancoSalida, setComisionTransfBancoSalida] = useState("");
   const [comisionTransfInterBancoSalida, setComisionTransfInterBancoSalida] = useState("");
-  const [flagRetencion, setFlagRetencion] = useState(false);
-  const [flagRetencionParcial, setFlagRetencionParcial] = useState(false);
   const [idEstado, setIdEstado] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -180,20 +178,6 @@ export const EmpresaCuentaBancariaPopup = ({ isOpen, onClose, onSave, item, defa
                 value={comisionTransfBancoSalida} onChange={setComisionTransfBancoSalida} />
               <Input label="Comisión Transf. Interbancaria Salida" placeholder="S/ 0.00" size="sm" type="number"
                 value={comisionTransfInterBancoSalida} onChange={setComisionTransfInterBancoSalida} />
-
-              <div className="hidden">
-                <p className="mb-2 text-sm font-medium text-primary">Tipo de Retención</p>
-                <label className="flex items-center gap-2 py-1">
-                  <input type="checkbox" checked={flagRetencion} onChange={() => { setFlagRetencion(!flagRetencion); setFlagRetencionParcial(false); }}
-                    className="size-4 rounded border-secondary accent-brand" />
-                  <span className="text-sm text-primary">Retención Total (Scotiabank/Banbif)</span>
-                </label>
-                <label className="flex items-center gap-2 py-1">
-                  <input type="checkbox" checked={flagRetencionParcial} onChange={() => { setFlagRetencionParcial(!flagRetencionParcial); setFlagRetencion(false); }}
-                    className="size-4 rounded border-secondary accent-brand" />
-                  <span className="text-sm text-primary">Retención Parcial (Cierre automático)</span>
-                </label>
-              </div>
 
               <Select label="Estado" placeholder="Seleccione un estado" size="sm" isRequired
                 items={estadoItems} selectedKey={idEstado}
