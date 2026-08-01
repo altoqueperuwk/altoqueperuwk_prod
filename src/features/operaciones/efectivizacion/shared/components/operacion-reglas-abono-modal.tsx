@@ -173,7 +173,6 @@ export const OperacionReglasAbonoModal = ({
                                 <Input
                                     label="Dias Habiles Abono"
                                     type="number"
-                                    min={0}
                                     value={diasHabiles}
                                     isDisabled={isLoading || isBcp}
                                     onChange={setDiasHabiles}

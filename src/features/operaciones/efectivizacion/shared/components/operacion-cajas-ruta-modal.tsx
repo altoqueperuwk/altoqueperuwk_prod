@@ -41,6 +41,7 @@ interface CajaDraft {
     saldo_actual: string;
     id_estado: string;
     nombre_empresa: string;
+    id_banco?: number;
     nombre_banco: string;
 }
 
@@ -83,6 +84,7 @@ const buildCajaDraft = (row: Record<string, unknown>): CajaDraft => ({
     saldo_actual: String(row.saldo_actual ?? "0"),
     id_estado: String(row.id_estado ?? ""),
     nombre_empresa: String(row.nombre_empresa ?? ""),
+    id_banco: Number(row.id_banco ?? 0),
     nombre_banco: String(row.nombre_banco ?? ""),
 });
 

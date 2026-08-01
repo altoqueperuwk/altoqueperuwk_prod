@@ -108,6 +108,11 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
   id_empresa_cuenta_salida bigint,
   id_banco_empresa_cuenta_salida bigint,
   nombre_banco_empresa_cuenta_salida character varying,
+  id_empresa_salida_origen bigint,
+  nombre_empresa_salida_origen character varying,
+  id_empresa_cuenta_salida_origen bigint,
+  id_banco_empresa_cuenta_salida_origen bigint,
+  nombre_banco_empresa_cuenta_salida_origen character varying,
   comision_transf_banco_salida numeric,
   comision_transf_inter_banco_salida numeric,
   resultado_comision_banco_salida numeric,
@@ -211,6 +216,46 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'nombre_usuario_deriva'
   ) THEN
     ALTER TABLE public.tb_operacion_proceso ADD COLUMN nombre_usuario_deriva character varying;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'id_empresa_salida_origen'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN id_empresa_salida_origen bigint;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'nombre_empresa_salida_origen'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN nombre_empresa_salida_origen character varying;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'id_empresa_cuenta_salida_origen'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN id_empresa_cuenta_salida_origen bigint;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'id_banco_empresa_cuenta_salida_origen'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN id_banco_empresa_cuenta_salida_origen bigint;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'nombre_banco_empresa_cuenta_salida_origen'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN nombre_banco_empresa_cuenta_salida_origen character varying;
   END IF;
 
   IF NOT EXISTS (
@@ -1945,6 +1990,7 @@ DECLARE
   v_resultado_comision_banco_salida numeric;
   v_ruta_actual character varying;
   v_ruta_final character varying;
+  v_es_primera_derivacion boolean := false;
 BEGIN
   SELECT *
   INTO v_actual
@@ -1955,6 +2001,17 @@ BEGIN
   IF v_actual.id IS NULL THEN
     RETURN jsonb_build_object('error', 'La operacion no existe.');
   END IF;
+
+  IF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) <> 'PENDIENTE' THEN
+    RETURN jsonb_build_object('error', 'Solo se pueden derivar operaciones en estado Pendiente.');
+  END IF;
+
+  IF COALESCE(v_actual.flag_retenido, false) THEN
+    RETURN jsonb_build_object('error', 'No se puede derivar una operacion retenida.');
+  END IF;
+
+  v_es_primera_derivacion := NOT COALESCE(v_actual.flag_derivado, false)
+    AND v_actual.id_empresa_salida_origen IS NULL;
 
   v_ruta_actual := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
   v_ruta_final := COALESCE(p_ruta_destino, p_ruta_origen, v_actual.ruta_destino, v_actual.ruta_origen);
@@ -1980,6 +2037,10 @@ BEGIN
     v_tiene_cuenta_destino := FOUND;
   END IF;
 
+  IF COALESCE(p_ruta_destino, '') <> '' AND NOT v_tiene_cuenta_destino THEN
+    RETURN jsonb_build_object('error', 'La ruta destino no tiene una caja operativa activa.');
+  END IF;
+
   IF v_tiene_cuenta_destino THEN
     v_calc_salida := public.f_get_tb_operacion_calculo_comision_banco_salida(
       COALESCE(v_actual.monto_transferencia_cliente, 0),
@@ -1996,8 +2057,16 @@ BEGIN
   END IF;
 
   UPDATE public.tb_operacion_proceso
-  SET ruta_origen = COALESCE(p_ruta_origen, ruta_origen),
+  SET ruta_origen = CASE
+        WHEN v_es_primera_derivacion THEN COALESCE(p_ruta_origen, ruta_origen)
+        ELSE ruta_origen
+      END,
       ruta_destino = COALESCE(p_ruta_destino, ruta_destino),
+      id_empresa_salida_origen = CASE WHEN v_es_primera_derivacion THEN id_empresa_salida ELSE id_empresa_salida_origen END,
+      nombre_empresa_salida_origen = CASE WHEN v_es_primera_derivacion THEN nombre_empresa_salida ELSE nombre_empresa_salida_origen END,
+      id_empresa_cuenta_salida_origen = CASE WHEN v_es_primera_derivacion THEN id_empresa_cuenta_salida ELSE id_empresa_cuenta_salida_origen END,
+      id_banco_empresa_cuenta_salida_origen = CASE WHEN v_es_primera_derivacion THEN id_banco_empresa_cuenta_salida ELSE id_banco_empresa_cuenta_salida_origen END,
+      nombre_banco_empresa_cuenta_salida_origen = CASE WHEN v_es_primera_derivacion THEN nombre_banco_empresa_cuenta_salida ELSE nombre_banco_empresa_cuenta_salida_origen END,
       id_empresa_salida = CASE WHEN v_tiene_cuenta_destino THEN v_destino_cuenta.id_empresa ELSE id_empresa_salida END,
       nombre_empresa_salida = CASE WHEN v_tiene_cuenta_destino THEN v_destino_cuenta.nombre_empresa ELSE nombre_empresa_salida END,
       id_empresa_cuenta_salida = CASE WHEN v_tiene_cuenta_destino THEN v_destino_cuenta.id_empresa_cuenta_bancaria ELSE id_empresa_cuenta_salida END,

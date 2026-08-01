@@ -319,6 +319,7 @@ export const BancariaOperationalTabs = ({
     const [dateTo, setDateTo] = useState("");
     const [pendingAction, setPendingAction] = useState<"Derivar" | "Emp. Ingreso" | "Emp. Salida" | "Reasignar" | "Transferencia" | "Match" | "Modalidad" | null>(null);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
+    const [individualActionIds, setIndividualActionIds] = useState<number[]>([]);
     const [estadoPagado, setEstadoPagado] = useState<{ id: number; nombre: string } | null>(null);
     const [estadoPendiente, setEstadoPendiente] = useState<{ id: number; nombre: string } | null>(null);
     const [isApplyingAction, setIsApplyingAction] = useState(false);
@@ -357,10 +358,12 @@ export const BancariaOperationalTabs = ({
         setDateFrom("");
         setDateTo("");
         setSelectedIds([]);
+        setIndividualActionIds([]);
     }, [activeTab]);
 
     useEffect(() => {
         setSelectedIds([]);
+        setIndividualActionIds([]);
         setPendingAction(null);
         setConfirmQuickAction(null);
     }, [activeAccountId, activeFilter, activeCompanyId, code, dateFrom, dateTo, dni, historyDate, refreshKey]);
@@ -717,32 +720,36 @@ export const BancariaOperationalTabs = ({
         };
     }, [currentTab, selectedOperations]);
 
+    const actionIds = individualActionIds.length ? individualActionIds : selectedIds;
+
     const getEligibleIdsForAction = (action: string) => {
         if (currentTab === "Pago Deuda") {
-            if (action === "Transferencia") return selectedOperations.filter(isPendingOperation).map((row) => row.id);
-            if (action === "Emp. Salida") return selectedOperations.filter(isPendingOperation).map((row) => row.id);
-            if (action === "Reiniciar") return selectedOperations.filter(isPagoDeudaTransferido).map((row) => row.id);
-            if (action === "Match" || action === "Pagar") return selectedOperations.filter(isProcessedOperation).map((row) => row.id);
-            return selectedIds;
+            const actionRows = operaciones.filter((row) => actionIds.includes(row.id));
+            if (action === "Transferencia") return actionRows.filter(isPendingOperation).map((row) => row.id);
+            if (action === "Emp. Salida") return actionRows.filter(isPendingOperation).map((row) => row.id);
+            if (action === "Reiniciar") return actionRows.filter(isPagoDeudaTransferido).map((row) => row.id);
+            if (action === "Match" || action === "Pagar") return actionRows.filter(isProcessedOperation).map((row) => row.id);
+            return actionIds;
         }
 
         if (currentTab === "POS") {
-            if (action === "Pagar") return selectedOperations.filter(isPosSolicitado).map((row) => row.id);
-            if (action === "Reiniciar") return selectedOperations.filter(isPaidOperation).map((row) => row.id);
-            return selectedIds;
+            const actionRows = operaciones.filter((row) => actionIds.includes(row.id));
+            if (action === "Pagar") return actionRows.filter(isPosSolicitado).map((row) => row.id);
+            if (action === "Reiniciar") return actionRows.filter(isPaidOperation).map((row) => row.id);
+            return actionIds;
         }
 
-        if (!quickActionRuleTabs.includes(currentTab)) return selectedIds;
+        if (!quickActionRuleTabs.includes(currentTab)) return actionIds;
 
         if (["Pagar", "Directo", "Derivar", "Reasignar", "Emp. Ingreso", "Emp. Salida", "Modalidad"].includes(action)) {
-            return selectedOperations.filter(isPendingOperation).map((row) => row.id);
+            return operaciones.filter((row) => actionIds.includes(row.id)).filter(isPendingOperation).map((row) => row.id);
         }
 
         if (action === "Reiniciar") {
-            return selectedOperations.filter(isPaidOperation).map((row) => row.id);
+            return operaciones.filter((row) => actionIds.includes(row.id)).filter(isPaidOperation).map((row) => row.id);
         }
 
-        return selectedIds;
+        return actionIds;
     };
 
     const handleDniEditSave = async (row: OperacionProceso, newDni: string) => {
@@ -787,7 +794,7 @@ export const BancariaOperationalTabs = ({
 
         return eligibleIds;
     };
-    const pendingActionEligibleCount = pendingAction ? getEligibleIdsForAction(pendingAction).length : selectedIds.length;
+    const pendingActionEligibleCount = pendingAction ? getEligibleIdsForAction(pendingAction).length : actionIds.length;
 
     const refreshMetrics = () => {
         setMetricsRefreshKey((value) => value + 1);
@@ -888,12 +895,12 @@ export const BancariaOperationalTabs = ({
         }
 
         if (action === "Derivar" || action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Reasignar" || action === "Match" || action === "Modalidad") {
-            if (!selectedIds.length) {
+            if (!actionIds.length) {
                 addToast("error", "Selecciona al menos una operación.");
                 return;
             }
             if (!getEligibleIdsOrNotify(action).length) return;
-            if (action === "Match" && selectedIds.length !== 1) {
+            if (action === "Match" && actionIds.length !== 1) {
                 addToast("error", "Selecciona una sola operacion para hacer match.");
                 return;
             }
@@ -1200,6 +1207,7 @@ export const BancariaOperationalTabs = ({
 
             setPendingAction(null);
             setSelectedIds([]);
+            setIndividualActionIds([]);
             applyUpdatedRows(updatedRows);
             addToast("success", `Operaciones actualizadas: ${eligibleIds.length}`);
         } catch (err) {
@@ -1292,7 +1300,7 @@ export const BancariaOperationalTabs = ({
             {currentTab === "Movimientos" ? (
                 <OperationTable columns={currentMovementColumns} data={movimientos} emptyText="Sin movimientos para esta bandeja." isLoading={isLoading} />
             ) : currentTab === "Efectivizacion" || currentTab === "Derivados" || currentTab === "Eliminados" ? (
-                <BancariaEfectivizacionTable
+            <BancariaEfectivizacionTable
                     activeAccountId={activeAccountId}
                     activeCompanyId={activeCompanyId}
                     companies={companies}
@@ -1308,7 +1316,11 @@ export const BancariaOperationalTabs = ({
                         onChanged?.();
                     }}
                     onRowUpdated={replaceOperacion}
-                    onDeleteOperation={setOperationToDelete}
+                onDeleteOperation={setOperationToDelete}
+                onDeriveRow={(row) => {
+                    setIndividualActionIds([row.id]);
+                    setPendingAction("Derivar");
+                }}
                     onRestoreOperation={setOperationToRestore}
                     ruta={ruta}
                     selectedIds={selectedIds}
@@ -1392,7 +1404,10 @@ export const BancariaOperationalTabs = ({
                 isOpen={pendingAction !== null && pendingAction !== "Match"}
                 isSaving={isApplyingAction}
                 selectedCount={pendingActionEligibleCount}
-                onClose={() => setPendingAction(null)}
+                onClose={() => {
+                    setPendingAction(null);
+                    setIndividualActionIds([]);
+                }}
                 onSubmit={handleModalAction}
             />
             <PagoDeudaActionModal

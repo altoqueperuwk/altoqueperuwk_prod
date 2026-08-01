@@ -403,7 +403,18 @@ export const useBancariaBandeja = ({
                 ? operacionesRpcService.getOperacionesRetencionBandeja(retentionParams)
                 : operacionesRpcService.getOperaciones(params);
 
-        request
+        const originRequest = tab === "Efectivizacion" && !retentionRoutes.has(ruta)
+            ? operacionesRpcService.getOperaciones({
+                  ...params,
+                  p_ruta_destino: undefined,
+                  p_ruta_origen: ruta,
+                  p_flag_derivado: true,
+                  p_id_empresa_salida: undefined,
+                  p_id_empresa_cuenta_salida: undefined,
+              })
+            : null;
+
+        (originRequest ? Promise.all([request, originRequest]) : request)
             .then(async (result) => {
                 if (ignore) return;
                 if (tab === "Movimientos") {
@@ -413,7 +424,15 @@ export const useBancariaBandeja = ({
                     setMovimientos(filterMovimientos(merged, activeFilter));
                     setOperaciones([]);
                 } else {
-                    const rows = (result ?? []) as OperacionProceso[];
+                    const rows = (originRequest ? (result as [unknown, unknown]).flatMap((part) => (part ?? []) as OperacionProceso[]) : (result ?? []) as OperacionProceso[])
+                        .filter((row, index, all) => all.findIndex((item) => item.id === row.id) === index)
+                        .filter((row) => {
+                            if (!originRequest || row.flag_derivado !== true) return true;
+                            return (
+                                (!activeCompanyId || (row.id_empresa_salida_origen ?? row.id_empresa_salida) === activeCompanyId) &&
+                                (!activeAccountId || (row.id_empresa_cuenta_salida_origen ?? row.id_empresa_cuenta_salida) === activeAccountId)
+                            );
+                        });
                     if (tab === "Retenidos" && activeAccountId && rows.length) {
                         const infoRows = await operacionesRpcService.getRecaudacionOperacionInfo({
                             p_ids_operacion: rows.map((row) => row.id),

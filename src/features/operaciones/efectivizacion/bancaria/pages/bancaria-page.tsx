@@ -447,24 +447,25 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             if (document.fonts?.ready) await document.fonts.ready;
 
             const reportElement = host.querySelector(".report-container") ?? host;
+            const pdfOptions = {
+                margin: [0, 0, 0, 0] as [number, number, number, number],
+                filename: reportFileName,
+                image: { type: "jpeg" as const, quality: 0.98 },
+                html2canvas: {
+                    scale: 3,
+                    useCORS: true,
+                    backgroundColor: "#FFFFFF",
+                    scrollY: 0,
+                    windowWidth: 794,
+                    windowHeight: Math.max(reportElement.scrollHeight, 1123),
+                },
+                jsPDF: { unit: "mm", format: "a4", orientation: "portrait" as const },
+                pagebreak: { mode: ["css", "legacy"], avoid: [".cover", ".kpi-card", ".section-header"] },
+            };
 
             await html2pdf()
-                .set({
-                    margin: [0, 0, 0, 0],
-                    filename: reportFileName,
-                    image: { type: "jpeg", quality: 0.98 },
-                    html2canvas: {
-                        scale: 3,
-                        useCORS: true,
-                        backgroundColor: "#FFFFFF",
-                        scrollY: 0,
-                        windowWidth: 794,
-                        windowHeight: Math.max(reportElement.scrollHeight, 1123),
-                    },
-                    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-                    pagebreak: { mode: ["css", "legacy"], avoid: [".cover", ".kpi-card", ".section-header"] },
-                })
-                .from(reportElement)
+                .set(pdfOptions)
+                .from(reportElement as HTMLElement)
                 .save();
         } catch {
             addToast("error", "No se pudo generar el PDF.");
@@ -792,10 +793,10 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                                     <p className="mt-5 text-sm text-tertiary">Cargando datos...</p>
                                 ) : (
                                     <div className="mt-5 grid grid-cols-2 gap-3">
-                                        <Button size="sm" color="secondary" iconLeading={File06} isDisabled={!reporteData} onClick={handleDownloadExcel}>
+                                        <Button size="sm" color="secondary" iconLeading={File06} isDisabled={!reporteData} onClick={() => void handleDownloadExcel()}>
                                             Excel
                                         </Button>
-                                        <Button size="sm" color="secondary" iconLeading={File07} isDisabled={!reporteData} onClick={handleDownloadPdf}>
+                                        <Button size="sm" color="secondary" iconLeading={File07} isDisabled={!reporteData} onClick={() => void handleDownloadPdf()}>
                                             PDF
                                         </Button>
                                     </div>

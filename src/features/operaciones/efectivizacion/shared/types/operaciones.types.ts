@@ -152,6 +152,11 @@ export interface OperacionProceso {
     id_empresa_salida?: number | null;
     id_empresa_cuenta_salida?: number | null;
     id_banco_empresa_cuenta_salida?: number | null;
+    id_empresa_salida_origen?: number | null;
+    nombre_empresa_salida_origen?: string | null;
+    id_empresa_cuenta_salida_origen?: number | null;
+    id_banco_empresa_cuenta_salida_origen?: number | null;
+    nombre_banco_empresa_cuenta_salida_origen?: string | null;
     nombre_banco_empresa_cuenta_ingreso: string | null;
     nombre_banco_empresa_cuenta_salida: string | null;
     id_banco_cliente_transferencia?: number | null;

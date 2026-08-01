@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Coins01, Copy01, Edit03, Eye, Percent01, RefreshCcw02, Trash01 } from "@untitledui/icons";
+import { ChevronLeft, ChevronRight, Coins01, Copy01, CreditCardCheck, Edit03, Percent01, RefreshCcw02, Send01, Trash01 } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
@@ -65,6 +66,7 @@ interface BancariaEfectivizacionTableProps {
     onRefresh: () => void;
     onRowUpdated: (row: OperacionProceso) => void;
     onDeleteOperation?: (row: OperacionProceso) => void;
+    onDeriveRow?: (row: OperacionProceso) => void;
     onRestoreOperation?: (row: OperacionProceso) => void;
     onToggleRow?: (id: number) => void;
     ruta: OperacionRutaBancaria;
@@ -73,6 +75,10 @@ interface BancariaEfectivizacionTableProps {
 }
 
 const isPagado = (row: OperacionProceso) => (row.nombre_estado ?? "").toUpperCase() === "PAGADO";
+const isFrozenOriginOperation = (row: OperacionProceso, mode: "efectivizacion" | "derivaciones" | "eliminados", ruta: OperacionRutaBancaria) =>
+    mode === "efectivizacion" &&
+    row.flag_derivado === true &&
+    String(row.ruta_origen ?? "").toLowerCase() === ruta;
 const isDeletable = (row: OperacionProceso) => {
     const estado = (row.nombre_estado ?? "").toUpperCase();
     return estado === "PENDIENTE" || estado === "RETENIDO" || Boolean(row.flag_retenido);
@@ -173,6 +179,7 @@ export const BancariaEfectivizacionTable = ({
     onRefresh,
     onRowUpdated,
     onDeleteOperation,
+    onDeriveRow,
     onRestoreOperation,
     onToggleRow,
     ruta,
@@ -235,7 +242,7 @@ export const BancariaEfectivizacionTable = ({
     }, [addToast]);
 
     const paginatedRows = useMemo(() => rows.slice((page - 1) * pageSize, page * pageSize), [page, pageSize, rows]);
-    const visibleIds = paginatedRows.map((row) => row.id);
+    const visibleIds = paginatedRows.filter((row) => !isFrozenOriginOperation(row, mode, ruta)).map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
     const showTipoDeposito = tipoDepositoVisibleRoutes.includes(ruta);
     const columnHeaders = useMemo(() => getColumnHeaders(), []);
@@ -360,8 +367,8 @@ export const BancariaEfectivizacionTable = ({
 
     const isDerivaciones = mode === "derivaciones";
     const isEliminados = mode === "eliminados";
-    const readOnlyIngreso = (row: OperacionProceso) => isDerivaciones || isEliminados || isPagado(row) || savingIds.includes(row.id);
-    const readOnlySalida = (row: OperacionProceso) => isEliminados || isPagado(row) || savingIds.includes(row.id);
+    const readOnlyIngreso = (row: OperacionProceso) => isDerivaciones || isEliminados || isPagado(row) || isFrozenOriginOperation(row, mode, ruta) || savingIds.includes(row.id);
+    const readOnlySalida = (row: OperacionProceso) => isEliminados || isPagado(row) || isFrozenOriginOperation(row, mode, ruta) || savingIds.includes(row.id);
 
     const handleDniEditSave = async () => {
         if (!dniEdit) return;
@@ -721,7 +728,7 @@ export const BancariaEfectivizacionTable = ({
                     <thead className="bg-secondary">
                         <tr>
                             {hasSelection && (
-                                <th className="w-9 px-2 py-2">
+                                <th className="w-10 px-2 py-2">
                                     <Checkbox
                                         aria-label="Seleccionar pagina"
                                         isSelected={allVisibleSelected}
@@ -746,26 +753,29 @@ export const BancariaEfectivizacionTable = ({
                             ))
                         ) : paginatedRows.length ? (
                             paginatedRows.map((row) => {
+                                const frozenOrigin = isFrozenOriginOperation(row, mode, ruta);
                                 const disabledIngreso = readOnlyIngreso(row);
                                 const disabledSalida = readOnlySalida(row);
                                 const rowSaving = savingIds.includes(row.id);
                                 const tipoOptions = tipoDepositoOptions(row);
                                 const pdDisabled = rowSaving || isPagado(row) || !(pagoDeudaMatches[row.id]?.length);
+                                const displayedTransferAmount = frozenOrigin ? 0 : row.monto_transferencia_cliente;
 
                                 return (
                                     <motion.tr
                                         key={row.id}
                                         className={cx(
-                                            hasSelection && !rowSaving && "cursor-pointer transition-colors hover:bg-primary_hover",
+                                            hasSelection && !rowSaving && !frozenOrigin && "cursor-pointer transition-colors hover:bg-primary_hover",
                                             selectedIds.includes(row.id) && "bg-secondary",
                                         )}
                                         initial={{ opacity: 0, y: 4 }}
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ duration: 0.2 }}
-                                        onClick={(event) => handleRowClick(event, row, rowSaving)}
+                                        onClick={(event) => !frozenOrigin && handleRowClick(event, row, rowSaving)}
                                     >
                                         {hasSelection && (
-                                            <td className="px-2 py-2 align-top">
+                                            <td className="w-10 px-2 py-2 align-top">
+                                                {frozenOrigin ? null : (
                                                 <Checkbox
                                                     aria-label={`Seleccionar ${row.id}`}
                                                     data-prevent-row-select
@@ -773,6 +783,7 @@ export const BancariaEfectivizacionTable = ({
                                                     isDisabled={rowSaving}
                                                     onChange={() => onToggleRow?.(row.id)}
                                                 />
+                                                )}
                                             </td>
                                         )}
                                         <td className="px-2 py-2 align-top">
@@ -790,7 +801,10 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
 
                                         <td className="px-2 py-2 align-top">
-                                            <CompactCellText primary={row.codigo_operacion_deposito_cliente ?? "-"} />
+                                            <div className="flex flex-col items-start gap-1">
+                                                <CompactCellText primary={row.codigo_operacion_deposito_cliente ?? "-"} />
+                                                {frozenOrigin && <CompactBadgeLine color="gray">Derivada</CompactBadgeLine>}
+                                            </div>
                                             {showTipoDeposito && (
                                                 disabledIngreso || tipoOptions.length <= 1 ? (
                                                     <CompactBadgeLine color="gray" className="mt-1">{row.nombre_tipo_deposito ?? "Sin tipo"}</CompactBadgeLine>
@@ -893,15 +907,21 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <div className="flex items-center gap-1">
-                                                <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-primary">{formatMoney(row.monto_transferencia_cliente)}</span>
-                                                <Button size="xs" color="tertiary" iconLeading={Copy01} onClick={() => void handleAction(row, "Copiar")} />
+                                                <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-primary">{formatMoney(displayedTransferAmount)}</span>
+                                                <Button
+                                                    size="xs"
+                                                    color="tertiary"
+                                                    iconLeading={Copy01}
+                                                    isDisabled={frozenOrigin}
+                                                    onClick={() => void handleAction({ ...row, monto_transferencia_cliente: displayedTransferAmount }, "Copiar")}
+                                                />
                                             </div>
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <Button
                                                 size="xs"
                                                 color={isPagado(row) ? "secondary" : "primary"}
-                                                isDisabled={rowSaving || isEliminados || isPagado(row) || !estadoPagado}
+                                                isDisabled={rowSaving || frozenOrigin || isEliminados || isPagado(row) || !estadoPagado}
                                                 onClick={() => estadoPagado && void handleEstado(row, String(estadoPagado.id))}
                                             >
                                                 {isPagado(row) ? "Pagado" : "Pendiente"}
@@ -912,20 +932,35 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
                                         <td className="px-2 py-2 text-center align-top">
                                             <div className="flex items-center justify-center gap-1">
-                                                {mode === "efectivizacion" && ruta !== "safetypay" && (
-                                                    <Button
+                                                {(mode === "efectivizacion" || mode === "derivaciones") && ruta !== "safetypay" && (
+                                                    <ButtonUtility
                                                         size="xs"
-                                                        color={pdDisabled ? "secondary" : "primary"}
+                                                        color="secondary"
+                                                        icon={Send01}
+                                                        tooltip="Derivar Operacion"
+                                                        className={cx(
+                                                            "rounded-lg bg-brand-solid text-white ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover",
+                                                            isPagado(row) && "bg-primary text-secondary ring-primary hover:bg-primary_hover",
+                                                        )}
+                                                        isDisabled={frozenOrigin || rowSaving || isPagado(row)}
+                                                        onClick={() => !frozenOrigin && onDeriveRow?.(row)}
+                                                    />
+                                                )}
+                                                {!frozenOrigin && mode === "efectivizacion" && ruta !== "safetypay" && Boolean(pagoDeudaMatches[row.id]?.length) && (
+                                                    <ButtonUtility
+                                                        size="xs"
+                                                        color="secondary"
+                                                        icon={CreditCardCheck}
+                                                        tooltip="Confirmar Pago Deuda"
+                                                        className="rounded-lg bg-brand-solid text-white ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover"
                                                         isDisabled={pdDisabled}
                                                         onClick={() => {
                                                             setPdSelectedMatchId(null);
                                                             setPdMatchRow(row);
                                                         }}
-                                                    >
-                                                        PD
-                                                    </Button>
+                                                    />
                                                 )}
-                                            <Dropdown.Root>
+                                            {!frozenOrigin && <Dropdown.Root>
                                                 <Dropdown.DotsButton />
                                                 <Dropdown.Popover>
                                                     <Dropdown.Menu
@@ -940,12 +975,11 @@ export const BancariaEfectivizacionTable = ({
                                                                 {!isPagado(row) && <Dropdown.Item id="ComisionExtra" icon={Coins01}>Com. Extra</Dropdown.Item>}
                                                                 {!isPagado(row) && mode === "efectivizacion" && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo</Dropdown.Item>}
                                                                 {isDeletable(row) && mode === "efectivizacion" && <Dropdown.Item id="EliminarOperacion" icon={Trash01}>Eliminar Operacion</Dropdown.Item>}
-                                                                <Dropdown.Item id="Visualizar" icon={Eye}>Visualizar</Dropdown.Item>
                                                             </>
                                                         )}
                                                     </Dropdown.Menu>
                                                 </Dropdown.Popover>
-                                            </Dropdown.Root>
+                                            </Dropdown.Root>}
                                             </div>
                                             {rowSaving && <p className="mt-1 text-xs text-tertiary">Guardando...</p>}
                                         </td>

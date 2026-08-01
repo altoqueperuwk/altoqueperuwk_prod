@@ -41,7 +41,13 @@ AS $$
     FROM public.tb_operacion_proceso op
     CROSS JOIN args a
     WHERE a.ruta IN ('bcp', 'scotiabank', 'banbif', 'safetypay')
-      AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
+      AND (
+        (a.tab = 'EFECTIVIZACION' AND (
+          LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
+          OR (COALESCE(op.flag_derivado, false) = true AND LOWER(COALESCE(op.ruta_origen, '')) = a.ruta)
+        ))
+        OR (a.tab <> 'EFECTIVIZACION' AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta)
+      )
       AND (p_codigo_operacion IS NULL OR COALESCE(op.codigo_operacion_deposito_cliente, '') ILIKE '%' || p_codigo_operacion || '%')
       AND (p_dni_cliente IS NULL OR COALESCE(op.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
       AND (p_fecha_deposito_desde IS NULL OR op.fecha_deposito_cliente >= p_fecha_deposito_desde)
@@ -70,9 +76,19 @@ AS $$
   WHERE (
       a.tab = 'EFECTIVIZACION'
       AND UPPER(COALESCE(b.tipo_servicio, '')) = 'EFECTIVIZACION'
-      AND COALESCE(b.flag_derivado, false) = false
-      AND (p_id_empresa IS NULL OR b.id_empresa_salida = p_id_empresa)
-      AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
+      AND (
+        (
+          COALESCE(b.flag_derivado, false) = false
+          AND (p_id_empresa IS NULL OR b.id_empresa_salida = p_id_empresa)
+          AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
+        )
+        OR (
+          COALESCE(b.flag_derivado, false) = true
+          AND LOWER(COALESCE(b.ruta_origen, '')) = a.ruta
+          AND (p_id_empresa IS NULL OR COALESCE(b.id_empresa_salida_origen, b.id_empresa_salida) = p_id_empresa)
+          AND (p_id_empresa_cuenta_bancaria IS NULL OR COALESCE(b.id_empresa_cuenta_salida_origen, b.id_empresa_cuenta_salida) = p_id_empresa_cuenta_bancaria)
+        )
+      )
       AND (
         a.filtro_estado = 'TODOS'
         OR UPPER(BTRIM(COALESCE(b.nombre_estado, ''))) = a.filtro_estado

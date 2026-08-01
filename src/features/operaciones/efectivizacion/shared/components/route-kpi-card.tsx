@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import { cx } from "@/utils/cx";
 
 interface RouteKpiCardProps {
-    badges?: string[];
+    badges?: readonly string[];
     isLoading?: boolean;
     label: string;
     valueClassName?: string;
