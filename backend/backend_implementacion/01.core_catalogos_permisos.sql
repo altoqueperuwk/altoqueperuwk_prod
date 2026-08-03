@@ -1251,13 +1251,40 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_count integer := 0;
+  v_estado_activo_id bigint;
 BEGIN
+  SELECT id
+  INTO v_estado_activo_id
+  FROM public.tb_estado
+  WHERE UPPER(nombre) = 'ACTIVO'
+  LIMIT 1;
+
+  v_estado_activo_id := COALESCE(v_estado_activo_id, 1);
+
   DELETE FROM public.tb_permiso_usuario
   WHERE id_usuario = p_id_usuario;
 
   IF p_ids_permiso_menu IS NOT NULL AND array_length(p_ids_permiso_menu, 1) > 0 THEN
-    INSERT INTO public.tb_permiso_usuario (id_usuario, id_permiso_menu, id_usuario_registra)
-    SELECT p_id_usuario, unnest(p_ids_permiso_menu), p_id_usuario_registra;
+    INSERT INTO public.tb_permiso_usuario (
+      id_usuario,
+      id_permiso_menu,
+      id_estado,
+      id_usuario_registra
+    )
+    SELECT
+      p_id_usuario,
+      pm.id,
+      v_estado_activo_id,
+      p_id_usuario_registra
+    FROM public.tb_permiso_menu pm
+    WHERE pm.id = ANY(p_ids_permiso_menu)
+      AND pm.id_estado = v_estado_activo_id
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.tb_permiso_menu child
+        WHERE child.id_padre = pm.id
+          AND child.id_estado = v_estado_activo_id
+      );
 
     GET DIAGNOSTICS v_count = ROW_COUNT;
   END IF;
@@ -1399,4 +1426,15 @@ BEGIN
   );
 END;
 $$;
+
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN (
+    'f_put_tb_permiso_usuario_lote'
+)
+ORDER BY n.nspname, p.proname;
 

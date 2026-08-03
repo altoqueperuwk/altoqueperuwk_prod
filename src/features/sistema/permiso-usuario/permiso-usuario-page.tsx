@@ -1,59 +1,34 @@
-// @ts-nocheck
 import { useCallback, useEffect, useState } from "react";
 import { AppLayout } from "@/components/application/app-layout";
 import { useToast } from "@/providers/toast-provider";
-import { Edit03, ClockRewind } from "@untitledui/icons";
+import { Shield01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
-import { FilterBar } from "@/components/shared/filter-bar";
 import { DataTable, type ColumnDef } from "@/components/shared/data-table";
-import { permisoUsuarioService } from "@/services/permiso-usuario.service";
-import { PermisoUsuarioPopup } from "./permiso-usuario-popup";
-import { PermisoUsuarioHistoryDrawer } from "./permiso-usuario-history-drawer";
+import { usuarioService } from "@/services/usuario.service";
+import { PermisoUsuarioTreePopup } from "./permiso-usuario-tree-popup";
+
+type Usuario = Record<string, unknown>;
 
 export const PermisoUsuarioPage = () => {
   const { addToast } = useToast();
-  const [data, setData] = useState<Record<string, unknown>[]>([]);
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(20);
-  const [filterNombre, setFilterNombre] = useState("");
-  const [filterEstado, setFilterEstado] = useState<number>(0);
-  const [isPopupOpen, setIsPopupOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<Record<string, unknown> | null>(null);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [historyItemId, setHistoryItemId] = useState<number | null>(null);
+  const [pageSize, setPageSize] = useState(20);
+  const [selectedUser, setSelectedUser] = useState<Usuario | null>(null);
 
-  const loadData = useCallback(async () => {
+  const loadUsers = useCallback(async () => {
     setIsLoading(true);
     try {
-      const filters: Record<string, unknown> = {};
-      if (filterNombre) filters.p_nombre = filterNombre;
-      if (filterEstado) filters.p_id_estado = filterEstado;
-      const result = await permisoUsuarioService.getList(filters);
-      setData(result);
-      setTotalPages(Math.max(1, Math.ceil(result.length / pageSize)));
-      if (page > Math.ceil(result.length / pageSize)) setPage(1);
-    } catch { addToast("error", "Error al cargar los datos"); }
+      setUsuarios(await usuarioService.getList());
+    } catch { addToast("error", "Error al cargar los usuarios"); }
     finally { setIsLoading(false); }
-  }, [filterNombre, filterEstado, page, pageSize, addToast]);
+  }, [addToast]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadUsers(); }, [loadUsers]);
 
-  const handleSearch = () => { setPage(1); loadData(); };
-  const handleClear = () => { setFilterNombre(""); setFilterEstado(0); setPage(1); };
-  const handleNew = () => { setSelectedItem(null); setIsPopupOpen(true); };
-  const handleEdit = (item: Record<string, unknown>) => { setSelectedItem(item); setIsPopupOpen(true); };
-  const handlePopupClose = () => { setIsPopupOpen(false); setSelectedItem(null); };
-  const handlePopupSave = () => { handlePopupClose(); loadData(); };
-  const handleSaveEstado = async (rowId: number, newIdEstado: number) => {
-    await permisoUsuarioService.update(rowId, { p_id_estado: newIdEstado });
-    loadData();
-  };
-  const handleHistory = (id: number) => { setHistoryItemId(id); setIsHistoryOpen(true); };
-  const handleHistoryClose = () => { setIsHistoryOpen(false); setHistoryItemId(null); };
-  const handlePageSizeChange = (size: number) => { setPageSize(size); setPage(1); };
-  const paginatedData = data.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(usuarios.length / pageSize));
+  const paginatedUsers = usuarios.slice((page - 1) * pageSize, page * pageSize);
 
   const columns: ColumnDef[] = [
     { key: "usuario_nombre", header: "Usuario" },
@@ -61,43 +36,40 @@ export const PermisoUsuarioPage = () => {
     { key: "menu_ruta", header: "Ruta" },
   ];
 
+  const userColumns: ColumnDef[] = [
+    { key: "username", header: "DNI" },
+    { key: "nombre", header: "Usuario" },
+    { key: "email", header: "Email" },
+    { key: "rol_nombre", header: "Rol" },
+  ];
+
   return (
     <AppLayout>
       <div className="flex flex-col gap-6">
-        <FilterBar
-          title="Permisos Usuario"
-          filterNombre={filterNombre}
-          onFilterNombreChange={setFilterNombre}
-          filterEstado={filterEstado}
-          onFilterEstadoChange={setFilterEstado}
-          onSearch={handleSearch}
-          onClear={handleClear}
-          onNew={handleNew}
-        />
+        <h1 className="text-xl font-semibold text-primary">Permisos de Usuario</h1>
         <DataTable
-          columns={columns}
-          data={paginatedData}
+          columns={userColumns}
+          data={paginatedUsers}
           isLoading={isLoading}
           page={page}
           totalPages={totalPages}
           onPageChange={setPage}
           pageSize={pageSize}
-          onPageSizeChange={handlePageSizeChange}
-          inlineEstado={{
-            idEstadoKey: "id_estado",
-            onSave: handleSaveEstado,
-          }}
-          emptyMessage="No se encontraron permisos"
-          emptyDescription="No hay permisos de usuario registrados con los filtros seleccionados."
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          emptyMessage="No hay usuarios"
+          emptyDescription="No se encontraron usuarios registrados."
           renderActions={(row) => (
-            <>
-              <Button size="xs" color="tertiary" iconLeading={Edit03} onClick={() => handleEdit(row)} />
-              <Button size="xs" color="tertiary" iconLeading={ClockRewind} onClick={() => handleHistory(row.id as number)} />
-            </>
+            <Button size="sm" color="secondary" iconLeading={Shield01} onClick={() => setSelectedUser(row)}>
+              Permisos
+            </Button>
           )}
         />
-        <PermisoUsuarioPopup isOpen={isPopupOpen} onClose={handlePopupClose} onSave={handlePopupSave} item={selectedItem} />
-        <PermisoUsuarioHistoryDrawer isOpen={isHistoryOpen} onClose={handleHistoryClose} itemId={historyItemId} />
+        <PermisoUsuarioTreePopup
+          isOpen={selectedUser !== null}
+          user={selectedUser}
+          onClose={() => setSelectedUser(null)}
+          onSaved={() => setSelectedUser(null)}
+        />
       </div>
     </AppLayout>
   );

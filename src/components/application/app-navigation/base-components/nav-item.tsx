@@ -95,7 +95,6 @@ export const NavItemBase = ({ accentColor, current, type, badge, href, icon: Ico
                 className={cx(
                     "py-2 pr-3 pl-10",
                     styles.root,
-                    accentColor && "border-l-2 border-l-[var(--nav-accent)]",
                     current && styles.rootSelected,
                 )}
                 onClick={onClick}

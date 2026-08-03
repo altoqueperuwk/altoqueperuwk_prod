@@ -1,0 +1,263 @@
+-- ============================================================================
+-- 13. SEGUIMIENTOS GLOBALES
+-- ============================================================================
+
+/*
+  Consultas globales de seguimiento para jefaturas.
+  Estas funciones no modifican operaciones y no aplican aislamiento por usuario,
+  empresa, caja o ruta activa.
+*/
+
+CREATE OR REPLACE FUNCTION public.f_get_tb_seguimiento_efectivizacion_kpi(
+  p_filtro_estado character varying DEFAULT 'Todos'
+)
+RETURNS TABLE (
+  total_operaciones_pendientes integer,
+  total_operaciones_pagados integer,
+  total_monto_depositos numeric,
+  total_monto_comisiones numeric,
+  total_monto_transferencia numeric
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH operaciones AS (
+    SELECT DISTINCT ON (op.id)
+      op.id,
+      op.nombre_estado,
+      op.monto_deposito_cliente,
+      op.resultado_comision_servicio,
+      op.monto_transferencia_cliente
+    FROM public.tb_operacion_proceso op
+    WHERE COALESCE(op.id_estado, 0) <> 10
+      AND COALESCE(op.flag_retenido, false) = false
+      AND (
+        (
+          UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
+          AND (
+            (
+              COALESCE(op.flag_derivado, false) = false
+              AND LOWER(COALESCE(op.ruta_destino, '')) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay')
+            )
+            OR (
+              COALESCE(op.flag_derivado, false) = true
+              AND LOWER(COALESCE(op.ruta_origen, '')) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay')
+            )
+          )
+        )
+        OR (
+          LOWER(COALESCE(op.ruta_origen, '')) = 'pos'
+          AND LOWER(COALESCE(op.ruta_destino, '')) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay')
+        )
+      )
+      AND (
+        UPPER(COALESCE(p_filtro_estado, 'TODOS')) = 'TODOS'
+        OR (
+          UPPER(COALESCE(p_filtro_estado, '')) = 'PENDIENTE'
+          AND UPPER(COALESCE(op.nombre_estado, '')) <> 'PAGADO'
+        )
+        OR (
+          UPPER(COALESCE(p_filtro_estado, '')) = 'PAGADO'
+          AND UPPER(COALESCE(op.nombre_estado, '')) = 'PAGADO'
+        )
+      )
+    ORDER BY op.id
+  )
+  SELECT
+    COUNT(*) FILTER (WHERE UPPER(COALESCE(nombre_estado, '')) <> 'PAGADO')::integer,
+    COUNT(*) FILTER (WHERE UPPER(COALESCE(nombre_estado, '')) = 'PAGADO')::integer,
+    COALESCE(SUM(COALESCE(monto_deposito_cliente, 0)), 0),
+    COALESCE(SUM(COALESCE(resultado_comision_servicio, 0)), 0),
+    COALESCE(SUM(COALESCE(monto_transferencia_cliente, 0)), 0)
+  FROM operaciones;
+$$;
+
+CREATE OR REPLACE FUNCTION public.f_get_tb_seguimiento_efectivizacion_bandeja(
+  p_tab character varying DEFAULT 'Efectivizacion',
+  p_filtro_estado character varying DEFAULT 'Todos',
+  p_dni_cliente character varying DEFAULT NULL,
+  p_codigo_operacion character varying DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT to_jsonb(op) || jsonb_build_object(
+    'seguimiento_tab', p_tab,
+    'seguimiento_ruta_origen', op.ruta_origen,
+    'seguimiento_transferencia', CASE
+      WHEN LOWER(COALESCE(p_tab, '')) = 'efectivizacion'
+        AND COALESCE(op.flag_derivado, false) = true
+        AND LOWER(COALESCE(op.ruta_origen, '')) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay')
+      THEN 0
+      ELSE COALESCE(op.monto_transferencia_cliente, 0)
+    END,
+    'seguimiento_derivada', (
+      COALESCE(op.flag_derivado, false) = true
+      AND LOWER(COALESCE(p_tab, '')) = 'efectivizacion'
+      AND LOWER(COALESCE(op.ruta_origen, '')) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay')
+    )
+  )
+  FROM public.tb_operacion_proceso op
+  WHERE COALESCE(op.id_estado, 0) <> 10
+    AND COALESCE(op.flag_retenido, false) = false
+    AND (p_dni_cliente IS NULL OR COALESCE(op.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
+    AND (p_codigo_operacion IS NULL OR COALESCE(op.codigo_operacion_deposito_cliente, '') ILIKE '%' || p_codigo_operacion || '%')
+    AND (
+      (
+        LOWER(COALESCE(p_tab, '')) = 'efectivizacion'
+        AND UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
+        AND (
+          (
+            COALESCE(op.flag_derivado, false) = false
+            AND LOWER(COALESCE(op.ruta_destino, '')) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay')
+          )
+          OR (
+            COALESCE(op.flag_derivado, false) = true
+            AND LOWER(COALESCE(op.ruta_origen, '')) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay')
+          )
+        )
+      )
+      OR (
+        LOWER(COALESCE(p_tab, '')) = 'derivados'
+        AND UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
+        AND COALESCE(op.flag_derivado, false) = true
+        AND LOWER(COALESCE(op.ruta_destino, '')) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay')
+      )
+      OR (
+        LOWER(COALESCE(p_tab, '')) = 'pos'
+        AND LOWER(COALESCE(op.ruta_origen, '')) = 'pos'
+        AND LOWER(COALESCE(op.ruta_destino, '')) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay')
+      )
+    )
+    AND (
+      UPPER(COALESCE(p_filtro_estado, 'TODOS')) = 'TODOS'
+      OR (UPPER(COALESCE(p_filtro_estado, '')) = 'PENDIENTE' AND UPPER(COALESCE(op.nombre_estado, '')) <> 'PAGADO')
+      OR (UPPER(COALESCE(p_filtro_estado, '')) = 'PAGADO' AND UPPER(COALESCE(op.nombre_estado, '')) = 'PAGADO')
+    )
+  ORDER BY op.fecha_registro DESC, op.id DESC;
+$$;
+
+CREATE OR REPLACE FUNCTION public.f_get_tb_seguimiento_pago_deuda_kpi()
+RETURNS TABLE (
+  total_operaciones_pendientes integer,
+  total_operaciones_pagados integer,
+  total_monto_solicitados numeric,
+  total_comisiones numeric,
+  total_monto_devueltos numeric
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH solicitudes AS (
+    SELECT
+      op.*,
+      EXISTS (
+        SELECT 1
+        FROM public.tb_operacion_caja c
+        WHERE c.id_operacion_proceso = op.id
+          AND c.tipo_origen = 'PAGO_DEUDA_COMISION'
+      ) AS flag_comision,
+      (
+        COALESCE(op.id_operacion_match, 0) <> 0
+        OR COALESCE(op.monto_devuelto, 0) >= COALESCE(op.monto_deposito_cliente, 0)
+      ) AS flag_devolucion
+    FROM public.tb_operacion_proceso op
+    WHERE op.id_operacion_padre IS NULL
+      AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'SOLICITUD'
+      AND COALESCE(op.id_estado, 0) <> 10
+  )
+  SELECT
+    COUNT(*) FILTER (WHERE NOT flag_comision)::integer,
+    COUNT(*) FILTER (WHERE flag_comision)::integer,
+    COALESCE(SUM(COALESCE(monto_deposito_cliente, 0)), 0),
+    COALESCE(SUM(COALESCE(resultado_comision_servicio, 0)) FILTER (WHERE flag_comision), 0),
+    COALESCE(SUM(CASE
+      WHEN flag_devolucion THEN COALESCE(monto_deposito_cliente, 0)
+      ELSE COALESCE(monto_devuelto, 0)
+    END), 0)
+  FROM solicitudes;
+$$;
+
+CREATE OR REPLACE FUNCTION public.f_get_tb_seguimiento_pago_deuda_bandeja(
+  p_filtro_estado character varying DEFAULT 'Todos',
+  p_dni_cliente character varying DEFAULT NULL,
+  p_codigo_operacion character varying DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH solicitudes AS (
+    SELECT
+      op.*,
+      EXISTS (
+        SELECT 1
+        FROM public.tb_operacion_caja c
+        WHERE c.id_operacion_proceso = op.id
+          AND c.tipo_origen = 'PAGO_DEUDA_COMISION'
+      ) AS flag_comision,
+      (
+        COALESCE(op.id_operacion_match, 0) <> 0
+        OR COALESCE(op.monto_devuelto, 0) >= COALESCE(op.monto_deposito_cliente, 0)
+      ) AS flag_devolucion
+    FROM public.tb_operacion_proceso op
+    WHERE op.id_operacion_padre IS NULL
+      AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'SOLICITUD'
+      AND COALESCE(op.id_estado, 0) <> 10
+      AND (p_dni_cliente IS NULL OR COALESCE(op.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
+      AND (p_codigo_operacion IS NULL OR COALESCE(op.codigo_operacion_deposito_cliente, '') ILIKE '%' || p_codigo_operacion || '%')
+  )
+  SELECT COALESCE(pd.payload, to_jsonb(s)) || jsonb_build_object(
+    'seguimiento_estado', CASE
+      WHEN s.flag_comision THEN 'Pagado'
+      WHEN s.flag_devolucion AND (
+        UPPER(COALESCE(s.nombre_estado, '')) IN ('PROCESADO', 'PAGADO')
+        OR COALESCE(s.id_operacion_match, 0) <> 0
+      ) THEN 'Pendiente Comision'
+      WHEN UPPER(COALESCE(s.nombre_estado, '')) IN ('PROCESADO', 'PAGADO') THEN 'Pendiente Devolucion'
+      ELSE 'Pendiente Transferencia'
+    END,
+    'flag_comision_registrada', s.flag_comision,
+    'seguimiento_flag_devolucion', s.flag_devolucion
+  )
+  FROM solicitudes s
+  LEFT JOIN LATERAL public.f_get_tb_pago_deuda(p_id := s.id) AS pd(payload) ON true
+  WHERE UPPER(COALESCE(p_filtro_estado, 'TODOS')) = 'TODOS'
+    OR (
+      UPPER(COALESCE(p_filtro_estado, '')) = 'PENDIENTE TRANSFERENCIA'
+      AND NOT s.flag_comision
+      AND NOT s.flag_devolucion
+      AND UPPER(COALESCE(s.nombre_estado, '')) NOT IN ('PROCESADO', 'PAGADO')
+    )
+    OR (
+      UPPER(COALESCE(p_filtro_estado, '')) = 'PENDIENTE DEVOLUCION'
+      AND NOT s.flag_comision
+      AND NOT s.flag_devolucion
+      AND UPPER(COALESCE(s.nombre_estado, '')) IN ('PROCESADO', 'PAGADO')
+    )
+    OR (
+      UPPER(COALESCE(p_filtro_estado, '')) = 'PENDIENTE COMISION'
+      AND NOT s.flag_comision
+      AND s.flag_devolucion
+    )
+  ORDER BY s.fecha_registro DESC, s.id DESC;
+$$;
+
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN (
+    'f_get_tb_seguimiento_efectivizacion_kpi',
+    'f_get_tb_seguimiento_efectivizacion_bandeja',
+    'f_get_tb_seguimiento_pago_deuda_kpi',
+    'f_get_tb_seguimiento_pago_deuda_bandeja'
+)
+ORDER BY n.nspname, p.proname;

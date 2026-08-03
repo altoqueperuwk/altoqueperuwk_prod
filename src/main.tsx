@@ -29,6 +29,8 @@ import { CajaOperativaPage } from "@/features/sistema/caja-operativa/caja-operat
 import { BancariaPage } from "@/features/operaciones/efectivizacion/bancaria/pages/bancaria-page";
 import { AsistidaPage } from "@/features/operaciones/efectivizacion/asistida/pages/asistida-page";
 import { PagoDeudaPage } from "@/features/operaciones/pago-deuda/pages/pago-deuda-page";
+import { SeguimientoEfectivizacionPage } from "@/features/seguimientos/seguimiento-efectivizacion-page";
+import { SeguimientoPagoDeudaPage } from "@/features/seguimientos/seguimiento-pago-deuda-page";
 import "@/styles/globals.css";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -79,6 +81,9 @@ function AppRoutes() {
                 <Route path="/sistema/empresa/:empresaId/cuentas" element={<EmpresaCuentaBancariaPage />} />
 
                 <Route path="/atencion/cliente" element={<AtencionClientePage />} />
+
+                <Route path="/seguimientos/efectivizacion" element={<SeguimientoEfectivizacionPage />} />
+                <Route path="/seguimientos/pago-deuda" element={<SeguimientoPagoDeudaPage />} />
 
                 <Route path="/operaciones/bcp" element={<BancariaPage ruta="bcp" />} />
                 <Route path="/operaciones/bbva" element={<BancariaPage ruta="bbva" />} />
