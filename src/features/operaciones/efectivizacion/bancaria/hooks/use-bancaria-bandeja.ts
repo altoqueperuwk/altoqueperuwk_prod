@@ -24,6 +24,9 @@ export interface MovimientoMerged {
     dni_cliente: string;
     codigo_operacion: string;
     nombre_empresa: string;
+    nombre_banco: string;
+    nombre_empresa_relacionada?: string | null;
+    nombre_banco_relacionada?: string | null;
     monto_ingreso: number;
     monto_salida: number;
     monto_gasto: number;
@@ -65,6 +68,9 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
             dni_cliente: primary.dni_cliente ?? "",
             codigo_operacion: primary.codigo_operacion ?? "",
             nombre_empresa: primary.nombre_empresa,
+            nombre_banco: primary.nombre_banco ?? "",
+            nombre_empresa_relacionada: primary.nombre_empresa_relacionada ?? null,
+            nombre_banco_relacionada: primary.nombre_banco_relacionada ?? null,
             monto_ingreso: ingreso?.monto_ingreso ?? 0,
             monto_salida: salida?.monto_salida ?? 0,
             monto_gasto: (ingreso?.monto_gasto ?? 0) + (salida?.monto_gasto ?? 0),
@@ -87,6 +93,9 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
             dni_cliente: row.dni_cliente ?? "",
             codigo_operacion: row.codigo_operacion ?? "",
             nombre_empresa: row.nombre_empresa,
+            nombre_banco: row.nombre_banco ?? "",
+            nombre_empresa_relacionada: row.nombre_empresa_relacionada ?? null,
+            nombre_banco_relacionada: row.nombre_banco_relacionada ?? null,
             monto_ingreso: row.monto_ingreso,
             monto_salida: row.monto_salida,
             monto_gasto: row.monto_gasto,
@@ -103,7 +112,7 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
 export const tabContracts: Record<BancariaTab, { filters: string[]; actions: string[] }> = {
     Efectivizacion: {
         filters: ["Todos", "Pendientes", "Pagados"],
-        actions: ["Eliminar Excel", "Emp. Salida", "Pagar", "Derivar", "Directo", "Reiniciar"],
+        actions: ["Emp. Salida", "Pagar", "Derivar", "Reiniciar", "Eliminar Excel"],
     },
     "Pago Deuda": {
         filters: ["Todos", "Solicitado", "Transferido", "Devuelto", "Pagado"],
@@ -111,11 +120,11 @@ export const tabContracts: Record<BancariaTab, { filters: string[]; actions: str
     },
     Derivados: {
         filters: ["Todos", "Pendientes", "Pagados"],
-        actions: ["Emp. Salida", "Reiniciar", "Pagar", "Derivar"],
+        actions: ["Emp. Salida", "Pagar", "Derivar", "Reiniciar"],
     },
     POS: {
         filters: ["Todos", "Solicitado", "Pagados"],
-        actions: ["Pagar", "Reiniciar"],
+        actions: ["Emp. Salida", "Pagar", "Reiniciar"],
     },
     Movimientos: {
         filters: ["Todos", "Efectivizacion", "Pago Deuda", "Otros"],

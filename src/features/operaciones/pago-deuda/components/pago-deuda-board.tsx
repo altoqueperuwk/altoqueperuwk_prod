@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Check, ChevronDown, Coins01, Edit03, Percent01, Trash01 } from "@untitledui/icons";
 import { SubmenuTrigger } from "react-aria-components";
+import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { Button } from "@/components/base/buttons/button";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
@@ -28,9 +29,12 @@ import {
     type TipoDocumentoOperacion,
 } from "@/features/operaciones/efectivizacion/shared/components/documento-input-group";
 import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
+import { formatInteger, formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
+import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
 import type { OperacionProceso } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 import { cx } from "@/utils/cx";
+import { reglasEfectivizacionService } from "@/services/reglas-efectivizacion.service";
 
 interface PagoDeudaBoardProps {
     onChanged?: () => void;
@@ -57,9 +61,21 @@ interface EditSolicitudState {
     row: OperacionProceso;
     tipoDocumento: TipoDocumentoOperacion;
     dni: string;
+    nombre: string;
+    whatsapp: string;
     comunidadId: string;
     bancoId: string;
     monto: string;
+    commissionMode: CommissionMode;
+    manualCommission: string;
+}
+
+type CommissionMode = "preferencial" | "ultimo_dia";
+
+interface PagoDeudaRegla {
+    id_banco: number;
+    id_comunidad: number | null;
+    comision_servicio: number;
 }
 
 interface ManualCommissionState {
@@ -70,6 +86,9 @@ interface ManualCommissionState {
 
 const filters = ["Todos", "Pendiente Transferencia", "Pendiente Devolución", "Pendiente Comisión"];
 const actions = ["Confirmar Comision"];
+const allowedBankNames = new Set(["BCP", "BBVA", "INTERBANK", "BANBIF", "SCOTIABANK"]);
+
+const sanitizeWhatsapp = (value: string) => value.replace(/\D/g, "").slice(0, 9);
 
 export const hasDevolucionConfirmada = (row: OperacionProceso) =>
     Boolean(row.id_operacion_match) ||
@@ -265,13 +284,39 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     const [actionRefreshKey, setActionRefreshKey] = useState(0);
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
     const [bancos, setBancos] = useState<CatalogItem[]>([]);
+    const [reglas, setReglas] = useState<PagoDeudaRegla[]>([]);
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
+    const { result: editClienteLookup, isLoading: isEditClienteLoading } = useClienteLookup(
+        editSolicitud?.dni ?? "",
+        editSolicitud?.tipoDocumento ?? 1,
+    );
+
+    const bancosPermitidos = useMemo(
+        () => bancos.filter((item) => allowedBankNames.has(item.nombre.trim().toUpperCase())),
+        [bancos],
+    );
+
+    const getReglaPagoDeuda = (bancoId: string, comunidadId: string) => {
+        const bankRules = reglas.filter((item) => item.id_banco === Number(bancoId));
+        return bankRules.find((item) => item.id_comunidad === Number(comunidadId)) ?? bankRules[0] ?? null;
+    };
+
+    useEffect(() => {
+        if (!editSolicitud || !editClienteLookup) return;
+        setEditSolicitud((current) => current ? {
+            ...current,
+            nombre: editClienteLookup.nombre,
+            whatsapp: editClienteLookup.celular[0] ?? "",
+            comunidadId: editClienteLookup.id_comunidad ? String(editClienteLookup.id_comunidad) : current.comunidadId,
+        } : current);
+    }, [editClienteLookup]);
 
     const params = useMemo(() => {
         const values: Record<string, unknown> = {
             p_fecha_desde: `${selectedDate}T00:00:00`,
             p_fecha_hasta: `${selectedDate}T23:59:59`,
+            p_id_usuario_solicitud: userId,
         };
         if (dni.trim()) values.p_dni_cliente = dni.trim();
         return values;
@@ -345,6 +390,22 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             })
             .catch(() => addToast("error", "Error al cargar catalogos de Pago Deuda."));
 
+        reglasEfectivizacionService
+            .getList({ p_id_estado: 1 })
+            .then((rows) => {
+                if (ignore) return;
+                setReglas(
+                    (rows ?? [])
+                        .filter((row) => String(row.codigo_servicio_nombre ?? "").toUpperCase().includes("PAGO DEUDA"))
+                        .map((row) => ({
+                            id_banco: Number(row.id_banco),
+                            id_comunidad: row.id_comunidad == null ? null : Number(row.id_comunidad),
+                            comision_servicio: Number(row.comision_servicio ?? 0),
+                        })),
+                );
+            })
+            .catch(() => addToast("error", "Error al cargar reglas de Pago Deuda."));
+
         return () => {
             ignore = true;
         };
@@ -378,6 +439,11 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
 
     useEffect(() => {
         let ignore = false;
+        if (userId === null) {
+            setSolicitudes([]);
+            setIsLoading(false);
+            return () => { ignore = true; };
+        }
         setIsLoading(true);
         setError(null);
 
@@ -396,7 +462,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
         return () => {
             ignore = true;
         };
-    }, [actionRefreshKey, params, refreshKey]);
+    }, [actionRefreshKey, params, refreshKey, userId]);
 
     useEffect(() => {
         const handleFocus = () => setActionRefreshKey((value) => value + 1);
@@ -523,13 +589,23 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     const openEditSolicitud = (row: OperacionProceso) => {
         if (!canEditSolicitud(row)) return;
 
+        const bancoId = row.id_banco_cliente ? String(row.id_banco_cliente) : "";
+        const comunidadId = row.id_comunidad ? String(row.id_comunidad) : "";
+        const regla = getReglaPagoDeuda(bancoId, comunidadId);
+        const currentCommission = Number(row.comision_servicio ?? 0);
+        const isPreferential = regla != null && Math.abs(currentCommission - regla.comision_servicio) < 0.000001;
+
         setEditSolicitud({
             row,
             tipoDocumento: inferTipoDocumentoOperacion(row.dni_cliente),
             dni: row.dni_cliente ?? "",
-            comunidadId: row.id_comunidad ? String(row.id_comunidad) : "",
-            bancoId: row.id_banco_cliente ? String(row.id_banco_cliente) : "",
+            nombre: row.nombre_cliente ?? "",
+            whatsapp: "",
+            comunidadId,
+            bancoId,
             monto: row.monto_deposito_cliente != null ? String(row.monto_deposito_cliente) : "",
+            commissionMode: isPreferential ? "preferencial" : "ultimo_dia",
+            manualCommission: isPreferential ? "" : String(row.comision_servicio ?? ""),
         });
     };
 
@@ -621,6 +697,22 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             return;
         }
 
+        const regla = getReglaPagoDeuda(editSolicitud.bancoId, editSolicitud.comunidadId);
+        if (!regla) {
+            addToast("error", "No se encontro una regla activa para el banco seleccionado.");
+            return;
+        }
+
+        const manualCommissionValue = editSolicitud.commissionMode === "ultimo_dia"
+            ? Number(editSolicitud.manualCommission.replace(",", "."))
+            : 0;
+        const manualCommissionPayload = editSolicitud.commissionMode === "ultimo_dia" ? manualCommissionValue : null;
+
+        if (editSolicitud.commissionMode === "ultimo_dia" && (!Number.isFinite(manualCommissionValue) || manualCommissionValue < 0)) {
+            addToast("error", "La comision debe ser mayor o igual a 0.");
+            return;
+        }
+
         setIsSavingSolicitud(true);
         try {
             const saved = await pagoDeudaService.postSolicitud({
@@ -628,10 +720,12 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                 p_id_usuario: userId,
                 p_tipo_documento_cliente: editSolicitud.tipoDocumento,
                 p_dni_cliente: newDni,
-                p_nombre_cliente: editSolicitud.row.nombre_cliente,
+                p_nombre_cliente: editSolicitud.nombre.trim() || null,
+                p_celular_cliente: editSolicitud.whatsapp || null,
                 p_id_banco_cliente: selectedBanco.id,
                 p_nombre_banco_cliente: selectedBanco.nombre,
                 p_monto_deposito_cliente: amount,
+                p_comision_servicio_manual: manualCommissionPayload,
                 p_id_comunidad: selectedComunidad.id,
                 p_id_usuario_gestor: userId,
                 p_nombre_usuario_gestor: userName,
@@ -747,6 +841,11 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                         <CompactMoneyCell value={row.resultado_comision_servicio} />
                         <CompactBadgeLine>{row.comision_servicio != null ? `${row.comision_servicio}%` : "-"}</CompactBadgeLine>
                     </div>
+                    {Number(row.comision_monto_extra_servicio ?? 0) > 0 && (
+                        <div className="mt-1 flex">
+                            <CompactBadgeLine color="warning">Extra S/ {formatInteger(row.comision_monto_extra_servicio)}</CompactBadgeLine>
+                        </div>
+                    )}
                 </div>
             ),
         },
@@ -865,26 +964,38 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                                     <p className="mt-1 text-sm text-tertiary">Pago Deuda {editSolicitud.row.id}</p>
                                 </div>
                                 <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                                    <DocumentoInputGroup
-                                        isRequired
-                                        tipoDocumento={editSolicitud.tipoDocumento}
-                                        numeroDocumento={editSolicitud.dni}
-                                        onTipoDocumentoChange={(value) =>
-                                            setEditSolicitud((current) => current ? { ...current, tipoDocumento: value, dni: cleanDocumento(current.dni, value) } : current)
-                                        }
-                                        onNumeroDocumentoChange={(value) =>
-                                            setEditSolicitud((current) => current ? { ...current, dni: value } : current)
-                                        }
-                                    />
-                                    <NativeSelect
+                                    <div className="flex items-end gap-2 sm:w-[15rem]">
+                                        <DocumentoInputGroup
+                                            isRequired
+                                            tipoDocumento={editSolicitud.tipoDocumento}
+                                            numeroDocumento={editSolicitud.dni}
+                                            onTipoDocumentoChange={(value) =>
+                                                setEditSolicitud((current) => current ? { ...current, tipoDocumento: value, dni: cleanDocumento(current.dni, value) } : current)
+                                            }
+                                            onNumeroDocumentoChange={(value) =>
+                                                setEditSolicitud((current) => current ? { ...current, dni: value } : current)
+                                            }
+                                            className="min-w-0 flex-1"
+                                        />
+                                        {isEditClienteLoading && (
+                                            <div className="flex size-10 shrink-0 items-center justify-center">
+                                                <LoadingIndicator type="line-spinner" size="sm" />
+                                            </div>
+                                        )}
+                                    </div>
+                                    <Input
                                         size="sm"
-                                        label="Comunidad"
-                                        value={editSolicitud.comunidadId}
-                                        onChange={(event) => {
-                                            const value = event.currentTarget.value;
-                                            setEditSolicitud((current) => current ? { ...current, comunidadId: value } : current);
-                                        }}
-                                        options={[{ label: "Seleccionar", value: "" }, ...comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))]}
+                                        label="Nombre"
+                                        value={editSolicitud.nombre}
+                                        onChange={(value) => setEditSolicitud((current) => current ? { ...current, nombre: value } : current)}
+                                        className="sm:w-[25ch]"
+                                    />
+                                    <Input
+                                        size="sm"
+                                        label="Whatsapp"
+                                        placeholder="Número de Whatsapp"
+                                        value={editSolicitud.whatsapp}
+                                        onChange={(value) => setEditSolicitud((current) => current ? { ...current, whatsapp: sanitizeWhatsapp(value) } : current)}
                                     />
                                     <NativeSelect
                                         size="sm"
@@ -894,16 +1005,46 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                                             const value = event.currentTarget.value;
                                             setEditSolicitud((current) => current ? { ...current, bancoId: value } : current);
                                         }}
-                                        options={[{ label: "Seleccionar", value: "" }, ...bancos.map((item) => ({ label: item.nombre, value: String(item.id) }))]}
+                                        options={[{ label: "Seleccionar", value: "" }, ...bancosPermitidos.map((item) => ({ label: item.nombre, value: String(item.id) }))]}
+                                        className="sm:w-[15rem]"
                                     />
                                     <Input
                                         size="sm"
-                                        label="Monto"
+                                        label="Monto Solicitado"
                                         placeholder="S/ 0.00"
                                         value={editSolicitud.monto}
                                         onChange={(value) =>
                                             setEditSolicitud((current) => current ? { ...current, monto: sanitizeAmountInput(value) } : current)
                                         }
+                                    />
+                                    <NativeSelect
+                                        size="sm"
+                                        label="Comision"
+                                        value={editSolicitud.commissionMode}
+                                        onChange={(event) => setEditSolicitud((current) => current ? {
+                                            ...current,
+                                            commissionMode: event.currentTarget.value as CommissionMode,
+                                            manualCommission: "",
+                                        } : current)}
+                                        options={[
+                                            { label: "Preferencial", value: "preferencial" },
+                                            { label: "Último Día", value: "ultimo_dia" },
+                                        ]}
+                                    />
+                                    <Input
+                                        size="sm"
+                                        label="Comision %"
+                                        placeholder="%"
+                                        value={editSolicitud.commissionMode === "preferencial"
+                                            ? (getReglaPagoDeuda(editSolicitud.bancoId, editSolicitud.comunidadId)?.comision_servicio != null
+                                                ? `${getReglaPagoDeuda(editSolicitud.bancoId, editSolicitud.comunidadId)?.comision_servicio}%`
+                                                : "")
+                                            : editSolicitud.manualCommission}
+                                        isDisabled={editSolicitud.commissionMode === "preferencial"}
+                                        onChange={(value) => setEditSolicitud((current) => current ? {
+                                            ...current,
+                                            manualCommission: sanitizeAmountInput(value),
+                                        } : current)}
                                     />
                                 </div>
                                 <div className="mt-6 flex justify-end gap-2">

@@ -211,6 +211,8 @@ export interface OperacionCajaMovimiento {
     id: number;
     id_caja: number;
     id_operacion_caja_relacionada: number | null;
+    nombre_empresa_relacionada?: string | null;
+    nombre_banco_relacionada?: string | null;
     id_operacion_proceso: number | null;
     tipo_origen: string;
     tipo_movimiento: string;

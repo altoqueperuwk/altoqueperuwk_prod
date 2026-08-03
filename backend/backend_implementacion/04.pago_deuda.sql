@@ -265,7 +265,8 @@ DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_kpi(timestamp with time zone,
 
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_kpi(
   p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL
+  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL,
+  p_id_usuario_solicitud bigint DEFAULT NULL
 )
 RETURNS TABLE (
   total_operaciones_pendientes integer,
@@ -306,6 +307,7 @@ AS $$
   FROM public.tb_operacion_proceso op
   WHERE op.id_operacion_padre IS NULL
     AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'SOLICITUD'
+    AND (p_id_usuario_solicitud IS NULL OR op.id_usuario_solicitud = p_id_usuario_solicitud)
     AND (
       (p_fecha_registro_desde IS NULL AND p_fecha_registro_hasta IS NULL)
       OR (

@@ -1,47 +1,260 @@
-usuario 1: banco bcp
+Tab Efectivizacion
 
-f_get_tb_operacion_retencion_bandeja:
-request:{"p_tab":"Efectivizacion","p_ruta":"bcp","p_id_empresa_cuenta_bancaria":1,"p_id_empresa":2,"p_filtro_estado":"Todos"}
-response: [{"id": 1, "id_estado": 3, "id_cliente": 11394, "id_usuario": 1, "dni_cliente": "47356534", "ruta_origen": "bcp", "error_motivo": null, "fecha_pagado": null, "id_comunidad": 10, "ruta_destino": "bcp", "flag_derivado": false, "flag_retenido": false, "nombre_estado": "Pendiente", "tipo_servicio": "EFECTIVIZACION", "fecha_registro": "2026-08-01T14:03:30.500322-05:00", "id_caja_cierre": null, "id_carga_excel": null, "monto_devuelto": 0, "nombre_cliente": "", "nombre_usuario": "jhon", "fecha_pendiente": "2026-08-01T14:03:30.254-05:00", "fecha_retencion": null, "fecha_derivacion": null, "id_banco_cliente": 2, "monto_itf_salida": 0.005, "motivo_retencion": null, "nombre_comunidad": "ATK1", "tipo_facturacion": "Boleta", "comision_servicio": 1, "fecha_caja_cierre": null, "fecha_carga_excel": null, "id_empresa_salida": 2, "id_usuario_deriva": null, "id_usuario_gestor": 1, "monto_itf_ingreso": 0.005, "id_codigo_servicio": 2, "id_empresa_ingreso": 2, "id_operacion_match": null, "id_operacion_padre": null, "id_usuario_retiene": null, "nombre_carga_excel": null, "observacion_tiempo": null, "tipo_recaudacion_sf": null, "id_usuario_solicitud": null, "nombre_banco_cliente": "BCP", "nombre_tipo_deposito": "Mismo Día", "id_usuario_reasignado": null, "nombre_empresa_salida": "Hueso Cash S.A.", "nombre_usuario_deriva": null, "nombre_usuario_gestor": "jhon", "tipo_flujo_pago_deuda": null, "comision_banco_ingreso": 6, "fecha_deposito_cliente": "2026-08-01T14:03:30.254-05:00", "monto_deposito_cliente": 1000, "nombre_codigo_servicio": "BCP", "nombre_empresa_ingreso": "Hueso Cash S.A.", "nombre_usuario_retiene": null, "comision_minima_servicio": 12, "id_empresa_cuenta_salida": 1, "nombre_usuario_solicitud": null, "id_empresa_cuenta_ingreso": 1, "nombre_usuario_reasignado": null, "comision_igv_banco_ingreso": 0, "monto_transferencia_cliente": 988.00, "resultado_comision_servicio": 12.00, "comision_transf_banco_salida": 0, "comision_minimo_banco_ingreso": 0, "comision_monto_extra_servicio": 0, "id_banco_cliente_transferencia": 2, "id_banco_empresa_cuenta_salida": 2, "monto_minimo_deposito_servicio": 1200, "id_banco_empresa_cuenta_ingreso": 2, "resultado_comision_banco_salida": 0.00, "resultado_comision_banco_ingreso": 6.05, "codigo_operacion_deposito_cliente": "87542154", "comision_transf_inter_banco_salida": 0, "nombre_banco_cliente_transferencia": "BCP", "nombre_banco_empresa_cuenta_salida": "BCP", "flag_por_sol_comision_banco_ingreso": true, "nombre_banco_empresa_cuenta_ingreso": "BCP"}]
+Columna Acciones: Com. Extra
 
-usuario 1: accion botón "Derivar"
+f_get_tb_operacion_proceso_calculo
 
-f_patch_tb_operacion_proceso_derivacion
-request: {"p_id":1,"p_ruta_origen":"bcp","p_ruta_destino":"scotiabank","p_flag_derivado":true,"p_fecha_derivacion":"2026-08-01T19:08:09.934Z","p_id_usuario_deriva":1,"p_nombre_usuario_deriva":"jhon"}
-response: {"id": 1, "id_estado": 3, "id_cliente": 11394, "id_usuario": 1, "dni_cliente": "47356534", "ruta_origen": "bcp", "error_motivo": null, "fecha_pagado": null, "id_comunidad": 10, "ruta_destino": "scotiabank", "flag_derivado": true, "flag_retenido": false, "nombre_estado": "Pendiente", "tipo_servicio": "EFECTIVIZACION", "fecha_registro": "2026-08-01T14:03:30.500322-05:00", "id_caja_cierre": null, "id_carga_excel": null, "monto_devuelto": 0, "nombre_cliente": "", "nombre_usuario": "jhon", "fecha_pendiente": "2026-08-01T14:03:30.254-05:00", "fecha_retencion": null, "fecha_derivacion": "2026-08-01T14:08:09.934-05:00", "id_banco_cliente": 2, "monto_itf_salida": 0.005, "motivo_retencion": null, "nombre_comunidad": "ATK1", "tipo_facturacion": "Boleta", "comision_servicio": 1, "fecha_caja_cierre": null, "fecha_carga_excel": null, "id_empresa_salida": 8, "id_usuario_deriva": 1, "id_usuario_gestor": 1, "monto_itf_ingreso": 0.005, "id_codigo_servicio": 2, "id_empresa_ingreso": 2, "id_operacion_match": null, "id_operacion_padre": null, "id_usuario_retiene": null, "nombre_carga_excel": null, "observacion_tiempo": null, "tipo_recaudacion_sf": null, "id_usuario_solicitud": null, "nombre_banco_cliente": "BCP", "nombre_tipo_deposito": "Mismo Día", "id_usuario_reasignado": null, "nombre_empresa_salida": "Academia WK S.A.", "nombre_usuario_deriva": "jhon", "nombre_usuario_gestor": "jhon", "tipo_flujo_pago_deuda": null, "comision_banco_ingreso": 6, "fecha_deposito_cliente": "2026-08-01T14:03:30.254-05:00", "monto_deposito_cliente": 1000, "nombre_codigo_servicio": "BCP", "nombre_empresa_ingreso": "Hueso Cash S.A.", "nombre_usuario_retiene": null, "comision_minima_servicio": 12, "id_empresa_cuenta_salida": 7, "nombre_usuario_solicitud": null, "id_empresa_cuenta_ingreso": 1, "nombre_usuario_reasignado": null, "comision_igv_banco_ingreso": 0, "monto_transferencia_cliente": 988.00, "resultado_comision_servicio": 12.00, "comision_transf_banco_salida": 0, "comision_minimo_banco_ingreso": 0, "comision_monto_extra_servicio": 0, "id_banco_cliente_transferencia": 3, "id_banco_empresa_cuenta_salida": 3, "monto_minimo_deposito_servicio": 1200, "id_banco_empresa_cuenta_ingreso": 2, "resultado_comision_banco_salida": 0.00, "resultado_comision_banco_ingreso": 6.05, "codigo_operacion_deposito_cliente": "87542154", "comision_transf_inter_banco_salida": 0, "nombre_banco_cliente_transferencia": "Scotiabank", "nombre_banco_empresa_cuenta_salida": "Scotiabank", "flag_por_sol_comision_banco_ingreso": true, "nombre_banco_empresa_cuenta_ingreso": "BCP"}
+{
+    "p_monto_deposito_cliente": 4000,
+    "p_comision_servicio": 1.5,
+    "p_monto_minimo_deposito_servicio": 2000,
+    "p_comision_minima_servicio": 20,
+    "p_comision_monto_extra_servicio": 25,
+    "p_flag_por_sol_comision_banco_ingreso": true,
+    "p_comision_banco_ingreso": 5,
+    "p_comision_minimo_banco_ingreso": 0,
+    "p_comision_igv_banco_ingreso": 0,
+    "p_monto_itf_ingreso": 0.005,
+    "p_comision_transf_banco_salida": 0,
+    "p_comision_transf_inter_banco_salida": 0,
+    "p_monto_itf_salida": 0.005,
+    "p_id_empresa_salida": 8,
+    "p_id_empresa_cuenta_salida": 7,
+    "p_id_banco_empresa_cuenta_salida": 3,
+    "p_id_banco_cliente_transferencia": 3
+}
 
-f_get_tb_operacion_retencion_bandeja:
-request:{"p_tab":"Efectivizacion","p_ruta":"bcp","p_id_empresa_cuenta_bancaria":1,"p_id_empresa":2,"p_filtro_estado":"Todos"}
-response: []
+{
+    "monto_transferencia_cliente": 3915.0,
+    "resultado_comision_servicio": 85.0,
+    "resultado_comision_banco_salida": 0.2,
+    "resultado_comision_banco_ingreso": 5.2
+}
 
-usuario 2: banco scotiabank, visualiza en el tab de derivados una operación
+f_patch_tb_operacion_proceso_base
 
-f_get_tb_operacion_retencion_bandeja
-request: {"p_tab":"Derivados","p_ruta":"scotiabank","p_id_empresa_cuenta_bancaria":7,"p_id_empresa":8,"p_filtro_estado":"Todos"}
-response: [{"id": 1, "id_estado": 3, "id_cliente": 11394, "id_usuario": 1, "dni_cliente": "47356534", "ruta_origen": "bcp", "error_motivo": null, "fecha_pagado": null, "id_comunidad": 10, "ruta_destino": "scotiabank", "flag_derivado": true, "flag_retenido": false, "nombre_estado": "Pendiente", "tipo_servicio": "EFECTIVIZACION", "fecha_registro": "2026-08-01T14:03:30.500322-05:00", "id_caja_cierre": null, "id_carga_excel": null, "monto_devuelto": 0, "nombre_cliente": "", "nombre_usuario": "jhon", "fecha_pendiente": "2026-08-01T14:03:30.254-05:00", "fecha_retencion": null, "fecha_derivacion": "2026-08-01T14:08:09.934-05:00", "id_banco_cliente": 2, "monto_itf_salida": 0.005, "motivo_retencion": null, "nombre_comunidad": "ATK1", "tipo_facturacion": "Boleta", "comision_servicio": 1, "fecha_caja_cierre": null, "fecha_carga_excel": null, "id_empresa_salida": 8, "id_usuario_deriva": 1, "id_usuario_gestor": 1, "monto_itf_ingreso": 0.005, "id_codigo_servicio": 2, "id_empresa_ingreso": 2, "id_operacion_match": null, "id_operacion_padre": null, "id_usuario_retiene": null, "nombre_carga_excel": null, "observacion_tiempo": null, "tipo_recaudacion_sf": null, "id_usuario_solicitud": null, "nombre_banco_cliente": "BCP", "nombre_tipo_deposito": "Mismo Día", "id_usuario_reasignado": null, "nombre_empresa_salida": "Academia WK S.A.", "nombre_usuario_deriva": "jhon", "nombre_usuario_gestor": "jhon", "tipo_flujo_pago_deuda": null, "comision_banco_ingreso": 6, "fecha_deposito_cliente": "2026-08-01T14:03:30.254-05:00", "monto_deposito_cliente": 1000, "nombre_codigo_servicio": "BCP", "nombre_empresa_ingreso": "Hueso Cash S.A.", "nombre_usuario_retiene": null, "comision_minima_servicio": 12, "id_empresa_cuenta_salida": 7, "nombre_usuario_solicitud": null, "id_empresa_cuenta_ingreso": 1, "nombre_usuario_reasignado": null, "comision_igv_banco_ingreso": 0, "monto_transferencia_cliente": 988.00, "resultado_comision_servicio": 12.00, "comision_transf_banco_salida": 0, "comision_minimo_banco_ingreso": 0, "comision_monto_extra_servicio": 0, "id_banco_cliente_transferencia": 3, "id_banco_empresa_cuenta_salida": 3, "monto_minimo_deposito_servicio": 1200, "id_banco_empresa_cuenta_ingreso": 2, "resultado_comision_banco_salida": 0.00, "resultado_comision_banco_ingreso": 6.05, "codigo_operacion_deposito_cliente": "87542154", "comision_transf_inter_banco_salida": 0, "nombre_banco_cliente_transferencia": "Scotiabank", "nombre_banco_empresa_cuenta_salida": "Scotiabank", "flag_por_sol_comision_banco_ingreso": true, "nombre_banco_empresa_cuenta_ingreso": "BCP"}]
+{
+    "p_id": 250,
+    "p_comision_monto_extra_servicio": 25,
+    "p_resultado_comision_servicio": 85,
+    "p_monto_transferencia_cliente": 3915,
+    "p_resultado_comision_banco_ingreso": 5.2,
+    "p_resultado_comision_banco_salida": 0.2
+}
+{
+    "id": 250,
+    "id_estado": 3,
+    "id_cliente": 11468,
+    "id_usuario": 1,
+    "dni_cliente": "42320391",
+    "ruta_origen": "scotiabank",
+    "error_motivo": null,
+    "fecha_pagado": null,
+    "id_comunidad": 10,
+    "ruta_destino": "scotiabank",
+    "flag_derivado": false,
+    "flag_retenido": false,
+    "nombre_estado": "Pendiente",
+    "tipo_servicio": "Efectivizacion",
+    "fecha_registro": "2026-08-01T20:25:46.944215-05:00",
+    "id_caja_cierre": null,
+    "id_carga_excel": 61,
+    "monto_devuelto": 0,
+    "nombre_cliente": "",
+    "nombre_usuario": "johnsmendoza",
+    "fecha_pendiente": "2026-08-01T20:25:46.944215-05:00",
+    "fecha_retencion": "2026-08-01T20:25:46.944215-05:00",
+    "fecha_derivacion": null,
+    "id_banco_cliente": 3,
+    "monto_itf_salida": 0.005,
+    "motivo_retencion": "Retencion automatica por cuenta bancaria",
+    "nombre_comunidad": "ATK1",
+    "tipo_facturacion": "Boleta",
+    "comision_servicio": 1.5,
+    "fecha_caja_cierre": null,
+    "fecha_carga_excel": "2026-08-01T20:25:46.944215-05:00",
+    "id_empresa_salida": 8,
+    "id_usuario_deriva": null,
+    "id_usuario_gestor": 1,
+    "monto_itf_ingreso": 0.005,
+    "id_codigo_servicio": 4,
+    "id_empresa_ingreso": 8,
+    "id_operacion_match": null,
+    "id_operacion_padre": null,
+    "id_usuario_retiene": 1,
+    "nombre_carga_excel": "ReporteRecaudaciones (84)_scotiabank - copia.xls",
+    "observacion_tiempo": null,
+    "tipo_recaudacion_sf": null,
+    "id_usuario_solicitud": null,
+    "nombre_banco_cliente": "Scotiabank",
+    "nombre_tipo_deposito": "Mismo Día",
+    "id_usuario_reasignado": null,
+    "nombre_empresa_salida": "Academia WK S.A.",
+    "nombre_usuario_deriva": null,
+    "nombre_usuario_gestor": "Sistema",
+    "tipo_flujo_pago_deuda": null,
+    "comision_banco_ingreso": 5,
+    "fecha_deposito_cliente": "2026-08-01T11:47:00-05:00",
+    "monto_deposito_cliente": 4000,
+    "nombre_codigo_servicio": "Scotiabank",
+    "nombre_empresa_ingreso": "Academia WK S.A.",
+    "nombre_usuario_retiene": "johnsmendoza",
+    "comision_minima_servicio": 20,
+    "id_empresa_cuenta_salida": 7,
+    "id_empresa_salida_origen": null,
+    "nombre_usuario_solicitud": null,
+    "id_empresa_cuenta_ingreso": 7,
+    "nombre_usuario_reasignado": null,
+    "comision_igv_banco_ingreso": 0,
+    "monto_transferencia_cliente": 3915,
+    "resultado_comision_servicio": 85,
+    "comision_transf_banco_salida": 0,
+    "nombre_empresa_salida_origen": null,
+    "comision_minimo_banco_ingreso": 0,
+    "comision_monto_extra_servicio": 25,
+    "id_banco_cliente_transferencia": 3,
+    "id_banco_empresa_cuenta_salida": 3,
+    "monto_minimo_deposito_servicio": 2000,
+    "id_banco_empresa_cuenta_ingreso": 3,
+    "id_empresa_cuenta_salida_origen": null,
+    "resultado_comision_banco_salida": 0.2,
+    "resultado_comision_banco_ingreso": 5.2,
+    "codigo_operacion_deposito_cliente": "4656012541",
+    "comision_transf_inter_banco_salida": 0,
+    "nombre_banco_cliente_transferencia": "Scotiabank",
+    "nombre_banco_empresa_cuenta_salida": "Scotiabank",
+    "flag_por_sol_comision_banco_ingreso": true,
+    "nombre_banco_empresa_cuenta_ingreso": "Scotiabank",
+    "id_banco_empresa_cuenta_salida_origen": null,
+    "nombre_banco_empresa_cuenta_salida_origen": null
+}
 
-usuario 1: banco bbva
 
-f_get_tb_operacion_proceso
-request: {"p_tipo_servicio":"EFECTIVIZACION","p_ruta_destino":"bbva","p_flag_derivado":false,"p_id_empresa_salida":7,"p_id_empresa_cuenta_salida":6}
-response: [{"id": 2, "id_estado": 3, "id_cliente": 11394, "id_usuario": 1, "dni_cliente": "47356534", "ruta_origen": "bbva", "error_motivo": null, "fecha_pagado": null, "id_comunidad": 10, "ruta_destino": "bbva", "flag_derivado": false, "flag_retenido": false, "nombre_estado": "Pendiente", "tipo_servicio": "EFECTIVIZACION", "fecha_registro": "2026-08-01T14:04:13.817454-05:00", "id_caja_cierre": null, "id_carga_excel": null, "monto_devuelto": 0, "nombre_cliente": "", "nombre_usuario": "jhon", "fecha_pendiente": "2026-08-01T14:04:13.564-05:00", "fecha_retencion": null, "fecha_derivacion": null, "id_banco_cliente": 1, "monto_itf_salida": 0.005, "motivo_retencion": null, "nombre_comunidad": "ATK1", "tipo_facturacion": "Boleta", "comision_servicio": 1, "fecha_caja_cierre": null, "fecha_carga_excel": null, "id_empresa_salida": 7, "id_usuario_deriva": null, "id_usuario_gestor": 1, "monto_itf_ingreso": 0.005, "id_codigo_servicio": 3, "id_empresa_ingreso": 7, "id_operacion_match": null, "id_operacion_padre": null, "id_usuario_retiene": null, "nombre_carga_excel": null, "observacion_tiempo": null, "tipo_recaudacion_sf": null, "id_usuario_solicitud": null, "nombre_banco_cliente": "BBVA", "nombre_tipo_deposito": "Mismo Día", "id_usuario_reasignado": null, "nombre_empresa_salida": "A Cuenta WK S.A.", "nombre_usuario_deriva": null, "nombre_usuario_gestor": "jhon", "tipo_flujo_pago_deuda": null, "comision_banco_ingreso": 6, "fecha_deposito_cliente": "2026-08-01T14:04:13.564-05:00", "monto_deposito_cliente": 1500, "nombre_codigo_servicio": "BBVA", "nombre_empresa_ingreso": "A Cuenta WK S.A.", "nombre_usuario_retiene": null, "comision_minima_servicio": 12, "id_empresa_cuenta_salida": 6, "nombre_usuario_solicitud": null, "id_empresa_cuenta_ingreso": 6, "nombre_usuario_reasignado": null, "comision_igv_banco_ingreso": 0, "monto_transferencia_cliente": 1485.00, "resultado_comision_servicio": 15.00, "comision_transf_banco_salida": 0, "comision_minimo_banco_ingreso": 0, "comision_monto_extra_servicio": 0, "id_banco_cliente_transferencia": 1, "id_banco_empresa_cuenta_salida": 1, "monto_minimo_deposito_servicio": 1200, "id_banco_empresa_cuenta_ingreso": 1, "resultado_comision_banco_salida": 0.07, "resultado_comision_banco_ingreso": 6.08, "codigo_operacion_deposito_cliente": "8754215", "comision_transf_inter_banco_salida": 0, "nombre_banco_cliente_transferencia": "BBVA", "nombre_banco_empresa_cuenta_salida": "BBVA", "flag_por_sol_comision_banco_ingreso": true, "nombre_banco_empresa_cuenta_ingreso": "BBVA"}]
+Tab Derivados
 
-usuario 1: accion botón "Derivar"
+Columna Acciones: Com. Extra
 
-f_patch_tb_operacion_proceso_derivacion
-request: {"p_id":2,"p_ruta_origen":"bbva","p_ruta_destino":"banbif","p_flag_derivado":true,"p_fecha_derivacion":"2026-08-01T19:05:25.493Z","p_id_usuario_deriva":1,"p_nombre_usuario_deriva":"jhon"}
-response: {"id": 2, "id_estado": 3, "id_cliente": 11394, "id_usuario": 1, "dni_cliente": "47356534", "ruta_origen": "bbva", "error_motivo": null, "fecha_pagado": null, "id_comunidad": 10, "ruta_destino": "banbif", "flag_derivado": true, "flag_retenido": false, "nombre_estado": "Pendiente", "tipo_servicio": "EFECTIVIZACION", "fecha_registro": "2026-08-01T14:04:13.817454-05:00", "id_caja_cierre": null, "id_carga_excel": null, "monto_devuelto": 0, "nombre_cliente": "", "nombre_usuario": "jhon", "fecha_pendiente": "2026-08-01T14:04:13.564-05:00", "fecha_retencion": null, "fecha_derivacion": "2026-08-01T14:05:25.493-05:00", "id_banco_cliente": 1, "monto_itf_salida": 0.005, "motivo_retencion": null, "nombre_comunidad": "ATK1", "tipo_facturacion": "Boleta", "comision_servicio": 1, "fecha_caja_cierre": null, "fecha_carga_excel": null, "id_empresa_salida": 7, "id_usuario_deriva": 1, "id_usuario_gestor": 1, "monto_itf_ingreso": 0.005, "id_codigo_servicio": 3, "id_empresa_ingreso": 7, "id_operacion_match": null, "id_operacion_padre": null, "id_usuario_retiene": null, "nombre_carga_excel": null, "observacion_tiempo": null, "tipo_recaudacion_sf": null, "id_usuario_solicitud": null, "nombre_banco_cliente": "BBVA", "nombre_tipo_deposito": "Mismo Día", "id_usuario_reasignado": null, "nombre_empresa_salida": "A Cuenta WK S.A.", "nombre_usuario_deriva": "jhon", "nombre_usuario_gestor": "jhon", "tipo_flujo_pago_deuda": null, "comision_banco_ingreso": 6, "fecha_deposito_cliente": "2026-08-01T14:04:13.564-05:00", "monto_deposito_cliente": 1500, "nombre_codigo_servicio": "BBVA", "nombre_empresa_ingreso": "A Cuenta WK S.A.", "nombre_usuario_retiene": null, "comision_minima_servicio": 12, "id_empresa_cuenta_salida": 16, "nombre_usuario_solicitud": null, "id_empresa_cuenta_ingreso": 6, "nombre_usuario_reasignado": null, "comision_igv_banco_ingreso": 0, "monto_transferencia_cliente": 1485.00, "resultado_comision_servicio": 15.00, "comision_transf_banco_salida": 0, "comision_minimo_banco_ingreso": 0, "comision_monto_extra_servicio": 0, "id_banco_cliente_transferencia": 4, "id_banco_empresa_cuenta_salida": 4, "monto_minimo_deposito_servicio": 1200, "id_banco_empresa_cuenta_ingreso": 1, "resultado_comision_banco_salida": 0.07, "resultado_comision_banco_ingreso": 6.08, "codigo_operacion_deposito_cliente": "8754215", "comision_transf_inter_banco_salida": 0, "nombre_banco_cliente_transferencia": "Banbif", "nombre_banco_empresa_cuenta_salida": "Banbif", "flag_por_sol_comision_banco_ingreso": true, "nombre_banco_empresa_cuenta_ingreso": "BBVA"}
+f_get_tb_operacion_proceso_calculo
 
-f_get_tb_operacion_proceso
-request: {"p_tipo_servicio":"EFECTIVIZACION","p_ruta_destino":"bbva","p_flag_derivado":false,"p_id_empresa_salida":7,"p_id_empresa_cuenta_salida":6}
-response: []
+{
+    "p_monto_deposito_cliente": 3300,
+    "p_comision_servicio": 1,
+    "p_monto_minimo_deposito_servicio": 5715,
+    "p_comision_minima_servicio": 20,
+    "p_comision_monto_extra_servicio": 35,
+    "p_flag_por_sol_comision_banco_ingreso": true,
+    "p_comision_banco_ingreso": 5,
+    "p_comision_minimo_banco_ingreso": 0,
+    "p_comision_igv_banco_ingreso": 0,
+    "p_monto_itf_ingreso": 0.005,
+    "p_comision_transf_banco_salida": 0,
+    "p_comision_transf_inter_banco_salida": 0,
+    "p_monto_itf_salida": 0.005,
+    "p_id_empresa_salida": 7,
+    "p_id_empresa_cuenta_salida": 6,
+    "p_id_banco_empresa_cuenta_salida": 1,
+    "p_id_banco_cliente_transferencia": 1
+}
 
-usuario 2: banco banbif, visualiza en el tab de derivados una operación
+{
+    "monto_transferencia_cliente": 3245.0,
+    "resultado_comision_servicio": 55.0,
+    "resultado_comision_banco_salida": 0.16,
+    "resultado_comision_banco_ingreso": 5.17
+}
 
-f_get_tb_operacion_retencion_bandeja
-request:{"p_tab":"Derivados","p_ruta":"banbif","p_id_empresa_cuenta_bancaria":16,"p_id_empresa":7,"p_filtro_estado":"Todos"}
-response: [{"id": 2, "id_estado": 3, "id_cliente": 11394, "id_usuario": 1, "dni_cliente": "47356534", "ruta_origen": "bbva", "error_motivo": null, "fecha_pagado": null, "id_comunidad": 10, "ruta_destino": "banbif", "flag_derivado": true, "flag_retenido": false, "nombre_estado": "Pendiente", "tipo_servicio": "EFECTIVIZACION", "fecha_registro": "2026-08-01T14:04:13.817454-05:00", "id_caja_cierre": null, "id_carga_excel": null, "monto_devuelto": 0, "nombre_cliente": "", "nombre_usuario": "jhon", "fecha_pendiente": "2026-08-01T14:04:13.564-05:00", "fecha_retencion": null, "fecha_derivacion": "2026-08-01T14:05:25.493-05:00", "id_banco_cliente": 1, "monto_itf_salida": 0.005, "motivo_retencion": null, "nombre_comunidad": "ATK1", "tipo_facturacion": "Boleta", "comision_servicio": 1, "fecha_caja_cierre": null, "fecha_carga_excel": null, "id_empresa_salida": 7, "id_usuario_deriva": 1, "id_usuario_gestor": 1, "monto_itf_ingreso": 0.005, "id_codigo_servicio": 3, "id_empresa_ingreso": 7, "id_operacion_match": null, "id_operacion_padre": null, "id_usuario_retiene": null, "nombre_carga_excel": null, "observacion_tiempo": null, "tipo_recaudacion_sf": null, "id_usuario_solicitud": null, "nombre_banco_cliente": "BBVA", "nombre_tipo_deposito": "Mismo Día", "id_usuario_reasignado": null, "nombre_empresa_salida": "A Cuenta WK S.A.", "nombre_usuario_deriva": "jhon", "nombre_usuario_gestor": "jhon", "tipo_flujo_pago_deuda": null, "comision_banco_ingreso": 6, "fecha_deposito_cliente": "2026-08-01T14:04:13.564-05:00", "monto_deposito_cliente": 1500, "nombre_codigo_servicio": "BBVA", "nombre_empresa_ingreso": "A Cuenta WK S.A.", "nombre_usuario_retiene": null, "comision_minima_servicio": 12, "id_empresa_cuenta_salida": 16, "nombre_usuario_solicitud": null, "id_empresa_cuenta_ingreso": 6, "nombre_usuario_reasignado": null, "comision_igv_banco_ingreso": 0, "monto_transferencia_cliente": 1485.00, "resultado_comision_servicio": 15.00, "comision_transf_banco_salida": 0, "comision_minimo_banco_ingreso": 0, "comision_monto_extra_servicio": 0, "id_banco_cliente_transferencia": 4, "id_banco_empresa_cuenta_salida": 4, "monto_minimo_deposito_servicio": 1200, "id_banco_empresa_cuenta_ingreso": 1, "resultado_comision_banco_salida": 0.07, "resultado_comision_banco_ingreso": 6.08, "codigo_operacion_deposito_cliente": "8754215", "comision_transf_inter_banco_salida": 0, "nombre_banco_cliente_transferencia": "Banbif", "nombre_banco_empresa_cuenta_salida": "Banbif", "flag_por_sol_comision_banco_ingreso": true, "nombre_banco_empresa_cuenta_ingreso": "BBVA"}]
 
+f_patch_tb_operacion_proceso_base
 
-
-
+{
+    "p_id": 239,
+    "p_comision_monto_extra_servicio": 35,
+    "p_resultado_comision_banco_salida": 0.16
+}
+{
+    "id": 239,
+    "id_estado": 3,
+    "id_cliente": 7427,
+    "id_usuario": 1,
+    "dni_cliente": "08344003",
+    "ruta_origen": "scotiabank",
+    "error_motivo": null,
+    "fecha_pagado": null,
+    "id_comunidad": 14,
+    "ruta_destino": "bbva",
+    "flag_derivado": true,
+    "flag_retenido": false,
+    "nombre_estado": "Pendiente",
+    "tipo_servicio": "Efectivizacion",
+    "fecha_registro": "2026-08-01T20:25:46.944215-05:00",
+    "id_caja_cierre": null,
+    "id_carga_excel": 61,
+    "monto_devuelto": 0,
+    "nombre_cliente": "",
+    "nombre_usuario": "johnsmendoza",
+    "fecha_pendiente": "2026-08-01T20:25:46.944215-05:00",
+    "fecha_retencion": "2026-08-01T20:25:46.944215-05:00",
+    "fecha_derivacion": "2026-08-02T09:26:16.721-05:00",
+    "id_banco_cliente": 3,
+    "monto_itf_salida": 0.005,
+    "motivo_retencion": "Retencion automatica por cuenta bancaria",
+    "nombre_comunidad": "BETO30",
+    "tipo_facturacion": "Boleta",
+    "comision_servicio": 1,
+    "fecha_caja_cierre": null,
+    "fecha_carga_excel": "2026-08-01T20:25:46.944215-05:00",
+    "id_empresa_salida": 7,
+    "id_usuario_deriva": 1,
+    "id_usuario_gestor": 1,
+    "monto_itf_ingreso": 0.005,
+    "id_codigo_servicio": 4,
+    "id_empresa_ingreso": 8,
+    "id_operacion_match": null,
+    "id_operacion_padre": null,
+    "id_usuario_retiene": 1,
+    "nombre_carga_excel": "ReporteRecaudaciones (84)_scotiabank - copia.xls",
+    "observacion_tiempo": null,
+    "tipo_recaudacion_sf": null,
+    "id_usuario_solicitud": null,
+    "nombre_banco_cliente": "Scotiabank",
+    "nombre_tipo_deposito": "Mismo Día",
+    "id_usuario_reasignado": null,
+    "nombre_empresa_salida": "A Cuenta WK S.A.",
+    "nombre_usuario_deriva": "jhon",
+    "nombre_usuario_gestor": "Sistema",
+    "tipo_flujo_pago_deuda": null,
+    "comision_banco_ingreso": 5,
+    "fecha_deposito_cliente": "2026-08-01T10:01:00-05:00",
+    "monto_deposito_cliente": 3300,
+    "nombre_codigo_servicio": "Scotiabank",
+    "nombre_empresa_ingreso": "Academia WK S.A.",
+    "nombre_usuario_retiene": "johnsmendoza",
+    "comision_minima_servicio": 20,
+    "id_empresa_cuenta_salida": 6,
+    "id_empresa_salida_origen": 8,
+    "nombre_usuario_solicitud": null,
+    "id_empresa_cuenta_ingreso": 7,
+    "nombre_usuario_reasignado": null,
+    "comision_igv_banco_ingreso": 0,
+    "monto_transferencia_cliente": 3280.0,
+    "resultado_comision_servicio": 20.0,
+    "comision_transf_banco_salida": 0,
+    "nombre_empresa_salida_origen": "Academia WK S.A.",
+    "comision_minimo_banco_ingreso": 0,
+    "comision_monto_extra_servicio": 35,
+    "id_banco_cliente_transferencia": 1,
+    "id_banco_empresa_cuenta_salida": 1,
+    "monto_minimo_deposito_servicio": 5715,
+    "id_banco_empresa_cuenta_ingreso": 3,
+    "id_empresa_cuenta_salida_origen": 7,
+    "resultado_comision_banco_salida": 0.16,
+    "resultado_comision_banco_ingreso": 5.17,
+    "codigo_operacion_deposito_cliente": "4656004741",
+    "comision_transf_inter_banco_salida": 0,
+    "nombre_banco_cliente_transferencia": "BBVA",
+    "nombre_banco_empresa_cuenta_salida": "BBVA",
+    "flag_por_sol_comision_banco_ingreso": true,
+    "nombre_banco_empresa_cuenta_ingreso": "Scotiabank",
+    "id_banco_empresa_cuenta_salida_origen": 3,
+    "nombre_banco_empresa_cuenta_salida_origen": "Scotiabank"
+}

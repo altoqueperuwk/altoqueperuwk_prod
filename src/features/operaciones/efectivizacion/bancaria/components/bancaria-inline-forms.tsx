@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Save01, XClose } from "@untitledui/icons";
+import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { Input } from "@/components/base/input/input";
@@ -59,6 +60,7 @@ interface EmpresaCuentaActiva {
 }
 
 const getCajaSelectionKey = (caja: RutaOperacionCaja) => String(caja.id_caja ?? caja.id_empresa_cuenta_bancaria);
+const excludedTransferCompanyIds = new Set([10, 14, 15, 16]);
 
 const Field = ({ children, className, label }: { children: ReactNode; className?: string; label: string }) => (
     <label className={cx("flex min-w-0 flex-col gap-1", className)}>
@@ -369,6 +371,7 @@ export const BancariaInlineForms = ({
     const transferDestinationAccountsWithCaja = useMemo(
         () =>
             cuentasActivas.filter((cuenta) => {
+                if (excludedTransferCompanyIds.has(cuenta.id_empresa)) return false;
                 const caja = cajaMap.get(`${cuenta.id_empresa}-${cuenta.id}`);
                 if (!caja) return false;
                 if (transferOrigin?.id_caja && caja.id === transferOrigin.id_caja) return false;
@@ -789,7 +792,11 @@ export const BancariaInlineForms = ({
                                         onTipoDocumentoChange={setManualTipoDocumento}
                                         onNumeroDocumentoChange={setManualDni}
                                     />
-                                    {isClienteLoading && <span className="text-xs text-tertiary">Buscando comunidad...</span>}
+                                    {isClienteLoading && (
+                                        <div className="flex h-10 items-center justify-center">
+                                            <LoadingIndicator type="line-spinner" size="sm" />
+                                        </div>
+                                    )}
                                 </div>
                             </Field>
                             <Field label="Monto">

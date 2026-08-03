@@ -1,0 +1,23 @@
+const getDatePart = (parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+export const getPeruDateValue = (date = new Date()) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+        day: "2-digit",
+        month: "2-digit",
+        timeZone: "America/Lima",
+        year: "numeric",
+    }).formatToParts(date);
+
+    return `${getDatePart(parts, "year")}-${getDatePart(parts, "month")}-${getDatePart(parts, "day")}`;
+};
+
+export const formatDateValue = (value: string) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Intl.DateTimeFormat("es-PE", {
+        day: "2-digit",
+        month: "short",
+        timeZone: "UTC",
+        year: "numeric",
+    }).format(new Date(Date.UTC(year, month - 1, day)));
+};

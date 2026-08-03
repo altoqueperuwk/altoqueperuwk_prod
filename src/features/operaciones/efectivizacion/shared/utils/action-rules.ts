@@ -48,7 +48,7 @@ export const isBancariaActionDisabled = ({
     }
 
     if (action === "Emp. Salida") {
-        return !["Efectivizacion", "Pago Deuda", "Derivados"].includes(activeTab) || !hasSelection || companyCount === 0;
+        return !["Efectivizacion", "Pago Deuda", "Derivados", "POS"].includes(activeTab) || !hasSelection || companyCount === 0;
     }
 
     if (action === "Transferencia") {

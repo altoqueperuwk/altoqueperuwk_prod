@@ -26,7 +26,8 @@ DROP FUNCTION IF EXISTS public.f_get_tb_operacion_asistida_kpi(
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_asistida_kpi(
   p_ruta character varying,
   p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL
+  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL,
+  p_id_usuario_solicitud bigint DEFAULT NULL
 )
 RETURNS TABLE (
   ruta character varying,
@@ -46,6 +47,8 @@ AS $$
     FROM public.tb_operacion_proceso op
     WHERE LOWER(COALESCE(p_ruta, '')) IN ('pos', 'linkpago')
       AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(p_ruta)
+      AND (p_id_usuario_solicitud IS NULL OR op.id_usuario_solicitud = p_id_usuario_solicitud)
+      AND COALESCE(op.id_estado, 0) <> 10
       AND (
         (p_fecha_registro_desde IS NULL AND p_fecha_registro_hasta IS NULL)
         OR (
@@ -131,7 +134,8 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_asistida_bandeja(
   p_nombre_estado character varying DEFAULT NULL,
   p_dni_cliente character varying DEFAULT NULL,
   p_codigo_operacion character varying DEFAULT NULL,
-  p_id_banco_cliente bigint DEFAULT NULL
+  p_id_banco_cliente bigint DEFAULT NULL,
+  p_id_usuario_solicitud bigint DEFAULT NULL
 )
 RETURNS SETOF jsonb
 LANGUAGE sql
@@ -142,6 +146,11 @@ AS $$
   FROM public.tb_operacion_proceso op
   WHERE LOWER(COALESCE(p_ruta, '')) IN ('pos', 'linkpago')
     AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(p_ruta)
+    AND (p_id_usuario_solicitud IS NULL OR op.id_usuario_solicitud = p_id_usuario_solicitud)
+    AND (
+      UPPER(BTRIM(COALESCE(p_nombre_estado, ''))) = 'ELIMINADO'
+      OR COALESCE(op.id_estado, 0) <> 10
+    )
     AND (
       (p_fecha_registro_desde IS NULL AND p_fecha_registro_hasta IS NULL)
       OR (

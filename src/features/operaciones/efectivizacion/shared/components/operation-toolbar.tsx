@@ -41,6 +41,11 @@ export const OperationToolbar = ({
     onFilterChange,
     showDateRange = false,
 }: OperationToolbarProps) => {
+    const actionLabels: Record<string, string> = {
+        "Emp. Salida": "Empresa Transferencia",
+        Transferencia: "Transferir",
+    };
+
     return (
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-secondary px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -111,7 +116,7 @@ export const OperationToolbar = ({
                         isDisabled={isActionDisabled?.(action) ?? true}
                         onClick={() => onAction?.(action)}
                     >
-                        {action}
+                        {actionLabels[action] ?? action}
                     </Button>
                 ))}
             </div>

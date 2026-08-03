@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Save01, XClose } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
+import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { CelularInput } from "@/components/base/input/celular-input";
@@ -242,13 +243,13 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             return;
         }
 
-        if (ruta === "pos" && !selectedBancoTransferir) {
-            addToast("error", "Selecciona el banco al que transferir.");
+        if (!selectedEntidadTarjeta) {
+            addToast("error", "Selecciona la entidad tarjeta.");
             return;
         }
 
-        if (ruta === "linkpago" && !selectedEntidadTarjeta) {
-            addToast("error", "Selecciona la entidad tarjeta.");
+        if (ruta === "pos" && !selectedBancoTransferir) {
+            addToast("error", "Selecciona el banco al que transferir.");
             return;
         }
 
@@ -342,6 +343,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         <NativeSelect
                             size="sm"
                             label="Entidad Tarjeta"
+                            isRequired
                             value={entidadTarjetaId}
                             onChange={(event) => setEntidadTarjetaId(event.currentTarget.value)}
                             options={[
@@ -354,15 +356,20 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                             className="min-w-0 flex-1"
                         />
                     )}
-                    <div className="flex w-full max-w-[13rem] min-w-0 flex-col gap-1">
+                    <div className="flex w-full max-w-[13rem] min-w-0 items-end gap-2">
                         <DocumentoInputGroup
                             isRequired
                             tipoDocumento={tipoDocumento}
                             numeroDocumento={dni}
                             onTipoDocumentoChange={setTipoDocumento}
                             onNumeroDocumentoChange={setDni}
+                            className="min-w-0 flex-1"
                         />
-                        {isClienteLoading && <span className="text-xs text-tertiary">Buscando...</span>}
+                        {isClienteLoading && (
+                            <div className="flex size-10 shrink-0 items-center justify-center">
+                                <LoadingIndicator type="line-spinner" size="sm" />
+                            </div>
+                        )}
                     </div>
                     <Input
                         size="sm"
@@ -373,18 +380,18 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         isDisabled={!!clienteId}
                         className="min-w-0 flex-1"
                     />
-                    <NativeSelect
+                    <Input
                         size="sm"
                         label="Comunidad"
-                        value={comunidadId}
-                        onChange={(event) => setComunidadId(event.currentTarget.value)}
-                        options={comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))}
+                        value={selectedCommunity?.nombre ?? ""}
+                        isDisabled
                         className="w-full max-w-[17ch] shrink-0"
                     />
                     {ruta === "pos" && (
                         <NativeSelect
                             size="sm"
                             label="Banco Transferir"
+                            isRequired
                             value={bancoDestinoId}
                             onChange={(event) => setBancoDestinoId(event.currentTarget.value)}
                             options={[
@@ -400,6 +407,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                     <Input
                         size="sm"
                         label="Monto"
+                        isRequired
                         placeholder="S/ 0.00"
                         value={monto}
                         onChange={(value) => setMonto(sanitizeAmountInput(value))}

@@ -146,6 +146,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_base", params);
     },
 
+    patchOperacionComisionExtra(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_comision_extra", params);
+    },
+
     patchOperacionEstado(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_estado", params);
     },

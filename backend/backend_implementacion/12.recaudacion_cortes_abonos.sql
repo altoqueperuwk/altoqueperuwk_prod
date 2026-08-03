@@ -86,7 +86,7 @@ BEGIN
     END,
     CASE
       WHEN LOWER(roc.ruta) = 'safetypay' THEN 2
-      WHEN LOWER(roc.ruta) = 'bcp' THEN 0
+      WHEN LOWER(roc.ruta) IN ('bcp', 'scotiabank') THEN 0
       ELSE 1
     END,
     CASE
@@ -119,30 +119,8 @@ BEGIN
      OR COALESCE(flag_retencion_parcial, false) = true;
 END;
 $$;
--- Backfill de reglas existentes a las definiciones de negocio:
--- horas de abono y base de calculo por entidad. Corre siempre (idempotente).
-UPDATE public.tb_recaudacion_regla_abono
-SET hora_corte = CASE
-      WHEN LOWER(ruta) = 'bcp' THEN '00:00'::time
-      WHEN LOWER(ruta) IN ('scotiabank', 'banbif') THEN '21:00'::time
-      ELSE hora_corte
-    END,
-    dias_habiles_abono = CASE
-      WHEN LOWER(ruta) = 'bcp' THEN 0
-      ELSE dias_habiles_abono
-    END,
-    hora_liberacion = CASE
-      WHEN LOWER(ruta) = 'bcp' THEN '00:00'::time
-      WHEN LOWER(ruta) = 'safetypay' THEN '14:00'::time
-      WHEN LOWER(ruta) IN ('scotiabank', 'banbif') THEN '21:00'::time
-      ELSE hora_liberacion
-    END,
-    base_calculo_abono = CASE
-      WHEN LOWER(ruta) IN ('bcp', 'scotiabank', 'banbif') THEN 'CORTE'
-      ELSE 'DEPOSITO'
-    END,
-    fecha_actualizacion = now()
-WHERE id_estado = 1;
+-- Las reglas existentes son configurables desde la interfaz y no se
+-- sobrescriben al volver a ejecutar este archivo.
 
 /*
 Funcion: f_get_tb_recaudacion_cuenta_flag_retenida
@@ -254,8 +232,8 @@ BEGIN
     IF COALESCE(
       v_flag_habil,
       CASE
-        WHEN LOWER(COALESCE(p_ruta, '')) = 'bcp'
-          THEN EXTRACT(ISODOW FROM v_fecha) BETWEEN 1 AND 6
+      WHEN LOWER(COALESCE(p_ruta, '')) IN ('bcp', 'scotiabank')
+        THEN EXTRACT(ISODOW FROM v_fecha) BETWEEN 1 AND 6
         ELSE EXTRACT(ISODOW FROM v_fecha) BETWEEN 1 AND 5
       END
     ) THEN
@@ -306,7 +284,7 @@ BEGIN
   RETURN COALESCE(
     v_flag_habil,
     CASE
-      WHEN LOWER(COALESCE(p_ruta, '')) = 'bcp'
+      WHEN LOWER(COALESCE(p_ruta, '')) IN ('bcp', 'scotiabank')
         THEN EXTRACT(ISODOW FROM p_fecha) BETWEEN 1 AND 6
       ELSE EXTRACT(ISODOW FROM p_fecha) BETWEEN 1 AND 5
     END
@@ -365,12 +343,6 @@ BEGIN
   END IF;
 
   v_ruta := LOWER(COALESCE(p_ruta, v_regla.ruta));
-  IF v_ruta = 'bcp' THEN
-    v_regla.hora_corte := '00:00'::time;
-    v_regla.dias_habiles_abono := 0;
-    v_regla.hora_liberacion := '00:00'::time;
-    v_regla.base_calculo_abono := 'CORTE';
-  END IF;
 
   v_deposito_local := p_fecha_deposito AT TIME ZONE 'America/Lima';
 
@@ -434,6 +406,7 @@ DECLARE
   v_op record;
   v_info jsonb;
   v_lote_id bigint;
+  v_lote_insertado boolean;
   v_creados integer := 0;
   v_relaciones integer := 0;
 BEGIN
@@ -467,44 +440,47 @@ BEGIN
       AND l.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_ingreso
       AND (
         (
-          LOWER(COALESCE(v_op.ruta_destino, v_op.ruta_origen)) = 'bcp'
+          LOWER(COALESCE(v_op.ruta_destino, v_op.ruta_origen)) IN ('bcp', 'scotiabank')
           AND l.fecha_estimada_abono = (v_info->>'fecha_estimada_abono')::date
           AND l.fecha_liberacion = (v_info->>'fecha_liberacion')::timestamp with time zone
         )
         OR (
-          LOWER(COALESCE(v_op.ruta_destino, v_op.ruta_origen)) <> 'bcp'
+          LOWER(COALESCE(v_op.ruta_destino, v_op.ruta_origen)) NOT IN ('bcp', 'scotiabank')
           AND l.fecha_corte = (v_info->>'fecha_corte')::timestamp with time zone
         )
       )
     LIMIT 1;
 
-    IF v_lote_id IS NULL THEN
-      INSERT INTO public.tb_recaudacion_lote (
-        ruta,
-        id_empresa,
-        id_empresa_cuenta_bancaria,
-        fecha_inicio,
-        fecha_corte,
-        fecha_estimada_abono,
-        fecha_liberacion,
-        estado,
-        id_usuario
-      )
-      VALUES (
-        LOWER(COALESCE(v_op.ruta_destino, v_op.ruta_origen)),
-        v_op.id_empresa_ingreso,
-        v_op.id_empresa_cuenta_ingreso,
-        ((v_info->>'fecha_corte')::timestamp with time zone - interval '1 day'),
-        (v_info->>'fecha_corte')::timestamp with time zone,
-        (v_info->>'fecha_estimada_abono')::date,
-        (v_info->>'fecha_liberacion')::timestamp with time zone,
-        CASE
-          WHEN now() < (v_info->>'fecha_corte')::timestamp with time zone THEN 'PENDIENTE_CORTE'
-          ELSE 'PENDIENTE_ABONO'
-        END,
-        p_id_usuario
-      )
-      RETURNING id INTO v_lote_id;
+    INSERT INTO public.tb_recaudacion_lote (
+      ruta,
+      id_empresa,
+      id_empresa_cuenta_bancaria,
+      fecha_inicio,
+      fecha_corte,
+      fecha_estimada_abono,
+      fecha_liberacion,
+      estado,
+      id_usuario
+    )
+    VALUES (
+      LOWER(COALESCE(v_op.ruta_destino, v_op.ruta_origen)),
+      v_op.id_empresa_ingreso,
+      v_op.id_empresa_cuenta_ingreso,
+      ((v_info->>'fecha_corte')::timestamp with time zone - interval '1 day'),
+      (v_info->>'fecha_corte')::timestamp with time zone,
+      (v_info->>'fecha_estimada_abono')::date,
+      (v_info->>'fecha_liberacion')::timestamp with time zone,
+      CASE
+        WHEN now() < (v_info->>'fecha_corte')::timestamp with time zone THEN 'PENDIENTE_CORTE'
+        ELSE 'PENDIENTE_ABONO'
+      END,
+      p_id_usuario
+    )
+    ON CONFLICT ((lower(ruta)), id_empresa_cuenta_bancaria, fecha_corte)
+    DO UPDATE SET fecha_actualizacion = now()
+    RETURNING id, (xmax = 0) INTO v_lote_id, v_lote_insertado;
+
+    IF v_lote_insertado THEN
       v_creados := v_creados + 1;
     END IF;
 
@@ -830,17 +806,25 @@ BEGIN
     RETURN jsonb_build_object('error', 'La empresa y cuenta son requeridas.');
   END IF;
 
-  IF COALESCE(p_dias_habiles_abono, 0) < 0 THEN
-    RETURN jsonb_build_object('error', 'Los dias habiles de abono no pueden ser negativos.');
+  IF p_hora_corte IS NULL OR p_hora_liberacion IS NULL THEN
+    RETURN jsonb_build_object('error', 'La hora de corte y la hora de liberacion son obligatorias.');
   END IF;
 
-  v_base_calculo := UPPER(BTRIM(COALESCE(p_base_calculo_abono, 'DEPOSITO')));
+  IF p_dias_habiles_abono IS NULL OR p_dias_habiles_abono < 0 THEN
+    RETURN jsonb_build_object('error', 'Los dias habiles de abono deben ser cero o mayores.');
+  END IF;
+
+  v_base_calculo := UPPER(BTRIM(COALESCE(p_base_calculo_abono, '')));
+  IF v_base_calculo = '' THEN
+    RETURN jsonb_build_object('error', 'La base de calculo del abono es obligatoria.');
+  END IF;
+
   IF v_base_calculo NOT IN ('DEPOSITO', 'CORTE') THEN
     RETURN jsonb_build_object('error', 'base_calculo_abono debe ser DEPOSITO o CORTE.');
   END IF;
 
-  IF LOWER(BTRIM(p_ruta)) = 'bcp' THEN
-    v_base_calculo := 'CORTE';
+  IF COALESCE(p_id_estado, 0) NOT IN (1, 2) THEN
+    RETURN jsonb_build_object('error', 'El estado de la regla no es valido.');
   END IF;
 
   INSERT INTO public.tb_recaudacion_regla_abono (
@@ -860,9 +844,9 @@ BEGIN
     LOWER(BTRIM(p_ruta)),
     p_id_empresa,
     p_id_empresa_cuenta_bancaria,
-    CASE WHEN LOWER(BTRIM(p_ruta)) = 'bcp' THEN '00:00'::time ELSE COALESCE(p_hora_corte, '00:00'::time) END,
-    CASE WHEN LOWER(BTRIM(p_ruta)) = 'bcp' THEN 0 ELSE COALESCE(p_dias_habiles_abono, 1) END,
-    CASE WHEN LOWER(BTRIM(p_ruta)) = 'bcp' THEN '00:00'::time ELSE COALESCE(p_hora_liberacion, '00:00'::time) END,
+    p_hora_corte,
+    p_dias_habiles_abono,
+    p_hora_liberacion,
     v_base_calculo,
     COALESCE(p_flag_liberacion_automatica, false),
     COALESCE(p_id_estado, 1),

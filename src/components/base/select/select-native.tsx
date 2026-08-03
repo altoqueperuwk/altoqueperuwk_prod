@@ -6,6 +6,7 @@ import { cx } from "@/utils/cx";
 
 interface NativeSelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "size"> {
     label?: string;
+    isRequired?: boolean;
     hint?: string;
     selectClassName?: string;
     size?: "sm" | "md" | "lg";
@@ -27,7 +28,7 @@ const styles = {
     },
 };
 
-export const NativeSelect = ({ label, hint, options, className, selectClassName, size = "md", ...props }: NativeSelectProps) => {
+export const NativeSelect = ({ label, hint, options, className, selectClassName, size = "md", isRequired, ...props }: NativeSelectProps) => {
     const id = useId();
     const selectId = `select-native-${id}`;
     const hintId = `select-native-hint-${id}`;
@@ -35,7 +36,7 @@ export const NativeSelect = ({ label, hint, options, className, selectClassName,
     return (
         <div className={cx("w-full in-data-input-wrapper:w-max", className)}>
             {label && (
-                <Label htmlFor={selectId} id={selectId} className="mb-1.5">
+                <Label htmlFor={selectId} id={selectId} isRequired={isRequired} className="mb-1.5">
                     {label}
                 </Label>
             )}

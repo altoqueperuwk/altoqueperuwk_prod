@@ -643,8 +643,8 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso_eliminada (
 /*
 Funcion: f_patch_tb_operacion_proceso_eliminar
 Objetivo:
-  Aplicar soft delete a una efectivizacion pendiente o retenida, revirtiendo
-  primero sus movimientos abiertos y conservando un snapshot para restaurar.
+  Aplicar soft delete a una operacion no pagada, revirtiendo primero sus
+  movimientos abiertos y conservando un snapshot para restaurar.
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_eliminar(
   p_id bigint,
@@ -662,6 +662,7 @@ DECLARE
   v_snapshot jsonb := '[]'::jsonb;
   v_usuario bigint;
   v_ruta character varying;
+  v_es_linkpago boolean := false;
 BEGIN
   SELECT * INTO v_actual
   FROM public.tb_operacion_proceso
@@ -672,13 +673,15 @@ BEGIN
     RETURN jsonb_build_object('error', 'La operacion no existe.');
   END IF;
 
-  IF UPPER(COALESCE(v_actual.tipo_servicio, v_actual.nombre_codigo_servicio, '')) <> 'EFECTIVIZACION' THEN
-    RETURN jsonb_build_object('error', 'Solo se pueden eliminar operaciones de efectivizacion.');
-  END IF;
+  v_es_linkpago := LOWER(COALESCE(v_actual.ruta_origen, '')) = 'linkpago';
 
-  IF UPPER(COALESCE(v_actual.nombre_estado, '')) NOT IN ('PENDIENTE', 'RETENIDO')
-     AND NOT COALESCE(v_actual.flag_retenido, false) THEN
-    RETURN jsonb_build_object('error', 'Solo se pueden eliminar operaciones Pendiente o Retenido.');
+  IF COALESCE(v_actual.id_estado, 0) = 10
+     OR UPPER(COALESCE(v_actual.nombre_estado, '')) = 'ELIMINADO'
+     OR (
+       UPPER(COALESCE(v_actual.nombre_estado, '')) = 'PAGADO'
+       AND NOT v_es_linkpago
+     ) THEN
+    RETURN jsonb_build_object('error', 'No se puede eliminar una operacion Pagada o Eliminada.');
   END IF;
 
   IF EXISTS (
@@ -733,32 +736,34 @@ BEGIN
     id_usuario = EXCLUDED.id_usuario,
     fecha_eliminacion = now();
 
-  FOR v_mov IN
-    SELECT *
-    FROM public.tb_operacion_caja
-    WHERE id_operacion_proceso = p_id
-      AND id_caja_cierre IS NULL
-    ORDER BY id
-  LOOP
-    PERFORM public.f_apply_tb_operacion_caja_delta(
-      p_id_caja := v_mov.id_caja,
-      p_tipo_movimiento := v_mov.tipo_movimiento,
-      p_nombre_estado := v_mov.nombre_estado,
-      p_monto_ingreso := v_mov.monto_ingreso,
-      p_monto_gasto := v_mov.monto_gasto,
-      p_monto_ganancia := v_mov.monto_ganancia,
-      p_monto_salida := v_mov.monto_salida,
-      p_flag_contabiliza_operacion := v_mov.flag_contabiliza_operacion,
-      p_factor := -1,
-      p_id_usuario := v_usuario
-    );
+  IF NOT v_es_linkpago THEN
+    FOR v_mov IN
+      SELECT *
+      FROM public.tb_operacion_caja
+      WHERE id_operacion_proceso = p_id
+        AND id_caja_cierre IS NULL
+      ORDER BY id
+    LOOP
+      PERFORM public.f_apply_tb_operacion_caja_delta(
+        p_id_caja := v_mov.id_caja,
+        p_tipo_movimiento := v_mov.tipo_movimiento,
+        p_nombre_estado := v_mov.nombre_estado,
+        p_monto_ingreso := v_mov.monto_ingreso,
+        p_monto_gasto := v_mov.monto_gasto,
+        p_monto_ganancia := v_mov.monto_ganancia,
+        p_monto_salida := v_mov.monto_salida,
+        p_flag_contabiliza_operacion := v_mov.flag_contabiliza_operacion,
+        p_factor := -1,
+        p_id_usuario := v_usuario
+      );
 
-    UPDATE public.tb_operacion_caja
-    SET id_operacion_caja_relacionada = NULL
-    WHERE id_operacion_caja_relacionada = v_mov.id;
+      UPDATE public.tb_operacion_caja
+      SET id_operacion_caja_relacionada = NULL
+      WHERE id_operacion_caja_relacionada = v_mov.id;
 
-    DELETE FROM public.tb_operacion_caja WHERE id = v_mov.id;
-  END LOOP;
+      DELETE FROM public.tb_operacion_caja WHERE id = v_mov.id;
+    END LOOP;
+  END IF;
 
   UPDATE public.tb_operacion_proceso
   SET id_estado = v_estado_eliminado_id,
@@ -772,7 +777,9 @@ BEGIN
   WHERE id = p_id;
 
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta, v_usuario);
-  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta, v_usuario);
+  IF NOT v_es_linkpago THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta, v_usuario);
+  END IF;
 
   RETURN jsonb_build_object(
     'id', p_id,
@@ -1895,6 +1902,7 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_actual record;
+  v_calc jsonb;
   v_ruta_kpi character varying;
 BEGIN
   SELECT *
@@ -1903,12 +1911,36 @@ BEGIN
   WHERE id = p_id
   LIMIT 1;
 
+  IF v_actual.id IS NULL THEN
+    RAISE EXCEPTION 'No existe la operacion %.', p_id;
+  END IF;
+
+  v_calc := public.f_get_tb_operacion_proceso_calculo(
+    v_actual.monto_deposito_cliente,
+    v_actual.comision_servicio,
+    v_actual.monto_minimo_deposito_servicio,
+    v_actual.comision_minima_servicio,
+    p_comision_monto_extra_servicio,
+    v_actual.flag_por_sol_comision_banco_ingreso,
+    v_actual.comision_banco_ingreso,
+    v_actual.comision_minimo_banco_ingreso,
+    v_actual.comision_igv_banco_ingreso,
+    v_actual.monto_itf_ingreso,
+    v_actual.comision_transf_banco_salida,
+    v_actual.comision_transf_inter_banco_salida,
+    v_actual.monto_itf_salida,
+    v_actual.id_empresa_salida,
+    v_actual.id_empresa_cuenta_salida,
+    v_actual.id_banco_empresa_cuenta_salida,
+    v_actual.id_banco_cliente_transferencia
+  );
+
   UPDATE public.tb_operacion_proceso
   SET comision_monto_extra_servicio = p_comision_monto_extra_servicio,
-      resultado_comision_servicio = COALESCE(p_resultado_comision_servicio, resultado_comision_servicio),
-      resultado_comision_banco_ingreso = COALESCE(p_resultado_comision_banco_ingreso, resultado_comision_banco_ingreso),
-      resultado_comision_banco_salida = COALESCE(p_resultado_comision_banco_salida, resultado_comision_banco_salida),
-      monto_transferencia_cliente = COALESCE(p_monto_transferencia_cliente, monto_transferencia_cliente),
+      resultado_comision_servicio = (v_calc->>'resultado_comision_servicio')::numeric,
+      resultado_comision_banco_ingreso = (v_calc->>'resultado_comision_banco_ingreso')::numeric,
+      resultado_comision_banco_salida = (v_calc->>'resultado_comision_banco_salida')::numeric,
+      monto_transferencia_cliente = (v_calc->>'monto_transferencia_cliente')::numeric,
       id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = p_id;

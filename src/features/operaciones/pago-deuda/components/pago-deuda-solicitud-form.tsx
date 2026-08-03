@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Save01, XClose } from "@untitledui/icons";
+import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
@@ -41,10 +42,16 @@ interface ReglaPagoDeudaItem {
     comision_servicio: number;
 }
 
+type CommissionMode = "preferencial" | "ultimo_dia";
+
 const formatPercentValue = (value: number | null | undefined) => {
     if (value == null || !Number.isFinite(Number(value))) return "";
     return `${Number(value).toLocaleString("es-PE", { maximumFractionDigits: 4 })} %`;
 };
+
+const allowedBankNames = new Set(["BCP", "BBVA", "INTERBANK", "BANBIF", "SCOTIABANK"]);
+
+const sanitizeWhatsapp = (value: string) => value.replace(/\D/g, "").slice(0, 9);
 
 export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps) => {
     const { businessUser } = useAuth();
@@ -52,12 +59,15 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
     const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
     const [nombre, setNombre] = useState("");
+    const [whatsapp, setWhatsapp] = useState("");
     const [monto, setMonto] = useState("");
     const [comunidadId, setComunidadId] = useState("");
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
     const [bancoId, setBancoId] = useState("");
     const [bancos, setBancos] = useState<BancoItem[]>([]);
     const [reglas, setReglas] = useState<ReglaPagoDeudaItem[]>([]);
+    const [commissionMode, setCommissionMode] = useState<CommissionMode>("preferencial");
+    const [manualCommission, setManualCommission] = useState("");
     const [isSaving, setIsSaving] = useState(false);
     const [clienteId, setClienteId] = useState<number | null>(null);
 
@@ -78,6 +88,11 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
             null
         );
     }, [reglas, selectedBanco, selectedCommunity]);
+    const bancosPermitidos = useMemo(
+        () => bancos.filter((item) => allowedBankNames.has(item.nombre.trim().toUpperCase())),
+        [bancos],
+    );
+    const amount = Number(monto.replace(",", "."));
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
 
@@ -89,13 +104,14 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
         if (clienteLookup) {
             setClienteId(clienteLookup.id);
             setNombre(clienteLookup.nombre);
-            if (clienteLookup.id_comunidad && !comunidadId) {
+            setWhatsapp(clienteLookup.celular[0] ?? "");
+            if (clienteLookup.id_comunidad) {
                 setComunidadId(String(clienteLookup.id_comunidad));
             }
         } else if (!getDocumentoValidationMessage(dni, tipoDocumento)) {
             setClienteId(null);
         }
-    }, [clienteLookup, dni, comunidadId, tipoDocumento]);
+    }, [clienteLookup, dni, tipoDocumento]);
 
     useEffect(() => {
         let ignore = false;
@@ -120,7 +136,8 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                 setBancos(bancoItems);
 
                 if (!comunidadId && comunidadItems[0]) setComunidadId(String(comunidadItems[0].id));
-                if (!bancoId && bancoItems[0]) setBancoId(String(bancoItems[0].id));
+                const firstAllowedBank = bancoItems.find((item) => allowedBankNames.has(item.nombre.trim().toUpperCase()));
+                if (!bancoId && firstAllowedBank) setBancoId(String(firstAllowedBank.id));
             })
             .catch(() => addToast("error", "Error al cargar catálogos."));
 
@@ -169,6 +186,11 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
             return;
         }
 
+        if (!selectedRegla) {
+            addToast("error", "No se encontro una regla activa para el banco seleccionado.");
+            return;
+        }
+
         if (!selectedCommunity) {
             addToast("error", "La comunidad es obligatoria.");
             return;
@@ -187,6 +209,16 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
             return;
         }
 
+        const manualCommissionValue = commissionMode === "ultimo_dia"
+            ? Number(manualCommission.replace(",", "."))
+            : 0;
+        const manualCommissionPayload = commissionMode === "ultimo_dia" ? manualCommissionValue : null;
+
+        if (commissionMode === "ultimo_dia" && (!Number.isFinite(manualCommissionValue) || manualCommissionValue < 0)) {
+            addToast("error", "La comision debe ser mayor o igual a 0.");
+            return;
+        }
+
         setIsSaving(true);
 
         try {
@@ -195,9 +227,11 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                 p_tipo_documento_cliente: tipoDocumento,
                 p_dni_cliente: cleanDni,
                 p_nombre_cliente: nombre.trim() || null,
+                p_celular_cliente: whatsapp || null,
                 p_id_banco_cliente: selectedBanco.id,
                 p_nombre_banco_cliente: selectedBanco.nombre,
                 p_monto_deposito_cliente: amount,
+                p_comision_servicio_manual: manualCommissionPayload,
                 p_id_comunidad: selectedCommunity.id,
                 p_id_usuario_gestor: userId,
                 p_nombre_usuario_gestor: userName,
@@ -214,7 +248,10 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
             setDni("");
             setTipoDocumento(1);
             setNombre("");
+            setWhatsapp("");
             setMonto("");
+            setCommissionMode("preferencial");
+            setManualCommission("");
             onSaved();
             addToast("success", "Solicitud de Pago Deuda registrada.");
         } catch (err) {
@@ -229,23 +266,31 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
         setDni("");
         setTipoDocumento(1);
         setNombre("");
+        setWhatsapp("");
         setMonto("");
         setClienteId(null);
+        setCommissionMode("preferencial");
+        setManualCommission("");
     };
 
     return (
         <InlineFormCard title="Solicitud Pago Deuda">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-                <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap xl:flex-nowrap xl:items-end">
-                    <div className="flex w-full max-w-[13rem] min-w-0 flex-col gap-1">
+            <div className="flex min-w-0 flex-col gap-3 2xl:flex-row 2xl:items-end">
+                <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-[10rem_minmax(12rem,25ch)_minmax(8rem,1fr)_11rem_minmax(7rem,1fr)_9rem_7rem]">
+                    <div className="flex w-full min-w-0 items-end gap-2 2xl:w-auto 2xl:shrink-0">
                         <DocumentoInputGroup
                             isRequired
                             tipoDocumento={tipoDocumento}
                             numeroDocumento={dni}
                             onTipoDocumentoChange={setTipoDocumento}
                             onNumeroDocumentoChange={setDni}
+                            className="min-w-0 flex-1"
                         />
-                        {isClienteLoading && <span className="text-xs text-tertiary">Buscando...</span>}
+                        {isClienteLoading && (
+                            <div className="flex size-10 shrink-0 items-center justify-center">
+                                <LoadingIndicator type="line-spinner" size="sm" />
+                            </div>
+                        )}
                     </div>
                     <Input
                         size="sm"
@@ -253,49 +298,70 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                         placeholder={clienteId ? "Cliente encontrado" : "Nombre del cliente"}
                         value={nombre}
                         onChange={setNombre}
-                        isDisabled={!!clienteId}
-                        className="min-w-0 flex-1"
+                        className="w-full min-w-0 max-w-[25ch] 2xl:w-[25ch] 2xl:shrink-0"
                     />
-                    <NativeSelect
+                    <Input
                         size="sm"
-                        label="Comunidad"
-                        value={comunidadId}
-                        onChange={(event) => setComunidadId(event.currentTarget.value)}
-                        options={comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))}
-                        className="w-full max-w-[17ch] shrink-0"
+                        label="Whatsapp"
+                        placeholder="Número de Whatsapp"
+                        value={whatsapp}
+                        onChange={(value) => setWhatsapp(sanitizeWhatsapp(value))}
+                        className="w-full min-w-0 max-w-full 2xl:max-w-[9rem] 2xl:shrink-0"
                     />
                     <NativeSelect
                         size="sm"
                         label="Banco Solicitado"
+                        isRequired
                         value={bancoId}
                         onChange={(event) => setBancoId(event.currentTarget.value)}
-                        options={bancos.map((item) => ({ label: item.nombre, value: String(item.id) }))}
-                        className="min-w-0 flex-1"
+                        options={bancosPermitidos.map((item) => ({ label: item.nombre, value: String(item.id) }))}
+                        className="w-full min-w-0 max-w-full 2xl:w-[11rem] 2xl:shrink-0"
                     />
                     <Input
                         size="sm"
-                        label="Comision"
-                        value={formatPercentValue(selectedRegla?.comision_servicio)}
-                        isDisabled
-                        className="w-full max-w-[7rem] shrink-0"
-                    />
-                    <Input
-                        size="sm"
-                        label="Monto"
+                        label="Monto Solicitado"
+                        isRequired
                         placeholder="S/ 0.00"
                         value={monto}
                         onChange={(value) => setMonto(sanitizeAmountInput(value))}
-                        className="w-full max-w-[8rem] shrink-0"
+                        className="w-full min-w-0 max-w-full 2xl:max-w-[8rem] 2xl:shrink-0"
+                    />
+                    <NativeSelect
+                        size="sm"
+                        label="Comision"
+                        isRequired
+                        value={commissionMode}
+                        onChange={(event) => {
+                            const value = event.currentTarget.value as CommissionMode;
+                            setCommissionMode(value);
+                            if (value === "preferencial") setManualCommission("");
+                            if (value === "ultimo_dia") setManualCommission("");
+                        }}
+                        options={[
+                            { label: "Preferencial", value: "preferencial" },
+                            { label: "Último Día", value: "ultimo_dia" },
+                        ]}
+                        className="w-full min-w-0 max-w-full 2xl:shrink-0"
+                    />
+                    <Input
+                        size="sm"
+                        label="Comision %"
+                        isRequired
+                        placeholder="%"
+                        value={commissionMode === "preferencial" ? formatPercentValue(selectedRegla?.comision_servicio) : manualCommission}
+                        isDisabled={commissionMode === "preferencial"}
+                        onChange={(value) => setManualCommission(sanitizeAmountInput(value))}
+                        className="w-full min-w-0 max-w-full 2xl:max-w-[7rem] 2xl:shrink-0"
                     />
                 </div>
-                <div className="flex shrink-0 gap-2">
+                <div className="flex w-full min-w-0 shrink-0 gap-2 sm:justify-end 2xl:w-auto">
                     <Button
                         size="sm"
                         color="primary"
                         iconLeading={Save01}
                         isLoading={isSaving}
                         onClick={handleSave}
-                        className="flex-1 xl:flex-none"
+                        className="min-w-0 flex-1 2xl:flex-none"
                     >
                         Guardar
                     </Button>
@@ -305,7 +371,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                         iconLeading={XClose}
                         isDisabled={isSaving}
                         onClick={handleClear}
-                        className="flex-1 xl:flex-none"
+                        className="min-w-0 flex-1 2xl:flex-none"
                     >
                         Cancelar
                     </Button>

@@ -3,6 +3,7 @@ import { Check, X } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
+import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
@@ -236,6 +237,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
                             <NativeSelect
                                 size="sm"
                                 label="Entidad Tarjeta"
+                                isRequired
                                 value={entidadTarjetaId}
                                 onChange={(event) => setEntidadTarjetaId(event.currentTarget.value)}
                                 options={[
@@ -246,15 +248,20 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
                                     })),
                                 ]}
                             />
-                            <div className="flex flex-col gap-1">
+                            <div className="flex items-end gap-2">
                                 <DocumentoInputGroup
                                     isRequired
                                     tipoDocumento={tipoDocumento}
                                     numeroDocumento={dni}
                                     onTipoDocumentoChange={setTipoDocumento}
                                     onNumeroDocumentoChange={setDni}
+                                    className="min-w-0 flex-1"
                                 />
-                                {isClienteLoading && <span className="text-xs text-tertiary">Buscando...</span>}
+                                {isClienteLoading && (
+                                    <div className="flex size-10 shrink-0 items-center justify-center">
+                                        <LoadingIndicator type="line-spinner" size="sm" />
+                                    </div>
+                                )}
                             </div>
                             <Input
                                 size="sm"
@@ -264,16 +271,16 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
                                 onChange={setNombre}
                                 isDisabled={!!clienteId}
                             />
-                            <NativeSelect
+                            <Input
                                 size="sm"
                                 label="Comunidad"
-                                value={comunidadId}
-                                onChange={(event) => setComunidadId(event.currentTarget.value)}
-                                options={comunidades.map((item) => ({ label: item.nombre, value: String(item.id) }))}
+                                value={selectedCommunity?.nombre ?? ""}
+                                isDisabled
                             />
                             <Input
                                 size="sm"
                                 label="Monto"
+                                isRequired
                                 placeholder="S/ 0.00"
                                 value={monto}
                                 onChange={(value) => setMonto(sanitizeAmountInput(value))}

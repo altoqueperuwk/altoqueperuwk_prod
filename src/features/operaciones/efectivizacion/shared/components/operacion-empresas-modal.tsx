@@ -31,6 +31,7 @@ interface EmpresaDraft {
     abreviatura: string;
     flag_transferencia: boolean;
     id_estado: string;
+    isImported?: boolean;
 }
 
 interface CuentaDraft {
@@ -60,6 +61,15 @@ const normalize = (value: unknown) =>
         .trim()
         .toUpperCase();
 
+const routeBankNames: Record<OperacionRutaBancaria, string> = {
+    bcp: "BCP",
+    bbva: "BBVA",
+    scotiabank: "SCOTIABANK",
+    banbif: "BANBIF",
+    interbank: "INTERBANK",
+    safetypay: "INTERBANK",
+};
+
 const parseNumber = (value: string): number | null => {
     const trimmed = value.trim();
     if (!trimmed) return null;
@@ -83,6 +93,7 @@ const buildEmpresaDraft = (row: Record<string, unknown>): EmpresaDraft => ({
     abreviatura: String(row.abreviatura ?? ""),
     flag_transferencia: Boolean(row.flag_transferencia),
     id_estado: row.id_estado == null ? "" : String(row.id_estado),
+    isImported: false,
 });
 
 const buildCuentaDraft = (row: Record<string, unknown>): CuentaDraft => ({
@@ -127,17 +138,20 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
     const { addToast } = useToast();
     const { bancos, estados } = useSessionCache();
     const [empresas, setEmpresas] = useState<EmpresaDraft[]>([]);
+    const [allEmpresas, setAllEmpresas] = useState<EmpresaDraft[]>([]);
     const [cuentas, setCuentas] = useState<CuentaDraft[]>([]);
     const [empresaSnapshots, setEmpresaSnapshots] = useState<Record<string, EmpresaDraft>>({});
     const [cuentaSnapshots, setCuentaSnapshots] = useState<Record<string, CuentaDraft>>({});
     const [selectedEmpresaId, setSelectedEmpresaId] = useState<number | null>(null);
     const [editingEmpresaKey, setEditingEmpresaKey] = useState<string | null>(null);
     const [editingCuentaKey, setEditingCuentaKey] = useState<string | null>(null);
+    const [ensureRouteAccount, setEnsureRouteAccount] = useState(false);
     const [isLoadingEmpresas, setIsLoadingEmpresas] = useState(false);
     const [isLoadingCuentas, setIsLoadingCuentas] = useState(false);
     const [savingEmpresaKey, setSavingEmpresaKey] = useState<string | null>(null);
     const [savingCuentaKey, setSavingCuentaKey] = useState<string | null>(null);
     const [isConfirmCloseOpen, setIsConfirmCloseOpen] = useState(false);
+    const [isNewEmpresaInfoOpen, setIsNewEmpresaInfoOpen] = useState(false);
 
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const estadoActivo = useMemo(
@@ -155,12 +169,26 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
     );
 
     const activeEstadoId = Number(estadoActivo?.id ?? 1);
+    const routeBankId = useMemo(
+        () => bancoItems.find((bank) => normalize(bank.label) === routeBankNames[ruta])?.id ?? null,
+        [bancoItems, ruta],
+    );
 
-    const loadEmpresas = useCallback(async () => {
+    const loadEmpresas = useCallback(async (includeEmpresaId: number | null = null) => {
         setIsLoadingEmpresas(true);
         try {
-            const result = await empresaService.getList();
-            const rows = (result ?? []).map(buildEmpresaDraft);
+            const [empresaResult, cuentaResult] = await Promise.all([
+                empresaService.getList(),
+                empresaCuentaBancariaService.getList({}),
+            ]);
+            const allRows = (empresaResult ?? []).map(buildEmpresaDraft);
+            const visibleEmpresaIds = new Set(
+                (cuentaResult ?? [])
+                    .filter((row) => Number(row.id_estado) === activeEstadoId && Number(row.id_banco) === routeBankId)
+                    .map((row) => Number(row.id_empresa)),
+            );
+            const rows = allRows.filter((row) => row.id && (visibleEmpresaIds.has(row.id) || row.id === includeEmpresaId));
+            setAllEmpresas(allRows);
             setEmpresas(rows);
             setEmpresaSnapshots(Object.fromEntries(rows.map((row) => [row.key, cloneEmpresaDraft(row)])));
         } catch (err) {
@@ -168,44 +196,53 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
         } finally {
             setIsLoadingEmpresas(false);
         }
-    }, [addToast]);
+    }, [activeEstadoId, addToast, routeBankId]);
 
     const loadCuentas = useCallback(async (idEmpresa: number | null) => {
         if (!idEmpresa) {
             setCuentas([]);
             setCuentaSnapshots({});
-            return;
+            return [] as CuentaDraft[];
         }
 
         setIsLoadingCuentas(true);
         try {
             const result = await empresaCuentaBancariaService.getList({ p_id_empresa: idEmpresa });
             const rows = (result ?? [])
+                .filter((row) => Number(row.id_estado) === activeEstadoId && Number(row.id_banco) === routeBankId)
                 .map(buildCuentaDraft);
             setCuentas(rows);
             setCuentaSnapshots(Object.fromEntries(rows.map((row) => [row.key, cloneCuentaDraft(row)])));
+            return rows;
         } catch (err) {
             addToast("error", err instanceof Error ? err.message : "Error al cargar cuentas bancarias.");
+            return [];
         } finally {
             setIsLoadingCuentas(false);
         }
-    }, [addToast]);
+    }, [activeEstadoId, addToast, routeBankId]);
 
     useEffect(() => {
         if (!isOpen) return;
         setSelectedEmpresaId(null);
         setEditingEmpresaKey(null);
         setEditingCuentaKey(null);
+        setEnsureRouteAccount(false);
         setCuentas([]);
         setCuentaSnapshots({});
+        setAllEmpresas([]);
         void loadEmpresas();
     }, [isOpen, loadEmpresas]);
 
     useEffect(() => {
         if (!isOpen) return;
         setEditingCuentaKey(null);
-        void loadCuentas(selectedEmpresaId);
-    }, [isOpen, loadCuentas, selectedEmpresaId]);
+        const shouldEnsureRouteAccount = ensureRouteAccount;
+        setEnsureRouteAccount(false);
+        void loadCuentas(selectedEmpresaId).then((rows) => {
+            if (shouldEnsureRouteAccount && selectedEmpresaId && rows.length === 0) addCuentaForRoute();
+        });
+    }, [isOpen, loadCuentas, selectedEmpresaId, ensureRouteAccount]);
 
     const updateEmpresa = (key: string, field: keyof EmpresaDraft, value: string | boolean) => {
         setEmpresas((current) => current.map((row) => row.key === key ? { ...row, [field]: value } : row));
@@ -223,6 +260,7 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
             abreviatura: "",
             flag_transferencia: false,
             id_estado: String(activeEstadoId),
+            isImported: false,
         };
         setEmpresas((current) => [row, ...current]);
         setSelectedEmpresaId(null);
@@ -232,28 +270,84 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
         setCuentaSnapshots({});
     };
 
+    const buildRouteCuentaDraft = (): CuentaDraft => ({
+        key: `new-cuenta-${Date.now()}`,
+        isNew: true,
+        id_banco: routeBankId ? String(routeBankId) : "",
+        flag_por_sol_comision_banco_ingreso: false,
+        comision_itf_ingreso_salida: "0.005",
+        comision_banco_ingreso: "",
+        comision_minimo_banco_ingreso: "",
+        comision_igv_banco_ingreso: "",
+        comision_transf_banco_salida: "0",
+        comision_transf_inter_banco_salida: "",
+        id_estado: String(activeEstadoId),
+    });
+
+    const addCuentaForRoute = () => {
+        const row = buildRouteCuentaDraft();
+        setCuentas((current) => [row, ...current]);
+        setEditingCuentaKey(row.key);
+    };
+
+    const addEmpresaExistente = () => {
+        const visibleIds = new Set(empresas.map((row) => row.id).filter((id): id is number => Boolean(id)));
+        const available = allEmpresas.find((row) => row.id && !visibleIds.has(row.id));
+        if (!available) {
+            addToast("info", "No hay empresas adicionales disponibles para esta ruta.");
+            return;
+        }
+
+        const row: EmpresaDraft = {
+            ...cloneEmpresaDraft(available),
+            key: `imported-empresa-${Date.now()}`,
+            id: undefined,
+            isNew: true,
+            isImported: true,
+            nombre: "",
+            abreviatura: "",
+            id_estado: String(activeEstadoId),
+        };
+        setEmpresas((current) => [row, ...current]);
+        setEditingEmpresaKey(row.key);
+        setSelectedEmpresaId(null);
+        setEnsureRouteAccount(false);
+        setCuentas([]);
+        setCuentaSnapshots({});
+    };
+
+    const selectEmpresaExistente = async (key: string, id: number) => {
+        const source = allEmpresas.find((row) => row.id === id);
+        if (!source) return;
+
+        setEmpresas((current) => current.map((row) => row.key === key ? {
+            ...row,
+            id,
+            nombre: source.nombre,
+            abreviatura: source.abreviatura,
+            flag_transferencia: source.flag_transferencia,
+            id_estado: source.id_estado,
+        } : row));
+        setSelectedEmpresaId(id);
+        setEditingEmpresaKey(key);
+        setEnsureRouteAccount(true);
+    };
+
     const addCuenta = () => {
         if (!selectedEmpresaId) {
             addToast("error", "Selecciona o guarda una empresa antes de crear cuentas.");
             return;
         }
 
-        const firstAvailableBank = bancoItems.find((bank) => !cuentas.some((cuenta) => Number(cuenta.id_banco) === Number(bank.id)));
-        const row: CuentaDraft = {
-            key: `new-cuenta-${Date.now()}`,
-            isNew: true,
-            id_banco: firstAvailableBank ? String(firstAvailableBank.id) : "",
-            flag_por_sol_comision_banco_ingreso: false,
-            comision_itf_ingreso_salida: "0.005",
-            comision_banco_ingreso: "",
-            comision_minimo_banco_ingreso: "",
-            comision_igv_banco_ingreso: "",
-            comision_transf_banco_salida: "0",
-            comision_transf_inter_banco_salida: "",
-            id_estado: String(activeEstadoId),
-        };
-        setCuentas((current) => [row, ...current]);
-        setEditingCuentaKey(row.key);
+        if (!routeBankId) {
+            addToast("error", `No se encontró el banco configurado para ${ruta}.`);
+            return;
+        }
+        if (cuentas.some((cuenta) => Number(cuenta.id_banco) === routeBankId && !cuenta.isNew)) {
+            addToast("info", "La empresa ya tiene una cuenta activa para el banco de esta ruta.");
+            return;
+        }
+        addCuentaForRoute();
     };
 
     const validateEmpresa = (row: EmpresaDraft) => {
@@ -265,6 +359,9 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
     const validateCuenta = (row: CuentaDraft) => {
         if (!selectedEmpresaId) return "Selecciona una empresa antes de guardar cuentas.";
         if (!row.id_banco) return "El banco es obligatorio.";
+        if (row.isNew && routeBankId !== null && Number(row.id_banco) !== routeBankId) {
+            return "La nueva cuenta debe usar el banco de la ruta actual.";
+        }
         if (!row.id_estado) return "El estado de la cuenta es obligatorio.";
 
         const duplicated = cuentas.some((item) => (
@@ -328,10 +425,13 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
 
     const resetModalState = () => {
         setIsConfirmCloseOpen(false);
+        setIsNewEmpresaInfoOpen(false);
         setSelectedEmpresaId(null);
         setEditingEmpresaKey(null);
         setEditingCuentaKey(null);
+        setEnsureRouteAccount(false);
         setEmpresas([]);
+        setAllEmpresas([]);
         setEmpresaSnapshots({});
         setCuentas([]);
         setCuentaSnapshots({});
@@ -349,6 +449,11 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
         }
         resetModalState();
         onClose();
+    };
+
+    const continueNewEmpresa = () => {
+        setIsNewEmpresaInfoOpen(false);
+        addEmpresa();
     };
 
     const getItemLabel = (items: Array<{ id: string | number; label: string }>, id: string | number | null | undefined) =>
@@ -380,7 +485,7 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
                 addToast("success", "Empresa creada correctamente.");
             }
 
-            await loadEmpresas();
+            await loadEmpresas(savedId);
             if (savedId) setSelectedEmpresaId(savedId);
             setEditingEmpresaKey(null);
             onSaved?.();
@@ -493,9 +598,14 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
                                     <div>
                                         <h3 className="text-sm font-semibold text-primary">Empresas</h3>
                                     </div>
-                                    <Button size="sm" color="secondary" iconLeading={Plus} onClick={addEmpresa}>
-                                        Nueva Empresa
-                                    </Button>
+                                    <div className="flex flex-wrap justify-end gap-2">
+                                        <Button size="sm" color="secondary" iconLeading={Plus} onClick={addEmpresaExistente}>
+                                            Agregar Empresa
+                                        </Button>
+                                        <Button size="sm" color="secondary" iconLeading={Plus} onClick={() => setIsNewEmpresaInfoOpen(true)}>
+                                            Nueva Empresa
+                                        </Button>
+                                    </div>
                                 </div>
                                 <div className="max-h-[318px] overflow-auto rounded-lg border border-secondary">
                                     <table className="w-full min-w-[980px] text-left text-sm">
@@ -539,7 +649,21 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
                                                         />
                                                     </td>
                                                     <td className="px-3 py-3">
-                                                        {isEditing ? (
+                                                        {row.isImported && !row.id ? (
+                                                            <Select
+                                                                size="sm"
+                                                                placeholder="Seleccionar empresa"
+                                                                items={allEmpresas
+                                                                    .filter((item) => item.id && !empresas.some((visible) => visible.id === item.id))
+                                                                    .map((item) => ({ id: item.id!, label: item.nombre }))}
+                                                                selectedKey={null}
+                                                                onSelectionChange={(key) => {
+                                                                    if (key !== null) void selectEmpresaExistente(row.key, Number(key));
+                                                                }}
+                                                            >
+                                                                {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                                                            </Select>
+                                                        ) : isEditing ? (
                                                             <Input size="sm" value={row.nombre} onChange={(value) => updateEmpresa(row.key, "nombre", value)} />
                                                         ) : (
                                                             <span className="font-medium text-primary">{row.nombre || "-"}</span>
@@ -676,8 +800,11 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
                                                             <Select
                                                                 size="sm"
                                                                 placeholder="Banco"
-                                                                items={bancoItems}
+                                                                items={row.isNew && routeBankId
+                                                                    ? bancoItems.filter((item) => item.id === routeBankId)
+                                                                    : bancoItems}
                                                                 selectedKey={row.id_banco ? Number(row.id_banco) : null}
+                                                                isDisabled={Boolean(row.isNew && routeBankId)}
                                                                 onSelectionChange={(key) => key !== null && updateCuenta(row.key, "id_banco", String(key))}
                                                             >
                                                                 {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
@@ -812,6 +939,59 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
 
                         <div className="mt-5 flex justify-end">
                             <Button size="sm" color="secondary" onClick={requestClose}>Cerrar</Button>
+                        </div>
+                    </div>
+                </Dialog>
+            </Modal>
+        </ModalOverlay>
+        <ModalOverlay isOpen={isNewEmpresaInfoOpen} onOpenChange={(open) => !open && setIsNewEmpresaInfoOpen(false)}>
+            <Modal className="max-w-xl">
+                <Dialog>
+                    <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                        <div>
+                            <h2 className="text-lg font-semibold text-primary">Nueva Empresa</h2>
+                            <p className="mt-1 text-sm text-tertiary">
+                                Estas son las empresas registradas actualmente.
+                            </p>
+                        </div>
+
+                        <div className="mt-5 flex max-h-48 flex-wrap gap-2 overflow-y-auto rounded-lg border border-secondary bg-secondary p-3">
+                            {allEmpresas.length > 0 ? allEmpresas.map((empresa) => (
+                                <span
+                                    key={empresa.id ?? empresa.key}
+                                    className="inline-flex max-w-full items-center rounded-md border border-secondary bg-primary px-2 py-1 text-xs font-medium text-secondary"
+                                    title={empresa.nombre}
+                                >
+                                    {empresa.nombre || "Sin nombre"}
+                                </span>
+                            )) : (
+                                <span className="text-sm text-tertiary">No hay empresas registradas.</span>
+                            )}
+                        </div>
+
+                        <p className="mt-3 text-sm text-tertiary">
+                            Si la empresa no existe y deseas crearla, selecciona{" "}
+                            <span className="mx-1 inline-flex rounded-md border border-secondary bg-secondary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-secondary">
+                                CONTINUAR
+                            </span>
+                            . Si la empresa ya existe, selecciona{" "}
+                            <span className="mx-1 inline-flex rounded-md border border-secondary bg-secondary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-secondary">
+                                CANCELAR
+                            </span>
+                            {" "}y utiliza{" "}
+                            <span className="mx-1 inline-flex rounded-md border border-secondary bg-secondary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-secondary">
+                                AGREGAR EMPRESA
+                            </span>
+                            .
+                        </p>
+
+                        <div className="mt-6 flex justify-end gap-2">
+                            <Button color="secondary" onClick={() => setIsNewEmpresaInfoOpen(false)}>
+                                Cancelar
+                            </Button>
+                            <Button color="primary" onClick={continueNewEmpresa}>
+                                Continuar
+                            </Button>
                         </div>
                     </div>
                 </Dialog>

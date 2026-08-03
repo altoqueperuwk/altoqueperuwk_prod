@@ -119,8 +119,22 @@ const getMovementColumns = (
         ),
     },
     { key: "dni_cliente", label: "DNI", render: (row: MovimientoMerged) => row.dni_cliente || "-" },
-    { key: "codigo_operacion", label: "Codigo", render: (row: MovimientoMerged) => row.codigo_operacion || "-" },
-    { key: "nombre_empresa", label: "Empresa", render: (row: MovimientoMerged) => row.nombre_empresa },
+    {
+        key: "empresa_movimiento",
+        label: "Empresa",
+        render: (row: MovimientoMerged) => {
+            const isTransfer = row.tipo_origen.trim().toUpperCase().replaceAll("_", " ") === "TRANSFERENCIA INTERNA";
+            return isTransfer ? row.nombre_empresa_relacionada || "-" : row.nombre_empresa || "-";
+        },
+    },
+    {
+        key: "cuenta_movimiento",
+        label: "Cuenta",
+        render: (row: MovimientoMerged) => {
+            const isTransfer = row.tipo_origen.trim().toUpperCase().replaceAll("_", " ") === "TRANSFERENCIA INTERNA";
+            return isTransfer ? row.nombre_banco_relacionada || "-" : row.nombre_banco || "-";
+        },
+    },
     {
         key: "monto_ingreso",
         label: "Ingreso",
@@ -140,24 +154,6 @@ const getMovementColumns = (
         ),
     },
     {
-        key: "monto_gasto",
-        label: "Gasto",
-        render: (row: MovimientoMerged) => (
-            <span className={row.monto_gasto ? "font-medium text-concept-gasto" : "text-concept-zero"}>
-                {formatMoney(row.monto_gasto)}
-            </span>
-        ),
-    },
-    {
-        key: "monto_ganancia",
-        label: "Ganancia",
-        render: (row: MovimientoMerged) => (
-            <span className={row.monto_ganancia ? "font-medium text-concept-ganancia" : "text-concept-zero"}>
-                {formatMoney(row.monto_ganancia)}
-            </span>
-        ),
-    },
-    {
         key: "tipo_facturacion",
         label: "Facturacion",
         render: (row: MovimientoMerged) => (
@@ -166,7 +162,10 @@ const getMovementColumns = (
             </CompactBadgeLine>
         ),
     },
-    { key: "fecha_registro", label: "Fecha", render: (row: MovimientoMerged) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
+    { key: "fecha_registro", label: "Fecha Hora", render: (row: MovimientoMerged) => {
+        const date = new Date(row.fecha_registro);
+        return <span className="whitespace-pre-line">{date.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}{"\n"}{date.toLocaleDateString("es-PE")}</span>;
+    } },
     ...(onDelete || onReturnRetencion ? [{
         key: "acciones",
         label: "Acciones",
@@ -343,7 +342,7 @@ export const BancariaOperationalTabs = ({
     const visibleTabs = useMemo(
         () => {
             if (isActiveDigitalWallet) return [] as BancariaTab[];
-            if (ruta === "safetypay") return ["Efectivizacion", "POS", "Movimientos", "Retenidos", "Eliminados"] as BancariaTab[];
+            if (ruta === "safetypay") return ["Efectivizacion", "Movimientos", "Retenidos", "Eliminados"] as BancariaTab[];
             const hasRetencion = retentionRoutes.has(ruta) ||
                 companies.some((c) => c.flag_retencion_cuenta);
             const available = hasRetencion ? tabs : tabs.filter((tab) => tab !== "Retenidos");
@@ -413,7 +412,7 @@ export const BancariaOperationalTabs = ({
         if (ruta === "safetypay" && currentTab === "Efectivizacion") {
             return {
                 ...base,
-                actions: ["Eliminar Excel", "Emp. Salida", "Pagar", "Derivar", "Directo", "Reiniciar"],
+                actions: ["Emp. Salida", "Pagar", "Derivar", "Reiniciar", "Eliminar Excel"],
             };
         }
 
@@ -734,6 +733,7 @@ export const BancariaOperationalTabs = ({
 
         if (currentTab === "POS") {
             const actionRows = operaciones.filter((row) => actionIds.includes(row.id));
+            if (action === "Emp. Salida") return actionRows.filter(isPosSolicitado).map((row) => row.id);
             if (action === "Pagar") return actionRows.filter(isPosSolicitado).map((row) => row.id);
             if (action === "Reiniciar") return actionRows.filter(isPaidOperation).map((row) => row.id);
             return actionIds;
@@ -1226,28 +1226,6 @@ export const BancariaOperationalTabs = ({
             className="overflow-hidden rounded-lg border border-secondary bg-primary shadow-xs"
         >
             <div className="flex flex-col gap-3 p-4">
-                <Tabs
-                    className="w-fit max-w-full overflow-x-auto"
-                    selectedKey={currentTab}
-                    onSelectionChange={(key) => setActiveTab(key as BancariaTab)}
-                >
-                    <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
-                        {visibleTabs.map((tab) => (
-                            <Tabs.Item
-                                id={tab}
-                                key={tab}
-                                badge={tabBadges[tab] || undefined}
-                                className={({ isSelected }) =>
-                                    isSelected
-                                        ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
-                                        : ""
-                                }
-                            >
-                                {tab}
-                            </Tabs.Item>
-                        ))}
-                    </Tabs.List>
-                </Tabs>
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div className="flex flex-wrap items-center gap-3">
                         <EmpresaTabs
@@ -1270,6 +1248,28 @@ export const BancariaOperationalTabs = ({
                         </div>
                     ) : null}
                 </div>
+                <Tabs
+                    className="w-fit max-w-full overflow-x-auto"
+                    selectedKey={currentTab}
+                    onSelectionChange={(key) => setActiveTab(key as BancariaTab)}
+                >
+                    <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
+                        {visibleTabs.map((tab) => (
+                            <Tabs.Item
+                                id={tab}
+                                key={tab}
+                                badge={tabBadges[tab] || undefined}
+                                className={({ isSelected }) =>
+                                    isSelected
+                                        ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
+                                        : ""
+                                }
+                            >
+                                {tab}
+                            </Tabs.Item>
+                        ))}
+                    </Tabs.List>
+                </Tabs>
             </div>
 
             <OperationToolbar

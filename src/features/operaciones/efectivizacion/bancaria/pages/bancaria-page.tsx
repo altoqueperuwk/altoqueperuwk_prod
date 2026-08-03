@@ -133,8 +133,32 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 p_ruta: ruta,
                 p_fecha_cierre: selectedHistoryDate || undefined,
             });
-            setReporteData(data);
-            return data as Record<string, unknown>;
+
+            const normalizeMovementOrigin = (value: unknown) => String(value ?? "").trim().toUpperCase().replaceAll("_", " ");
+            const isReportMovement = (row: Record<string, unknown>) => [
+                "PAGO DEUDA COMISION",
+                "OTROS",
+                "TRANSFERENCIA INTERNA",
+            ].includes(normalizeMovementOrigin(row.tipo_origen));
+            const reportMovimientos = Array.isArray(data.movimientos)
+                ? (data.movimientos as Record<string, unknown>[]).filter(isReportMovement)
+                : [];
+
+            // Keep downloads aligned with the Movimientos tab while older deployed
+            // versions of the report RPC are still being recompiled.
+            let movimientos = reportMovimientos;
+            if (movimientos.length === 0) {
+                const fallback = await operacionesRpcService.getMovimientos({
+                    p_id_caja: cajaId,
+                    p_fecha_caja_cierre_desde: selectedHistoryDate ? `${selectedHistoryDate}T00:00:00` : undefined,
+                    p_fecha_caja_cierre_hasta: selectedHistoryDate ? `${selectedHistoryDate}T23:59:59` : undefined,
+                });
+                movimientos = ((fallback ?? []) as unknown as Record<string, unknown>[]).filter(isReportMovement);
+            }
+
+            const normalizedData = { ...data, movimientos };
+            setReporteData(normalizedData);
+            return normalizedData as Record<string, unknown>;
         } catch {
             addToast("error", "Error al cargar los datos del reporte.");
             return null;
@@ -171,12 +195,20 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         const text = (value: unknown) => value === null || value === undefined || value === "" ? "-" : String(value);
         const percent = (value: unknown) => `${new Intl.NumberFormat("es-PE", { maximumFractionDigits: 2 }).format(money(value))}%`;
         const date = (value: unknown) => value ? new Date(String(value)).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" }) : "-";
+        const dateTime = (value: unknown) => {
+            if (!value) return "-";
+            const parsed = new Date(String(value));
+            return `${parsed.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}\n${parsed.toLocaleDateString("es-PE")}`;
+        };
         const reportFileName = getReportFileName(data).replace(/\.pdf$/i, ".xlsx");
         const kpi = (data.kpi ?? {}) as Record<string, number>;
         const efectivizacion = ((data.efectivizacion as Record<string, unknown>[]) ?? []);
+        const derivados = ((data.derivados as Record<string, unknown>[]) ?? []);
         const pagoDeuda = ((data.pago_deuda as Record<string, unknown>[]) ?? []);
         const pos = ((data.pos as Record<string, unknown>[]) ?? []);
-        const totalRows = efectivizacion.length + pagoDeuda.length + pos.length;
+        const movimientos = ((data.movimientos as Record<string, unknown>[]) ?? []);
+        const retenciones = ((data.retenciones as Record<string, unknown>[]) ?? []);
+        const totalRows = efectivizacion.length + derivados.length + pagoDeuda.length + pos.length + movimientos.length + retenciones.length;
 
         worksheet.columns = [
             { width: 13 }, { width: 12 }, { width: 12 }, { width: 13 },
@@ -309,10 +341,10 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
 
         addSection(
             "Efectivizacion",
-            ["Facturacion", "Operacion", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"],
+            ["Facturacion", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"],
             efectivizacion.map((row) => [
                 text(row.facturacion ?? row.tipo_facturacion),
-                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
+                `${text(row.operacion ?? row.codigo_operacion_deposito_cliente)}${row.derivada_congelada ? "\nDerivada" : ""}`,
                 text(row.dni ?? row.dni_cliente),
                 text(row.comunidad ?? row.nombre_comunidad),
                 money(row.deposito ?? row.monto),
@@ -325,6 +357,26 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro),
             ]),
             [4, 6, 7, 8, 9],
+        );
+
+        addSection(
+            "Derivados",
+            ["Facturacion", "Derivo", "Cod. Op.", "DNI", "Comunidad", "Cuenta Cliente", "Monto", "% Comision", "S/ Comision", "Transferencia", "Estado", "Fecha"],
+            derivados.map((row) => [
+                text(row.facturacion ?? row.tipo_facturacion),
+                row.derivo ? getRutaLabel(String(row.derivo) as never) : "-",
+                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
+                text(row.dni ?? row.dni_cliente),
+                text(row.comunidad),
+                text(row.cuenta_cliente),
+                money(row.monto),
+                percent(row.porcentaje_comision),
+                money(row.soles_comision),
+                money(row.transferencia),
+                text(row.estado ?? row.nombre_estado),
+                date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro),
+            ]),
+            [9],
         );
 
         addSection(
@@ -344,25 +396,79 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 text(row.estado ?? row.nombre_estado),
                 date(row.fecha ?? row.fecha_registro),
             ]),
-            [4, 7, 9],
+            [4, 7],
         );
 
         addSection(
             "POS",
-            ["Operacion", "DNI", "Empresa", "Cuenta", "Deposito", "% Comision", "S/ Comision", "Transferencia", "Estado", "Fecha"],
+            ["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"],
             pos.map((row) => [
                 text(row.operacion ?? row.codigo_operacion_deposito_cliente),
                 text(row.dni ?? row.dni_cliente),
-                text(row.empresa),
-                text(row.cuenta),
                 money(row.deposito),
                 percent(row.porcentaje_comision),
                 money(row.soles_comision),
+                text(row.empresa),
+                text(row.cuenta),
                 money(row.transferencia),
                 text(row.estado ?? row.nombre_estado),
                 date(row.fecha ?? row.fecha_registro),
             ]),
-            [4, 6, 7],
+            [7],
+        );
+
+        const movementOrigin = (value: unknown) => {
+            const key = String(value ?? "").trim().toUpperCase().replaceAll("_", " ");
+            return ({
+                "PAGO DEUDA COMISION": "Pago Deuda Comision",
+                "OTROS": "Otros",
+                "TRANSFERENCIA INTERNA": "Movimiento Saldo",
+            } as Record<string, string>)[key] ?? text(value);
+        };
+        const movementType = (value: unknown) => {
+            const normalized = String(value ?? "").trim().toLowerCase();
+            return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "-";
+        };
+        const movementRelatedCompany = (row: Record<string, unknown>) => {
+            const origin = String(row.tipo_origen ?? "").trim().toUpperCase().replaceAll("_", " ");
+            return origin === "TRANSFERENCIA INTERNA" ? text(row.nombre_empresa_relacionada) : text(row.nombre_empresa);
+        };
+        const movementRelatedBank = (row: Record<string, unknown>) => {
+            const origin = String(row.tipo_origen ?? "").trim().toUpperCase().replaceAll("_", " ");
+            return origin === "TRANSFERENCIA INTERNA" ? text(row.nombre_banco_relacionada) : text(row.nombre_banco);
+        };
+
+        addSection(
+            "Movimientos",
+            ["Origen", "Movimiento", "DNI", "Empresa", "Cuenta", "Ingreso", "Salida", "Facturacion", "Fecha"],
+            movimientos.map((row) => [
+                movementOrigin(row.tipo_origen),
+                movementType(row.tipo_movimiento),
+                text(row.dni_cliente),
+                movementRelatedCompany(row),
+                movementRelatedBank(row),
+                money(row.monto_ingreso),
+                money(row.monto_salida),
+                text(row.tipo_facturacion),
+                date(row.fecha_registro),
+            ]),
+            [5, 6],
+        );
+
+        addSection(
+            "Recaudacion Retenida",
+            ["Codigo", "DNI", "Monto", "Fecha Deposito", "Fecha Corte", "Fecha Abono", "Motivo", "Liberable"],
+            retenciones.map((row) => [
+                text(row.codigo_operacion_deposito_cliente),
+                text(row.dni_cliente),
+                money(row.monto),
+                date(row.fecha_deposito_cliente),
+                date(row.fecha_corte_recaudacion),
+                date(row.fecha_liberacion_abono),
+                text(row.motivo_retencion),
+                row.flag_liberable_abono ? "Si" : "No",
+            ]),
+            [2],
         );
 
         if (!totalRows) {

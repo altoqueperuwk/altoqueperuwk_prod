@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Edit03 } from "@untitledui/icons";
+import { Edit03, Trash01 } from "@untitledui/icons";
 import { motion } from "motion/react";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { useAuth } from "@/providers/auth-provider";
@@ -20,6 +22,7 @@ import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { cx } from "@/utils/cx";
 import { LinkPagoEditModal } from "@/features/operaciones/efectivizacion/asistida/components/linkpago-edit-modal";
+import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 
 interface AsistidaOperationalBoardProps {
     companies: RutaOperacionCaja[];
@@ -45,6 +48,20 @@ const formatTime = (value: string | null | undefined) => {
 };
 
 const isPagado = (row: OperacionProceso) => String(row.nombre_estado ?? "").trim().toUpperCase() === "PAGADO";
+
+const AsistidaEstadoButton = ({ row }: { row: OperacionProceso }) => {
+    const pagado = isPagado(row);
+
+    return (
+        <Button
+            size="xs"
+            color={pagado ? "secondary" : "primary"}
+            isDisabled
+        >
+            {pagado ? "Pagado" : "Pendiente"}
+        </Button>
+    );
+};
 
 const CompactBadge = ({ children, tone = "default" }: { children: string; tone?: "default" | "brand" | "success" }) => (
     <span
@@ -82,6 +99,7 @@ const linkpagoColumns = [
         ),
     },
     { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary" },
+    { key: "nombre_cliente", label: "Nombre", cellClassName: "max-w-[25ch] truncate" },
     { key: "nombre_comunidad", label: "Comunidad" },
     {
         key: "monto_deposito_cliente",
@@ -134,13 +152,11 @@ const linkpagoColumns = [
     {
         key: "nombre_estado",
         label: "Estado",
-        render: (row: OperacionProceso) => (
-            <CompactBadge tone={isPagado(row) ? "success" : "brand"}>{isPagado(row) ? "Pagado" : "Pendiente"}</CompactBadge>
-        ),
+        render: (row: OperacionProceso) => <AsistidaEstadoButton row={row} />,
     },
     {
         key: "fecha_registro",
-        label: "Hora",
+        label: "Fecha Hora",
         render: (row: OperacionProceso) => (
             <div className="leading-tight">
                 <p className="font-medium text-primary">{formatTime(row.fecha_registro) || "-"}</p>
@@ -159,6 +175,7 @@ const posColumns = [
         ),
     },
     { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary" },
+    { key: "nombre_cliente", label: "Nombre", cellClassName: "max-w-[25ch] truncate" },
     { key: "nombre_comunidad", label: "Comunidad" },
     {
         key: "monto_deposito_cliente",
@@ -195,9 +212,7 @@ const posColumns = [
     {
         key: "nombre_estado",
         label: "Estado",
-        render: (row: OperacionProceso) => (
-            <CompactBadge tone={isPagado(row) ? "success" : "brand"}>{isPagado(row) ? "Pagado" : "Pendiente"}</CompactBadge>
-        ),
+        render: (row: OperacionProceso) => <AsistidaEstadoButton row={row} />,
     },
     {
         key: "fecha_registro",
@@ -240,6 +255,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
     const [estadoPendiente, setEstadoPendiente] = useState<{ id: number; nombre: string } | null>(null);
     const [estadoSolicitado, setEstadoSolicitado] = useState<{ id: number; nombre: string } | null>(null);
     const [editOperation, setEditOperation] = useState<OperacionProceso | null>(null);
+    const [deleteOperation, setDeleteOperation] = useState<OperacionProceso | null>(null);
     const [entidadTarjetaFiltro, setEntidadTarjetaFiltro] = useState("");
     const [bancosFiltro, setBancosFiltro] = useState<{ id: number; nombre: string; tipo: string }[]>([]);
 
@@ -248,17 +264,35 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
     const actions: string[] = [];
     const columns = useMemo(
         () => {
-            if (ruta === "pos") return posColumns;
-            if (ruta === "linkpago") return [
-                ...linkpagoColumns.slice(0, -1),
-                {
-                    key: "acciones",
-                    label: "Acciones",
-                    render: (row: OperacionProceso) => (
-                        <Edit03 className="size-4 cursor-pointer text-secondary hover:text-primary" onClick={() => setEditOperation(row)} />
-                    ),
-                },
-            ];
+            const actionColumn = {
+                key: "acciones",
+                label: "Acciones",
+                cellClassName: "text-center",
+                render: (row: OperacionProceso) => (
+                    <div className="flex items-center justify-center gap-1">
+                        {ruta === "linkpago" && (
+                            <ButtonUtility
+                                size="xs"
+                                color="tertiary"
+                                tooltip="Editar solicitud"
+                                icon={Edit03}
+                                onClick={() => setEditOperation(row)}
+                            />
+                        )}
+                        <ButtonUtility
+                            size="xs"
+                            color="tertiary"
+                            tooltip="Eliminar operación"
+                            icon={Trash01}
+                            isDisabled={ruta !== "linkpago" && isPagado(row)}
+                            onClick={() => setDeleteOperation(row)}
+                        />
+                    </div>
+                ),
+            };
+
+            if (ruta === "pos") return [...posColumns, actionColumn];
+            if (ruta === "linkpago") return [...linkpagoColumns, actionColumn];
             return baseColumns;
         },
         [ruta],
@@ -299,6 +333,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
             p_ruta: ruta,
             p_fecha_registro_desde: `${selectedDate}T00:00:00`,
             p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
+            p_id_usuario_solicitud: userId,
         };
 
         if (ruta !== "pos" && codigo.trim()) values.p_codigo_operacion = codigo.trim();
@@ -339,6 +374,11 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
 
     useEffect(() => {
         let ignore = false;
+        if (userId === null) {
+            setOperaciones([]);
+            setIsLoading(false);
+            return () => { ignore = true; };
+        }
         setIsLoading(true);
         setError(null);
 
@@ -357,7 +397,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         return () => {
             ignore = true;
         };
-    }, [params, refreshKey]);
+    }, [params, refreshKey, userId]);
 
     const handleToggleRow = (id: number) => {
         setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
@@ -411,6 +451,29 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         }
     };
 
+    const handleDelete = async () => {
+        if (!deleteOperation) return;
+        setIsApplyingAction(true);
+        try {
+            const result = await operacionesRpcService.deleteOperacionProceso({
+                p_id: deleteOperation.id,
+                p_id_usuario: userId,
+            });
+            if (result && typeof result === "object" && "error" in result && result.error) {
+                throw new Error(String(result.error));
+            }
+            setOperaciones((current) => current.filter((row) => row.id !== deleteOperation.id));
+            setSelectedIds((current) => current.filter((id) => id !== deleteOperation.id));
+            setDeleteOperation(null);
+            onChanged?.();
+            addToast("success", "Operacion eliminada correctamente.");
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo eliminar la operacion.");
+        } finally {
+            setIsApplyingAction(false);
+        }
+    };
+
     return (
         <motion.section
             initial={{ opacity: 0, y: 8 }}
@@ -420,14 +483,15 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         >
             {ruta === "linkpago" ? (
                 <div className="flex flex-wrap items-center gap-3 border-b border-secondary px-4 py-3">
-                    <Input size="sm" label="DNI" placeholder="Buscar DNI" value={dni} onChange={setDni} className="w-44" />
+                    <Input size="sm" label="" aria-label="DNI" placeholder="Buscar DNI" value={dni} onChange={setDni} className="w-44" />
                     <NativeSelect
                         size="sm"
-                        label="Entidad Tarjeta"
+                        label=""
+                        aria-label="Filtrar por Entidad"
                         value={entidadTarjetaFiltro}
                         onChange={(event) => setEntidadTarjetaFiltro(event.currentTarget.value)}
                         options={[
-                            { label: "Todas", value: "", disabled: true },
+                            { label: "Filtrar por Entidad", value: "" },
                             ...entidadTarjetaOptions.map((item) => ({
                                 label: item.nombre,
                                 value: String(item.id),
@@ -450,7 +514,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                             value={entidadTarjetaFiltro}
                             onChange={(event) => setEntidadTarjetaFiltro(event.currentTarget.value)}
                             options={[
-                                { label: "Entidad Tarjeta", value: "" },
+                                { label: "Filtrar por Entidad", value: "" },
                                 ...entidadTarjetaOptions.map((item) => ({
                                     label: item.nombre,
                                     value: String(item.id),
@@ -487,6 +551,19 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                     setEditOperation(null);
                     onChanged?.();
                 }}
+            />
+
+            <OperacionConfirmModal
+                isOpen={!!deleteOperation}
+                title="Eliminar operación"
+                description={ruta === "linkpago"
+                    ? "La operación pasará a Eliminado y se conservará en los reportes."
+                    : "La operación pasará a Eliminado y se conservará en los reportes. Esta acción no está disponible para operaciones pagadas."}
+                confirmLabel="Eliminar"
+                intent="destructive"
+                isLoading={isApplyingAction}
+                onClose={() => setDeleteOperation(null)}
+                onConfirm={() => void handleDelete()}
             />
         </motion.section>
     );

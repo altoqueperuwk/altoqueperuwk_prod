@@ -22,10 +22,11 @@ import {
     getSelectValue,
 } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
-import type { OperacionProceso, OperacionRutaBancaria, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
-import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
+import type { OperacionProceso, OperacionRuta, OperacionRutaBancaria, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import { formatInteger, formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { isInteractiveElement } from "@/features/operaciones/efectivizacion/shared/utils/row-selection";
 import { buildOperacionPagadoPayload, buildOperacionReanudarPayload } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
+import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { cx } from "@/utils/cx";
 
 interface EstadoRef {
@@ -151,8 +152,9 @@ const formatTime = (value?: string | null) => {
     return new Date(value).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
 };
 
-const getColumnHeaders = () => [
+const getColumnHeaders = (showDerivo: boolean) => [
     { label: "Facturacion" },
+    ...(showDerivo ? [{ label: "Derivo" }] : []),
     { label: "Cod. Op." },
     { label: "DNI" },
     { label: "Comunidad" },
@@ -245,7 +247,7 @@ export const BancariaEfectivizacionTable = ({
     const visibleIds = paginatedRows.filter((row) => !isFrozenOriginOperation(row, mode, ruta)).map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
     const showTipoDeposito = tipoDepositoVisibleRoutes.includes(ruta);
-    const columnHeaders = useMemo(() => getColumnHeaders(), []);
+    const columnHeaders = useMemo(() => getColumnHeaders(mode === "derivaciones"), [mode]);
     const tableColSpan = columnHeaders.length + (hasSelection ? 1 : 0);
     const activeCompanyAccounts = useMemo(
         () => companies.filter((company) =>
@@ -480,16 +482,23 @@ export const BancariaEfectivizacionTable = ({
                 true,
             );
         } else {
-            await persistRow(
-                {
-                    ...row,
-                    comision_monto_extra_servicio: value,
-                },
-                {
+            setSavingIds((current) => [...current, row.id]);
+            try {
+                const saved = await operacionesRpcService.patchOperacionComisionExtra({
+                    p_id: row.id,
                     p_comision_monto_extra_servicio: value,
-                },
-                true,
-            );
+                    p_id_usuario_gestor: user.userId,
+                    p_nombre_usuario_gestor: user.userName,
+                });
+                setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+                onRowUpdated(saved);
+                onMetricsChanged();
+                addToast("success", "Comision extra actualizada.");
+            } catch (err) {
+                addToast("error", err instanceof Error ? err.message : "No se pudo actualizar la comision extra.");
+            } finally {
+                setSavingIds((current) => current.filter((id) => id !== row.id));
+            }
         }
 
         setManualCommission(null);
@@ -800,6 +809,14 @@ export const BancariaEfectivizacionTable = ({
                                             )}
                                         </td>
 
+                                        {isDerivaciones && (
+                                            <td className="px-2 py-2 align-top">
+                                                <CompactBadgeLine color={row.ruta_origen ? "brand" : "gray"}>
+                                                    {row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "-"}
+                                                </CompactBadgeLine>
+                                            </td>
+                                        )}
+
                                         <td className="px-2 py-2 align-top">
                                             <div className="flex flex-col items-start gap-1">
                                                 <CompactCellText primary={row.codigo_operacion_deposito_cliente ?? "-"} />
@@ -900,7 +917,7 @@ export const BancariaEfectivizacionTable = ({
                                                 </div>
                                                 {toNumber(row.comision_monto_extra_servicio) > 0 && (
                                                     <div className="mt-1 flex">
-                                                        <CompactBadgeLine color="warning">Extra {formatMoney(row.comision_monto_extra_servicio)}</CompactBadgeLine>
+                                                        <CompactBadgeLine color="warning">Extra S/ {formatInteger(row.comision_monto_extra_servicio)}</CompactBadgeLine>
                                                     </div>
                                                 )}
                                             </div>

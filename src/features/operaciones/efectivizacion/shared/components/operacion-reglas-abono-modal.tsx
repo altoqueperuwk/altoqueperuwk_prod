@@ -18,13 +18,6 @@ interface OperacionReglasAbonoModalProps {
     ruta: OperacionRutaBancaria;
 }
 
-const routeDefaults: Partial<Record<OperacionRutaBancaria, { horaCorte: string; dias: string; horaLiberacion: string; baseCalculo: string }>> = {
-    bcp: { horaCorte: "00:00", dias: "0", horaLiberacion: "00:00", baseCalculo: "CORTE" },
-    scotiabank: { horaCorte: "21:00", dias: "1", horaLiberacion: "21:00", baseCalculo: "CORTE" },
-    banbif: { horaCorte: "21:00", dias: "1", horaLiberacion: "21:00", baseCalculo: "CORTE" },
-    safetypay: { horaCorte: "00:00", dias: "2", horaLiberacion: "14:00", baseCalculo: "DEPOSITO" },
-};
-
 const normalizeTime = (value: unknown, fallback: string) => {
     const text = String(value ?? "").slice(0, 5);
     return /^\d{2}:\d{2}$/.test(text) ? text : fallback;
@@ -36,6 +29,7 @@ const estadoOptions = [
 ];
 
 const baseCalculoOptions = [
+    { value: "", label: "Seleccionar" },
     { value: "DEPOSITO", label: "Deposito (dia del deposito)" },
     { value: "CORTE", label: "Corte (fecha del corte)" },
 ];
@@ -49,8 +43,7 @@ export const OperacionReglasAbonoModal = ({
 }: OperacionReglasAbonoModalProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
-    const defaults = routeDefaults[ruta] ?? { horaCorte: "00:00", dias: "1", horaLiberacion: "00:00", baseCalculo: "DEPOSITO" };
-    const isBcp = ruta === "bcp";
+    const defaults = { horaCorte: "", dias: "", horaLiberacion: "", baseCalculo: "" };
     const [rule, setRule] = useState<RecaudacionReglaAbono | null>(null);
     const [horaCorte, setHoraCorte] = useState(defaults.horaCorte);
     const [diasHabiles, setDiasHabiles] = useState(defaults.dias);
@@ -91,10 +84,10 @@ export const OperacionReglasAbonoModal = ({
                 const current = rows?.[0] ?? null;
                 setRule(current);
                 if (current) {
-                    setHoraCorte(isBcp ? "00:00" : normalizeTime(current.hora_corte, defaults.horaCorte));
-                    setDiasHabiles(isBcp ? "0" : String(current.dias_habiles_abono ?? defaults.dias));
-                    setHoraLiberacion(isBcp ? "00:00" : normalizeTime(current.hora_liberacion, defaults.horaLiberacion));
-                    setBaseCalculo(isBcp ? "CORTE" : String(current.base_calculo_abono ?? defaults.baseCalculo));
+                    setHoraCorte(normalizeTime(current.hora_corte, defaults.horaCorte));
+                    setDiasHabiles(current.dias_habiles_abono == null ? defaults.dias : String(current.dias_habiles_abono));
+                    setHoraLiberacion(normalizeTime(current.hora_liberacion, defaults.horaLiberacion));
+                    setBaseCalculo(String(current.base_calculo_abono ?? defaults.baseCalculo));
                     setLiberacionAutomatica(Boolean(current.flag_liberacion_automatica));
                     setEstado(String(current.id_estado ?? 1));
                 }
@@ -107,7 +100,7 @@ export const OperacionReglasAbonoModal = ({
         return () => {
             ignore = true;
         };
-    }, [activeCompanyCaja?.id_empresa_cuenta_bancaria, addToast, defaults.dias, defaults.horaCorte, defaults.horaLiberacion, isBcp, isOpen, ruta]);
+    }, [activeCompanyCaja?.id_empresa_cuenta_bancaria, addToast, isOpen, ruta]);
 
     const handleSave = async () => {
         if (!activeCompanyCaja) {
@@ -115,9 +108,29 @@ export const OperacionReglasAbonoModal = ({
             return;
         }
 
-        const dias = isBcp ? 0 : Number(diasHabiles);
-        if (!Number.isFinite(dias) || dias < 0) {
+        if (!horaCorte || !/^\d{2}:\d{2}$/.test(horaCorte)) {
+            addToast("error", "La hora de corte es obligatoria y debe ser valida.");
+            return;
+        }
+
+        if (!horaLiberacion || !/^\d{2}:\d{2}$/.test(horaLiberacion)) {
+            addToast("error", "La hora de liberacion es obligatoria y debe ser valida.");
+            return;
+        }
+
+        if (diasHabiles.trim() === "") {
+            addToast("error", "Los dias habiles de abono son obligatorios.");
+            return;
+        }
+
+        const dias = Number(diasHabiles);
+        if (!Number.isInteger(dias) || dias < 0) {
             addToast("error", "Los dias habiles deben ser un numero valido.");
+            return;
+        }
+
+        if (!baseCalculo) {
+            addToast("error", "Selecciona la base de calculo del abono.");
             return;
         }
 
@@ -127,10 +140,10 @@ export const OperacionReglasAbonoModal = ({
                 p_ruta: ruta,
                 p_id_empresa: activeCompanyCaja.id_empresa,
                 p_id_empresa_cuenta_bancaria: activeCompanyCaja.id_empresa_cuenta_bancaria,
-                p_hora_corte: isBcp ? "00:00" : horaCorte,
+                p_hora_corte: horaCorte,
                 p_dias_habiles_abono: dias,
-                p_hora_liberacion: isBcp ? "00:00" : horaLiberacion,
-                p_base_calculo_abono: isBcp ? "CORTE" : baseCalculo,
+                p_hora_liberacion: horaLiberacion,
+                p_base_calculo_abono: baseCalculo,
                 p_flag_liberacion_automatica: liberacionAutomatica,
                 p_id_estado: Number(estado),
                 p_id_usuario: businessUser?.id ? Number(businessUser.id) : null,
@@ -167,28 +180,31 @@ export const OperacionReglasAbonoModal = ({
                                     label="Hora Corte"
                                     type="time"
                                     value={horaCorte}
-                                    isDisabled={isLoading || isBcp}
+                                    placeholder="00:00"
+                                    isDisabled={isLoading}
                                     onChange={setHoraCorte}
                                 />
                                 <Input
                                     label="Dias Habiles Abono"
                                     type="number"
                                     value={diasHabiles}
-                                    isDisabled={isLoading || isBcp}
+                                    placeholder="0"
+                                    isDisabled={isLoading}
                                     onChange={setDiasHabiles}
                                 />
                                 <Input
                                     label="Hora Liberacion"
                                     type="time"
                                     value={horaLiberacion}
-                                    isDisabled={isLoading || isBcp}
+                                    placeholder="00:00"
+                                    isDisabled={isLoading}
                                     onChange={setHoraLiberacion}
                                 />
                                 <NativeSelect
                                     label="Base de Calculo del Abono"
                                     options={baseCalculoOptions}
                                     value={baseCalculo}
-                                    disabled={isLoading || isBcp}
+                                    disabled={isLoading}
                                     onChange={(event) => setBaseCalculo(event.target.value)}
                                 />
                                 <NativeSelect
@@ -219,7 +235,12 @@ export const OperacionReglasAbonoModal = ({
                             <Button color="secondary" onClick={onClose}>
                                 Cancelar
                             </Button>
-                            <Button color="primary" isLoading={isSaving} isDisabled={!activeCompanyCaja || isLoading} onClick={handleSave}>
+                            <Button
+                                color="primary"
+                                isLoading={isSaving}
+                                isDisabled={!activeCompanyCaja || isLoading || !horaCorte || !diasHabiles || !horaLiberacion || !baseCalculo}
+                                onClick={handleSave}
+                            >
                                 Guardar
                             </Button>
                         </div>
