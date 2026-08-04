@@ -40,6 +40,7 @@ interface UserRef {
 }
 
 type ManualCommissionType = "especial" | "extra";
+type RecurringCommissionType = "especial" | "extra";
 type ConfirmActionType = "pagar" | "pd-directo" | "directo";
 
 interface ReglaEfectivizacion {
@@ -51,6 +52,11 @@ interface ReglaEfectivizacion {
     comision_servicio: number | null;
     monto_minimo_deposito_servicio: number | null;
     comision_minima_servicio: number | null;
+}
+
+interface ClienteComisionRecurrente {
+    especial: number | null;
+    extra: number | null;
 }
 
 interface BancariaEfectivizacionTableProps {
@@ -76,6 +82,10 @@ interface BancariaEfectivizacionTableProps {
 }
 
 const isPagado = (row: OperacionProceso) => (row.nombre_estado ?? "").toUpperCase() === "PAGADO";
+const isRecurringInputValue = (value: string) => {
+    const trimmed = value.trim();
+    return trimmed === "" || /^null$/i.test(trimmed) || /^(?:\d+(?:[.,]\d*)?|\d*[.,]\d+)$/.test(trimmed);
+};
 const isFrozenOriginOperation = (row: OperacionProceso, mode: "efectivizacion" | "derivaciones" | "eliminados", ruta: OperacionRutaBancaria) =>
     mode === "efectivizacion" &&
     row.flag_derivado === true &&
@@ -200,6 +210,12 @@ export const BancariaEfectivizacionTable = ({
         type: ManualCommissionType;
         value: string;
     } | null>(null);
+    const [recurringCommission, setRecurringCommission] = useState<{
+        row: OperacionProceso;
+        type: RecurringCommissionType;
+        value: string;
+    } | null>(null);
+    const [recurringByOperation, setRecurringByOperation] = useState<Record<number, ClienteComisionRecurrente>>({});
     const [pagoDeudaMatches, setPagoDeudaMatches] = useState<Record<number, OperacionProceso[]>>({});
     const [pdMatchRow, setPdMatchRow] = useState<OperacionProceso | null>(null);
     const [pdSelectedMatchId, setPdSelectedMatchId] = useState<number | null>(null);
@@ -307,6 +323,61 @@ export const BancariaEfectivizacionTable = ({
             .map((regla) => toOption(regla.tipo_deposito, regla.tipo_deposito)),
     ]);
 
+    useEffect(() => {
+        if (mode !== "efectivizacion" || !paginatedRows.length) {
+            setRecurringByOperation({});
+            return;
+        }
+
+        let ignore = false;
+        Promise.all(
+            paginatedRows.map(async (row) => {
+                try {
+                    let client = row.id_cliente == null ? null : await clienteService.getById(Number(row.id_cliente));
+                    if (!client) {
+                        const document = String(row.dni_cliente ?? "").replace(/\D/g, "");
+                        if (document.length === 8 || document.length === 9) {
+                            const clients = await clienteService.getList({
+                                p_tipo_documento: document.length === 9 ? 2 : 1,
+                                p_numero_documento: document,
+                                p_id_estado: 1,
+                            });
+                            client = clients[0] ?? null;
+                        }
+                    }
+                    return [row.id, {
+                        especial: client?.comision_servicio_recurrente == null ? null : Number(client.comision_servicio_recurrente),
+                        extra: client?.comision_monto_extra_servicio_recurrente == null ? null : Number(client.comision_monto_extra_servicio_recurrente),
+                    }] as const;
+                } catch {
+                    return [row.id, { especial: null, extra: null }] as const;
+                }
+            }),
+        ).then((entries) => {
+            if (!ignore) setRecurringByOperation(Object.fromEntries(entries));
+        });
+
+        return () => {
+            ignore = true;
+        };
+    }, [mode, paginatedRows]);
+
+    const commissionActionState = (row: OperacionProceso) => {
+        const recurring = recurringByOperation[row.id];
+        const rule = findRule(row);
+        const hasOperationSpecial = recurring && recurring.especial === null && rule?.comision_servicio != null
+            && row.comision_servicio != null
+            && Math.abs(Number(row.comision_servicio) - Number(rule.comision_servicio)) > 0.000001;
+        const hasOperationExtra = recurring && recurring.extra === null && toNumber(row.comision_monto_extra_servicio) > 0;
+
+        return {
+            specialDisabled: recurring?.especial !== null || Boolean(hasOperationSpecial),
+            specialRecurringDisabled: Boolean(hasOperationSpecial),
+            extraDisabled: recurring?.extra !== null || Boolean(hasOperationExtra),
+            extraRecurringDisabled: Boolean(hasOperationExtra),
+        };
+    };
+
     const findRule = (row: OperacionProceso) => reglas.find((regla) =>
         regla.id_codigo_servicio === row.id_codigo_servicio &&
         (!regla.id_banco || regla.id_banco === row.id_banco_empresa_cuenta_ingreso) &&
@@ -365,6 +436,48 @@ export const BancariaEfectivizacionTable = ({
             p_monto_minimo_deposito_servicio: draft.monto_minimo_deposito_servicio,
             p_comision_minima_servicio: draft.comision_minima_servicio,
         }, true);
+    };
+
+    const resolveClienteId = async (row: OperacionProceso) => {
+        if (row.id_cliente) return Number(row.id_cliente);
+
+        const documento = String(row.dni_cliente ?? "").replace(/\D/g, "");
+        if (documento.length !== 8 && documento.length !== 9) return null;
+
+        const clientes = await clienteService.getList({
+            p_tipo_documento: documento.length === 9 ? 2 : 1,
+            p_numero_documento: documento,
+            p_id_estado: 1,
+        });
+        const cliente = clientes?.[0];
+        return cliente?.id == null ? null : Number(cliente.id);
+    };
+
+    const handleCommunityChange = async (row: OperacionProceso, value: string) => {
+        const comunidad = comunidades?.find((item) => String(item.id) === value);
+        if (!comunidad) return;
+
+        try {
+            const idCliente = await resolveClienteId(row);
+            const clientPatch = idCliente ? { id_cliente: idCliente } : {};
+            const clientPayload = idCliente ? { p_id_cliente: idCliente } : {};
+
+            await patchWithRule(
+                { ...row, ...clientPatch },
+                {
+                    id_comunidad: Number(comunidad.id),
+                    nombre_comunidad: String(comunidad.nombre ?? ""),
+                    ...clientPatch,
+                },
+                {
+                    p_id_comunidad: Number(comunidad.id),
+                    p_nombre_comunidad: String(comunidad.nombre ?? ""),
+                    ...clientPayload,
+                },
+            );
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo resolver el cliente.");
+        }
     };
 
     const isDerivaciones = mode === "derivaciones";
@@ -455,14 +568,15 @@ export const BancariaEfectivizacionTable = ({
     const handleManualCommissionSave = async () => {
         if (!manualCommission) return;
 
-        const value = Number(manualCommission.value);
-        if (!Number.isFinite(value) || value < 0) {
-            addToast("error", "Ingresa un valor mayor o igual a 0.");
+        const rawValue = manualCommission.value.trim();
+        if (!isRecurringInputValue(manualCommission.value) || rawValue === "" || /^null$/i.test(rawValue)) {
+            addToast("error", "Ingresa un valor numerico mayor o igual a 0.");
             return;
         }
 
-        if (manualCommission.type === "extra" && !Number.isInteger(value)) {
-            addToast("error", "La comision extra debe ser un monto entero en soles.");
+        const value = Number(rawValue.replace(",", "."));
+        if (!Number.isFinite(value) || value < 0) {
+            addToast("error", "Ingresa un valor mayor o igual a 0.");
             return;
         }
 
@@ -502,6 +616,76 @@ export const BancariaEfectivizacionTable = ({
         }
 
         setManualCommission(null);
+    };
+
+    const openRecurringCommission = async (row: OperacionProceso, type: RecurringCommissionType) => {
+        if (mode !== "efectivizacion" || isPagado(row) || row.flag_retenido || isFrozenOriginOperation(row, mode, ruta) || savingIds.includes(row.id)) return;
+        try {
+            const clientId = await resolveClienteId(row);
+            if (!clientId) {
+                addToast("error", "No se encontro el cliente relacionado.");
+                return;
+            }
+            const client = await clienteService.getById(clientId);
+            const raw = type === "especial"
+                ? client?.comision_servicio_recurrente
+                : client?.comision_monto_extra_servicio_recurrente;
+            setRecurringCommission({
+                row,
+                type,
+                value: raw == null ? "" : String(raw),
+            });
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo consultar la configuracion del cliente.");
+        }
+    };
+
+    const handleRecurringCommissionSave = async () => {
+        if (!recurringCommission) return;
+        const rawValue = recurringCommission.value.trim();
+        const clear = rawValue === "" || /^null$/i.test(rawValue);
+        if (!isRecurringInputValue(recurringCommission.value)) {
+            addToast("error", "Ingresa solo numeros, punto o coma decimal.");
+            return;
+        }
+        const value = Number(rawValue.replace(",", "."));
+        if (!clear && (!Number.isFinite(value) || value < 0)) {
+            addToast("error", "Ingresa un valor mayor o igual a 0.");
+            return;
+        }
+
+        const row = rows.find((item) => item.id === recurringCommission.row.id) ?? recurringCommission.row;
+        setSavingIds((current) => [...current, row.id]);
+        try {
+            const saved = await operacionesRpcService.patchOperacionComisionRecurrente({
+                p_id: row.id,
+                p_tipo_comision: recurringCommission.type,
+                p_valor: clear ? null : value,
+                p_limpiar: clear,
+                p_ruta_actual: ruta,
+                p_id_usuario_gestor: user.userId,
+                p_nombre_usuario_gestor: user.userName,
+            });
+            setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+            setRecurringByOperation((current) => {
+                const previous = current[row.id] ?? { especial: null, extra: null };
+                return {
+                    ...current,
+                    [row.id]: {
+                        especial: recurringCommission.type === "especial" ? (clear ? null : value) : previous.especial,
+                        extra: recurringCommission.type === "extra" ? (clear ? null : value) : previous.extra,
+                    },
+                };
+            });
+            onRowUpdated(saved);
+            onMetricsChanged();
+            addToast("success", clear ? "Comision recurrente limpiada." : "Comision recurrente actualizada.");
+            setRecurringCommission(null);
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo actualizar la comision recurrente.");
+        } finally {
+            setSavingIds((current) => current.filter((id) => id !== row.id));
+        }
     };
 
     const executePago = async (row: OperacionProceso) => {
@@ -699,6 +883,14 @@ export const BancariaEfectivizacionTable = ({
             openManualCommission(row, "extra");
         }
 
+        if (action === "ComisionEspecialRecurrente") {
+            void openRecurringCommission(row, "especial");
+        }
+
+        if (action === "ComisionExtraRecurrente") {
+            void openRecurringCommission(row, "extra");
+        }
+
         if (action === "PagoDeudaDirecto") {
             await handlePagoDeudaDirecto(row);
         }
@@ -872,15 +1064,7 @@ export const BancariaEfectivizacionTable = ({
                                                 width="w-24"
                                                 disabled={disabledIngreso}
                                                 value={String(row.id_comunidad ?? "")}
-                                                onChange={(event) => {
-                                                    const comunidad = comunidades?.find((item) => String(item.id) === event.currentTarget.value);
-                                                    if (!comunidad) return;
-                                                    void patchWithRule(
-                                                        row,
-                                                        { id_comunidad: Number(comunidad.id), nombre_comunidad: String(comunidad.nombre ?? "") },
-                                                        { p_id_comunidad: Number(comunidad.id), p_nombre_comunidad: String(comunidad.nombre ?? "") },
-                                                    );
-                                                }}
+                                                onChange={(event) => void handleCommunityChange(row, event.currentTarget.value)}
                                                 options={(comunidades ?? []).map((item) => toOption(item.id, item.nombre))}
                                             />
                                         </td>
@@ -911,15 +1095,35 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <div className="tabular-nums">
+                                                {(() => {
+                                                    const recurring = recurringByOperation[row.id];
+                                                    const hasRecurringSpecial = recurring?.especial !== null && recurring?.especial !== undefined;
+                                                    const hasRecurringExtra = recurring?.extra !== null && recurring?.extra !== undefined;
+                                                    const commissionLabel = hasRecurringSpecial
+                                                        ? `${recurring.especial}% Rec`
+                                                        : toNumber(row.monto_deposito_cliente) > toNumber(row.monto_minimo_deposito_servicio)
+                                                            ? `${row.comision_servicio ?? 0}%`
+                                                            : formatMoney(row.comision_minima_servicio);
+
+                                                    return (
+                                                        <>
                                                 <div className="flex items-center gap-1">
                                                     <span className="whitespace-nowrap text-sm font-semibold text-primary">{formatMoney(row.resultado_comision_servicio)}</span>
-                                                    <CompactBadgeLine>{toNumber(row.monto_deposito_cliente) > toNumber(row.monto_minimo_deposito_servicio) ? `${row.comision_servicio ?? 0}%` : formatMoney(row.comision_minima_servicio)}</CompactBadgeLine>
+                                                    <CompactBadgeLine>{commissionLabel}</CompactBadgeLine>
                                                 </div>
-                                                {toNumber(row.comision_monto_extra_servicio) > 0 && (
+                                                {toNumber(row.comision_monto_extra_servicio) > 0 && !hasRecurringExtra && (
                                                     <div className="mt-1 flex">
                                                         <CompactBadgeLine color="warning">Extra S/ {formatInteger(row.comision_monto_extra_servicio)}</CompactBadgeLine>
                                                     </div>
                                                 )}
+                                                {hasRecurringExtra && (
+                                                    <div className="mt-1 flex">
+                                                        <CompactBadgeLine color="warning">Extra S/ {formatInteger(recurring.extra)} Rec</CompactBadgeLine>
+                                                    </div>
+                                                )}
+                                                        </>
+                                                    );
+                                                })()}
                                             </div>
                                         </td>
                                         <td className="px-2 py-2 align-top">
@@ -987,11 +1191,20 @@ export const BancariaEfectivizacionTable = ({
                                                             <Dropdown.Item id="RestaurarOperacion" icon={RefreshCcw02}>Restaurar</Dropdown.Item>
                                                         ) : (
                                                             <>
+                                                                {(() => {
+                                                                    const commissionState = commissionActionState(row);
+                                                                    return (
+                                                                        <>
                                                                 {isPagado(row) && <Dropdown.Item id="Reanudar" icon={RefreshCcw02}>Reanudar</Dropdown.Item>}
-                                                                {!isPagado(row) && <Dropdown.Item id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
-                                                                {!isPagado(row) && <Dropdown.Item id="ComisionExtra" icon={Coins01}>Com. Extra</Dropdown.Item>}
+                                                                {!isPagado(row) && <Dropdown.Item isDisabled={commissionState.specialDisabled} id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
+                                                                {!isPagado(row) && <Dropdown.Item isDisabled={commissionState.extraDisabled} id="ComisionExtra" icon={Coins01}>Com. Extra</Dropdown.Item>}
+                                                                {!isPagado(row) && !row.flag_retenido && mode === "efectivizacion" && <Dropdown.Item isDisabled={commissionState.specialRecurringDisabled} id="ComisionEspecialRecurrente" icon={Percent01}>Com. Especial Recurrente</Dropdown.Item>}
+                                                                {!isPagado(row) && !row.flag_retenido && mode === "efectivizacion" && <Dropdown.Item isDisabled={commissionState.extraRecurringDisabled} id="ComisionExtraRecurrente" icon={Coins01}>Com. Extra Recurrente</Dropdown.Item>}
                                                                 {!isPagado(row) && mode === "efectivizacion" && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo</Dropdown.Item>}
                                                                 {isDeletable(row) && mode === "efectivizacion" && <Dropdown.Item id="EliminarOperacion" icon={Trash01}>Eliminar Operacion</Dropdown.Item>}
+                                                                        </>
+                                                                    );
+                                                                })()}
                                                             </>
                                                         )}
                                                     </Dropdown.Menu>
@@ -1055,9 +1268,15 @@ export const BancariaEfectivizacionTable = ({
                                 <Input
                                     size="sm"
                                     label={manualCommission?.type === "especial" ? "Porcentaje" : "Monto"}
-                                    type="number"
+                                    type="text"
+                                    inputMode="decimal"
                                     value={manualCommission?.value ?? ""}
-                                    onChange={(value) => setManualCommission((current) => (current ? { ...current, value } : current))}
+                                    placeholder={manualCommission?.type === "especial" ? "0%" : "S/ 0.00"}
+                                    onChange={(value) => {
+                                        if (isRecurringInputValue(value)) {
+                                            setManualCommission((current) => (current ? { ...current, value } : current));
+                                        }
+                                    }}
                                 />
                             </div>
 
@@ -1069,6 +1288,46 @@ export const BancariaEfectivizacionTable = ({
                                     isLoading={manualCommission ? savingIds.includes(manualCommission.row.id) : false}
                                     onClick={() => void handleManualCommissionSave()}
                                 >
+                                    Guardar
+                                </Button>
+                            </div>
+                        </div>
+                    </Dialog>
+                </Modal>
+            </ModalOverlay>
+            <ModalOverlay isOpen={recurringCommission !== null} onOpenChange={(open) => !open && setRecurringCommission(null)}>
+                <Modal className="max-w-sm">
+                    <Dialog>
+                        <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                            <h2 className="text-lg font-semibold text-primary">
+                                {recurringCommission?.type === "especial" ? "Com. Especial Recurrente" : "Com. Extra Recurrente"}
+                            </h2>
+                            <p className="mt-1 text-sm text-tertiary">
+                                Esta configuracion se aplicara a futuras operaciones de este cliente y tambien recalculara la operacion actual.
+                            </p>
+                            <p className="mt-3 text-sm text-secondary">
+                                Cliente: <strong>{recurringCommission?.row.nombre_cliente || recurringCommission?.row.dni_cliente || "-"}</strong>
+                            </p>
+                            <div className="mt-5">
+                                <Input
+                                    size="sm"
+                                    label={recurringCommission?.type === "especial" ? "Porcentaje recurrente" : "Monto extra recurrente"}
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={recurringCommission?.value ?? ""}
+                                    placeholder={recurringCommission?.type === "especial" ? "0%" : "S/ 0.00"}
+                                    onChange={(value) => {
+                                        if (isRecurringInputValue(value)) {
+                                            setRecurringCommission((current) => (current ? { ...current, value } : current));
+                                        }
+                                    }}
+                                />
+                            </div>
+                            <div className="mt-6 flex justify-end gap-2">
+                                <Button color="secondary" isDisabled={recurringCommission ? savingIds.includes(recurringCommission.row.id) : false} onClick={() => setRecurringCommission(null)}>
+                                    Cancelar
+                                </Button>
+                                <Button isLoading={recurringCommission ? savingIds.includes(recurringCommission.row.id) : false} onClick={() => void handleRecurringCommissionSave()}>
                                     Guardar
                                 </Button>
                             </div>

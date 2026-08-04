@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
   comision_servicio numeric,
   monto_minimo_deposito_servicio numeric,
   comision_minima_servicio numeric,
-  comision_monto_extra_servicio bigint,
+  comision_monto_extra_servicio numeric,
   resultado_comision_servicio numeric,
   id_empresa_salida bigint,
   nombre_empresa_salida character varying,
@@ -159,6 +159,13 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
   CONSTRAINT tb_operacion_proceso_pkey PRIMARY KEY (id),
   CONSTRAINT tb_operacion_proceso_fk_carga_excel FOREIGN KEY (id_carga_excel) REFERENCES public.tb_operacion_carga_excel(id)
 );
+
+ALTER TABLE public.tb_operacion_proceso
+  ADD COLUMN IF NOT EXISTS comision_monto_extra_servicio numeric;
+
+ALTER TABLE public.tb_operacion_proceso
+  ALTER COLUMN comision_monto_extra_servicio TYPE numeric
+  USING comision_monto_extra_servicio::numeric;
 
 DO $$
 BEGIN
@@ -470,7 +477,7 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_proceso(
   p_id_banco_empresa_cuenta_ingreso bigint DEFAULT NULL,
   p_nombre_banco_empresa_cuenta_ingreso character varying DEFAULT NULL,
   p_comision_servicio numeric DEFAULT NULL,
-  p_comision_monto_extra_servicio bigint DEFAULT NULL,
+  p_comision_monto_extra_servicio numeric DEFAULT NULL,
   p_resultado_comision_servicio numeric DEFAULT NULL,
   p_id_empresa_salida bigint DEFAULT NULL,
   p_nombre_empresa_salida character varying DEFAULT NULL,
@@ -914,6 +921,64 @@ AS $$
 $$;
 
 /*
+Funcion: f_get_tb_operacion_comision_efectivizacion_cliente
+Objetivo:
+  Resolver la comision efectiva de Efectivizacion considerando la configuracion
+  recurrente del cliente. Las rutas asistidas no llaman esta funcion.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_comision_efectivizacion_cliente(
+  p_id_cliente bigint,
+  p_monto_deposito_cliente bigint,
+  p_comision_servicio_regla numeric,
+  p_monto_minimo_deposito_servicio numeric,
+  p_comision_minima_servicio numeric
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_porcentaje_recurrente numeric;
+  v_extra_recurrente bigint := 0;
+  v_porcentaje numeric;
+  v_extra bigint := 0;
+  v_calc jsonb;
+  v_tiene_porcentaje boolean := false;
+BEGIN
+  IF p_id_cliente IS NOT NULL THEN
+    SELECT c.comision_servicio_recurrente, c.comision_monto_extra_servicio_recurrente
+    INTO v_porcentaje_recurrente, v_extra_recurrente
+    FROM public.tb_cliente c
+    WHERE c.id = p_id_cliente
+    LIMIT 1;
+  END IF;
+
+  v_tiene_porcentaje := v_porcentaje_recurrente IS NOT NULL;
+  v_porcentaje := CASE
+    WHEN v_tiene_porcentaje THEN v_porcentaje_recurrente
+    ELSE p_comision_servicio_regla
+  END;
+  v_extra := COALESCE(v_extra_recurrente, 0);
+
+  v_calc := public.f_get_tb_operacion_calculo_comision_servicio(
+    COALESCE(p_monto_deposito_cliente, 0),
+    COALESCE(v_porcentaje, 0),
+    CASE WHEN v_tiene_porcentaje THEN 0 ELSE COALESCE(p_monto_minimo_deposito_servicio, 0) END,
+    CASE WHEN v_tiene_porcentaje THEN 0 ELSE COALESCE(p_comision_minima_servicio, 0) END,
+    v_extra
+  );
+
+  RETURN v_calc || jsonb_build_object(
+    'comision_servicio', v_porcentaje,
+    'monto_minimo_deposito_servicio', CASE WHEN v_tiene_porcentaje THEN 0 ELSE p_monto_minimo_deposito_servicio END,
+    'comision_minima_servicio', CASE WHEN v_tiene_porcentaje THEN 0 ELSE p_comision_minima_servicio END,
+    'comision_monto_extra_servicio', v_extra,
+    'comision_recurrente', v_tiene_porcentaje
+  );
+END;
+$$;
+
+/*
 Funcion: f_post_tb_operacion_proceso
 Objetivo:
   Crear una operacion manual ya resuelta y con resultados congelados.
@@ -957,7 +1022,7 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso(
   p_comision_servicio numeric DEFAULT NULL,
   p_monto_minimo_deposito_servicio numeric DEFAULT NULL,
   p_comision_minima_servicio numeric DEFAULT NULL,
-  p_comision_monto_extra_servicio bigint DEFAULT NULL,
+  p_comision_monto_extra_servicio numeric DEFAULT NULL,
   p_resultado_comision_servicio numeric DEFAULT NULL,
   p_id_empresa_salida bigint DEFAULT NULL,
   p_nombre_empresa_salida character varying DEFAULT NULL,
@@ -1008,6 +1073,7 @@ DECLARE
   v_id bigint;
   v_cliente_id bigint;
   v_cliente_nombre character varying;
+  v_cliente_existente boolean := false;
   v_estado_activo_id bigint;
   v_tipo_servicio character varying;
   v_tipo_documento bigint;
@@ -1033,8 +1099,10 @@ DECLARE
   v_regla record;
   v_dup_id bigint;
   v_calc_serv jsonb;
+  v_comision_efectivizacion jsonb;
   v_calc_ing jsonb;
   v_calc_sal jsonb;
+  v_sincroniza_cliente boolean := false;
 BEGIN
   v_cliente_id := p_id_cliente;
   v_cliente_nombre := p_nombre_cliente;
@@ -1056,6 +1124,9 @@ BEGIN
     WHERE cs.id = p_id_codigo_servicio
     LIMIT 1;
   END IF;
+
+  v_sincroniza_cliente := UPPER(BTRIM(COALESCE(v_tipo_servicio, ''))) = 'EFECTIVIZACION'
+    AND LOWER(BTRIM(COALESCE(v_ruta_origen_final, ''))) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay');
 
   IF v_cliente_id IS NULL AND COALESCE(p_dni_cliente, '') <> '' THEN
     p_dni_cliente := REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g');
@@ -1085,6 +1156,8 @@ BEGIN
       AND numero_documento = p_dni_cliente
     LIMIT 1;
 
+    v_cliente_existente := v_cliente_id IS NOT NULL;
+
     IF v_cliente_id IS NULL THEN
       SELECT id INTO v_estado_activo_id
       FROM public.tb_estado
@@ -1108,6 +1181,14 @@ BEGIN
         p_id_usuario
       )
       RETURNING id, nombre INTO v_cliente_id, v_cliente_nombre;
+    END IF;
+
+    IF v_cliente_existente AND p_id_comunidad IS NOT NULL AND v_sincroniza_cliente THEN
+      PERFORM public.f_patch_tb_cliente(
+        p_id := v_cliente_id,
+        p_id_comunidad := p_id_comunidad,
+        p_id_usuario := p_id_usuario
+      );
     END IF;
   END IF;
 
@@ -1313,13 +1394,29 @@ BEGIN
     );
   END IF;
 
-  v_calc_serv := public.f_get_tb_operacion_calculo_comision_servicio(
-    COALESCE(p_monto_deposito_cliente, 0),
-    v_regla.comision_servicio,
-    v_regla.monto_minimo_deposito_servicio,
-    v_regla.comision_minima_servicio,
-    0
-  );
+  IF v_sincroniza_cliente THEN
+    v_comision_efectivizacion := public.f_get_tb_operacion_comision_efectivizacion_cliente(
+      v_cliente_id,
+      COALESCE(p_monto_deposito_cliente, 0),
+      v_regla.comision_servicio,
+      v_regla.monto_minimo_deposito_servicio,
+      v_regla.comision_minima_servicio
+    );
+  ELSE
+    v_comision_efectivizacion := public.f_get_tb_operacion_calculo_comision_servicio(
+      COALESCE(p_monto_deposito_cliente, 0),
+      v_regla.comision_servicio,
+      v_regla.monto_minimo_deposito_servicio,
+      v_regla.comision_minima_servicio,
+      0
+    ) || jsonb_build_object(
+      'comision_servicio', v_regla.comision_servicio,
+      'monto_minimo_deposito_servicio', v_regla.monto_minimo_deposito_servicio,
+      'comision_minima_servicio', v_regla.comision_minima_servicio,
+      'comision_monto_extra_servicio', 0
+    );
+  END IF;
+  v_calc_serv := v_comision_efectivizacion;
 
   v_calc_ing := public.f_get_tb_operacion_calculo_comision_banco_ingreso(
     v_flag_por_sol_comision_banco_ingreso_val,
@@ -1437,10 +1534,10 @@ BEGIN
     v_comision_igv_banco_ingreso_val,
     (v_calc_ing->>'resultado_comision_banco_ingreso')::numeric,
     v_itf_cuenta,
-    v_regla.comision_servicio,
-    v_regla.monto_minimo_deposito_servicio,
-    v_regla.comision_minima_servicio,
-    0,
+    (v_calc_serv->>'comision_servicio')::numeric,
+    (v_calc_serv->>'monto_minimo_deposito_servicio')::numeric,
+    (v_calc_serv->>'comision_minima_servicio')::numeric,
+    (v_calc_serv->>'comision_monto_extra_servicio')::numeric,
     (v_calc_serv->>'resultado_comision_servicio')::numeric,
     v_id_empresa_ingreso_final,
     v_nombre_empresa_ingreso_final,
@@ -1568,7 +1665,7 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_base(
   p_comision_servicio numeric DEFAULT NULL,
   p_monto_minimo_deposito_servicio numeric DEFAULT NULL,
   p_comision_minima_servicio numeric DEFAULT NULL,
-  p_comision_monto_extra_servicio bigint DEFAULT NULL,
+  p_comision_monto_extra_servicio numeric DEFAULT NULL,
   p_resultado_comision_servicio numeric DEFAULT NULL,
   p_id_empresa_salida bigint DEFAULT NULL,
   p_nombre_empresa_salida character varying DEFAULT NULL,
@@ -1613,6 +1710,10 @@ DECLARE
   v_sync_result jsonb;
   v_ruta_actual character varying;
   v_ruta_final character varying;
+  v_regla_recurrente record;
+  v_calc_recurrente jsonb;
+  v_calc_ing_recurrente jsonb;
+  v_calc_sal_recurrente jsonb;
   BEGIN
   SELECT *
   INTO v_actual
@@ -1692,6 +1793,70 @@ DECLARE
   WHERE id = p_id
   LIMIT 1;
 
+  IF p_id_comunidad IS NOT NULL
+     AND v_actualizada.id_cliente IS NOT NULL
+     AND UPPER(BTRIM(COALESCE(v_actualizada.tipo_servicio, ''))) = 'EFECTIVIZACION'
+     AND LOWER(BTRIM(COALESCE(v_actualizada.ruta_destino, v_actualizada.ruta_origen, ''))) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay') THEN
+    PERFORM public.f_patch_tb_cliente(
+      p_id := v_actualizada.id_cliente,
+      p_id_comunidad := p_id_comunidad,
+      p_id_usuario := COALESCE(p_id_usuario, v_actualizada.id_usuario)
+    );
+
+    SELECT r.*
+    INTO v_regla_recurrente
+    FROM public.tb_reglas_efectivizacion r
+    WHERE r.id_codigo_servicio = v_actualizada.id_codigo_servicio
+      AND r.id_banco = v_actualizada.id_banco_empresa_cuenta_ingreso
+      AND r.id_comunidad = p_id_comunidad
+      AND (v_actualizada.nombre_tipo_deposito IS NULL OR r.tipo_deposito = v_actualizada.nombre_tipo_deposito)
+      AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
+    LIMIT 1;
+
+    IF v_regla_recurrente.id IS NULL THEN
+      RETURN jsonb_build_object('error', 'No se encontro una regla activa para la nueva comunidad.');
+    END IF;
+
+    v_calc_recurrente := public.f_get_tb_operacion_comision_efectivizacion_cliente(
+      v_actualizada.id_cliente,
+      COALESCE(v_actualizada.monto_deposito_cliente, 0),
+      v_regla_recurrente.comision_servicio,
+      v_regla_recurrente.monto_minimo_deposito_servicio,
+      v_regla_recurrente.comision_minima_servicio
+    );
+
+    v_calc_ing_recurrente := public.f_get_tb_operacion_calculo_comision_banco_ingreso(
+      COALESCE(v_actualizada.flag_por_sol_comision_banco_ingreso, false),
+      COALESCE(v_actualizada.monto_deposito_cliente, 0),
+      COALESCE(v_actualizada.comision_banco_ingreso, 0),
+      COALESCE(v_actualizada.comision_minimo_banco_ingreso, 0),
+      COALESCE(v_actualizada.comision_igv_banco_ingreso, 0),
+      COALESCE(v_actualizada.monto_itf_ingreso, 0)
+    );
+
+    v_calc_sal_recurrente := public.f_get_tb_operacion_calculo_comision_banco_salida(
+      (v_calc_recurrente->>'monto_transferencia_cliente')::numeric,
+      COALESCE(v_actualizada.comision_transf_banco_salida, 0),
+      COALESCE(v_actualizada.comision_transf_inter_banco_salida, 0),
+      COALESCE(v_actualizada.monto_itf_salida, 0),
+      v_actualizada.id_empresa_salida,
+      v_actualizada.id_empresa_cuenta_salida,
+      v_actualizada.id_banco_empresa_cuenta_salida,
+      v_actualizada.id_banco_cliente_transferencia
+    );
+
+    UPDATE public.tb_operacion_proceso
+    SET comision_servicio = (v_calc_recurrente->>'comision_servicio')::numeric,
+        monto_minimo_deposito_servicio = (v_calc_recurrente->>'monto_minimo_deposito_servicio')::numeric,
+        comision_minima_servicio = (v_calc_recurrente->>'comision_minima_servicio')::numeric,
+        comision_monto_extra_servicio = (v_calc_recurrente->>'comision_monto_extra_servicio')::numeric,
+        resultado_comision_servicio = (v_calc_recurrente->>'resultado_comision_servicio')::numeric,
+        monto_transferencia_cliente = (v_calc_recurrente->>'monto_transferencia_cliente')::numeric,
+        resultado_comision_banco_ingreso = (v_calc_ing_recurrente->>'resultado_comision_banco_ingreso')::numeric,
+        resultado_comision_banco_salida = (v_calc_sal_recurrente->>'resultado_comision_banco_salida')::numeric
+    WHERE id = p_id;
+  END IF;
+
   v_sync_result := public.f_post_tb_operacion_caja_desde_proceso(
     p_id_operacion_proceso := p_id,
     p_tipo_origen := NULL,
@@ -1745,6 +1910,119 @@ DECLARE
     FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
     LIMIT 1
   );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_comision_recurrente(
+  p_id bigint,
+  p_tipo_comision character varying,
+  p_valor numeric DEFAULT NULL,
+  p_limpiar boolean DEFAULT false,
+  p_ruta_actual character varying DEFAULT NULL,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_op record;
+  v_cliente_id bigint;
+  v_regla record;
+  v_calc jsonb;
+  v_calc_ing jsonb;
+  v_calc_sal jsonb;
+  v_sync_result jsonb;
+  v_tipo character varying := LOWER(BTRIM(COALESCE(p_tipo_comision, '')));
+BEGIN
+  SELECT * INTO v_op FROM public.tb_operacion_proceso WHERE id = p_id FOR UPDATE;
+  IF NOT FOUND THEN RETURN jsonb_build_object('error', 'La operacion no existe.'); END IF;
+  IF UPPER(BTRIM(COALESCE(v_op.tipo_servicio, ''))) <> 'EFECTIVIZACION'
+     OR LOWER(BTRIM(COALESCE(v_op.ruta_origen, v_op.ruta_destino, ''))) NOT IN ('bcp','bbva','scotiabank','banbif','interbank','safetypay') THEN
+    RETURN jsonb_build_object('error', 'La comision recurrente solo aplica a Efectivizacion bancaria.');
+  END IF;
+  IF UPPER(BTRIM(COALESCE(v_op.nombre_estado, ''))) IN ('PAGADO','ELIMINADO') OR COALESCE(v_op.flag_retenido, false) THEN
+    RETURN jsonb_build_object('error', 'La operacion no permite modificar comisiones recurrentes.');
+  END IF;
+  IF COALESCE(v_op.flag_derivado, false) AND p_ruta_actual IS NOT NULL
+     AND LOWER(BTRIM(COALESCE(v_op.ruta_origen, ''))) = LOWER(BTRIM(p_ruta_actual))
+     AND LOWER(BTRIM(COALESCE(v_op.ruta_destino, ''))) <> LOWER(BTRIM(p_ruta_actual)) THEN
+    RETURN jsonb_build_object('error', 'La operacion derivada esta congelada en la ruta de origen.');
+  END IF;
+  IF v_tipo NOT IN ('especial','extra') THEN RETURN jsonb_build_object('error', 'Tipo de comision recurrente invalido.'); END IF;
+  IF NOT p_limpiar AND p_valor IS NULL THEN RETURN jsonb_build_object('error', 'Ingresa un valor o utiliza la opcion de limpiar.'); END IF;
+  IF NOT p_limpiar AND p_valor < 0 THEN RETURN jsonb_build_object('error', 'La comision recurrente debe ser mayor o igual a 0.'); END IF;
+  IF v_tipo = 'extra' AND NOT p_limpiar AND p_valor <> trunc(p_valor) THEN RETURN jsonb_build_object('error', 'La comision extra recurrente debe ser un monto entero en soles.'); END IF;
+  v_cliente_id := v_op.id_cliente;
+  IF v_cliente_id IS NULL THEN
+    SELECT c.id INTO v_cliente_id
+    FROM public.tb_cliente c
+    WHERE c.numero_documento = REGEXP_REPLACE(COALESCE(v_op.dni_cliente, ''), '[^0-9]', '', 'g')
+      AND c.tipo_documento = CASE WHEN LENGTH(REGEXP_REPLACE(COALESCE(v_op.dni_cliente, ''), '[^0-9]', '', 'g')) = 9 THEN 2 ELSE 1 END
+    LIMIT 1;
+  END IF;
+  IF v_cliente_id IS NULL OR NOT EXISTS (SELECT 1 FROM public.tb_cliente WHERE id = v_cliente_id) THEN
+    RETURN jsonb_build_object('error', 'La operacion no tiene un cliente relacionado.');
+  END IF;
+
+  SELECT r.* INTO v_regla
+  FROM public.tb_reglas_efectivizacion r
+  WHERE r.id_codigo_servicio = v_op.id_codigo_servicio
+    AND r.id_banco = v_op.id_banco_empresa_cuenta_ingreso
+    AND r.id_comunidad = v_op.id_comunidad
+    AND (v_op.nombre_tipo_deposito IS NULL OR r.tipo_deposito = v_op.nombre_tipo_deposito)
+    AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
+  LIMIT 1;
+  IF v_regla.id IS NULL THEN RETURN jsonb_build_object('error', 'No se encontro una regla activa para recalcular la operacion.'); END IF;
+
+  IF v_tipo = 'especial' THEN
+    UPDATE public.tb_cliente SET comision_servicio_recurrente = CASE WHEN p_limpiar THEN NULL ELSE p_valor END, id_usuario = COALESCE(p_id_usuario_gestor, id_usuario) WHERE id = v_cliente_id;
+  ELSE
+    UPDATE public.tb_cliente SET comision_monto_extra_servicio_recurrente = CASE WHEN p_limpiar THEN NULL ELSE p_valor END, id_usuario = COALESCE(p_id_usuario_gestor, id_usuario) WHERE id = v_cliente_id;
+  END IF;
+
+  v_calc := public.f_get_tb_operacion_comision_efectivizacion_cliente(v_cliente_id, COALESCE(v_op.monto_deposito_cliente,0), v_regla.comision_servicio, v_regla.monto_minimo_deposito_servicio, v_regla.comision_minima_servicio);
+  v_calc_ing := public.f_get_tb_operacion_calculo_comision_banco_ingreso(COALESCE(v_op.flag_por_sol_comision_banco_ingreso,false), COALESCE(v_op.monto_deposito_cliente,0), COALESCE(v_op.comision_banco_ingreso,0), COALESCE(v_op.comision_minimo_banco_ingreso,0), COALESCE(v_op.comision_igv_banco_ingreso,0), COALESCE(v_op.monto_itf_ingreso,0));
+  v_calc_sal := public.f_get_tb_operacion_calculo_comision_banco_salida((v_calc->>'monto_transferencia_cliente')::numeric, COALESCE(v_op.comision_transf_banco_salida,0), COALESCE(v_op.comision_transf_inter_banco_salida,0), COALESCE(v_op.monto_itf_salida,0), v_op.id_empresa_salida, v_op.id_empresa_cuenta_salida, v_op.id_banco_empresa_cuenta_salida, v_op.id_banco_cliente_transferencia);
+  UPDATE public.tb_operacion_proceso SET
+    comision_servicio = (v_calc->>'comision_servicio')::numeric,
+    monto_minimo_deposito_servicio = (v_calc->>'monto_minimo_deposito_servicio')::numeric,
+    comision_minima_servicio = (v_calc->>'comision_minima_servicio')::numeric,
+    comision_monto_extra_servicio = (v_calc->>'comision_monto_extra_servicio')::numeric,
+    resultado_comision_servicio = (v_calc->>'resultado_comision_servicio')::numeric,
+    monto_transferencia_cliente = (v_calc->>'monto_transferencia_cliente')::numeric,
+    resultado_comision_banco_ingreso = (v_calc_ing->>'resultado_comision_banco_ingreso')::numeric,
+    resultado_comision_banco_salida = (v_calc_sal->>'resultado_comision_banco_salida')::numeric,
+    id_usuario = COALESCE(p_id_usuario_gestor,id_usuario), nombre_usuario = COALESCE(p_nombre_usuario_gestor,nombre_usuario)
+  WHERE id = p_id;
+
+  v_sync_result := public.f_post_tb_operacion_caja_desde_proceso(
+    p_id_operacion_proceso := p_id,
+    p_tipo_origen := NULL,
+    p_tipo_movimiento := 'INGRESO',
+    p_id_usuario := COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario),
+    p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_op.nombre_usuario_gestor, v_op.nombre_usuario),
+    p_id_estado := v_op.id_estado
+  );
+  IF v_sync_result ? 'error' THEN
+    RAISE EXCEPTION '%', v_sync_result->>'error';
+  END IF;
+
+  IF UPPER(COALESCE(v_op.nombre_estado, '')) = 'PAGADO'
+     OR EXISTS (SELECT 1 FROM public.tb_operacion_caja c WHERE c.id_operacion_proceso = p_id AND c.tipo_movimiento = 'SALIDA') THEN
+    v_sync_result := public.f_post_tb_operacion_caja_desde_proceso(
+      p_id_operacion_proceso := p_id,
+      p_tipo_origen := NULL,
+      p_tipo_movimiento := 'SALIDA',
+      p_id_usuario := COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario),
+      p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_op.nombre_usuario_gestor, v_op.nombre_usuario),
+      p_id_estado := v_op.id_estado
+    );
+    IF v_sync_result ? 'error' THEN
+      RAISE EXCEPTION '%', v_sync_result->>'error';
+    END IF;
+  END IF;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(COALESCE(v_op.ruta_destino, v_op.ruta_origen), COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario));
+  RETURN (SELECT x FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x LIMIT 1);
 END;
 $$;
 
@@ -1814,7 +2092,7 @@ Nota:
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_comision_extra(
   p_id bigint,
-  p_comision_monto_extra_servicio bigint,
+  p_comision_monto_extra_servicio numeric,
   p_resultado_comision_servicio numeric DEFAULT NULL,
   p_resultado_comision_banco_ingreso numeric DEFAULT NULL,
   p_resultado_comision_banco_salida numeric DEFAULT NULL,
@@ -2341,6 +2619,138 @@ END;
 $$;
 
 /*
+Funcion: f_patch_tb_operacion_proceso_pagado_lote
+Objetivo:
+  Marcar como pagadas varias operaciones de Efectivizacion en una sola RPC.
+
+Reglas:
+  - bloquea las filas en un orden estable para evitar carreras entre usuarios;
+  - valida todo el lote antes de modificar operaciones o caja;
+  - si una operacion entra en conflicto, rechaza el lote completo;
+  - reutiliza la logica de pago individual para conservar los movimientos actuales.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_pagado_lote(
+  p_ids_operaciones jsonb,
+  p_id_estado bigint,
+  p_nombre_estado character varying,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_ids bigint[];
+  v_id bigint;
+  v_actual record;
+  v_result jsonb;
+  v_actualizadas jsonb := '[]'::jsonb;
+  v_detalle jsonb := '[]'::jsonb;
+  v_ruta character varying;
+BEGIN
+  IF p_ids_operaciones IS NULL OR jsonb_typeof(p_ids_operaciones) <> 'array' THEN
+    RETURN jsonb_build_object(
+      'error', 'p_ids_operaciones debe ser un arreglo JSON.'
+    );
+  END IF;
+
+  SELECT array_agg(DISTINCT value::bigint ORDER BY value::bigint)
+  INTO v_ids
+  FROM jsonb_array_elements_text(p_ids_operaciones) AS item(value);
+
+  IF COALESCE(array_length(v_ids, 1), 0) = 0 THEN
+    RETURN jsonb_build_object(
+      'error', 'No se recibieron operaciones para pagar.'
+    );
+  END IF;
+
+  /* Primero se bloquean y validan todas las filas; todavia no se modifica nada. */
+  FOREACH v_id IN ARRAY v_ids LOOP
+    SELECT *
+    INTO v_actual
+    FROM public.tb_operacion_proceso
+    WHERE id = v_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
+        'id', v_id,
+        'motivo', 'La operacion no existe.'
+      ));
+      CONTINUE;
+    END IF;
+
+    v_ruta := LOWER(BTRIM(COALESCE(v_actual.ruta_destino, v_actual.ruta_origen, '')));
+
+    IF UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) <> 'EFECTIVIZACION' THEN
+      v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
+        'id', v_id,
+        'motivo', 'La operacion no pertenece a Efectivizacion.'
+      ));
+    ELSIF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) <> 'PENDIENTE'
+       OR v_actual.id_estado = 10 THEN
+      v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
+        'id', v_id,
+        'motivo', 'La operacion ya no se encuentra en estado Pendiente.'
+      ));
+    ELSIF COALESCE(v_actual.flag_retenido, false)
+       OR UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) = 'RETENIDO' THEN
+      v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
+        'id', v_id,
+        'motivo', 'La operacion se encuentra retenida.'
+      ));
+    ELSIF v_actual.id_caja_cierre IS NOT NULL THEN
+      v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
+        'id', v_id,
+        'motivo', 'La operacion ya pertenece a un cierre de caja.'
+      ));
+    ELSIF v_ruta NOT IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay') THEN
+      v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
+        'id', v_id,
+        'motivo', 'La ruta de la operacion no es una ruta bancaria valida.'
+      ));
+    ELSIF v_actual.id_empresa_cuenta_salida IS NULL
+       AND v_actual.id_empresa_cuenta_ingreso IS NULL THEN
+      v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
+        'id', v_id,
+        'motivo', 'La operacion no tiene una cuenta operativa valida.'
+      ));
+    END IF;
+  END LOOP;
+
+  IF jsonb_array_length(v_detalle) > 0 THEN
+    RETURN jsonb_build_object(
+      'error', 'No se pudo procesar el lote completo.',
+      'detalle', v_detalle
+    );
+  END IF;
+
+  FOREACH v_id IN ARRAY v_ids LOOP
+    v_result := public.f_patch_tb_operacion_proceso_pagado(
+      p_id := v_id,
+      p_id_estado := p_id_estado,
+      p_nombre_estado := p_nombre_estado,
+      p_id_usuario_gestor := p_id_usuario_gestor,
+      p_nombre_usuario_gestor := p_nombre_usuario_gestor
+    );
+
+    IF v_result ? 'error' THEN
+      RAISE EXCEPTION 'No se pudo pagar la operacion %: %', v_id, v_result->>'error';
+    END IF;
+
+    v_actualizadas := v_actualizadas || jsonb_build_array(v_result);
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'cantidad_procesada', array_length(v_ids, 1),
+    'operaciones_actualizadas', v_actualizadas,
+    'detalle', '[]'::jsonb
+  );
+END;
+$$;
+
+/*
 Funcion: f_patch_tb_operacion_proceso_directo_caja
 Objetivo:
   Clasificar una operacion de efectivizacion como ingreso directo a caja.
@@ -2637,7 +3047,7 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_calculo_comision_servicio(
   p_comision_servicio numeric,
   p_monto_minimo_deposito_servicio numeric,
   p_comision_minima_servicio numeric,
-  p_comision_monto_extra_servicio bigint DEFAULT 0
+  p_comision_monto_extra_servicio numeric DEFAULT 0
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -2799,7 +3209,7 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_proceso_calculo(
   p_comision_servicio numeric,
   p_monto_minimo_deposito_servicio numeric,
   p_comision_minima_servicio numeric,
-  p_comision_monto_extra_servicio bigint,
+  p_comision_monto_extra_servicio numeric,
   p_flag_por_sol_comision_banco_ingreso boolean,
   p_comision_banco_ingreso numeric,
   p_comision_minimo_banco_ingreso numeric,
@@ -3380,13 +3790,29 @@ BEGIN
       CONTINUE;
     END IF;
 
-    v_calc_serv := public.f_get_tb_operacion_calculo_comision_servicio(
-      v_monto,
-      v_regla.comision_servicio,
-      v_regla.monto_minimo_deposito_servicio,
-      v_regla.comision_minima_servicio,
-      0
-    );
+    IF UPPER(BTRIM(COALESCE(v_excel_tipo_servicio, ''))) = 'EFECTIVIZACION'
+       AND LOWER(BTRIM(COALESCE(p_ruta_actual, ''))) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay') THEN
+      v_calc_serv := public.f_get_tb_operacion_comision_efectivizacion_cliente(
+        v_cliente_id,
+        v_monto,
+        v_regla.comision_servicio,
+        v_regla.monto_minimo_deposito_servicio,
+        v_regla.comision_minima_servicio
+      );
+    ELSE
+      v_calc_serv := public.f_get_tb_operacion_calculo_comision_servicio(
+        v_monto,
+        v_regla.comision_servicio,
+        v_regla.monto_minimo_deposito_servicio,
+        v_regla.comision_minima_servicio,
+        0
+      ) || jsonb_build_object(
+        'comision_servicio', v_regla.comision_servicio,
+        'monto_minimo_deposito_servicio', v_regla.monto_minimo_deposito_servicio,
+        'comision_minima_servicio', v_regla.comision_minima_servicio,
+        'comision_monto_extra_servicio', 0
+      );
+    END IF;
 
     v_calc_ing := public.f_get_tb_operacion_calculo_comision_banco_ingreso(
       v_flag_por_sol_comision_banco_ingreso,
@@ -3498,10 +3924,10 @@ BEGIN
       v_comision_igv_banco_ingreso,
       (v_calc_ing->>'resultado_comision_banco_ingreso')::numeric,
       v_itf_cuenta,
-      v_regla.comision_servicio,
-      v_regla.monto_minimo_deposito_servicio,
-      v_regla.comision_minima_servicio,
-      0,
+      (v_calc_serv->>'comision_servicio')::numeric,
+      (v_calc_serv->>'monto_minimo_deposito_servicio')::numeric,
+      (v_calc_serv->>'comision_minima_servicio')::numeric,
+      (v_calc_serv->>'comision_monto_extra_servicio')::numeric,
       (v_calc_serv->>'resultado_comision_servicio')::numeric,
       v_id_empresa_ingreso_final,
       v_nombre_empresa_ingreso_final,
@@ -4477,7 +4903,14 @@ WHERE p.proname IN (
   'f_delete_tb_operacion_carga_excel_rollback',
   'f_get_tb_operacion_carga_excel_rollback',
   'f_get_tb_operacion_proceso',
+  'f_get_tb_operacion_comision_efectivizacion_cliente',
+  'f_get_tb_operacion_calculo_comision_servicio',
+  'f_get_tb_operacion_proceso_calculo',
+  'f_patch_tb_operacion_proceso_base',
+  'f_patch_tb_operacion_proceso_comision_extra',
+  'f_patch_tb_operacion_proceso_comision_recurrente',
   'f_patch_tb_operacion_proceso_eliminar',
+  'f_patch_tb_operacion_proceso_pagado_lote',
   'f_patch_tb_operacion_proceso_restaurar',
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',

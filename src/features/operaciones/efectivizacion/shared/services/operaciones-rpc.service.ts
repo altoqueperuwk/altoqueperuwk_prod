@@ -24,7 +24,21 @@ const buildRpcErrorMessage = (payload: Record<string, unknown>) => {
         return `Saldo insuficiente en caja actual. Disponible: ${formatMoney(payload.saldo_disponible)}. Requerido: ${formatMoney(payload.monto_requerido)}.`;
     }
 
-    return String(payload.error ?? "Error en la operacion.");
+    const message = String(payload.error ?? "Error en la operacion.");
+    const details = Array.isArray(payload.detalle)
+        ? payload.detalle
+            .map((item) => {
+                if (!item || typeof item !== "object") return null;
+                const detail = item as Record<string, unknown>;
+                return detail.id != null && detail.motivo
+                    ? `Operacion ${detail.id}: ${String(detail.motivo)}`
+                    : null;
+            })
+            .filter(Boolean)
+            .join("; ")
+        : "";
+
+    return details ? `${message} ${details}` : message;
 };
 
 const normalizeRpcErrorMessage = (message: string) => {
@@ -41,6 +55,12 @@ const normalizeRpcErrorMessage = (message: string) => {
 
     return message;
 };
+
+interface OperacionPagadoLoteResult {
+    cantidad_procesada: number;
+    operaciones_actualizadas: OperacionProceso[];
+    detalle?: unknown[];
+}
 
 const rpc = async <T>(fn: string, params: Record<string, unknown>): Promise<T> => {
     const { data, error } = await supabase.rpc(fn, params);
@@ -150,6 +170,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_comision_extra", params);
     },
 
+    patchOperacionComisionRecurrente(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_comision_recurrente", params);
+    },
+
     patchOperacionEstado(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_estado", params);
     },
@@ -183,6 +207,10 @@ export const operacionesRpcService = {
 
     patchOperacionPagado(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_pagado", params);
+    },
+
+    patchOperacionPagadoLote(params: Record<string, unknown>) {
+        return rpc<OperacionPagadoLoteResult>("f_patch_tb_operacion_proceso_pagado_lote", params);
     },
 
     patchOperacionReanudar(params: Record<string, unknown>) {

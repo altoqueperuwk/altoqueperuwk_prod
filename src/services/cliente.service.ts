@@ -25,6 +25,13 @@ export const clienteService = {
     return data as Record<string, unknown>;
   },
 
+  async updateRecurring(id: number, params: Record<string, unknown>) {
+    const { data, error } = await supabase.rpc("f_patch_tb_cliente_comision_recurrente", { p_id: id, ...params });
+    if (error) throw error;
+    if (data && typeof data === "object" && "error" in data) throw new Error(String((data as Record<string, unknown>).error));
+    return data as Record<string, unknown>;
+  },
+
   async getHistory(id: number) {
     const { data, error } = await supabase.rpc("f_get_tb_cliente_his", { p_id: id });
     if (error) throw error;

@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS public.tb_cliente (
   nombre character varying,
   celular bigint,
   id_comunidad bigint,
+  comision_servicio_recurrente numeric,
+  comision_monto_extra_servicio_recurrente numeric,
   id_estado bigint NOT NULL,
   id_usuario bigint,
   fecha_registro timestamp with time zone NOT NULL DEFAULT now(),
@@ -37,6 +39,14 @@ BEGIN
   END IF;
 END;
 $$;
+
+ALTER TABLE public.tb_cliente
+  ADD COLUMN IF NOT EXISTS comision_servicio_recurrente numeric,
+  ADD COLUMN IF NOT EXISTS comision_monto_extra_servicio_recurrente numeric;
+
+ALTER TABLE public.tb_cliente
+  ALTER COLUMN comision_monto_extra_servicio_recurrente TYPE numeric
+  USING comision_monto_extra_servicio_recurrente::numeric;
 
 DO $$
 BEGIN
@@ -167,6 +177,8 @@ AS $$
     'nombre', t.nombre,
     'celular', t.celular,
     'id_comunidad', t.id_comunidad,
+    'comision_servicio_recurrente', t.comision_servicio_recurrente,
+    'comision_monto_extra_servicio_recurrente', t.comision_monto_extra_servicio_recurrente,
     'comunidad_nombre', c.nombre,
     'id_estado', t.id_estado,
     'estado_nombre', e.nombre,
@@ -343,6 +355,44 @@ BEGIN
       celular = CASE WHEN p_flag_limpiar_celular THEN NULL ELSE COALESCE(p_celular, celular) END,
       id_comunidad = COALESCE(p_id_comunidad, id_comunidad),
       id_estado = COALESCE(p_id_estado, id_estado),
+      id_usuario = COALESCE(p_id_usuario, id_usuario)
+  WHERE id = p_id;
+
+  RETURN (
+    SELECT x
+    FROM public.f_get_tb_cliente(p_id := p_id) AS x
+    LIMIT 1
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.f_patch_tb_cliente_comision_recurrente(
+  p_id bigint,
+  p_comision_servicio_recurrente numeric DEFAULT NULL,
+  p_comision_monto_extra_servicio_recurrente numeric DEFAULT NULL,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  IF p_comision_servicio_recurrente IS NOT NULL AND p_comision_servicio_recurrente < 0 THEN
+    RETURN jsonb_build_object('error', 'La comision recurrente debe ser mayor o igual a 0.');
+  END IF;
+
+  IF p_comision_monto_extra_servicio_recurrente IS NOT NULL
+     AND p_comision_monto_extra_servicio_recurrente < 0 THEN
+    RETURN jsonb_build_object('error', 'La comision extra recurrente debe ser mayor o igual a 0.');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.tb_cliente WHERE id = p_id) THEN
+    RETURN jsonb_build_object('error', 'El cliente no existe.');
+  END IF;
+
+  UPDATE public.tb_cliente
+  SET comision_servicio_recurrente = p_comision_servicio_recurrente,
+      comision_monto_extra_servicio_recurrente = p_comision_monto_extra_servicio_recurrente,
       id_usuario = COALESCE(p_id_usuario, id_usuario)
   WHERE id = p_id;
 
@@ -1779,6 +1829,9 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
+  'f_get_tb_cliente',
+  'f_get_tb_cliente_his',
+  'f_patch_tb_cliente_comision_recurrente',
   'f_post_tb_reglas_efectivizacion',
   'f_patch_tb_reglas_efectivizacion'
 )

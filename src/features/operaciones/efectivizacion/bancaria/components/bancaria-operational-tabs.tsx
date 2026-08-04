@@ -969,43 +969,54 @@ export const BancariaOperationalTabs = ({
             if (!eligibleIds.length) return;
             const updatedRows: OperacionProceso[] = [];
 
-            for (const id of eligibleIds) {
-                if (action === "Pagar" && estadoPagado) {
-                    if (currentTab === "Pago Deuda") {
-                        const saved = await pagoDeudaService.patchPagado({
-                            p_id_operacion: id,
+            if (action === "Pagar" && currentTab === "Efectivizacion" && estadoPagado) {
+                const result = await operacionesRpcService.patchOperacionPagadoLote({
+                    p_ids_operaciones: eligibleIds,
+                    p_id_estado: estadoPagado.id,
+                    p_nombre_estado: estadoPagado.nombre,
+                    p_id_usuario_gestor: userId,
+                    p_nombre_usuario_gestor: userName,
+                });
+                updatedRows.push(...(result.operaciones_actualizadas ?? []));
+            } else {
+                for (const id of eligibleIds) {
+                    if (action === "Pagar" && estadoPagado) {
+                        if (currentTab === "Pago Deuda") {
+                            const saved = await pagoDeudaService.patchPagado({
+                                p_id_operacion: id,
+                                p_id_usuario_gestor: userId,
+                                p_nombre_usuario_gestor: userName,
+                            });
+                            updatedRows.push(saved);
+                        } else {
+                            const saved = await operacionesRpcService.patchOperacionPagado(
+                                buildOperacionPagadoPayload(id, estadoPagado, { userId, userName }),
+                            );
+                            updatedRows.push(saved);
+                        }
+                    }
+
+                    if (action === "Reiniciar" && estadoPendiente) {
+                        const saved = currentTab === "Pago Deuda"
+                            ? await pagoDeudaService.patchReiniciarTransferencia({
+                                p_id_operacion: id,
+                                p_id_usuario_gestor: userId,
+                                p_nombre_usuario_gestor: userName,
+                            })
+                            : await operacionesRpcService.patchOperacionReanudar(
+                                buildOperacionReanudarPayload(id, estadoPendiente, { userId, userName }),
+                            );
+                        updatedRows.push(saved);
+                    }
+
+                    if (action === "Directo") {
+                        const saved = await operacionesRpcService.patchOperacionDirectoCaja({
+                            p_id: id,
                             p_id_usuario_gestor: userId,
                             p_nombre_usuario_gestor: userName,
                         });
                         updatedRows.push(saved);
-                    } else {
-                        const saved = await operacionesRpcService.patchOperacionPagado(
-                            buildOperacionPagadoPayload(id, estadoPagado, { userId, userName }),
-                        );
-                        updatedRows.push(saved);
                     }
-                }
-
-                if (action === "Reiniciar" && estadoPendiente) {
-                    const saved = currentTab === "Pago Deuda"
-                        ? await pagoDeudaService.patchReiniciarTransferencia({
-                            p_id_operacion: id,
-                            p_id_usuario_gestor: userId,
-                            p_nombre_usuario_gestor: userName,
-                        })
-                        : await operacionesRpcService.patchOperacionReanudar(
-                            buildOperacionReanudarPayload(id, estadoPendiente, { userId, userName }),
-                        );
-                    updatedRows.push(saved);
-                }
-
-                if (action === "Directo") {
-                    const saved = await operacionesRpcService.patchOperacionDirectoCaja({
-                        p_id: id,
-                        p_id_usuario_gestor: userId,
-                        p_nombre_usuario_gestor: userName,
-                    });
-                    updatedRows.push(saved);
                 }
             }
 
