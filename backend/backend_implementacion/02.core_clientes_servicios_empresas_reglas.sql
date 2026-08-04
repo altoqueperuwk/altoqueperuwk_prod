@@ -136,13 +136,6 @@ AFTER INSERT OR UPDATE ON public.tb_cliente
 FOR EACH ROW
 EXECUTE FUNCTION public.f_private_append_snapshot_his();
 
-DROP FUNCTION IF EXISTS public.f_get_tb_cliente(bigint, bigint, character varying, character varying, jsonb, bigint, bigint, bigint, timestamp with time zone, timestamp with time zone);
-DROP FUNCTION IF EXISTS public.f_get_tb_cliente_his(bigint, bigint, character varying, character varying, jsonb, bigint, bigint, bigint, timestamp with time zone, timestamp with time zone);
-DROP FUNCTION IF EXISTS public.f_post_tb_cliente(bigint, character varying, character varying, jsonb, bigint, bigint, bigint);
-DROP FUNCTION IF EXISTS public.f_post_tb_cliente(bigint, character varying, character varying, bigint, bigint, bigint, bigint, boolean);
-DROP FUNCTION IF EXISTS public.f_patch_tb_cliente(bigint, bigint, character varying, character varying, jsonb, bigint, bigint, bigint);
-DROP FUNCTION IF EXISTS public.f_patch_tb_cliente(bigint, bigint, character varying, character varying, bigint, bigint, bigint, bigint);
-
 /*
 Funcion: f_get_tb_cliente
 Objetivo:
@@ -567,15 +560,6 @@ BEGIN
 END;
 $$;
 
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_get_tb_cliente', 'f_get_tb_cliente_his', 'f_get_tb_cliente_atencion_kpi', 'f_post_tb_cliente', 'f_patch_tb_cliente', 'f_post_tb_cliente_carga_masiva')
-ORDER BY n.nspname, p.proname;
-
 -- ============================================================================
 -- 7. TB_CODIGO_SERVICIO
 -- ============================================================================
@@ -958,15 +942,6 @@ BEGIN
 END;
 $$;
 
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_get_tb_banco', 'f_get_tb_banco_his', 'f_post_tb_banco', 'f_patch_tb_banco')
-ORDER BY n.nspname, p.proname;
-
 -- ============================================================================
 -- 9. TB_EMPRESA
 -- ============================================================================
@@ -1166,15 +1141,6 @@ BEGIN
 END;
 $$;
 
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_get_tb_empresa', 'f_get_tb_empresa_his', 'f_post_tb_empresa', 'f_patch_tb_empresa')
-ORDER BY n.nspname, p.proname;
-
 -- ============================================================================
 -- 10. TB_EMPRESA_CUENTA_BANCARIA
 -- ============================================================================
@@ -1287,24 +1253,6 @@ Funcion: f_get_tb_empresa_cuenta_bancaria
 Objetivo:
   Consultar cuentas bancarias de empresa con empresa y banco enriquecidos.
 */
-DROP FUNCTION IF EXISTS public.f_get_tb_empresa_cuenta_bancaria(
-  p_id bigint,
-  p_id_empresa bigint,
-  p_id_banco bigint,
-  p_flag_por_sol_comision_banco_ingreso boolean,
-  p_flag_retencion boolean,
-  p_flag_retencion_parcial boolean,
-  p_comision_itf_ingreso_salida numeric,
-  p_comision_banco_ingreso numeric,
-  p_comision_minimo_banco_ingreso numeric,
-  p_comision_igv_banco_ingreso numeric,
-  p_comision_transf_banco_salida numeric,
-  p_comision_transf_inter_banco_salida numeric,
-  p_id_estado bigint,
-  p_id_usuario bigint,
-  p_fecha_registro_desde timestamp with time zone,
-  p_fecha_registro_hasta timestamp with time zone
-);
 CREATE OR REPLACE FUNCTION public.f_get_tb_empresa_cuenta_bancaria(
   p_id bigint DEFAULT NULL,
   p_id_empresa bigint DEFAULT NULL,
@@ -1367,24 +1315,6 @@ AS $$
   ORDER BY t.id;
 $$;
 
-DROP FUNCTION IF EXISTS public.f_get_tb_empresa_cuenta_bancaria_his(
-  p_id bigint,
-  p_id_empresa bigint,
-  p_id_banco bigint,
-  p_flag_por_sol_comision_banco_ingreso boolean,
-  p_flag_retencion boolean,
-  p_flag_retencion_parcial boolean,
-  p_comision_itf_ingreso_salida numeric,
-  p_comision_banco_ingreso numeric,
-  p_comision_minimo_banco_ingreso numeric,
-  p_comision_igv_banco_ingreso numeric,
-  p_comision_transf_banco_salida numeric,
-  p_comision_transf_inter_banco_salida numeric,
-  p_id_estado bigint,
-  p_id_usuario bigint,
-  p_fecha_registro_desde timestamp with time zone,
-  p_fecha_registro_hasta timestamp with time zone
-);
 CREATE OR REPLACE FUNCTION public.f_get_tb_empresa_cuenta_bancaria_his(
   p_id bigint DEFAULT NULL,
   p_id_empresa bigint DEFAULT NULL,
@@ -1430,21 +1360,6 @@ Funcion: f_post_tb_empresa_cuenta_bancaria
 Objetivo:
   Crear una cuenta bancaria operativa asociada a una empresa.
 */
-DROP FUNCTION IF EXISTS public.f_post_tb_empresa_cuenta_bancaria(
-  p_id_empresa bigint,
-  p_id_banco bigint,
-  p_flag_por_sol_comision_banco_ingreso boolean,
-  p_flag_retencion boolean,
-  p_flag_retencion_parcial boolean,
-  p_comision_itf_ingreso_salida numeric,
-  p_comision_banco_ingreso numeric,
-  p_comision_minimo_banco_ingreso numeric,
-  p_comision_igv_banco_ingreso numeric,
-  p_comision_transf_banco_salida numeric,
-  p_comision_transf_inter_banco_salida numeric,
-  p_id_estado bigint,
-  p_id_usuario bigint
-);
 CREATE OR REPLACE FUNCTION public.f_post_tb_empresa_cuenta_bancaria(
   p_id_empresa bigint,
   p_id_banco bigint,
@@ -1496,22 +1411,6 @@ Funcion: f_patch_tb_empresa_cuenta_bancaria
 Objetivo:
   Actualizar una cuenta bancaria operativa existente.
 */
-DROP FUNCTION IF EXISTS public.f_patch_tb_empresa_cuenta_bancaria(
-  p_id bigint,
-  p_id_empresa bigint,
-  p_id_banco bigint,
-  p_flag_por_sol_comision_banco_ingreso boolean,
-  p_flag_retencion boolean,
-  p_flag_retencion_parcial boolean,
-  p_comision_itf_ingreso_salida numeric,
-  p_comision_banco_ingreso numeric,
-  p_comision_minimo_banco_ingreso numeric,
-  p_comision_igv_banco_ingreso numeric,
-  p_comision_transf_banco_salida numeric,
-  p_comision_transf_inter_banco_salida numeric,
-  p_id_estado bigint,
-  p_id_usuario bigint
-);
 CREATE OR REPLACE FUNCTION public.f_patch_tb_empresa_cuenta_bancaria(
   p_id bigint,
   p_id_empresa bigint DEFAULT NULL,
@@ -1556,15 +1455,6 @@ BEGIN
   );
 END;
 $$;
-
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_get_tb_empresa_cuenta_bancaria', 'f_get_tb_empresa_cuenta_bancaria_his', 'f_post_tb_empresa_cuenta_bancaria', 'f_patch_tb_empresa_cuenta_bancaria')
-ORDER BY n.nspname, p.proname;
 
 -- ============================================================================
 -- 11. TB_REGLAS_EFECTIVIZACION

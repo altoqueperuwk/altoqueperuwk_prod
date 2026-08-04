@@ -17,12 +17,6 @@ Reglas:
   - ganancia refleja comisiones menos gastos operativos;
   - no consulta ni modifica cajas.
 */
-DROP FUNCTION IF EXISTS public.f_get_tb_operacion_asistida_kpi(
-  character varying,
-  timestamp with time zone,
-  timestamp with time zone
-);
-
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_asistida_kpi(
   p_ruta character varying,
   p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
@@ -204,29 +198,6 @@ Reglas:
   - calcula comisiones automaticamente usando las funciones de calculo;
   - no llama a funciones de tb_operacion_caja.
 */
-DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida(
-  character varying,
-  bigint,
-  character varying,
-  character varying,
-  bigint,
-  character varying,
-  character varying,
-  numeric,
-  character varying,
-  bigint,
-  character varying,
-  bigint,
-  character varying,
-  bigint,
-  character varying,
-  bigint,
-  character varying,
-  bigint,
-  bigint,
-  timestamp with time zone
-);
-
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
   p_ruta character varying,
   p_id_codigo_servicio bigint,
@@ -640,15 +611,6 @@ $$;
 --   - no crea movimientos de caja;
 --   - no cambia estado ni fechas de control.
 -- ============================================================================
-DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
-  bigint, bigint, character varying, character varying, bigint,
-  character varying, numeric, bigint, character varying
-);
-DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
-  bigint, bigint, character varying, character varying, bigint,
-  character varying, numeric, bigint, character varying, bigint
-);
-
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_id bigint,
   p_id_banco_cliente bigint DEFAULT NULL,

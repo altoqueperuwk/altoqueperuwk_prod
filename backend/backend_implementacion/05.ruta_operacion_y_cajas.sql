@@ -51,14 +51,6 @@ Objetivo:
   Consultar la configuracion operativa de empresas/cuentas habilitadas por ruta,
   indicando ademas si una de ellas es la caja primaria de ingreso.
 */
-DROP FUNCTION IF EXISTS public.f_get_tb_ruta_operacion_caja(
-  p_id bigint,
-  p_ruta character varying,
-  p_id_empresa bigint,
-  p_id_empresa_cuenta_bancaria bigint,
-  p_flag_caja_ingreso_principal boolean,
-  p_id_estado bigint
-);
 CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_caja(
   p_id bigint DEFAULT NULL,
   p_ruta character varying DEFAULT NULL,
@@ -1319,12 +1311,6 @@ Objetivo:
   estado y usuario. Se usa como funciÃ³n base para listar y tambiÃ©n para devolver
   el snapshot final despuÃ©s de crear o editar.
 */
-DROP FUNCTION IF EXISTS public.f_get_tb_caja_operativa(
-  p_id bigint,
-  p_id_empresa bigint,
-  p_id_empresa_cuenta_bancaria bigint,
-  p_id_estado bigint
-);
 CREATE OR REPLACE FUNCTION public.f_get_tb_caja_operativa(
   p_id bigint DEFAULT NULL,
   p_id_empresa bigint DEFAULT NULL,
@@ -1406,23 +1392,6 @@ Objetivo:
   empresa elegida. No crea movimientos ni historial; solo registra el punto de
   partida operativo.
 */
-DROP FUNCTION IF EXISTS public.f_post_tb_caja_operativa(
-  p_id_empresa bigint,
-  p_id_empresa_cuenta_bancaria bigint,
-  p_saldo_inicial numeric,
-  p_saldo_actual numeric,
-  p_ingresos numeric,
-  p_ingresos_retenido numeric,
-  p_gastos numeric,
-  p_ganancia numeric,
-  p_ganancia_retenido numeric,
-  p_salida numeric,
-  p_operaciones integer,
-  p_flag_retencion boolean,
-  p_id_estado bigint,
-  p_id_usuario bigint,
-  p_fecha_apertura timestamp with time zone
-);
 CREATE OR REPLACE FUNCTION public.f_post_tb_caja_operativa(
   p_id_empresa bigint,
   p_id_empresa_cuenta_bancaria bigint,
@@ -1535,24 +1504,6 @@ Objetivo:
   estado y usuario, manteniendo la validaciÃ³n de coherencia entre empresa y
   cuenta bancaria.
 */
-DROP FUNCTION IF EXISTS public.f_patch_tb_caja_operativa(
-  p_id bigint,
-  p_id_empresa bigint,
-  p_id_empresa_cuenta_bancaria bigint,
-  p_saldo_inicial numeric,
-  p_saldo_actual numeric,
-  p_ingresos numeric,
-  p_ingresos_retenido numeric,
-  p_gastos numeric,
-  p_ganancia numeric,
-  p_ganancia_retenido numeric,
-  p_salida numeric,
-  p_operaciones integer,
-  p_flag_retencion boolean,
-  p_id_estado bigint,
-  p_id_usuario bigint,
-  p_fecha_apertura timestamp with time zone
-);
 CREATE OR REPLACE FUNCTION public.f_patch_tb_caja_operativa(
   p_id bigint,
   p_id_empresa bigint DEFAULT NULL,

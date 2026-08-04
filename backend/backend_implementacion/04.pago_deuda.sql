@@ -261,8 +261,6 @@ Objetivo:
   arrastran solo cuando se consulta el dia actual. En historico solo cuenta
   solicitudes Pagado.
 */
-DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_kpi(timestamp with time zone, timestamp with time zone);
-
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_kpi(
   p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
   p_fecha_registro_hasta timestamp with time zone DEFAULT NULL,
@@ -753,25 +751,6 @@ Objetivo:
   Crear una solicitud raiz para atencion al cliente y una operacion hija
   bancaria visible en el tab Pago Deuda de la ruta destino.
 */
-DROP FUNCTION IF EXISTS public.f_post_tb_pago_deuda_solicitud(
-  bigint,
-  character varying,
-  character varying,
-  bigint,
-  character varying,
-  bigint,
-  bigint,
-  character varying,
-  bigint,
-  bigint,
-  character varying,
-  bigint,
-  character varying,
-  character varying,
-  character varying,
-  numeric
-);
-
 CREATE OR REPLACE FUNCTION public.f_post_tb_pago_deuda_solicitud(
   p_id_usuario bigint,
   p_dni_cliente character varying,
