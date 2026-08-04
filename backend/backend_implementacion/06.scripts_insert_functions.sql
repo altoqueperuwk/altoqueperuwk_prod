@@ -350,6 +350,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.tb_permiso_menu WHERE ruta = '/seguimientos') THEN
     PERFORM public.f_post_tb_permiso_menu('Seguimientos', v_menu_seguimientos_id, '/seguimientos', 'activity', 31, v_estado_activo_id, v_usuario_admin_id);
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.tb_permiso_menu WHERE ruta = '/seguimientos/efectivizacion') THEN
+    PERFORM public.f_post_tb_permiso_menu('Efectivizacion', v_menu_seguimientos_id, '/seguimientos/efectivizacion', 'credit-card', 32, v_estado_activo_id, v_usuario_admin_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.tb_permiso_menu WHERE ruta = '/seguimientos/pago-deuda') THEN
+    PERFORM public.f_post_tb_permiso_menu('Pago Deuda', v_menu_seguimientos_id, '/seguimientos/pago-deuda', 'refresh-cw', 33, v_estado_activo_id, v_usuario_admin_id);
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM public.tb_permiso_menu WHERE ruta = '/dashboard') THEN
     PERFORM public.f_post_tb_permiso_menu('Dashboard', v_menu_dashboard_id, '/dashboard', 'bar-chart', 41, v_estado_activo_id, v_usuario_admin_id);
   END IF;
