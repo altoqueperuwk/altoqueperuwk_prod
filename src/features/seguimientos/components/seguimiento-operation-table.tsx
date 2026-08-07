@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Badge } from "@/components/base/badges/badges";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
 import { CompactBadgeLine, CompactMoneyCell } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
@@ -16,6 +17,32 @@ const dateCell = (row: OperacionProceso) => {
             <div className="text-xs text-tertiary">{date.toLocaleDateString("es-PE")}</div>
         </div>
     ) : "-";
+};
+
+const isPaidRow = (row: OperacionProceso, paymentMode = false) => {
+    if (paymentMode) return String((row as unknown as Record<string, unknown>).seguimiento_estado ?? "").toUpperCase() === "PAGADO";
+    return String(row.nombre_estado ?? "").toUpperCase() === "PAGADO";
+};
+
+const formatAttentionTime = (row: OperacionProceso, now: number, paymentMode = false) => {
+    const startedAt = new Date(row.fecha_registro).getTime();
+    if (!Number.isFinite(startedAt)) return { label: "00:00:00", color: "success" as const };
+
+    const paidAt = row.fecha_pagado ? new Date(row.fecha_pagado).getTime() : NaN;
+    const endAt = isPaidRow(row, paymentMode) && Number.isFinite(paidAt) ? paidAt : now;
+    const elapsedSeconds = Math.max(0, Math.floor((endAt - startedAt) / 1000));
+    const hours = Math.floor(elapsedSeconds / 3600);
+    const minutes = Math.floor((elapsedSeconds % 3600) / 60);
+    const seconds = elapsedSeconds % 60;
+    const label = [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+    const color = elapsedSeconds >= 7200 ? "error" : elapsedSeconds >= 3600 ? "warning" : "success";
+
+    return { label, color } as const;
+};
+
+const AttentionTimeCell = ({ row, now, paymentMode = false }: { row: OperacionProceso; now: number; paymentMode?: boolean }) => {
+    const time = formatAttentionTime(row, now, paymentMode);
+    return <Badge type="pill-color" size="sm" color={time.color}>{time.label}</Badge>;
 };
 
 const statusCell = (row: OperacionProceso) => (
@@ -41,10 +68,18 @@ const accountCell = (row: OperacionProceso) => (
 interface SeguimientoOperationTableProps {
     data: OperacionProceso[];
     isLoading: boolean;
+    now?: number;
     tab: "Efectivizacion" | "Derivados" | "POS";
+    pagination?: {
+        page: number;
+        totalPages: number;
+        pageSize: number;
+        onPageChange: (page: number) => void;
+        onPageSizeChange: (pageSize: number) => void;
+    };
 }
 
-export const SeguimientoOperationTable = ({ data, isLoading, tab }: SeguimientoOperationTableProps) => {
+export const SeguimientoOperationTable = ({ data, isLoading, now = Date.now(), tab, pagination }: SeguimientoOperationTableProps) => {
     const columns = tab === "POS" ? [
         { key: "nombre_banco_cliente", label: "Entidad Tarjeta", render: (row: OperacionProceso) => <CompactBadgeLine>{row.nombre_banco_cliente ?? "-"}</CompactBadgeLine> },
         { key: "dni_cliente", label: "DNI" },
@@ -56,6 +91,7 @@ export const SeguimientoOperationTable = ({ data, isLoading, tab }: SeguimientoO
         { key: "monto_transferencia_cliente", label: "Transferencia", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente) },
         { key: "nombre_estado", label: "Estado", render: statusCell },
         { key: "fecha_registro", label: "Fecha Hora", render: dateCell },
+        { key: "tiempo_atencion", label: "Tiempo Atencion", render: (row: OperacionProceso) => <AttentionTimeCell row={row} now={now} /> },
     ] : [
         { key: "tipo_facturacion", label: "Facturacion", render: (row: OperacionProceso) => <CompactBadgeLine>{row.tipo_facturacion ?? "-"}</CompactBadgeLine> },
         ...(tab === "Derivados" ? [{ key: "ruta_origen", label: "Derivo", render: (row: OperacionProceso) => getRutaLabel((row.ruta_origen ?? "") as OperacionRuta) }] : []),
@@ -70,7 +106,7 @@ export const SeguimientoOperationTable = ({ data, isLoading, tab }: SeguimientoO
         { key: "fecha_registro", label: "Fecha Hora", render: dateCell },
     ];
 
-    return <OperationTable columns={columns} data={data} emptyText="Sin operaciones para este seguimiento." isLoading={isLoading} />;
+    return <OperationTable columns={columns} data={data} emptyText="Sin operaciones para este seguimiento." isLoading={isLoading} serverPagination={pagination} />;
 };
 
 const paymentValue = (row: OperacionProceso, key: string) => String((row as unknown as Record<string, unknown>)[key] ?? "-");
@@ -89,7 +125,7 @@ const paymentSteps = (row: OperacionProceso) => {
     );
 };
 
-export const SeguimientoPagoDeudaTable = ({ data, isLoading }: { data: OperacionProceso[]; isLoading: boolean }) => (
+export const SeguimientoPagoDeudaTable = ({ data, isLoading, now = Date.now(), pagination }: { data: OperacionProceso[]; isLoading: boolean; now?: number; pagination?: { page: number; totalPages: number; pageSize: number; onPageChange: (page: number) => void; onPageSizeChange: (pageSize: number) => void } }) => (
     <OperationTable
         data={data}
         isLoading={isLoading}
@@ -105,7 +141,9 @@ export const SeguimientoPagoDeudaTable = ({ data, isLoading }: { data: Operacion
             { key: "cuenta_comision", label: "Cuenta Comision", render: (row: OperacionProceso) => <div className="flex flex-wrap gap-1"><CompactBadgeLine color="brand">{paymentValue(row, "nombre_empresa_ingreso")}</CompactBadgeLine><CompactBadgeLine>{paymentValue(row, "nombre_banco_empresa_cuenta_ingreso")}</CompactBadgeLine></div> },
             { key: "seguimiento_estado", label: "Estado", render: (row: OperacionProceso) => <CompactBadgeLine color={paymentValue(row, "seguimiento_estado") === "Pagado" ? "success" : "brand"}>{paymentValue(row, "seguimiento_estado")}</CompactBadgeLine> },
             { key: "fecha_registro", label: "Fecha Hora", render: dateCell },
+            { key: "tiempo_atencion", label: "Tiempo Atencion", render: (row: OperacionProceso) => <AttentionTimeCell row={row} now={now} paymentMode /> },
         ]}
+        serverPagination={pagination}
     />
 );
 
@@ -115,7 +153,7 @@ export interface SeguimientoKpiGridProps {
 }
 
 export const SeguimientoKpiGrid = ({ items, isLoading }: SeguimientoKpiGridProps) => (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${items.length <= 3 ? "xl:grid-cols-3" : "xl:grid-cols-5"}`}>
         {items.map((item) => (
             <div key={item.label} className="min-h-24 rounded-lg border border-secondary bg-primary p-4 shadow-xs">
                 <p className="text-xs font-medium text-tertiary">{item.label}</p>

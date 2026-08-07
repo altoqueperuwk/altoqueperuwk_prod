@@ -23,7 +23,41 @@ export interface SeguimientoPagoDeudaKpi {
     total_monto_devueltos: number;
 }
 
+export interface SeguimientoPaginado {
+    rows: OperacionProceso[];
+    total: number;
+    total_paginas: number;
+    tiempo_menor_una_hora: number;
+    tiempo_entre_una_y_dos_horas: number;
+    tiempo_mayor_igual_dos_horas: number;
+    total_pendientes: number;
+}
+
 export const seguimientosService = {
+    getEfectivizacionPaginado(params: { tab: string; ruta?: string | null; filtroEstado?: string; dni?: string; codigo?: string; filtroTiempo?: string; page: number; pageSize: number }) {
+        return rpc<SeguimientoPaginado>("f_get_tb_seguimiento_efectivizacion_paginado", {
+            p_tab: params.tab,
+            p_ruta: params.ruta ?? null,
+            p_filtro_estado: params.filtroEstado ?? "Todos",
+            p_dni_cliente: params.dni || null,
+            p_codigo_operacion: params.codigo || null,
+            p_filtro_tiempo: params.filtroTiempo ?? "Todos",
+            p_page: params.page,
+            p_page_size: params.pageSize,
+        });
+    },
+    getPagoDeudaPaginado(params: { ruta?: string | null; filtroEstado?: string; dni?: string; codigo?: string; filtroTiempo?: string; page: number; pageSize: number }) {
+        return rpc<SeguimientoPaginado>("f_get_tb_seguimiento_pago_deuda_paginado", {
+            p_tab: "Pago Deuda",
+            p_ruta: params.ruta ?? null,
+            p_filtro_estado: params.filtroEstado ?? "Todos",
+            p_dni_cliente: params.dni || null,
+            p_codigo_operacion: params.codigo || null,
+            p_filtro_tiempo: params.filtroTiempo ?? "Todos",
+            p_page: params.page,
+            p_page_size: params.pageSize,
+        });
+    },
     getEfectivizacionKpi() {
         return rpc<SeguimientoEfectivizacionKpi[]>("f_get_tb_seguimiento_efectivizacion_kpi", { p_filtro_estado: "Todos" });
     },

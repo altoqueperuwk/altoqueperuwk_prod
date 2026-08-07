@@ -116,7 +116,7 @@ export const tabContracts: Record<BancariaTab, { filters: string[]; actions: str
     },
     "Pago Deuda": {
         filters: ["Todos", "Solicitado", "Transferido", "Devuelto", "Pagado"],
-        actions: ["Emp. Salida", "Transferencia", "Reiniciar"],
+        actions: ["Emp. Salida", "Transferencia", "Derivar", "Reiniciar"],
     },
     Derivados: {
         filters: ["Todos", "Pendientes", "Pagados"],
@@ -124,7 +124,7 @@ export const tabContracts: Record<BancariaTab, { filters: string[]; actions: str
     },
     POS: {
         filters: ["Todos", "Solicitado", "Pagados"],
-        actions: ["Emp. Salida", "Pagar", "Reiniciar"],
+        actions: ["Emp. Salida", "Pagar", "Derivar", "Reiniciar"],
     },
     Movimientos: {
         filters: ["Todos", "Efectivizacion", "Pago Deuda", "Otros"],

@@ -13,6 +13,7 @@ import { comunidadService } from "@/services/comunidad.service";
 import { estadoService } from "@/services/estado.service";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { OperacionProceso } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import type { OperacionRuta } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
 import {
     DocumentoInputGroup,
@@ -37,6 +38,7 @@ interface BancoDestino {
 interface LinkPagoEditModalProps {
     isOpen: boolean;
     operation: OperacionProceso | null;
+    ruta: OperacionRuta;
     onClose: () => void;
     onSaved: () => void;
 }
@@ -44,10 +46,11 @@ interface LinkPagoEditModalProps {
 const inferTipoDocumentoOperacion = (documento?: string | null): TipoDocumentoOperacion =>
     documento?.replace(/\D/g, "").length === 9 ? 2 : 1;
 
-export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkPagoEditModalProps) => {
+export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }: LinkPagoEditModalProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [entidadTarjetaId, setEntidadTarjetaId] = useState("");
+    const [bancoDestinoId, setBancoDestinoId] = useState("");
     const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
     const [nombre, setNombre] = useState("");
@@ -65,8 +68,24 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
     );
 
     const entidadTarjetaList = useMemo(
-        () => bancosDestino.filter((item) => item.id === 11 || item.id === 17),
+        () => ruta === "linkpago"
+            ? bancosDestino.filter((item) => item.id === 11 || item.id === 17)
+            : bancosDestino.filter((item) => item.tipo === "Tarjeta Comercial"),
+        [bancosDestino, ruta],
+    );
+    const legacyBancoTransferirList = useMemo(
+        () => bancosDestino.filter((item) => item.tipo === "Tarjeta CrÃ©dito"),
         [bancosDestino],
+    );
+    const bancoTransferirList = useMemo(
+        () => {
+            const filtered = bancosDestino.filter((item) => {
+            const tipo = item.tipo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+            return tipo.includes("CREDITO") || tipo.includes("CRÃ");
+            });
+            return filtered.length ? filtered : legacyBancoTransferirList;
+        },
+        [bancosDestino, legacyBancoTransferirList],
     );
 
     const selectedEntidadTarjeta = useMemo(
@@ -87,6 +106,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
 
         if (operation) {
             setEntidadTarjetaId(String(operation.id_banco_cliente ?? ""));
+            setBancoDestinoId(String(operation.id_banco_cliente_transferencia ?? ""));
             setTipoDocumento(inferTipoDocumentoOperacion(operation.dni_cliente));
             setDni(operation.dni_cliente ?? "");
             setNombre(operation.nombre_cliente ?? "");
@@ -135,6 +155,9 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
         if (clienteLookup) {
             setClienteId(clienteLookup.id);
             setNombre(clienteLookup.nombre);
+            if (clienteLookup.id_comunidad != null) {
+                setComunidadId(String(clienteLookup.id_comunidad));
+            }
             setOriginalCelulares(clienteLookup.celular);
         } else if (!getDocumentoValidationMessage(dni, tipoDocumento)) {
             setClienteId(null);
@@ -147,6 +170,11 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
 
         if (!selectedEntidadTarjeta) {
             addToast("error", "Selecciona la entidad tarjeta.");
+            return;
+        }
+
+        if (ruta === "pos" && !bancoDestinoId) {
+            addToast("error", "Selecciona el banco al que transferir.");
             return;
         }
 
@@ -194,6 +222,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
             const result = await operacionesRpcService.patchOperacionAsistida({
                 p_id: operation!.id,
                 p_id_banco_cliente: selectedEntidadTarjeta.id,
+                p_id_banco_destino: ruta === "pos" ? Number(bancoDestinoId) : null,
                 p_tipo_documento_cliente: tipoDocumento,
                 p_dni_cliente: cleanDni,
                 p_nombre_cliente: nombre.trim() || null,
@@ -233,7 +262,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
                             <p className="mt-1 text-sm text-tertiary">Actualiza los campos necesarios para recalcular comisiones.</p>
                         </div>
 
-                        <div className="flex flex-col gap-4">
+                        <div className="grid gap-4 sm:grid-cols-2">
                             <NativeSelect
                                 size="sm"
                                 label="Entidad Tarjeta"
@@ -241,14 +270,15 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
                                 value={entidadTarjetaId}
                                 onChange={(event) => setEntidadTarjetaId(event.currentTarget.value)}
                                 options={[
-                                    { label: "Seleccionar entidad", value: "", disabled: true },
+                                    { label: "Seleccionar", value: "", disabled: true },
                                     ...entidadTarjetaList.map((item) => ({
                                         label: item.nombre,
                                         value: String(item.id),
                                     })),
                                 ]}
+                                className="w-full min-w-0"
                             />
-                            <div className="flex items-end gap-2">
+                            <div className="flex w-full min-w-0 items-end gap-2">
                                 <DocumentoInputGroup
                                     isRequired
                                     tipoDocumento={tipoDocumento}
@@ -270,12 +300,14 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
                                 value={nombre}
                                 onChange={setNombre}
                                 isDisabled={!!clienteId}
+                                className="w-full min-w-0"
                             />
                             <Input
                                 size="sm"
                                 label="Comunidad"
                                 value={selectedCommunity?.nombre ?? ""}
                                 isDisabled
+                                className="w-full min-w-0 max-w-[10ch]"
                             />
                             <Input
                                 size="sm"
@@ -284,7 +316,25 @@ export const LinkPagoEditModal = ({ isOpen, operation, onClose, onSaved }: LinkP
                                 placeholder="S/ 0.00"
                                 value={monto}
                                 onChange={(value) => setMonto(sanitizeAmountInput(value))}
+                                className="w-full min-w-0"
                             />
+                            {ruta === "pos" && (
+                                <NativeSelect
+                                    size="sm"
+                                    label="Banco Transferir"
+                                    isRequired
+                                    value={bancoDestinoId}
+                                    onChange={(event) => setBancoDestinoId(event.currentTarget.value)}
+                                    options={[
+                                        { label: "Seleccionar banco", value: "", disabled: true },
+                                        ...bancoTransferirList.map((item) => ({
+                                            label: item.nombre,
+                                            value: String(item.id),
+                                        })),
+                                    ]}
+                                    className="w-full min-w-0"
+                                />
+                            )}
                         </div>
 
                         <div className="flex justify-end gap-2">

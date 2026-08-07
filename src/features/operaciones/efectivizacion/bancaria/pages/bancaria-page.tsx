@@ -50,7 +50,6 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const [isEditCajaOpen, setIsEditCajaOpen] = useState(false);
     const [cajaEdit, setCajaEdit] = useState<CajaOperativa | null>(null);
     const [editSaldoInicial, setEditSaldoInicial] = useState("");
-    const [editSaldoActual, setEditSaldoActual] = useState("");
     const [isSavingCaja, setIsSavingCaja] = useState(false);
     const [isDownloadOpen, setIsDownloadOpen] = useState(false);
     const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
@@ -604,7 +603,6 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             }
             setCajaEdit(caja);
             setEditSaldoInicial(String(caja.saldo_inicial ?? 0));
-            setEditSaldoActual(String(caja.saldo_actual ?? 0));
             setIsEditCajaOpen(true);
         } catch {
             addToast("error", "Error al cargar la caja operativa.");
@@ -614,18 +612,20 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const handleSaveCaja = async () => {
         if (!cajaEdit) return;
         const inicial = Number(editSaldoInicial);
-        const actual = Number(editSaldoActual);
-        if (!Number.isFinite(inicial) || inicial < 0 || !Number.isFinite(actual) || actual < 0) {
-            addToast("error", "Los saldos deben ser mayores o iguales a cero.");
+        if (!Number.isFinite(inicial) || inicial < 0) {
+            addToast("error", "El saldo inicial debe ser mayor o igual a cero.");
             return;
         }
 
         setIsSavingCaja(true);
         try {
-            await cajaOperativaService.update(cajaEdit.id, {
-                p_saldo_inicial: inicial,
-                p_saldo_actual: actual,
-            });
+            if (Number(cajaEdit.saldo_inicial ?? 0) !== inicial) {
+                await cajaOperativaService.patchSaldoInicial({
+                    p_id_caja: cajaEdit.id,
+                    p_saldo_inicial: inicial,
+                    p_id_usuario: userId,
+                });
+            }
             await operacionesRpcService.syncRutaKpiCaja(ruta, userId);
             setRefreshKey((value) => value + 1);
             setMetricsRefreshKey((value) => value + 1);
@@ -869,8 +869,8 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                                         size="sm"
                                         label="Saldo Actual"
                                         type="number"
-                                        value={editSaldoActual}
-                                        onChange={setEditSaldoActual}
+                                        value={String(cajaEdit?.saldo_actual ?? 0)}
+                                        isDisabled
                                     />
                                 </div>
                                 <div className="mt-6 flex justify-end gap-2">

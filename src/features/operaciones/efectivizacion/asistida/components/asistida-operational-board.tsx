@@ -270,7 +270,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                 cellClassName: "text-center",
                 render: (row: OperacionProceso) => (
                     <div className="flex items-center justify-center gap-1">
-                        {ruta === "linkpago" && (
+                        {(ruta === "linkpago" || ruta === "pos") && (
                             <ButtonUtility
                                 size="xs"
                                 color="tertiary"
@@ -546,6 +546,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
             <LinkPagoEditModal
                 isOpen={!!editOperation}
                 operation={editOperation}
+                ruta={ruta}
                 onClose={() => setEditOperation(null)}
                 onSaved={() => {
                     setEditOperation(null);

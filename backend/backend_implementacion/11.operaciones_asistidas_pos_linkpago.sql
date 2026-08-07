@@ -219,7 +219,9 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
   p_id_banco_destino bigint DEFAULT NULL,
   p_id_banco_cliente bigint DEFAULT NULL,
   p_fecha_registro timestamp with time zone DEFAULT NULL,
-  p_tipo_documento_cliente bigint DEFAULT NULL
+  p_tipo_documento_cliente bigint DEFAULT NULL,
+  p_nombre_cliente character varying DEFAULT NULL,
+  p_celular_cliente character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -231,6 +233,7 @@ DECLARE
   v_cliente_id bigint;
   v_cliente_nombre character varying;
   v_tipo_documento bigint;
+  v_celular_cliente bigint;
   v_id_banco_cliente bigint;
   v_nombre_banco_cliente character varying;
   v_ruta_destino character varying;
@@ -270,6 +273,7 @@ BEGIN
   END IF;
 
   p_dni_cliente := REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g');
+  v_celular_cliente := NULLIF(REGEXP_REPLACE(COALESCE(p_celular_cliente, ''), '[^0-9]', '', 'g'), '')::bigint;
 
   IF v_ruta = 'pos' AND p_id_banco_destino IS NOT NULL THEN
     SELECT rc.ruta, rc.id_empresa, e.nombre AS nombre_empresa,
@@ -427,6 +431,7 @@ BEGIN
       tipo_documento,
       numero_documento,
       nombre,
+      celular,
       id_comunidad,
       id_estado,
       id_usuario
@@ -434,12 +439,23 @@ BEGIN
     VALUES (
       v_tipo_documento,
       p_dni_cliente,
-      '',
+      NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''),
+      v_celular_cliente,
       p_id_comunidad,
       (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1),
       p_id_usuario
     )
     RETURNING id, nombre INTO v_cliente_id, v_cliente_nombre;
+  ELSIF NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), '') IS NOT NULL
+     OR NULLIF(BTRIM(COALESCE(p_celular_cliente, '')), '') IS NOT NULL THEN
+    PERFORM public.f_patch_tb_cliente(
+      p_id := v_cliente_id,
+      p_nombre := NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''),
+      p_celular := v_celular_cliente,
+      p_id_comunidad := p_id_comunidad,
+      p_id_usuario := p_id_usuario
+    );
+    v_cliente_nombre := COALESCE(NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''), v_cliente_nombre);
   END IF;
 
   SELECT r.*
@@ -545,7 +561,7 @@ BEGIN
     p_nombre_comunidad,
     v_cliente_id,
     p_dni_cliente,
-    COALESCE(v_cliente_nombre, ''),
+    COALESCE(NULLIF(BTRIM(COALESCE(v_cliente_nombre, '')), ''), NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''), ''),
     ROUND(COALESCE(p_monto_deposito_cliente, 0))::bigint,
     p_codigo_operacion_deposito_cliente,
     COALESCE(p_fecha_registro, now()),
@@ -621,7 +637,8 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_monto_deposito_cliente numeric DEFAULT NULL,
   p_id_usuario bigint DEFAULT NULL,
   p_nombre_usuario character varying DEFAULT NULL,
-  p_tipo_documento_cliente bigint DEFAULT NULL
+  p_tipo_documento_cliente bigint DEFAULT NULL,
+  p_id_banco_destino bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -649,6 +666,7 @@ DECLARE
   v_id_empresa_cuenta_salida bigint;
   v_id_banco_empresa_cuenta_salida bigint;
   v_nombre_banco_empresa_cuenta_salida character varying;
+  v_ruta_destino_resolved character varying;
   v_regla record;
   v_calc_serv jsonb;
   v_calc_ing jsonb;
@@ -715,6 +733,36 @@ BEGIN
   v_id_empresa_cuenta_salida := COALESCE(v_id_empresa_cuenta_ingreso, v_actual.id_empresa_cuenta_salida);
   v_id_banco_empresa_cuenta_salida := COALESCE(v_id_banco_empresa_cuenta_ingreso, v_actual.id_banco_empresa_cuenta_salida);
   v_nombre_banco_empresa_cuenta_salida := COALESCE(v_nombre_banco_empresa_cuenta_ingreso, v_actual.nombre_banco_empresa_cuenta_salida);
+
+  IF LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos' THEN
+    SELECT
+      rc.ruta,
+      rc.id_empresa,
+      e.nombre,
+      rc.id_empresa_cuenta_bancaria,
+      ecb.id_banco,
+      b.nombre
+    INTO
+      v_ruta_destino_resolved,
+      v_id_empresa_salida,
+      v_nombre_empresa_salida,
+      v_id_empresa_cuenta_salida,
+      v_id_banco_empresa_cuenta_salida,
+      v_nombre_banco_empresa_cuenta_salida
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_empresa e ON e.id = rc.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
+    WHERE rc.id_estado = 1
+      AND ecb.id_estado = 1
+      AND ecb.id_banco = COALESCE(p_id_banco_destino, v_actual.id_banco_cliente_transferencia)
+      AND rc.flag_caja_ingreso_principal = true
+    LIMIT 1;
+
+    IF v_id_empresa_salida IS NULL THEN
+      RETURN jsonb_build_object('error', 'No existe una cuenta activa para el banco de transferencia seleccionado.');
+    END IF;
+  END IF;
 
   IF p_tipo_documento_cliente IS NOT NULL THEN
     IF p_tipo_documento_cliente NOT IN (1, 2) THEN
@@ -826,7 +874,8 @@ BEGIN
       resultado_comision_banco_salida = (v_calc_sal->>'resultado_comision_banco_salida')::numeric,
       monto_transferencia_cliente = (v_calc_serv->>'monto_transferencia_cliente')::numeric,
       id_usuario = COALESCE(p_id_usuario, id_usuario),
-      nombre_usuario = COALESCE(p_nombre_usuario, nombre_usuario)
+      nombre_usuario = COALESCE(p_nombre_usuario, nombre_usuario),
+      ruta_destino = COALESCE(v_ruta_destino_resolved, ruta_destino)
   WHERE id = p_id;
 
   RETURN (

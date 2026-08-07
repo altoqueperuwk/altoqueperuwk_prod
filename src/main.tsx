@@ -29,8 +29,7 @@ import { CajaOperativaPage } from "@/features/sistema/caja-operativa/caja-operat
 import { BancariaPage } from "@/features/operaciones/efectivizacion/bancaria/pages/bancaria-page";
 import { AsistidaPage } from "@/features/operaciones/efectivizacion/asistida/pages/asistida-page";
 import { PagoDeudaPage } from "@/features/operaciones/pago-deuda/pages/pago-deuda-page";
-import { SeguimientoEfectivizacionPage } from "@/features/seguimientos/seguimiento-efectivizacion-page";
-import { SeguimientoPagoDeudaPage } from "@/features/seguimientos/seguimiento-pago-deuda-page";
+import { SeguimientoOperacionesPaginadoPage } from "@/features/seguimientos/seguimiento-operaciones-paginado-page";
 import { ReporteCierreCajaPage } from "@/features/reportes/reporte-cierre-caja-page";
 import "@/styles/globals.css";
 
@@ -83,8 +82,8 @@ function AppRoutes() {
 
                 <Route path="/atencion/cliente" element={<AtencionClientePage />} />
 
-                <Route path="/seguimientos/efectivizacion" element={<SeguimientoEfectivizacionPage />} />
-                <Route path="/seguimientos/pago-deuda" element={<SeguimientoPagoDeudaPage />} />
+                <Route path="/seguimientos/operaciones" element={<SeguimientoOperacionesPaginadoPage />} />
+                <Route path="/seguimientos/pago-deuda" element={<SeguimientoOperacionesPaginadoPage initialTab="Pago Deuda" />} />
                 <Route path="/reportes" element={<Navigate to="/reportes/cierre-caja" replace />} />
                 <Route path="/reportes/cierre-caja" element={<ReporteCierreCajaPage />} />
 

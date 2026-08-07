@@ -24,7 +24,7 @@ export const isBancariaActionDisabled = ({
     }
 
     if (action === "Derivar") {
-        return !["Efectivizacion", "Derivados", "POS"].includes(activeTab) || !hasSelection;
+        return !["Efectivizacion", "Pago Deuda", "Derivados", "POS"].includes(activeTab) || !hasSelection;
     }
 
     if (action === "Directo") {

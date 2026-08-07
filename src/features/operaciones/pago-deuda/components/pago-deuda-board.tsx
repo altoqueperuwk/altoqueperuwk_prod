@@ -84,6 +84,40 @@ interface ManualCommissionState {
     value: string;
 }
 
+interface PagoDeudaCodigoCellProps {
+    code?: string | null;
+    editable: boolean;
+    isEditing: boolean;
+    isSaving: boolean;
+    value: string;
+    onChange: (value: string) => void;
+    onEdit: () => void;
+    onBlur: () => void;
+}
+
+const PagoDeudaCodigoCell = ({ code, editable, isEditing, isSaving, value, onChange, onEdit, onBlur }: PagoDeudaCodigoCellProps) => {
+    if (isEditing) {
+        return (
+            <Input
+                autoFocus
+                size="sm"
+                value={value}
+                isDisabled={isSaving}
+                onChange={onChange}
+                onBlur={onBlur}
+                aria-label="Código de operación"
+            />
+        );
+    }
+
+    return (
+        <div className="flex items-center gap-1 whitespace-nowrap">
+            <span className="font-medium text-primary">{code || "-"}</span>
+            {editable && <Button size="xs" color="tertiary" iconLeading={Edit03} aria-label="Editar código de operación" onClick={onEdit} />}
+        </div>
+    );
+};
+
 const filters = ["Todos", "Pendiente Transferencia", "Pendiente Devolución", "Pendiente Comisión"];
 const actions = ["Confirmar Comision"];
 const allowedBankNames = new Set(["BCP", "BBVA", "INTERBANK", "BANBIF", "SCOTIABANK"]);
@@ -277,6 +311,12 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     const [isApplyingAction, setIsApplyingAction] = useState(false);
     const [editSolicitud, setEditSolicitud] = useState<EditSolicitudState | null>(null);
     const [manualCommission, setManualCommission] = useState<ManualCommissionState | null>(null);
+    const [codigoOperacionEdit, setCodigoOperacionEdit] = useState<{
+        row: OperacionProceso;
+        type: "transferencia" | "comision";
+        value: string;
+    } | null>(null);
+    const [isSavingCodigoOperacion, setIsSavingCodigoOperacion] = useState(false);
     const [isSavingSolicitud, setIsSavingSolicitud] = useState(false);
     const [isSavingCommission, setIsSavingCommission] = useState(false);
     const [savingEstadoIds, setSavingEstadoIds] = useState<number[]>([]);
@@ -663,6 +703,30 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
         }
     };
 
+    const handleCodigoOperacionSave = async () => {
+        if (!codigoOperacionEdit) return;
+
+        const { row, type, value } = codigoOperacionEdit;
+        setIsSavingCodigoOperacion(true);
+        try {
+            await pagoDeudaService.patchCodigoOperacion({
+                p_id_operacion: type === "transferencia" ? (row.id_operacion_banco ?? row.id) : row.id,
+                p_tipo_codigo: type === "transferencia" ? "TRANSFERENCIA" : "COMISION",
+                p_codigo_operacion: value,
+                p_id_usuario_gestor: userId,
+                p_nombre_usuario_gestor: userName,
+            });
+            setCodigoOperacionEdit(null);
+            setActionRefreshKey((current) => current + 1);
+            addToast("success", "Código de operación actualizado.");
+            onChanged?.();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo actualizar el código de operación.");
+        } finally {
+            setIsSavingCodigoOperacion(false);
+        }
+    };
+
     const handleEditSolicitudSave = async () => {
         if (!editSolicitud) return;
 
@@ -857,6 +921,29 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             ),
         },
         {
+            key: "codigo_operacion_comision",
+            label: "Cod. Op. Comision",
+            render: (row: OperacionProceso) => {
+                const isEditing = codigoOperacionEdit?.row.id === row.id && codigoOperacionEdit.type === "comision";
+                const editable = hasDevolucionConfirmada(row)
+                    && !Boolean(row.flag_comision_registrada)
+                    && !["PAGADO", "ELIMINADO"].includes(getEstadoToken(row.nombre_estado));
+
+                return (
+                    <PagoDeudaCodigoCell
+                        code={row.pd_codigo_operacion_comision}
+                        editable={editable}
+                        isEditing={isEditing}
+                        isSaving={isSavingCodigoOperacion}
+                        value={isEditing ? codigoOperacionEdit.value : (row.pd_codigo_operacion_comision ?? "")}
+                        onChange={(value) => setCodigoOperacionEdit((current) => current ? { ...current, value } : current)}
+                        onEdit={() => setCodigoOperacionEdit({ row, type: "comision", value: row.pd_codigo_operacion_comision ?? "" })}
+                        onBlur={() => void handleCodigoOperacionSave()}
+                    />
+                );
+            },
+        },
+        {
             key: "cuenta_comision",
             label: "Cuenta Comision",
             cellClassName: "w-1 whitespace-nowrap",
@@ -964,7 +1051,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                                     <p className="mt-1 text-sm text-tertiary">Pago Deuda {editSolicitud.row.id}</p>
                                 </div>
                                 <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                                    <div className="flex items-end gap-2 sm:w-[15rem]">
+                                    <div className="flex w-full min-w-0 items-end gap-2">
                                         <DocumentoInputGroup
                                             isRequired
                                             tipoDocumento={editSolicitud.tipoDocumento}
@@ -988,7 +1075,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                                         label="Nombre"
                                         value={editSolicitud.nombre}
                                         onChange={(value) => setEditSolicitud((current) => current ? { ...current, nombre: value } : current)}
-                                        className="sm:w-[25ch]"
+                                        className="w-full min-w-0"
                                     />
                                     <Input
                                         size="sm"
@@ -996,6 +1083,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                                         placeholder="Número de Whatsapp"
                                         value={editSolicitud.whatsapp}
                                         onChange={(value) => setEditSolicitud((current) => current ? { ...current, whatsapp: sanitizeWhatsapp(value) } : current)}
+                                        className="w-full min-w-0"
                                     />
                                     <NativeSelect
                                         size="sm"
@@ -1006,7 +1094,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                                             setEditSolicitud((current) => current ? { ...current, bancoId: value } : current);
                                         }}
                                         options={[{ label: "Seleccionar", value: "" }, ...bancosPermitidos.map((item) => ({ label: item.nombre, value: String(item.id) }))]}
-                                        className="sm:w-[15rem]"
+                                        className="w-full min-w-0"
                                     />
                                     <Input
                                         size="sm"
@@ -1016,6 +1104,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                                         onChange={(value) =>
                                             setEditSolicitud((current) => current ? { ...current, monto: sanitizeAmountInput(value) } : current)
                                         }
+                                        className="w-full min-w-0"
                                     />
                                     <NativeSelect
                                         size="sm"
@@ -1030,6 +1119,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                                             { label: "Preferencial", value: "preferencial" },
                                             { label: "Último Día", value: "ultimo_dia" },
                                         ]}
+                                        className="w-full min-w-0"
                                     />
                                     <Input
                                         size="sm"
@@ -1045,6 +1135,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                                             ...current,
                                             manualCommission: sanitizeAmountInput(value),
                                         } : current)}
+                                        className="w-full min-w-0"
                                     />
                                 </div>
                                 <div className="mt-6 flex justify-end gap-2">

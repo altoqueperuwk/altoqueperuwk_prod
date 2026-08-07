@@ -174,6 +174,8 @@ export interface OperacionProceso {
     id_operacion_match?: number | null;
     id_operacion_banco?: number | null;
     flag_comision_registrada?: boolean | null;
+    pd_codigo_operacion_transferencia?: string | null;
+    pd_codigo_operacion_comision?: string | null;
     pd_retorno_id?: number | null;
     pd_retorno_id_empresa_ingreso?: number | null;
     pd_retorno_id_empresa_cuenta_ingreso?: number | null;

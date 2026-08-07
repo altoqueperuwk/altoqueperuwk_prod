@@ -21,7 +21,15 @@ interface OperationTableProps<T extends { id: number }> {
     emptyText: string;
     isLoading?: boolean;
     onToggleRow?: (id: number) => void;
+    renderActions?: (row: T) => ReactNode;
     selectedIds?: number[];
+    serverPagination?: {
+        page: number;
+        totalPages: number;
+        pageSize: number;
+        onPageChange: (page: number) => void;
+        onPageSizeChange: (pageSize: number) => void;
+    };
 }
 
 const getColumnClasses = <T extends { id: number }>(column: Column<T>) => {
@@ -59,25 +67,30 @@ export const OperationTable = <T extends { id: number }>({
     emptyText,
     isLoading = false,
     onToggleRow,
+    renderActions,
     selectedIds = [],
+    serverPagination,
 }: OperationTableProps<T>) => {
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
     const hasSelection = Boolean(onToggleRow);
-    const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
+    const activePage = serverPagination?.page ?? page;
+    const activePageSize = serverPagination?.pageSize ?? pageSize;
+    const totalPages = serverPagination?.totalPages ?? Math.max(1, Math.ceil(data.length / activePageSize));
     const paginatedData = useMemo(() => {
-        const start = (page - 1) * pageSize;
-        return data.slice(start, start + pageSize);
-    }, [data, page, pageSize]);
-    const skeletonRows = Array.from({ length: Math.min(pageSize, 5) });
+        if (serverPagination) return data;
+        const start = (activePage - 1) * activePageSize;
+        return data.slice(start, start + activePageSize);
+    }, [activePage, activePageSize, data, serverPagination]);
+    const skeletonRows = Array.from({ length: Math.min(activePageSize, 5) });
 
     useEffect(() => {
-        setPage((current) => Math.min(current, totalPages));
-    }, [totalPages]);
+        if (!serverPagination) setPage((current) => Math.min(current, totalPages));
+    }, [serverPagination, totalPages]);
 
     useEffect(() => {
-        setPage(1);
-    }, [data, pageSize]);
+        if (!serverPagination) setPage(1);
+    }, [data, pageSize, serverPagination]);
 
     const visibleIds = paginatedData.map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
@@ -127,6 +140,7 @@ export const OperationTable = <T extends { id: number }>({
                                     </th>
                                 );
                             })}
+                            {renderActions ? <th className="w-14 px-2 py-2 text-center text-xs font-semibold text-tertiary">Acciones</th> : null}
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-secondary bg-primary">
@@ -143,6 +157,7 @@ export const OperationTable = <T extends { id: number }>({
                                             <div className="h-4 w-full min-w-16 max-w-32 animate-pulse rounded bg-secondary" />
                                         </td>
                                     ))}
+                                    {renderActions ? <td className="px-2 py-2"><div className="mx-auto h-4 w-8 animate-pulse rounded bg-secondary" /></td> : null}
                                 </tr>
                             ))
                         ) : data.length ? (
@@ -171,7 +186,7 @@ export const OperationTable = <T extends { id: number }>({
                                                 />
                                             </td>
                                         )}
-                                        {columns.map((column) => {
+                                    {columns.map((column) => {
                                             const classes = getColumnClasses(column);
 
                                             return (
@@ -180,12 +195,13 @@ export const OperationTable = <T extends { id: number }>({
                                                 </td>
                                             );
                                         })}
+                                        {renderActions ? <td className="w-14 px-2 py-2 text-center">{renderActions(row)}</td> : null}
                                     </motion.tr>
                                 ))}
                             </AnimatePresence>
                         ) : (
                             <tr>
-                                <td colSpan={columns.length + (hasSelection ? 1 : 0)} className="px-4 py-10 text-center text-sm text-tertiary">
+                                <td colSpan={columns.length + (hasSelection ? 1 : 0) + (renderActions ? 1 : 0)} className="px-4 py-10 text-center text-sm text-tertiary">
                                     {emptyText}
                                 </td>
                             </tr>
@@ -199,27 +215,27 @@ export const OperationTable = <T extends { id: number }>({
                     size="sm"
                     color="secondary"
                     iconLeading={ChevronLeft}
-                    isDisabled={isLoading || page <= 1}
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    isDisabled={isLoading || activePage <= 1}
+                    onClick={() => serverPagination ? serverPagination.onPageChange(Math.max(1, activePage - 1)) : setPage((current) => Math.max(1, current - 1))}
                 />
                 <span className="text-sm text-tertiary">
-                    Pagina {page} de {totalPages}
+                    Pagina {activePage} de {totalPages}
                 </span>
                 <Button
                     aria-label="Pagina siguiente"
                     size="sm"
                     color="secondary"
                     iconLeading={ChevronRight}
-                    isDisabled={isLoading || page >= totalPages}
-                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                    isDisabled={isLoading || activePage >= totalPages}
+                    onClick={() => serverPagination ? serverPagination.onPageChange(Math.min(totalPages, activePage + 1)) : setPage((current) => Math.min(totalPages, current + 1))}
                 />
                 <NativeSelect
                     aria-label="Filas por pagina"
                     size="sm"
                     className="w-28"
                     selectClassName="h-8 py-1.5 pl-2 pr-7 text-xs"
-                    value={String(pageSize)}
-                    onChange={(event) => setPageSize(Number(event.currentTarget.value))}
+                    value={String(activePageSize)}
+                    onChange={(event) => serverPagination ? serverPagination.onPageSizeChange(Number(event.currentTarget.value)) : setPageSize(Number(event.currentTarget.value))}
                     options={[
                         { label: "20", value: "20" },
                         { label: "50", value: "50" },

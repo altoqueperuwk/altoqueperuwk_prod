@@ -565,7 +565,20 @@ BEGIN
         rc.ruta,
         COALESCE(SUM(c.saldo_inicial), 0) AS caja_inicial,
         COALESCE(SUM(c.saldo_actual), 0) AS caja_actual,
-        COALESCE(SUM(c.total_recaudado), 0) AS total_recaudado,
+        COALESCE(SUM((
+          SELECT COALESCE(SUM(oc.monto_ingreso), 0)
+          FROM public.tb_operacion_caja oc
+          WHERE oc.id_caja = c.id
+            AND oc.id_caja_cierre IS NULL
+            AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
+            AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) <> 'RETENIDO'
+            AND UPPER(BTRIM(COALESCE(oc.tipo_origen, ''))) IN (
+              'EFECTIVIZACION',
+              'PAGO_DEUDA',
+              'PAGO_DEUDA_DEVOLUCION',
+              'PAGO_DEUDA_COMISION'
+            )
+        )), 0) AS total_recaudado,
         COALESCE(SUM(c.salida), 0) AS salidas,
         COALESCE(SUM(c.gastos), 0) AS gastos_operacionales,
         COALESCE(SUM(c.ganancia), 0) AS ganancias,
@@ -687,7 +700,26 @@ BEGIN
     k.ruta,
     k.caja_inicial,
     k.caja_actual,
-    k.total_recaudado,
+    COALESCE((
+      SELECT SUM(oc.monto_ingreso)
+      FROM public.tb_ruta_operacion_caja rc
+      JOIN public.tb_caja_operativa c
+        ON c.id_empresa = rc.id_empresa
+       AND c.id_empresa_cuenta_bancaria = rc.id_empresa_cuenta_bancaria
+       AND c.id_estado = k.id_estado
+      JOIN public.tb_operacion_caja oc ON oc.id_caja = c.id
+      WHERE rc.ruta = k.ruta
+        AND rc.id_estado = k.id_estado
+        AND oc.id_caja_cierre IS NULL
+        AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
+        AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) <> 'RETENIDO'
+        AND UPPER(BTRIM(COALESCE(oc.tipo_origen, ''))) IN (
+          'EFECTIVIZACION',
+          'PAGO_DEUDA',
+          'PAGO_DEUDA_DEVOLUCION',
+          'PAGO_DEUDA_COMISION'
+        )
+    ), 0) AS total_recaudado,
     k.ingresos,
     k.salidas,
     k.gastos_operacionales,
@@ -1160,17 +1192,35 @@ BEGIN
         'PAGO_DEUDA_COMISION'
       )
   ),
+  recaudacion_movimientos AS (
+    SELECT
+      cr.id,
+      COALESCE(SUM(COALESCE(oc.monto_ingreso, 0)), 0) AS total_recaudado
+    FROM cajas_ruta cr
+    JOIN public.tb_operacion_caja oc ON oc.id_caja = cr.id
+    WHERE oc.id_caja_cierre IS NULL
+      AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
+      AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) <> 'RETENIDO'
+      AND UPPER(BTRIM(COALESCE(oc.tipo_origen, ''))) IN (
+        'EFECTIVIZACION',
+        'PAGO_DEUDA',
+        'PAGO_DEUDA_DEVOLUCION',
+        'PAGO_DEUDA_COMISION'
+      )
+    GROUP BY cr.id
+  ),
   totales AS (
     SELECT
       COALESCE(SUM(cr.saldo_inicial), 0) AS caja_inicial,
       COALESCE(SUM(cr.saldo_actual), 0) AS caja_actual,
-      COALESCE(SUM(cr.total_recaudado), 0) AS total_recaudado,
+      COALESCE(SUM(COALESCE(rm.total_recaudado, 0)), 0) AS total_recaudado,
       COALESCE((SELECT im.ingresos FROM ingresos_movimientos im), 0) AS ingresos,
       COALESCE(SUM(cr.salida), 0) AS salidas,
       COALESCE(SUM(cr.gastos), 0) AS gastos_operacionales,
       COALESCE(SUM(cr.ganancia), 0) AS ganancias,
       COALESCE(SUM(cr.ingresos_retenido), 0) AS ingresos_retenidos
     FROM cajas_ruta cr
+    LEFT JOIN recaudacion_movimientos rm ON rm.id = cr.id
   )
   UPDATE public.tb_ruta_operacion_kpi k
   SET caja_inicial = t.caja_inicial,
@@ -1543,6 +1593,12 @@ BEGIN
     RETURN jsonb_build_object('error', 'La caja no existe.');
   END IF;
 
+  IF p_saldo_inicial IS NOT NULL OR p_saldo_actual IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'error', 'Los saldos de la caja deben actualizarse mediante la edicion de saldo inicial.'
+    );
+  END IF;
+
   v_empresa_final := COALESCE(p_id_empresa, v_actual.id_empresa);
   v_cuenta_final := COALESCE(p_id_empresa_cuenta_bancaria, v_actual.id_empresa_cuenta_bancaria);
   v_estado_final := COALESCE(p_id_estado, v_actual.id_estado);
@@ -1623,6 +1679,98 @@ BEGIN
   ) r;
 
   RETURN v_result;
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_caja_operativa_saldo_inicial
+Objetivo:
+  Ajustar el saldo inicial de una caja mediante un movimiento compensatorio.
+  El saldo actual nunca se modifica directamente: cambia por el movimiento
+  de ingreso o salida generado por la diferencia.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_caja_operativa_saldo_inicial(
+  p_id_caja bigint,
+  p_saldo_inicial numeric,
+  p_id_usuario bigint DEFAULT NULL,
+  p_nombre_usuario character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_caja record;
+  v_saldo_anterior numeric;
+  v_saldo_nuevo numeric;
+  v_diferencia numeric;
+  v_movimiento jsonb;
+  v_result jsonb;
+BEGIN
+  IF p_saldo_inicial IS NULL OR p_saldo_inicial < 0 THEN
+    RETURN jsonb_build_object('error', 'El saldo inicial debe ser mayor o igual a cero.');
+  END IF;
+
+  SELECT c.*
+  INTO v_caja
+  FROM public.tb_caja_operativa c
+  WHERE c.id = p_id_caja
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_caja.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La caja no existe.');
+  END IF;
+
+  v_saldo_anterior := COALESCE(v_caja.saldo_inicial, 0);
+  v_saldo_nuevo := p_saldo_inicial;
+  v_diferencia := v_saldo_nuevo - v_saldo_anterior;
+
+  IF v_diferencia <> 0 THEN
+    IF v_diferencia > 0 THEN
+      v_movimiento := public.f_post_tb_operacion_caja(
+        p_id_caja := p_id_caja,
+        p_tipo_origen := 'EDICION SALDO INICIAL CAJA',
+        p_tipo_movimiento := 'INGRESO',
+        p_detalle := format('Edicion de saldo inicial: %s -> %s', v_saldo_anterior, v_saldo_nuevo),
+        p_monto_ingreso := v_diferencia,
+        p_flag_contabiliza_operacion := false,
+        p_id_usuario := p_id_usuario,
+        p_nombre_usuario := p_nombre_usuario
+      );
+    ELSE
+      v_movimiento := public.f_post_tb_operacion_caja(
+        p_id_caja := p_id_caja,
+        p_tipo_origen := 'EDICION SALDO INICIAL CAJA',
+        p_tipo_movimiento := 'SALIDA',
+        p_detalle := format('Edicion de saldo inicial: %s -> %s', v_saldo_anterior, v_saldo_nuevo),
+        p_monto_salida := abs(v_diferencia),
+        p_flag_contabiliza_operacion := false,
+        p_id_usuario := p_id_usuario,
+        p_nombre_usuario := p_nombre_usuario
+      );
+    END IF;
+
+    IF v_movimiento ? 'error' THEN
+      RETURN v_movimiento;
+    END IF;
+  END IF;
+
+  UPDATE public.tb_caja_operativa
+  SET saldo_inicial = v_saldo_nuevo,
+      id_usuario = COALESCE(p_id_usuario, id_usuario)
+  WHERE id = p_id_caja;
+
+  SELECT to_jsonb(x)
+  INTO v_result
+  FROM public.f_get_tb_caja_operativa(p_id := p_id_caja) AS x
+  LIMIT 1;
+
+  RETURN jsonb_build_object(
+    'caja', v_result,
+    'movimiento', v_movimiento,
+    'diferencia', v_diferencia
+  );
 END;
 $$;
 
@@ -3052,7 +3200,13 @@ BEGIN
         v_delta_ganancia_retenido := COALESCE(p_monto_ganancia, 0);
       ELSE
         v_saldo_nuevo := v_saldo_anterior + COALESCE(p_monto_ingreso, 0) - COALESCE(p_monto_gasto, 0);
-        IF UPPER(p_tipo_origen) IN ('EFECTIVIZACION', 'PAGO_DEUDA', 'PAGO_DEUDA_DEVOLUCION', 'PAGO_DEUDA_COMISION') THEN
+        IF UPPER(BTRIM(COALESCE(p_tipo_origen, ''))) IN (
+          'EFECTIVIZACION',
+          'PAGO_DEUDA',
+          'PAGO_DEUDA_DEVOLUCION',
+          'PAGO_DEUDA_COMISION'
+        )
+        AND UPPER(BTRIM(COALESCE(p_tipo_origen, ''))) <> 'EDICION SALDO INICIAL CAJA' THEN
           v_delta_total_recaudado := COALESCE(p_monto_ingreso, 0);
           v_delta_ingresos := 0;
         ELSE
@@ -4452,12 +4606,16 @@ WHERE p.proname IN (
   'f_get_tb_operacion_bandeja_badges',
   'f_get_tb_operacion_empresa_badges',
   'f_get_tb_ruta_operacion_caja',
+  'f_get_tb_ruta_operacion_kpi',
   'f_patch_tb_caja_operativa',
+  'f_patch_tb_caja_operativa_saldo_inicial',
+  'f_post_tb_operacion_caja',
   'f_patch_tb_operacion_proceso_retornar_retencion',
   'f_patch_tb_ruta_operacion_caja',
   'f_post_tb_caja_operativa',
   'f_post_tb_ruta_operacion_caja',
   'f_sync_tb_ruta_operacion_caja_principal',
+  'f_sync_tb_ruta_operacion_kpi_caja',
   'f_sync_tb_ruta_operacion_kpi_operacion'
 )
 ORDER BY n.nspname, p.proname;

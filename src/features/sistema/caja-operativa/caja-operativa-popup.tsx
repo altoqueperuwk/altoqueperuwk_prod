@@ -29,11 +29,6 @@ const parseMoney = (value: string) => {
     return Number.isFinite(numberValue) ? numberValue : null;
 };
 
-const canEditSavedSaldo = (value: unknown) => {
-    const parsed = parseMoney(String(value ?? "0"));
-    return parsed !== null && parsed <= 0;
-};
-
 export const CajaOperativaPopup = ({ existingItems = [], isOpen, item, onClose, onSave }: CajaOperativaPopupProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
@@ -44,8 +39,6 @@ export const CajaOperativaPopup = ({ existingItems = [], isOpen, item, onClose, 
     const [saldoInicial, setSaldoInicial] = useState("");
     const [idEstado, setIdEstado] = useState(0);
     const [isSaving, setIsSaving] = useState(false);
-    const canEditSaldoInicial = !isEditing || canEditSavedSaldo(item?.saldo_inicial);
-
     const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
 
     const assignedCuentaIds = useMemo(() => {
@@ -134,20 +127,30 @@ export const CajaOperativaPopup = ({ existingItems = [], isOpen, item, onClose, 
 
         setIsSaving(true);
         try {
-            const params: Record<string, unknown> = {
+            const metadataParams: Record<string, unknown> = {
                 p_id_empresa: idEmpresa,
                 p_id_empresa_cuenta_bancaria: idCuenta,
-                p_saldo_inicial: saldo,
-                p_saldo_actual: saldo,
                 p_id_estado: idEstado,
                 p_id_usuario: businessUser?.id ? Number(businessUser.id) : null,
             };
 
             if (isEditing) {
-                await cajaOperativaService.update(Number(item!.id), params);
+                const previousSaldo = parseMoney(String(item?.saldo_inicial ?? "0"));
+                if (previousSaldo !== saldo) {
+                    await cajaOperativaService.patchSaldoInicial({
+                        p_id_caja: Number(item!.id),
+                        p_saldo_inicial: saldo,
+                        p_id_usuario: businessUser?.id ? Number(businessUser.id) : null,
+                    });
+                }
+                await cajaOperativaService.update(Number(item!.id), metadataParams);
                 addToast("success", "Caja operativa actualizada correctamente");
             } else {
-                await cajaOperativaService.create(params);
+                await cajaOperativaService.create({
+                    ...metadataParams,
+                    p_saldo_inicial: saldo,
+                    p_saldo_actual: saldo,
+                });
                 addToast("success", "Caja operativa creada correctamente");
             }
 
@@ -222,7 +225,6 @@ export const CajaOperativaPopup = ({ existingItems = [], isOpen, item, onClose, 
                                 size="sm"
                                 type="number"
                                 value={saldoInicial}
-                                isDisabled={!canEditSaldoInicial}
                                 onChange={setSaldoInicial}
                             />
 

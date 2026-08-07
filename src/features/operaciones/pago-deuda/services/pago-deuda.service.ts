@@ -49,6 +49,10 @@ export const pagoDeudaService = {
         return rpc<OperacionProceso>("f_patch_tb_pago_deuda_comision_extra", params);
     },
 
+    patchCodigoOperacion(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_patch_tb_pago_deuda_codigo_operacion", params);
+    },
+
     getEmpresasComision(params: Record<string, unknown> = {}) {
         return rpc<Record<string, unknown>[]>("f_get_tb_pago_deuda_empresa_comision", params);
     },

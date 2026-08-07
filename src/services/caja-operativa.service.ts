@@ -24,6 +24,10 @@ export const cajaOperativaService = {
         return rpc<Record<string, unknown>>("f_patch_tb_caja_operativa", { p_id: id, ...params });
     },
 
+    patchSaldoInicial(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_patch_tb_caja_operativa_saldo_inicial", params);
+    },
+
     getRutas(filters: Record<string, unknown> = {}) {
         return rpc<Record<string, unknown>[]>("f_get_tb_ruta_operacion_caja", filters);
     },

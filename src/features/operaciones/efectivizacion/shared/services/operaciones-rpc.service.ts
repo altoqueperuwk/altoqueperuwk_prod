@@ -277,6 +277,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_patch_tb_pago_deuda_salida", params);
     },
 
+    patchPagoDeudaDerivarBanco(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_pago_deuda_derivar_banco", params);
+    },
+
     postOperacionExcel(params: Record<string, unknown>) {
         return rpc<Record<string, unknown>>("f_post_tb_operacion_proceso_excel", params);
     },

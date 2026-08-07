@@ -8,7 +8,7 @@ import { clienteService } from "@/services/cliente.service";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Edit03, ReverseLeft, Trash01 } from "@untitledui/icons";
+import { Edit03, ReverseLeft, Send01, Trash01 } from "@untitledui/icons";
 import { EmpresaTabs } from "@/features/operaciones/efectivizacion/shared/components/empresa-tabs";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
@@ -25,7 +25,7 @@ import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/c
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { downloadCsv } from "@/features/operaciones/efectivizacion/shared/utils/csv";
 import { isDigitalWalletBank } from "@/features/operaciones/efectivizacion/shared/utils/digital-wallet";
-import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
+import { bancariaRouteKeys, getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { formatMovimientoOrigen, formatMovimientoTipo } from "@/features/operaciones/efectivizacion/shared/utils/movement-labels";
 import { isBancariaActionDisabled, procesoActionTabs } from "@/features/operaciones/efectivizacion/shared/utils/action-rules";
 import {
@@ -38,7 +38,7 @@ import {
     buildOperacionUsuarioPayload,
     buildPagoDeudaSalidaPayload,
 } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
-import { BancariaActionModal } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-action-modal";
+import { BancariaActionModal, type BancariaBankDestination } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-action-modal";
 import { BancariaEfectivizacionTable } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-efectivizacion-table";
 import { BancariaExcelRollbackModal } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-excel-rollback-modal";
 import { type BancariaTab, type MovimientoMerged, tabContracts, useBancariaBandeja } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
@@ -83,6 +83,14 @@ const baseOperationColumns = [
     { key: "nombre_empresa_ingreso", label: "Empresa" },
     { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
 ];
+
+const formatOperationTime = (value?: string | null) => value
+    ? new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" }).format(new Date(value))
+    : "-";
+
+const formatOperationDate = (value?: string | null) => value
+    ? new Intl.DateTimeFormat("es-PE", { day: "numeric", month: "numeric", year: "numeric" }).format(new Date(value))
+    : "-";
 
 const isDeletableMovement = (row: MovimientoMerged) => {
     if (row.id_operacion_proceso != null) return false;
@@ -205,7 +213,7 @@ const EmpresaCuentaBadges = ({ cuenta, empresa, monto }: { cuenta?: string | nul
 );
 
 const PagoDeudaCodigosRetorno = ({ row }: { row: OperacionProceso }) => {
-    const codes = (row.pd_retorno_codigos_operacion || row.codigo_operacion_deposito_cliente || "")
+    const codes = (row.pd_retorno_codigos_operacion || "")
         .split(/\r?\n|,\s*/)
         .map((code) => code.trim())
         .filter(Boolean);
@@ -223,10 +231,67 @@ const PagoDeudaCodigosRetorno = ({ row }: { row: OperacionProceso }) => {
     );
 };
 
+interface PagoDeudaCodigoCellProps {
+    code?: string | null;
+    editable: boolean;
+    isEditing: boolean;
+    isSaving: boolean;
+    value: string;
+    onChange: (value: string) => void;
+    onEdit: () => void;
+    onBlur: () => void;
+}
+
+const PagoDeudaCodigoCell = ({
+    code,
+    editable,
+    isEditing,
+    isSaving,
+    value,
+    onBlur,
+    onChange,
+    onEdit,
+}: PagoDeudaCodigoCellProps) => {
+    if (isEditing) {
+        return (
+            <Input
+                autoFocus
+                size="sm"
+                aria-label="Codigo de operacion"
+                value={value}
+                onChange={onChange}
+                onBlur={onBlur}
+                isDisabled={isSaving}
+                className="min-w-32"
+            />
+        );
+    }
+
+    return (
+        <div className="flex items-center gap-1">
+            <span className="font-medium text-primary">{code || "-"}</span>
+            {editable && (
+                <Button
+                    size="xs"
+                    color="tertiary"
+                    iconLeading={Edit03}
+                    aria-label="Editar codigo de operacion"
+                    title="Editar codigo de operacion"
+                    onClick={onEdit}
+                />
+            )}
+        </div>
+    );
+};
+
 const PagoDeudaRetornoEmpresaCuentaBadges = ({ row }: { row: OperacionProceso }) => {
     const retornos = row.pd_retorno_empresas_cuentas?.filter((item) => item.empresa || item.cuenta) ?? [];
 
     if (!retornos.length) {
+        if (!row.pd_retorno_id && !row.pd_retorno_nombre_empresa_ingreso && !row.pd_retorno_nombre_banco_empresa_cuenta_ingreso) {
+            return <span>-</span>;
+        }
+
         return (
             <EmpresaCuentaBadges
                 empresa={row.pd_retorno_nombre_empresa_ingreso ?? row.nombre_empresa_ingreso}
@@ -238,12 +303,16 @@ const PagoDeudaRetornoEmpresaCuentaBadges = ({ row }: { row: OperacionProceso })
     return (
         <div className="flex min-w-0 flex-col gap-1">
             {retornos.map((item, index) => (
-                <EmpresaCuentaBadges
+                <div
                     key={`${item.codigo ?? index}-${item.empresa ?? ""}-${item.cuenta ?? ""}`}
-                    empresa={item.empresa}
-                    cuenta={item.cuenta}
-                    monto={item.monto}
-                />
+                    className="flex min-w-0 flex-col items-start gap-1"
+                >
+                    <CompactBadgeLine color="brand">{item.empresa || "-"}</CompactBadgeLine>
+                    <div className="flex flex-wrap items-center gap-1">
+                        <CompactBadgeLine>{item.cuenta || "-"}</CompactBadgeLine>
+                        {item.monto !== undefined && item.monto !== null ? <CompactBadgeLine>{formatMoney(item.monto)}</CompactBadgeLine> : null}
+                    </div>
+                </div>
             ))}
         </div>
     );
@@ -269,6 +338,7 @@ const isPosSolicitado = (row: OperacionProceso) => {
     const estado = row.nombre_estado?.trim().toUpperCase() ?? "";
     return estado === "PENDIENTE" || estado === "SOLICITADO";
 };
+const isPagoDeudaDerivable = (row: OperacionProceso) => getPagoDeudaEstadoVisual(row).action === "transferencia";
 const quickActionRuleTabs: BancariaTab[] = ["Efectivizacion", "Derivados", "POS"];
 const toNumber = (value: unknown) => Number(value ?? 0);
 
@@ -317,6 +387,7 @@ export const BancariaOperationalTabs = ({
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
     const [pendingAction, setPendingAction] = useState<"Derivar" | "Emp. Ingreso" | "Emp. Salida" | "Reasignar" | "Transferencia" | "Match" | "Modalidad" | null>(null);
+    const [bankDestinations, setBankDestinations] = useState<BancariaBankDestination[]>([]);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [individualActionIds, setIndividualActionIds] = useState<number[]>([]);
     const [estadoPagado, setEstadoPagado] = useState<{ id: number; nombre: string } | null>(null);
@@ -324,6 +395,12 @@ export const BancariaOperationalTabs = ({
     const [isApplyingAction, setIsApplyingAction] = useState(false);
     const [dniEdit, setDniEdit] = useState<{ row: OperacionProceso; value: string } | null>(null);
     const [isSavingDni, setIsSavingDni] = useState(false);
+    const [codigoOperacionEdit, setCodigoOperacionEdit] = useState<{
+        row: OperacionProceso;
+        type: "transferencia" | "comision";
+        value: string;
+    } | null>(null);
+    const [isSavingCodigoOperacion, setIsSavingCodigoOperacion] = useState(false);
     const [savingPagoDeudaEstadoIds, setSavingPagoDeudaEstadoIds] = useState<number[]>([]);
     const [savingPosEstadoIds, setSavingPosEstadoIds] = useState<number[]>([]);
     const [confirmQuickAction, setConfirmQuickAction] = useState<"Directo" | null>(null);
@@ -389,6 +466,48 @@ export const BancariaOperationalTabs = ({
     const currentTab = activeTab;
 
     useEffect(() => {
+        if (currentTab !== "POS" && currentTab !== "Pago Deuda") {
+            setBankDestinations([]);
+            return;
+        }
+
+        let ignore = false;
+        Promise.all(
+            bancariaRouteKeys
+                .filter((route) => route !== "safetypay")
+                .map((route) => operacionesRpcService.getRutaCajas(route)),
+        )
+            .then((groups) => {
+                if (ignore) return;
+
+                const destinations = new Map<number, BancariaBankDestination>();
+                groups.flat().forEach((item) => {
+                    if (
+                        item.id_estado === 1 &&
+                        item.flag_caja_ingreso_principal &&
+                        item.id_banco &&
+                        item.ruta !== ruta
+                    ) {
+                        destinations.set(item.id_banco, {
+                            id: item.id_banco,
+                            nombre: item.nombre_banco,
+                            ruta: item.ruta as BancariaBankDestination["ruta"],
+                        });
+                    }
+                });
+
+                setBankDestinations([...destinations.values()].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+            })
+            .catch(() => {
+                if (!ignore) setBankDestinations([]);
+            });
+
+        return () => {
+            ignore = true;
+        };
+    }, [currentTab, ruta]);
+
+    useEffect(() => {
         let ignore = false;
 
         estadoService
@@ -408,6 +527,14 @@ export const BancariaOperationalTabs = ({
 
     const contract = useMemo(() => {
         const base = tabContracts[currentTab];
+
+        if (currentTab === "POS") {
+            return { ...base, actions: ["Emp. Salida", "Pagar", "Derivar", "Reiniciar"] };
+        }
+
+        if (currentTab === "Pago Deuda") {
+            return { ...base, actions: ["Emp. Salida", "Transferencia", "Derivar", "Reiniciar"] };
+        }
 
         if (ruta === "safetypay" && currentTab === "Efectivizacion") {
             return {
@@ -465,6 +592,11 @@ export const BancariaOperationalTabs = ({
         [activeCompanyId, commercialCompanies],
     );
     const handlePagoDeudaTransferenciaRow = useCallback(async (row: OperacionProceso) => {
+        if (!String(row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente ?? "").trim()) {
+            addToast("error", "Registra el codigo de operacion de la transferencia antes de continuar.");
+            return;
+        }
+
         setSavingPagoDeudaEstadoIds((current) => [...current, row.id]);
         try {
             const saved = await operacionesRpcService.patchPagoDeudaSalida({
@@ -483,6 +615,28 @@ export const BancariaOperationalTabs = ({
             setSavingPagoDeudaEstadoIds((current) => current.filter((id) => id !== row.id));
         }
     }, [addToast, onMetricsChanged, replaceOperacion, ruta, userId, userName]);
+
+    const handleCodigoOperacionSave = useCallback(async () => {
+        if (!codigoOperacionEdit) return;
+
+        setIsSavingCodigoOperacion(true);
+        try {
+            await pagoDeudaService.patchCodigoOperacion({
+                p_id_operacion: codigoOperacionEdit.row.id,
+                p_tipo_codigo: codigoOperacionEdit.type === "transferencia" ? "TRANSFERENCIA" : "COMISION",
+                p_codigo_operacion: codigoOperacionEdit.value,
+                p_id_usuario_gestor: userId,
+                p_nombre_usuario_gestor: userName,
+            });
+            setCodigoOperacionEdit(null);
+            setActionRefreshKey((value) => value + 1);
+            addToast("success", "Codigo de operacion actualizado.");
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo actualizar el codigo de operacion.");
+        } finally {
+            setIsSavingCodigoOperacion(false);
+        }
+    }, [addToast, codigoOperacionEdit, userId, userName]);
 
     const handlePosEstadoRow = useCallback(async (row: OperacionProceso) => {
         const estado = row.nombre_estado?.trim().toUpperCase() ?? "";
@@ -601,22 +755,51 @@ export const BancariaOperationalTabs = ({
                 </div>
             ) },
             {
+                key: "codigo_operacion_transferencia",
+                label: "Cod. Op.\nTransferencia",
+                headerClassName: "min-w-32 whitespace-pre-line",
+                render: (row: OperacionProceso) => {
+                    const isEditing = codigoOperacionEdit?.row.id === row.id && codigoOperacionEdit.type === "transferencia";
+                    const editable = !isHistoryMode && isPendingOperation(row) && !row.flag_retenido;
+
+                    return (
+                        <PagoDeudaCodigoCell
+                            code={row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente}
+                            editable={editable}
+                            isEditing={isEditing}
+                            isSaving={isSavingCodigoOperacion}
+                            value={isEditing ? codigoOperacionEdit.value : (row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente ?? "")}
+                            onChange={(value) => setCodigoOperacionEdit((current) => current ? { ...current, value } : current)}
+                            onEdit={() => setCodigoOperacionEdit({ row, type: "transferencia", value: row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente ?? "" })}
+                            onBlur={() => void handleCodigoOperacionSave()}
+                        />
+                    );
+                },
+            },
+            {
                 key: "empresa_cuenta_salida",
                 label: "Empresa Cuenta",
+                headerClassName: "min-w-32",
                 render: (row: OperacionProceso) => (
                     <EmpresaCuentaBadges empresa={row.nombre_empresa_salida} cuenta={row.nombre_banco_empresa_cuenta_salida} />
                 ),
             },
-            { key: "monto_transferencia_cliente", label: "Monto Transferencia", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
-            { key: "codigo_operacion_deposito_cliente", label: "Cod. Op.", render: (row: OperacionProceso) => <PagoDeudaCodigosRetorno row={row} /> },
+            {
+                key: "nombre_banco_cliente",
+                label: "Cuenta Cliente",
+                headerClassName: "min-w-28",
+                render: (row: OperacionProceso) => <CompactBadgeLine>{row.nombre_banco_cliente || "-"}</CompactBadgeLine>,
+            },
+            { key: "monto_transferencia_cliente", label: "Monto\nTransferencia", headerClassName: "min-w-32 whitespace-pre-line", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
+            { key: "codigo_operacion_devolucion", label: "Cod. Op.\nDevolucion", headerClassName: "min-w-32 whitespace-pre-line", render: (row: OperacionProceso) => <PagoDeudaCodigosRetorno row={row} /> },
             {
                 key: "empresa_cuenta_ingreso",
-                label: "Empresa Cuenta",
+                label: "Cuenta Comision",
                 render: (row: OperacionProceso) => <PagoDeudaRetornoEmpresaCuentaBadges row={row} />,
-                headerClassName: "min-w-72",
-                cellClassName: "min-w-72 max-w-none whitespace-normal",
+                headerClassName: "min-w-48",
+                cellClassName: "min-w-48 max-w-56 whitespace-normal",
             },
-            { key: "monto_devuelto", label: "Monto Devolución", render: (row: OperacionProceso) => formatMoney(row.pd_retorno_monto_devolucion ?? row.monto_devuelto ?? 0) },
+            { key: "monto_devuelto", label: "Monto\nDevolucion", headerClassName: "min-w-32 whitespace-pre-line", render: (row: OperacionProceso) => formatMoney(row.pd_retorno_monto_devolucion ?? row.monto_devuelto ?? 0) },
             { key: "estado_visual", label: "Estado", render: (row: OperacionProceso) => (
                 <PagoDeudaEstadoButton
                     row={row}
@@ -624,7 +807,16 @@ export const BancariaOperationalTabs = ({
                     onTransferencia={isHistoryMode ? undefined : handlePagoDeudaTransferenciaRow}
                 />
             ) },
-            { key: "fecha_registro", label: "Fecha", render: (row: OperacionProceso) => new Date(row.fecha_registro).toLocaleDateString("es-PE") },
+            {
+                key: "fecha_registro",
+                label: "Hora",
+                render: (row: OperacionProceso) => (
+                    <div className="flex flex-col leading-tight">
+                        <span>{formatOperationTime(row.fecha_registro)}</span>
+                        <span className="text-xs text-tertiary">{formatOperationDate(row.fecha_registro)}</span>
+                    </div>
+                ),
+            },
         ],
         Derivados: [
             { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
@@ -690,7 +882,7 @@ export const BancariaOperationalTabs = ({
                 ),
             },
         ],
-    } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [handlePagoDeudaTransferenciaRow, handlePosEstadoRow, isHistoryMode, savingPagoDeudaEstadoIds, savingPosEstadoIds]);
+    } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [codigoOperacionEdit, handleCodigoOperacionSave, handlePagoDeudaTransferenciaRow, handlePosEstadoRow, isHistoryMode, isSavingCodigoOperacion, savingPagoDeudaEstadoIds, savingPosEstadoIds]);
     const currentOperationColumns = currentTab === "Movimientos" ? baseOperationColumns : operationColumnsByTab[currentTab];
     const currentMovementColumns = useMemo(
         () => getMovementColumns(ruta === "safetypay", isHistoryMode ? undefined : setMovementToDelete, isHistoryMode ? undefined : setMovementToReturn),
@@ -725,6 +917,7 @@ export const BancariaOperationalTabs = ({
         if (currentTab === "Pago Deuda") {
             const actionRows = operaciones.filter((row) => actionIds.includes(row.id));
             if (action === "Transferencia") return actionRows.filter(isPendingOperation).map((row) => row.id);
+            if (action === "Derivar") return actionRows.filter(isPagoDeudaDerivable).map((row) => row.id);
             if (action === "Emp. Salida") return actionRows.filter(isPendingOperation).map((row) => row.id);
             if (action === "Reiniciar") return actionRows.filter(isPagoDeudaTransferido).map((row) => row.id);
             if (action === "Match" || action === "Pagar") return actionRows.filter(isProcessedOperation).map((row) => row.id);
@@ -734,6 +927,7 @@ export const BancariaOperationalTabs = ({
         if (currentTab === "POS") {
             const actionRows = operaciones.filter((row) => actionIds.includes(row.id));
             if (action === "Emp. Salida") return actionRows.filter(isPosSolicitado).map((row) => row.id);
+            if (action === "Derivar") return actionRows.filter(isPosSolicitado).map((row) => row.id);
             if (action === "Pagar") return actionRows.filter(isPosSolicitado).map((row) => row.id);
             if (action === "Reiniciar") return actionRows.filter(isPaidOperation).map((row) => row.id);
             return actionIds;
@@ -870,6 +1064,17 @@ export const BancariaOperationalTabs = ({
             try {
                 const eligibleIds = getEligibleIdsOrNotify(action);
                 if (!eligibleIds.length) return;
+
+                if (currentTab === "Pago Deuda") {
+                    const missingTransferCode = operaciones
+                        .filter((row) => eligibleIds.includes(row.id))
+                        .some((row) => !String(row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente ?? "").trim());
+
+                    if (missingTransferCode) {
+                        throw new Error("Registra el codigo de operacion de la transferencia antes de continuar.");
+                    }
+                }
+
                 const updatedRows: OperacionProceso[] = [];
 
                 for (const id of eligibleIds) {
@@ -967,6 +1172,7 @@ export const BancariaOperationalTabs = ({
         try {
             const eligibleIds = getEligibleIdsOrNotify(action);
             if (!eligibleIds.length) return;
+
             const updatedRows: OperacionProceso[] = [];
 
             if (action === "Pagar" && currentTab === "Efectivizacion" && estadoPagado) {
@@ -1100,9 +1306,37 @@ export const BancariaOperationalTabs = ({
 
             for (const id of eligibleIds) {
                 if (pendingAction === "Derivar") {
-                    const saved = await operacionesRpcService.patchOperacionDerivacion(
-                        buildOperacionDerivacionPayload(id, ruta, value, { userId, userName }),
-                    );
+                    const operation = operaciones.find((row) => row.id === id);
+                    if (!operation) throw new Error("No se encontro la operacion seleccionada.");
+
+                    let saved: OperacionProceso;
+                    if (currentTab === "POS") {
+                        const documento = String(operation.dni_cliente ?? "").replace(/\D/g, "");
+                        saved = await operacionesRpcService.patchOperacionAsistida({
+                            p_id: id,
+                            p_id_banco_cliente: operation.id_banco_cliente,
+                            p_dni_cliente: operation.dni_cliente,
+                            p_nombre_cliente: operation.nombre_cliente,
+                            p_id_comunidad: operation.id_comunidad,
+                            p_nombre_comunidad: operation.nombre_comunidad,
+                            p_monto_deposito_cliente: operation.monto_deposito_cliente,
+                            p_id_usuario: userId,
+                            p_nombre_usuario: userName,
+                            p_tipo_documento_cliente: documento.length === 9 ? 2 : 1,
+                            p_id_banco_destino: Number(value),
+                        });
+                    } else if (currentTab === "Pago Deuda") {
+                        saved = await operacionesRpcService.patchPagoDeudaDerivarBanco({
+                            p_id_operacion: id,
+                            p_id_banco_destino: Number(value),
+                            p_id_usuario_gestor: userId,
+                            p_nombre_usuario_gestor: userName,
+                        });
+                    } else {
+                        saved = await operacionesRpcService.patchOperacionDerivacion(
+                            buildOperacionDerivacionPayload(id, ruta, value, { userId, userName }),
+                        );
+                    }
                     updatedRows.push(saved);
                 }
 
@@ -1346,6 +1580,27 @@ export const BancariaOperationalTabs = ({
                     isLoading={isLoading}
                     selectedIds={selectedIds}
                     onToggleRow={canUseProcesoActions ? handleToggleRow : undefined}
+                    renderActions={
+                        currentTab === "POS" || currentTab === "Pago Deuda"
+                            ? (row) => {
+                                  const canDerive = !isHistoryMode && (currentTab === "POS" ? isPosSolicitado(row) : isPagoDeudaDerivable(row));
+                                  return (
+                                      <Button
+                                          aria-label="Derivar operacion"
+                                          color="tertiary"
+                                          iconLeading={Send01}
+                                          isDisabled={!canDerive || isApplyingAction}
+                                          size="xs"
+                                          title="Derivar operacion"
+                                          onClick={() => {
+                                              setIndividualActionIds([row.id]);
+                                              setPendingAction("Derivar");
+                                          }}
+                                      />
+                                  );
+                              }
+                            : undefined
+                    }
                 />
             )}
 
@@ -1410,8 +1665,10 @@ export const BancariaOperationalTabs = ({
             />
             <BancariaActionModal
                 action={pendingAction === "Match" ? null : pendingAction}
+                bankDestinations={bankDestinations}
                 companies={actionCompanies}
                 currentRuta={ruta}
+                deriveByBank={currentTab === "POS" || currentTab === "Pago Deuda"}
                 isOpen={pendingAction !== null && pendingAction !== "Match"}
                 isSaving={isApplyingAction}
                 selectedCount={pendingActionEligibleCount}

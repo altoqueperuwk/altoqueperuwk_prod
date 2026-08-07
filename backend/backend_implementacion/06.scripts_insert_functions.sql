@@ -53,11 +53,18 @@ $$;
 DO $$
 DECLARE
   v_estado_activo_id bigint;
+  v_estado_inactivo_id bigint;
 BEGIN
   SELECT id
   INTO v_estado_activo_id
   FROM public.tb_estado
   WHERE lower(nombre) = 'activo'
+  LIMIT 1;
+
+  SELECT id
+  INTO v_estado_inactivo_id
+  FROM public.tb_estado
+  WHERE lower(nombre) = 'inactivo'
   LIMIT 1;
 
   IF v_estado_activo_id IS NULL THEN
@@ -353,9 +360,15 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.tb_permiso_menu WHERE ruta = '/seguimientos/efectivizacion') THEN
     PERFORM public.f_post_tb_permiso_menu('Efectivizacion', v_menu_seguimientos_id, '/seguimientos/efectivizacion', 'credit-card', 32, v_estado_activo_id, v_usuario_admin_id);
   END IF;
+  UPDATE public.tb_permiso_menu
+  SET nombre = 'Operaciones', id_estado = v_estado_activo_id
+  WHERE ruta = '/seguimientos/efectivizacion';
   IF NOT EXISTS (SELECT 1 FROM public.tb_permiso_menu WHERE ruta = '/seguimientos/pago-deuda') THEN
     PERFORM public.f_post_tb_permiso_menu('Pago Deuda', v_menu_seguimientos_id, '/seguimientos/pago-deuda', 'refresh-cw', 33, v_estado_activo_id, v_usuario_admin_id);
   END IF;
+  UPDATE public.tb_permiso_menu
+  SET id_estado = COALESCE(v_estado_inactivo_id, id_estado)
+  WHERE ruta = '/seguimientos/pago-deuda';
   IF NOT EXISTS (SELECT 1 FROM public.tb_permiso_menu WHERE ruta = '/dashboard') THEN
     PERFORM public.f_post_tb_permiso_menu('Dashboard', v_menu_dashboard_id, '/dashboard', 'bar-chart', 41, v_estado_activo_id, v_usuario_admin_id);
   END IF;

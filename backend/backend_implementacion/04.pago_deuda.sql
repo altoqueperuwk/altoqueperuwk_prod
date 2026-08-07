@@ -207,6 +207,8 @@ BEGIN
       ORDER BY h.id
       LIMIT 1
     ),
+    'pd_codigo_operacion_comision',
+    NULLIF(BTRIM(COALESCE(op.codigo_operacion_deposito_cliente, '')), ''),
     'flag_comision_registrada',
     EXISTS (
       SELECT 1
@@ -479,6 +481,8 @@ STABLE
 SECURITY DEFINER
 AS $$
   SELECT to_jsonb(op) || jsonb_build_object(
+    'pd_codigo_operacion_transferencia',
+    NULLIF(BTRIM(COALESCE(op.codigo_operacion_deposito_cliente, '')), ''),
     'flag_comision_registrada',
     EXISTS (
       SELECT 1
@@ -504,6 +508,9 @@ AS $$
     op_retorno.empresas_cuentas
   )
   FROM public.tb_operacion_proceso op
+  LEFT JOIN public.tb_operacion_proceso op_solicitud
+    ON op_solicitud.id = op.id_operacion_padre
+   AND UPPER(COALESCE(op_solicitud.tipo_flujo_pago_deuda, '')) = 'SOLICITUD'
   LEFT JOIN LATERAL (
     SELECT
       (ARRAY_AGG(r.id ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS id,
@@ -535,9 +542,119 @@ AS $$
     AND (p_id_empresa_salida IS NULL OR op.id_empresa_salida = p_id_empresa_salida)
     AND (p_id_empresa_cuenta_salida IS NULL OR op.id_empresa_cuenta_salida = p_id_empresa_cuenta_salida)
     AND (p_dni_cliente IS NULL OR op.dni_cliente ILIKE '%' || p_dni_cliente || '%')
-    AND (p_codigo_operacion IS NULL OR op.codigo_operacion_deposito_cliente ILIKE '%' || p_codigo_operacion || '%')
+    AND (
+      p_codigo_operacion IS NULL
+      OR op.codigo_operacion_deposito_cliente ILIKE '%' || p_codigo_operacion || '%'
+      OR op_solicitud.codigo_operacion_deposito_cliente ILIKE '%' || p_codigo_operacion || '%'
+      OR op_retorno.codigos_operacion ILIKE '%' || p_codigo_operacion || '%'
+    )
     AND (p_id_estado IS NULL OR op.id_estado = p_id_estado)
   ORDER BY op.id DESC;
+$$;
+
+/*
+Funcion: f_patch_tb_pago_deuda_codigo_operacion
+Objetivo:
+  Guardar el codigo de transferencia en la fila BANCO o el codigo de
+  comision en la solicitud raiz, sin alterar los codigos de devolucion RETORNO.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_codigo_operacion(
+  p_id_operacion bigint,
+  p_tipo_codigo character varying,
+  p_codigo_operacion character varying,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_input record;
+  v_banco record;
+  v_root record;
+  v_tipo character varying;
+  v_codigo character varying;
+  v_target_id bigint;
+BEGIN
+  SELECT *
+  INTO v_input
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id_operacion
+  LIMIT 1;
+
+  IF v_input.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Operacion de Pago Deuda no encontrada.');
+  END IF;
+
+  IF UPPER(COALESCE(v_input.tipo_flujo_pago_deuda, '')) = 'SOLICITUD' THEN
+    v_root := v_input;
+    SELECT *
+    INTO v_banco
+    FROM public.tb_operacion_proceso
+    WHERE id_operacion_padre = v_root.id
+      AND UPPER(COALESCE(tipo_flujo_pago_deuda, '')) = 'BANCO'
+    ORDER BY id
+    LIMIT 1;
+  ELSE
+    v_banco := v_input;
+    IF UPPER(COALESCE(v_banco.tipo_flujo_pago_deuda, '')) <> 'BANCO' THEN
+      RETURN jsonb_build_object('error', 'La operacion no corresponde a una fila BANCO de Pago Deuda.');
+    END IF;
+
+    SELECT *
+    INTO v_root
+    FROM public.tb_operacion_proceso
+    WHERE id = v_banco.id_operacion_padre
+    LIMIT 1;
+  END IF;
+
+  IF v_banco.id IS NULL OR v_root.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontraron las operaciones relacionadas de Pago Deuda.');
+  END IF;
+
+  IF v_banco.id_estado = 10 OR v_root.id_estado = 10 THEN
+    RETURN jsonb_build_object('error', 'No se puede modificar una operacion eliminada.');
+  END IF;
+
+  v_tipo := UPPER(BTRIM(COALESCE(p_tipo_codigo, '')));
+  v_codigo := NULLIF(BTRIM(COALESCE(p_codigo_operacion, '')), '');
+
+  IF v_tipo NOT IN ('TRANSFERENCIA', 'COMISION') THEN
+    RETURN jsonb_build_object('error', 'Tipo de codigo no valido.');
+  END IF;
+
+  IF v_tipo = 'TRANSFERENCIA' THEN
+    IF UPPER(COALESCE(v_banco.nombre_estado, '')) NOT IN ('PENDIENTE', 'SOLICITADO') THEN
+      RETURN jsonb_build_object('error', 'El codigo de transferencia solo puede editarse antes de procesar la operacion.');
+    END IF;
+    v_target_id := v_banco.id;
+  ELSE
+    IF EXISTS (
+      SELECT 1
+      FROM public.tb_operacion_caja c
+      WHERE c.id_operacion_proceso = v_root.id
+        AND c.tipo_origen = 'PAGO_DEUDA_COMISION'
+    ) OR UPPER(COALESCE(v_root.nombre_estado, '')) = 'PAGADO' THEN
+      RETURN jsonb_build_object('error', 'El codigo de comision ya no puede modificarse.');
+    END IF;
+    v_target_id := v_root.id;
+  END IF;
+
+  UPDATE public.tb_operacion_proceso
+  SET codigo_operacion_deposito_cliente = v_codigo,
+      id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+      nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+  WHERE id = v_target_id;
+
+  RETURN jsonb_build_object(
+    'id', v_target_id,
+    'id_operacion_banco', v_banco.id,
+    'id_operacion_raiz', v_root.id,
+    'tipo_codigo', v_tipo,
+    'codigo_operacion', v_codigo
+  );
+END;
 $$;
 
 /*
@@ -850,12 +967,15 @@ BEGIN
         p_id_usuario := p_id_usuario
       )
     ) AS x(id bigint, nombre character varying);
-  ELSIF COALESCE(p_celular_cliente, '') <> '' THEN
+  ELSIF NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), '') IS NOT NULL
+     OR NULLIF(BTRIM(COALESCE(p_celular_cliente, '')), '') IS NOT NULL THEN
     PERFORM public.f_patch_tb_cliente(
       p_id := v_cliente_id,
+      p_nombre := NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''),
       p_celular := v_celular_cliente,
       p_id_usuario := p_id_usuario
     );
+    v_cliente_nombre := COALESCE(NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''), v_cliente_nombre);
   END IF;
 
   SELECT cs.id, cs.nombre
@@ -1544,6 +1664,10 @@ BEGIN
     RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de Pago Deuda.');
   END IF;
 
+  IF NULLIF(BTRIM(COALESCE(v_op.codigo_operacion_deposito_cliente, '')), '') IS NULL THEN
+    RETURN jsonb_build_object('error', 'Registra el codigo de operacion de la transferencia antes de continuar.');
+  END IF;
+
   v_ruta_kpi_actual := COALESCE(v_op.ruta_destino, v_op.ruta_origen);
   v_id_empresa_salida_final := COALESCE(p_id_empresa_salida, v_op.id_empresa_salida);
   v_id_empresa_cuenta_salida_final := COALESCE(p_id_empresa_cuenta_salida, v_op.id_empresa_cuenta_salida);
@@ -1933,8 +2057,7 @@ BEGIN
   LIMIT 1;
 
   UPDATE public.tb_operacion_proceso
-  SET codigo_operacion_deposito_cliente = v_op_efect.codigo_operacion_deposito_cliente,
-      fecha_deposito_cliente = v_op_efect.fecha_deposito_cliente,
+  SET fecha_deposito_cliente = v_op_efect.fecha_deposito_cliente,
       id_empresa_ingreso = v_op_efect.id_empresa_ingreso,
       nombre_empresa_ingreso = v_op_efect.nombre_empresa_ingreso,
       id_empresa_cuenta_ingreso = v_op_efect.id_empresa_cuenta_ingreso,
@@ -2042,6 +2165,15 @@ BEGIN
 
   IF v_op.id IS NULL THEN
     RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de Pago Deuda.');
+  END IF;
+
+  IF NULLIF(BTRIM(COALESCE((
+    SELECT root.codigo_operacion_deposito_cliente
+    FROM public.tb_operacion_proceso root
+    WHERE root.id = v_op.id_operacion_padre
+    LIMIT 1
+  ), '')), '') IS NULL THEN
+    RETURN jsonb_build_object('error', 'Registra el codigo de operacion de la comision antes de finalizar Pago Deuda.');
   END IF;
 
   IF v_op.id_empresa_salida IS NULL OR v_op.id_empresa_cuenta_salida IS NULL THEN
@@ -2395,6 +2527,158 @@ BEGIN
 END;
 $$;
 
+/*
+Funcion: f_patch_tb_pago_deuda_derivar_banco
+Objetivo:
+  Mover la operacion BANCO de Pago Deuda a otra ruta bancaria durante el
+  primer paso, resolviendo la cuenta principal activa por banco.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_derivar_banco(
+  p_id_operacion bigint,
+  p_id_banco_destino bigint,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_input record;
+  v_op record;
+  v_destino record;
+  v_calc jsonb;
+  v_ruta_actual character varying;
+  v_result jsonb;
+BEGIN
+  SELECT *
+  INTO v_input
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id_operacion
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_input.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Operacion no encontrada.');
+  END IF;
+
+  IF UPPER(COALESCE(v_input.tipo_flujo_pago_deuda, '')) = 'SOLICITUD' THEN
+    SELECT *
+    INTO v_op
+    FROM public.tb_operacion_proceso
+    WHERE id_operacion_padre = v_input.id
+      AND UPPER(COALESCE(tipo_flujo_pago_deuda, '')) = 'BANCO'
+    ORDER BY id
+    LIMIT 1
+    FOR UPDATE;
+  ELSE
+    v_op := v_input;
+  END IF;
+
+  IF v_op.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de Pago Deuda.');
+  END IF;
+
+  IF UPPER(COALESCE(v_op.nombre_estado, '')) NOT IN ('SOLICITADO', 'PENDIENTE')
+     OR COALESCE(v_op.flag_retenido, false)
+     OR COALESCE(v_op.id_estado, 0) = 10
+     OR EXISTS (
+          SELECT 1
+          FROM public.tb_operacion_caja c
+          WHERE c.id_operacion_proceso = COALESCE(v_op.id_operacion_padre, v_op.id)
+            AND UPPER(COALESCE(c.tipo_origen, '')) = 'PAGO_DEUDA_COMISION'
+        )
+     OR EXISTS (
+          SELECT 1
+          FROM public.tb_operacion_proceso r
+          WHERE (r.id_operacion_padre = v_op.id OR r.id_operacion_match = v_op.id)
+            AND UPPER(COALESCE(r.tipo_flujo_pago_deuda, '')) = 'RETORNO'
+            AND r.id_estado = 4
+        )
+  THEN
+    RETURN jsonb_build_object('error', 'Solo se pueden derivar operaciones de Pago Deuda en el Paso 1.');
+  END IF;
+
+  v_ruta_actual := LOWER(BTRIM(COALESCE(v_op.ruta_destino, v_op.ruta_origen, '')));
+
+  SELECT
+    rc.ruta,
+    rc.id_empresa,
+    e.nombre AS nombre_empresa,
+    rc.id_empresa_cuenta_bancaria,
+    ecb.id_banco,
+    b.nombre AS nombre_banco,
+    ecb.comision_transf_banco_salida,
+    ecb.comision_transf_inter_banco_salida,
+    ecb.comision_itf_ingreso_salida
+  INTO v_destino
+  FROM public.tb_ruta_operacion_caja rc
+  JOIN public.tb_empresa e ON e.id = rc.id_empresa
+  JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
+  JOIN public.tb_banco b ON b.id = ecb.id_banco
+  WHERE rc.id_estado = 1
+    AND ecb.id_estado = 1
+    AND rc.flag_caja_ingreso_principal = true
+    AND ecb.id_banco = p_id_banco_destino
+    AND LOWER(COALESCE(rc.ruta, '')) <> v_ruta_actual
+    AND LOWER(COALESCE(rc.ruta, '')) <> 'safetypay'
+  ORDER BY rc.id
+  LIMIT 1;
+
+  IF v_destino.ruta IS NULL THEN
+    RETURN jsonb_build_object('error', 'El banco destino no tiene una cuenta principal activa configurada.');
+  END IF;
+
+  v_calc := public.f_get_tb_operacion_calculo_comision_banco_salida(
+    COALESCE(v_op.monto_deposito_cliente, 0),
+    COALESCE(v_destino.comision_transf_banco_salida, 0),
+    COALESCE(v_destino.comision_transf_inter_banco_salida, 0),
+    COALESCE(v_destino.comision_itf_ingreso_salida, 0),
+    p_id_empresa_salida := v_destino.id_empresa,
+    p_id_empresa_cuenta_salida := v_destino.id_empresa_cuenta_bancaria,
+    p_id_banco_empresa_cuenta_salida := v_destino.id_banco,
+    p_id_banco_cliente_transferencia := v_op.id_banco_cliente
+  );
+
+  UPDATE public.tb_operacion_proceso
+  SET ruta_destino = v_destino.ruta,
+      id_empresa_salida = v_destino.id_empresa,
+      nombre_empresa_salida = v_destino.nombre_empresa,
+      id_empresa_cuenta_salida = v_destino.id_empresa_cuenta_bancaria,
+      id_banco_empresa_cuenta_salida = v_destino.id_banco,
+      nombre_banco_empresa_cuenta_salida = v_destino.nombre_banco,
+      id_banco_cliente_transferencia = v_destino.id_banco,
+      nombre_banco_cliente_transferencia = v_destino.nombre_banco,
+      comision_transf_banco_salida = COALESCE(v_destino.comision_transf_banco_salida, 0),
+      comision_transf_inter_banco_salida = COALESCE(v_destino.comision_transf_inter_banco_salida, 0),
+      monto_itf_salida = COALESCE(v_destino.comision_itf_ingreso_salida, 0),
+      resultado_comision_banco_salida = (v_calc->>'resultado_comision_banco_salida')::numeric,
+      id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+      nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+  WHERE id = v_op.id;
+
+  IF v_op.id_operacion_padre IS NOT NULL THEN
+    UPDATE public.tb_operacion_proceso
+    SET ruta_destino = v_destino.ruta,
+        id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+        nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+    WHERE id = v_op.id_operacion_padre;
+  END IF;
+
+  IF v_ruta_actual <> LOWER(v_destino.ruta) THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_actual, COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario));
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_destino.ruta, COALESCE(p_id_usuario_gestor, v_op.id_usuario_gestor, v_op.id_usuario));
+  END IF;
+
+  SELECT x
+  INTO v_result
+  FROM public.f_get_tb_operacion_proceso(p_id := v_op.id) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
 SELECT 'DROP FUNCTION IF EXISTS ' ||
        n.nspname || '.' ||
        p.proname || '(' ||
@@ -2407,13 +2691,16 @@ WHERE p.proname IN (
   'f_get_tb_pago_deuda_kpi',
   'f_patch_tb_pago_deuda_empresa_comision',
   'f_get_tb_pago_deuda_bandeja',
+  'f_patch_tb_pago_deuda_codigo_operacion',
   'f_post_tb_pago_deuda_solicitud',
   'f_patch_tb_pago_deuda_comision_especial',
   'f_patch_tb_pago_deuda_comision_extra',
   'f_delete_tb_pago_deuda_solicitud',
   'f_patch_tb_pago_deuda_comision_cuenta',
   'f_patch_tb_pago_deuda_match',
+  'f_patch_tb_pago_deuda_salida',
   'f_patch_tb_pago_deuda_pagado',
-  'f_patch_tb_pago_deuda_reiniciar_transferencia'
+  'f_patch_tb_pago_deuda_reiniciar_transferencia',
+  'f_patch_tb_pago_deuda_derivar_banco'
 )
 ORDER BY n.nspname, p.proname;

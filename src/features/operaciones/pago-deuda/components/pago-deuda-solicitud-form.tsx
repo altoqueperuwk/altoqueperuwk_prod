@@ -276,8 +276,8 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
     return (
         <InlineFormCard title="Solicitud Pago Deuda">
             <div className="flex min-w-0 flex-col gap-3 2xl:flex-row 2xl:items-end">
-                <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-[10rem_minmax(12rem,25ch)_minmax(8rem,1fr)_11rem_minmax(7rem,1fr)_9rem_7rem]">
-                    <div className="flex w-full min-w-0 items-end gap-2 2xl:w-auto 2xl:shrink-0">
+                <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-[minmax(9ch,12rem)_minmax(0,1fr)_minmax(9ch,9rem)_minmax(10ch,12rem)_minmax(8ch,9rem)_minmax(10ch,12rem)_minmax(8ch,9rem)]">
+                    <div className="flex w-full min-w-0 items-end gap-2">
                         <DocumentoInputGroup
                             isRequired
                             tipoDocumento={tipoDocumento}
@@ -298,7 +298,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                         placeholder={clienteId ? "Cliente encontrado" : "Nombre del cliente"}
                         value={nombre}
                         onChange={setNombre}
-                        className="w-full min-w-0 max-w-[25ch] 2xl:w-[25ch] 2xl:shrink-0"
+                        className="w-full min-w-0 max-w-full"
                     />
                     <Input
                         size="sm"
@@ -306,7 +306,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                         placeholder="Número de Whatsapp"
                         value={whatsapp}
                         onChange={(value) => setWhatsapp(sanitizeWhatsapp(value))}
-                        className="w-full min-w-0 max-w-full 2xl:max-w-[9rem] 2xl:shrink-0"
+                        className="w-full min-w-0 max-w-full"
                     />
                     <NativeSelect
                         size="sm"
@@ -315,7 +315,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                         value={bancoId}
                         onChange={(event) => setBancoId(event.currentTarget.value)}
                         options={bancosPermitidos.map((item) => ({ label: item.nombre, value: String(item.id) }))}
-                        className="w-full min-w-0 max-w-full 2xl:w-[11rem] 2xl:shrink-0"
+                        className="w-full min-w-0 max-w-full"
                     />
                     <Input
                         size="sm"
@@ -324,7 +324,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                         placeholder="S/ 0.00"
                         value={monto}
                         onChange={(value) => setMonto(sanitizeAmountInput(value))}
-                        className="w-full min-w-0 max-w-full 2xl:max-w-[8rem] 2xl:shrink-0"
+                        className="w-full min-w-0 max-w-full"
                     />
                     <NativeSelect
                         size="sm"
@@ -341,7 +341,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                             { label: "Preferencial", value: "preferencial" },
                             { label: "Último Día", value: "ultimo_dia" },
                         ]}
-                        className="w-full min-w-0 max-w-full 2xl:shrink-0"
+                        className="w-full min-w-0 max-w-full"
                     />
                     <Input
                         size="sm"
@@ -351,7 +351,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                         value={commissionMode === "preferencial" ? formatPercentValue(selectedRegla?.comision_servicio) : manualCommission}
                         isDisabled={commissionMode === "preferencial"}
                         onChange={(value) => setManualCommission(sanitizeAmountInput(value))}
-                        className="w-full min-w-0 max-w-full 2xl:max-w-[7rem] 2xl:shrink-0"
+                        className="w-full min-w-0 max-w-full"
                     />
                 </div>
                 <div className="flex w-full min-w-0 shrink-0 gap-2 sm:justify-end 2xl:w-auto">

@@ -4,7 +4,6 @@ import { Button } from "@/components/base/buttons/button";
 import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
-import { CelularInput } from "@/components/base/input/celular-input";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { bancoService } from "@/services/banco.service";
@@ -52,7 +51,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
     const [nombre, setNombre] = useState("");
-    const [celulares, setCelulares] = useState<string[]>([]);
+    const [whatsapp, setWhatsapp] = useState("");
     const [monto, setMonto] = useState("");
     const [comunidadId, setComunidadId] = useState("");
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
@@ -64,7 +63,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const [entidadTarjetaId, setEntidadTarjetaId] = useState("");
     const [isSaving, setIsSaving] = useState(false);
     const [clienteId, setClienteId] = useState<number | null>(null);
-    const [originalCelulares, setOriginalCelulares] = useState<string[]>([]);
+    const [originalWhatsapp, setOriginalWhatsapp] = useState("");
     const [originalComunidadId, setOriginalComunidadId] = useState("");
 
     const { result: clienteLookup, isLoading: isClienteLoading } = useClienteLookup(dni, tipoDocumento);
@@ -102,23 +101,23 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         if (!dni.trim()) {
             setClienteId(null);
             setNombre("");
-            setCelulares([]);
-            setOriginalCelulares([]);
+            setWhatsapp("");
+            setOriginalWhatsapp("");
             setOriginalComunidadId("");
             return;
         }
         if (clienteLookup) {
             setClienteId(clienteLookup.id);
             setNombre(clienteLookup.nombre);
-            setCelulares(clienteLookup.celular);
-            setOriginalCelulares(clienteLookup.celular);
-            if (clienteLookup.id_comunidad && !comunidadId) {
+            setWhatsapp(clienteLookup.celular[0] ?? "");
+            setOriginalWhatsapp(clienteLookup.celular[0] ?? "");
+            if (clienteLookup.id_comunidad != null) {
                 setComunidadId(String(clienteLookup.id_comunidad));
             }
             setOriginalComunidadId(String(clienteLookup.id_comunidad));
         } else if (!getDocumentoValidationMessage(dni, tipoDocumento)) {
             setClienteId(null);
-            setOriginalCelulares([]);
+            setOriginalWhatsapp("");
             setOriginalComunidadId("");
         }
     }, [clienteLookup, dni, comunidadId, tipoDocumento]);
@@ -201,12 +200,12 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         if (!cleanDni) return;
 
         if (clienteId) {
-            const celularesChanged = JSON.stringify(celulares.sort()) !== JSON.stringify(originalCelulares.sort());
+            const whatsappChanged = whatsapp !== originalWhatsapp;
             const comunidadChanged = comunidadId !== originalComunidadId;
 
-            if (celularesChanged || comunidadChanged) {
+            if (whatsappChanged || comunidadChanged) {
                 await clienteService.update(clienteId, {
-                    p_celular: celulares.length > 0 ? Number(celulares[0]) : null,
+                    p_celular: whatsapp ? Number(whatsapp) : null,
                     p_id_comunidad: Number(comunidadId),
                 });
             }
@@ -215,7 +214,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_tipo_documento: tipoDocumento,
                 p_numero_documento: cleanDni,
                 p_nombre: nombre.trim(),
-                p_celular: celulares.length > 0 ? Number(celulares[0]) : null,
+                p_celular: whatsapp ? Number(whatsapp) : null,
                 p_id_comunidad: Number(comunidadId),
                 p_id_estado: (await estadoService.getList({})).find((e) => String(e.nombre).toUpperCase() === "ACTIVO")?.id,
                 p_id_usuario: userId,
@@ -281,6 +280,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_nombre_comunidad: selectedCommunity.nombre,
                 p_tipo_documento_cliente: tipoDocumento,
                 p_dni_cliente: cleanDni,
+                p_nombre_cliente: nombre.trim() || null,
+                p_celular_cliente: whatsapp || null,
                 p_monto_deposito_cliente: amount,
                 p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null,
                 p_id_estado: estadoRequerido.id,
@@ -304,12 +305,12 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             setDni("");
             setTipoDocumento(1);
             setNombre("");
-            setCelulares([]);
+            setWhatsapp("");
             setMonto("");
             setEntidadTarjetaId("");
             setBancoDestinoId("");
             setClienteId(null);
-            setOriginalCelulares([]);
+            setOriginalWhatsapp("");
             setOriginalComunidadId("");
             onSaved();
             addToast("success", ruta === "linkpago" ? "Operacion registrada correctamente." : "Solicitud registrada correctamente.");
@@ -326,12 +327,12 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         setDni("");
         setTipoDocumento(1);
         setNombre("");
-        setCelulares([]);
+        setWhatsapp("");
         setMonto("");
         setEntidadTarjetaId("");
         setBancoDestinoId("");
         setClienteId(null);
-        setOriginalCelulares([]);
+        setOriginalWhatsapp("");
         setOriginalComunidadId("");
     };
 
@@ -347,16 +348,16 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                             value={entidadTarjetaId}
                             onChange={(event) => setEntidadTarjetaId(event.currentTarget.value)}
                             options={[
-                                { label: "Seleccionar entidad", value: "", disabled: true },
+                                { label: "Seleccionar", value: "", disabled: true },
                                 ...entidadTarjetaList.map((item) => ({
                                     label: item.nombre,
                                     value: String(item.id),
                                 })),
                             ]}
-                            className="min-w-0 flex-1"
+                            className="w-full min-w-0 xl:w-[18ch] xl:shrink-0"
                         />
                     )}
-                    <div className="flex w-full max-w-[13rem] min-w-0 items-end gap-2">
+                    <div className="flex w-full min-w-0 items-end gap-2 xl:max-w-[12rem]">
                         <DocumentoInputGroup
                             isRequired
                             tipoDocumento={tipoDocumento}
@@ -378,14 +379,22 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         value={nombre}
                         onChange={setNombre}
                         isDisabled={!!clienteId}
-                        className="min-w-0 flex-1"
+                        className="w-full min-w-0 flex-1"
+                    />
+                    <Input
+                        size="sm"
+                        label="Whatsapp"
+                        placeholder="Número de WhatsApp"
+                        value={whatsapp}
+                        onChange={(value) => setWhatsapp(value.replace(/\D/g, "").slice(0, 9))}
+                        className="w-full min-w-0 xl:min-w-[9ch] xl:max-w-[9rem]"
                     />
                     <Input
                         size="sm"
                         label="Comunidad"
                         value={selectedCommunity?.nombre ?? ""}
                         isDisabled
-                        className="w-full max-w-[17ch] shrink-0"
+                        className="w-full max-w-[10ch] shrink-0"
                     />
                     {ruta === "pos" && (
                         <NativeSelect
@@ -395,13 +404,13 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                             value={bancoDestinoId}
                             onChange={(event) => setBancoDestinoId(event.currentTarget.value)}
                             options={[
-                                { label: "Seleccionar banco", value: "", disabled: true },
+                                { label: "Seleccionar", value: "", disabled: true },
                                 ...bancoTransferirList.map((item) => ({
                                     label: item.nombre,
                                     value: String(item.id),
                                 })),
                             ]}
-                            className="min-w-0 flex-1"
+                            className="w-full min-w-0 xl:w-[14ch] xl:shrink-0"
                         />
                     )}
                     <Input
@@ -411,17 +420,17 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         placeholder="S/ 0.00"
                         value={monto}
                         onChange={(value) => setMonto(sanitizeAmountInput(value))}
-                        className="w-full max-w-[8rem] shrink-0"
+                        className="w-full min-w-0 xl:min-w-[8ch] xl:max-w-[9rem]"
                     />
                 </div>
-                <div className="flex shrink-0 gap-2">
+                <div className="flex w-full min-w-0 shrink-0 gap-2 sm:justify-end xl:w-auto">
                     <Button
                         size="sm"
                         color="primary"
                         iconLeading={Save01}
                         isLoading={isSaving}
                         onClick={handleSave}
-                        className="flex-1 xl:flex-none"
+                        className="min-w-0 flex-1 xl:flex-none"
                     >
                         Guardar
                     </Button>
@@ -431,7 +440,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         iconLeading={XClose}
                         isDisabled={isSaving}
                         onClick={handleClear}
-                        className="flex-1 xl:flex-none"
+                        className="min-w-0 flex-1 xl:flex-none"
                     >
                         Cancelar
                     </Button>

@@ -94,11 +94,6 @@ const toCajaComparable = (row: CajaDraft) => ({
     id_estado: row.id_estado,
 });
 
-const canEditSavedSaldo = (value: string | undefined) => {
-    const parsed = parseMoney(value ?? "0");
-    return parsed !== null && parsed <= 0;
-};
-
 export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta }: OperacionCajasRutaModalProps) => {
     const { businessUser } = useAuth();
     const { estados } = useSessionCache();
@@ -197,6 +192,9 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta }: Oper
                     const cuenta = compatibleCuentas.find((item) => item.id === Number(value));
                     updated.nombre_banco = cuenta?.banco_nombre ?? "";
                 }
+                if (field === "saldo_inicial" && row.isNew) {
+                    updated.saldo_actual = value;
+                }
                 return updated;
             }),
         );
@@ -241,10 +239,7 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta }: Oper
         return JSON.stringify(toCajaComparable(row)) !== JSON.stringify(toCajaComparable(snapshot));
     };
 
-    const canEditCajaSaldo = (row: CajaDraft, field: "saldo_inicial" | "saldo_actual") => {
-        if (row.isNew) return true;
-        return canEditSavedSaldo(cajaSnapshots[row.key]?.[field]);
-    };
+    const canEditCajaSaldo = (_row: CajaDraft, field: "saldo_inicial" | "saldo_actual") => field === "saldo_inicial";
 
     const hasPendingChanges = cajas.some(isCajaChanged);
 
@@ -293,24 +288,33 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta }: Oper
         }
 
         const saldoInicial = parseMoney(row.saldo_inicial) ?? 0;
-        const saldoActual = parseMoney(row.saldo_actual || row.saldo_inicial) ?? saldoInicial;
         setSavingCajaKey(row.key);
         try {
-            const params = {
+            const metadataParams = {
                 p_id_empresa: Number(row.id_empresa),
                 p_id_empresa_cuenta_bancaria: Number(row.id_empresa_cuenta_bancaria),
-                p_saldo_inicial: saldoInicial,
-                p_saldo_actual: saldoActual,
                 p_id_estado: Number(row.id_estado),
                 p_id_usuario: userId,
             };
 
             let savedId = row.id ?? null;
             if (row.id) {
-                await cajaOperativaService.update(row.id, params);
+                const snapshot = cajaSnapshots[row.key];
+                if (snapshot && parseMoney(snapshot.saldo_inicial) !== saldoInicial) {
+                    await cajaOperativaService.patchSaldoInicial({
+                        p_id_caja: row.id,
+                        p_saldo_inicial: saldoInicial,
+                        p_id_usuario: userId,
+                    });
+                }
+                await cajaOperativaService.update(row.id, metadataParams);
                 addToast("success", "Caja operativa actualizada correctamente.");
             } else {
-                const result = await cajaOperativaService.create(params);
+                const result = await cajaOperativaService.create({
+                    ...metadataParams,
+                    p_saldo_inicial: saldoInicial,
+                    p_saldo_actual: saldoInicial,
+                });
                 savedId = result?.id ? Number(result.id) : null;
                 await cajaOperativaService.createRuta({
                     p_ruta: ruta,

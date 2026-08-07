@@ -8,6 +8,12 @@ import type { OperacionRuta, RutaOperacionCaja } from "@/features/operaciones/ef
 
 type ActionType = "Derivar" | "Emp. Ingreso" | "Emp. Salida" | "Reasignar" | "Transferencia" | "Modalidad";
 
+export interface BancariaBankDestination {
+    id: number;
+    nombre: string;
+    ruta: string;
+}
+
 interface UserOption {
     id: number;
     nombre: string;
@@ -17,6 +23,8 @@ interface BancariaActionModalProps {
     action: ActionType | null;
     companies: RutaOperacionCaja[];
     currentRuta: OperacionRuta;
+    bankDestinations?: BancariaBankDestination[];
+    deriveByBank?: boolean;
     isOpen: boolean;
     isSaving: boolean;
     onClose: () => void;
@@ -28,6 +36,8 @@ export const BancariaActionModal = ({
     action,
     companies,
     currentRuta,
+    bankDestinations = [],
+    deriveByBank = false,
     isOpen,
     isSaving,
     onClose,
@@ -41,8 +51,12 @@ export const BancariaActionModal = ({
         if (!isOpen) return;
 
         if (action === "Derivar") {
-            const firstRoute = bancariaRouteKeys.find((route) => route !== currentRuta);
-            setValue(firstRoute ?? "");
+            if (deriveByBank) {
+                setValue(bankDestinations[0] ? String(bankDestinations[0].id) : "");
+            } else {
+                const firstRoute = bancariaRouteKeys.find((route) => route !== currentRuta);
+                setValue(firstRoute ?? "");
+            }
             return;
         }
 
@@ -72,10 +86,12 @@ export const BancariaActionModal = ({
                 ignore = true;
             };
         }
-    }, [action, companies, currentRuta, isOpen]);
+    }, [action, bankDestinations, companies, currentRuta, deriveByBank, isOpen]);
 
     const options =
-        action === "Derivar"
+        action === "Derivar" && deriveByBank
+            ? bankDestinations.map((bank) => ({ label: `${bank.nombre} - ${getRutaLabel(bank.ruta as OperacionRuta)}`, value: String(bank.id) }))
+        : action === "Derivar"
             ? bancariaRouteKeys
                   .filter((route) => route !== currentRuta)
                   .map((route) => ({ label: getRutaLabel(route), value: route }))
@@ -108,7 +124,7 @@ export const BancariaActionModal = ({
                                 size="sm"
                                 label={
                                     action === "Derivar"
-                                        ? "Ruta destino"
+                                        ? deriveByBank ? "Banco destino" : "Ruta destino"
                                         : action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Transferencia"
                                           ? "Empresa y cuenta"
                                           : action === "Modalidad"
