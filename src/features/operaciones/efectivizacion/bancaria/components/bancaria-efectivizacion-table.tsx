@@ -968,7 +968,7 @@ export const BancariaEfectivizacionTable = ({
                                         key={row.id}
                                         className={cx(
                                             hasSelection && !rowSaving && !frozenOrigin && "cursor-pointer transition-colors hover:bg-primary_hover",
-                                            selectedIds.includes(row.id) && "bg-secondary",
+                                            selectedIds.includes(row.id) && "bg-warning-primary/20 hover:bg-warning-primary/30",
                                         )}
                                         initial={{ opacity: 0, y: 4 }}
                                         animate={{ opacity: 1, y: 0 }}
@@ -1129,7 +1129,7 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             <div className="flex items-center gap-1">
-                                                <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-primary">{formatMoney(displayedTransferAmount)}</span>
+                                                <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-concept-transferencia">{formatMoney(displayedTransferAmount)}</span>
                                                 <Button
                                                     size="xs"
                                                     color="tertiary"

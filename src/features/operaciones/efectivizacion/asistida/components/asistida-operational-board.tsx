@@ -147,7 +147,7 @@ const linkpagoColumns = [
     {
         key: "monto_transferencia_cliente",
         label: "Transferencia",
-        cellClassName: "font-semibold text-primary tabular-nums",
+        cellClassName: "font-semibold text-concept-transferencia tabular-nums",
         render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente),
     },
     {
@@ -207,7 +207,7 @@ const posColumns = [
     {
         key: "monto_transferencia_cliente",
         label: "Transferencia",
-        cellClassName: "font-semibold text-primary tabular-nums",
+        cellClassName: "font-semibold text-concept-transferencia tabular-nums",
         render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente),
     },
     {

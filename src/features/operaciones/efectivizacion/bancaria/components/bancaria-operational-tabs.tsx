@@ -791,7 +791,7 @@ export const BancariaOperationalTabs = ({
                 headerClassName: "min-w-28",
                 render: (row: OperacionProceso) => <CompactBadgeLine>{row.nombre_banco_cliente || "-"}</CompactBadgeLine>,
             },
-            { key: "monto_transferencia_cliente", label: "Monto\nTransferencia", headerClassName: "min-w-32 whitespace-pre-line", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
+            { key: "monto_transferencia_cliente", label: "Monto\nTransferencia", headerClassName: "min-w-32 whitespace-pre-line", cellClassName: "font-semibold text-concept-transferencia tabular-nums", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
             { key: "codigo_operacion_devolucion", label: "Cod. Op.\nDevolucion", headerClassName: "min-w-32 whitespace-pre-line", render: (row: OperacionProceso) => <PagoDeudaCodigosRetorno row={row} /> },
             {
                 key: "empresa_cuenta_ingreso",
@@ -826,7 +826,7 @@ export const BancariaOperationalTabs = ({
             { key: "ruta_origen", label: "Origen", render: (row: OperacionProceso) => row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "" },
             { key: "ruta_destino", label: "Destino", render: (row: OperacionProceso) => row.ruta_destino ? getRutaLabel(row.ruta_destino as OperacionRuta) : "" },
             { key: "nombre_usuario_deriva", label: "Deriva" },
-            { key: "monto_transferencia_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
+            { key: "monto_transferencia_cliente", label: "Monto", cellClassName: "font-semibold text-concept-transferencia tabular-nums", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
             { key: "fecha_derivacion", label: "Derivacion", render: (row: OperacionProceso) => row.fecha_derivacion ? new Date(row.fecha_derivacion).toLocaleDateString("es-PE") : "" },
         ],
         POS: [
@@ -840,7 +840,7 @@ export const BancariaOperationalTabs = ({
                     <EmpresaCuentaBadges empresa={row.nombre_empresa_salida} cuenta={row.nombre_banco_empresa_cuenta_salida} />
                 ),
             },
-            { key: "monto_transferencia", label: "Monto Transferencia", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
+            { key: "monto_transferencia", label: "Monto Transferencia", cellClassName: "font-semibold text-concept-transferencia tabular-nums", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
             { key: "comision", label: "Comisión", render: (row: OperacionProceso) => formatMoney(row.resultado_comision_servicio ?? 0) },
             {
                 key: "estado_visual",

@@ -20,7 +20,6 @@ export const useActiveCompany = (cajas: RutaOperacionCaja[], resetKey?: string |
 
     useEffect(() => {
         if (!companies.length) {
-            setActiveCompanyId(null);
             return;
         }
 
@@ -45,7 +44,6 @@ export const useActiveCompany = (cajas: RutaOperacionCaja[], resetKey?: string |
 
     useEffect(() => {
         if (!activeCompanyCajas.length) {
-            setActiveAccountId(null);
             return;
         }
 

@@ -12,7 +12,6 @@ export const useRouteCompanies = (ruta: string, refreshKey: string | number = 0)
 
         setIsLoading(true);
         setError(null);
-        setData([]);
 
         operacionesRpcService
             .getRutaCajas(ruta)

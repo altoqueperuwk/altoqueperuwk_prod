@@ -168,7 +168,7 @@ export const OperationTable = <T extends { id: number }>({
                                         layout
                                         className={cx(
                                             hasSelection && "cursor-pointer transition-colors hover:bg-primary_hover",
-                                            selectedIds.includes(row.id) && "bg-secondary",
+                                            selectedIds.includes(row.id) && "bg-warning-primary/20 hover:bg-warning-primary/30",
                                         )}
                                         initial={{ opacity: 0, y: 4 }}
                                         animate={{ opacity: 1, y: 0 }}

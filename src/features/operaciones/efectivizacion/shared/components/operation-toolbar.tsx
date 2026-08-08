@@ -113,6 +113,7 @@ export const OperationToolbar = ({
                         key={action}
                         size="sm"
                         color="secondary"
+                        className="hover:bg-brand-solid_hover hover:text-primary_on-brand hover:ring-brand-solid disabled:hover:bg-primary disabled:hover:text-secondary disabled:hover:ring-primary"
                         isDisabled={isActionDisabled?.(action) ?? true}
                         onClick={() => onAction?.(action)}
                     >
