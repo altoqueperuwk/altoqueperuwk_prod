@@ -1,14 +1,12 @@
-import type { ReactNode } from "react";
 import { Badge } from "@/components/base/badges/badges";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
 import { CompactBadgeLine, CompactMoneyCell } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import type { OperacionProceso, OperacionRuta } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import { ArrowNarrowRight } from "@untitledui/icons";
 
 const value = (row: OperacionProceso, key: string) => String((row as unknown as Record<string, unknown>)[key] ?? "-");
-const amount = (row: OperacionProceso, key: string) => Number((row as unknown as Record<string, unknown>)[key] ?? 0);
-
 const dateCell = (row: OperacionProceso) => {
     const date = row.fecha_registro ? new Date(row.fecha_registro) : null;
     return date ? (
@@ -142,6 +140,141 @@ export const SeguimientoPagoDeudaTable = ({ data, isLoading, now = Date.now(), p
             { key: "seguimiento_estado", label: "Estado", render: (row: OperacionProceso) => <CompactBadgeLine color={paymentValue(row, "seguimiento_estado") === "Pagado" ? "success" : "brand"}>{paymentValue(row, "seguimiento_estado")}</CompactBadgeLine> },
             { key: "fecha_registro", label: "Fecha Hora", render: dateCell },
             { key: "tiempo_atencion", label: "Tiempo Atencion", render: (row: OperacionProceso) => <AttentionTimeCell row={row} now={now} paymentMode /> },
+        ]}
+        serverPagination={pagination}
+    />
+);
+
+const unifiedValue = (row: OperacionProceso, key: string) => {
+    const raw = (row as unknown as Record<string, unknown>)[key];
+    return raw === null || raw === undefined || String(raw).trim() === "" ? "-" : String(raw);
+};
+
+const unifiedAmount = (row: OperacionProceso, key: string) => {
+    const raw = (row as unknown as Record<string, unknown>)[key];
+    return raw === null || raw === undefined || raw === "" ? null : Number(raw);
+};
+
+const unifiedMoney = (row: OperacionProceso, key: string) => {
+    const raw = unifiedAmount(row, key);
+    return raw === null || !Number.isFinite(raw) ? "-" : formatMoney(raw);
+};
+
+type UnifiedBadgeColor = "gray" | "brand" | "error" | "warning" | "success" | "slate" | "sky" | "blue" | "indigo" | "purple" | "pink" | "orange";
+
+const unifiedBadge = (text: string, color: UnifiedBadgeColor = "brand") => (
+    <CompactBadgeLine color={color}>{text}</CompactBadgeLine>
+);
+
+const flowBadgeColors: Record<string, UnifiedBadgeColor> = {
+    Efectivizacion: "brand",
+    Derivados: "orange",
+    POS: "blue",
+    "Pago Deuda": "success",
+};
+
+const unifiedFlowCell = (row: OperacionProceso) => {
+    const flow = unifiedValue(row, "seguimiento_flujo");
+    const displayFlow = flow === "Derivados" ? "Efectivizacion" : flow;
+    return (
+        <CompactBadgeLine color={flowBadgeColors[displayFlow] ?? "gray"}>{displayFlow}</CompactBadgeLine>
+    );
+};
+
+const unifiedDerivoCell = (row: OperacionProceso) => {
+    const route = unifiedValue(row, "seguimiento_derivo");
+    if (route === "-") return "-";
+
+    const routeLabel = getRutaLabel(route as OperacionRuta);
+    return (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+            <span>{routeLabel}</span>
+            <ArrowNarrowRight aria-hidden="true" className="size-4 text-fg-brand-secondary" />
+        </span>
+    );
+};
+
+const unifiedCommissionCell = (row: OperacionProceso) => {
+    const importe = unifiedMoney(row, "seguimiento_comision_importe");
+    const porcentaje = unifiedValue(row, "seguimiento_comision_porcentaje");
+
+    return <div className="flex flex-wrap items-center gap-1">
+        <span>{importe}</span>
+        {porcentaje !== "-" && unifiedBadge(`${porcentaje}%`)}
+    </div>;
+};
+
+const unifiedTransferCell = (row: OperacionProceso) => {
+    const flow = unifiedValue(row, "seguimiento_flujo");
+    const steps = unifiedAmount(row, "seguimiento_pasos");
+
+    if (flow === "Pago Deuda" && (steps === null || steps < 2)) return "-";
+
+    return unifiedMoney(row, "seguimiento_transferencia");
+};
+
+const unifiedReturnCell = (row: OperacionProceso) => {
+    const flow = unifiedValue(row, "seguimiento_flujo");
+    const steps = unifiedAmount(row, "seguimiento_pasos");
+
+    if (flow !== "Pago Deuda" || steps === null || steps < 3) return "-";
+
+    return unifiedMoney(row, "seguimiento_monto_devolucion");
+};
+
+const unifiedStepsCell = (row: OperacionProceso) => {
+    const flow = unifiedValue(row, "seguimiento_flujo");
+    const steps = unifiedAmount(row, "seguimiento_pasos");
+
+    if (flow !== "Pago Deuda" || steps === null || !Number.isFinite(steps)) return "-";
+
+    return <div className="flex items-center gap-1">
+        {[1, 2, 3, 4].map((step) => (
+            <span
+                key={step}
+                className={`flex size-5 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-inset ${step <= steps ? "bg-success-primary text-white ring-success-primary" : "bg-primary text-tertiary ring-secondary"}`}
+            >
+                {step <= steps ? "✓" : step}
+            </span>
+        ))}
+    </div>;
+};
+
+const unifiedStatusCell = (row: OperacionProceso) => {
+    const status = unifiedValue(row, "seguimiento_estado");
+    return <CompactBadgeLine color="error">{status}</CompactBadgeLine>;
+};
+
+export const SeguimientoUnifiedTable = ({
+    data,
+    isLoading,
+    now = Date.now(),
+    pagination,
+}: {
+    data: OperacionProceso[];
+    isLoading: boolean;
+    now?: number;
+    pagination?: { page: number; totalPages: number; pageSize: number; onPageChange: (page: number) => void; onPageSizeChange: (pageSize: number) => void };
+}) => (
+    <OperationTable
+        data={data}
+        isLoading={isLoading}
+        emptyText="Sin operaciones para este seguimiento."
+        columns={[
+            { key: "seguimiento_tiempo_atencion_segundos", label: "Tiempo Atención", render: (row: OperacionProceso) => <AttentionTimeCell row={row} now={now} /> },
+            { key: "fecha_registro", label: "Fecha Hora", render: dateCell, headerClassName: "hidden sm:table-cell", cellClassName: "hidden sm:table-cell" },
+            { key: "seguimiento_derivo", label: "Derivo", render: unifiedDerivoCell, headerClassName: "hidden sm:table-cell", cellClassName: "hidden sm:table-cell" },
+            { key: "seguimiento_empresa_cuenta_cuenta", label: "Banco", render: (row: OperacionProceso) => unifiedValue(row, "seguimiento_empresa_cuenta_cuenta") },
+            { key: "seguimiento_flujo", label: "Flujo", render: unifiedFlowCell },
+            { key: "seguimiento_pasos", label: "Pasos", render: unifiedStepsCell, headerClassName: "hidden sm:table-cell", cellClassName: "hidden sm:table-cell" },
+            { key: "seguimiento_codigo_operacion", label: "Cod. Operación", render: (row: OperacionProceso) => unifiedValue(row, "seguimiento_codigo_operacion"), headerClassName: "hidden sm:table-cell", cellClassName: "hidden sm:table-cell" },
+            { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => unifiedValue(row, "dni_cliente") },
+            { key: "nombre_comunidad", label: "Comunidad", render: (row: OperacionProceso) => unifiedValue(row, "nombre_comunidad"), headerClassName: "hidden sm:table-cell", cellClassName: "hidden sm:table-cell" },
+            { key: "seguimiento_monto", label: "Monto", render: (row: OperacionProceso) => unifiedMoney(row, "seguimiento_monto") },
+            { key: "seguimiento_comision_importe", label: "Comisión", render: unifiedCommissionCell },
+            { key: "seguimiento_transferencia", label: "Transferencia", render: unifiedTransferCell },
+            { key: "seguimiento_monto_devolucion", label: "Devolución", render: unifiedReturnCell, headerClassName: "hidden sm:table-cell", cellClassName: "hidden sm:table-cell" },
+            { key: "seguimiento_estado", label: "Estado", render: unifiedStatusCell, headerClassName: "hidden sm:table-cell", cellClassName: "hidden sm:table-cell" },
         ]}
         serverPagination={pagination}
     />

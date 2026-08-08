@@ -153,7 +153,7 @@ export const OperationTable = <T extends { id: number }>({
                                         </td>
                                     )}
                                     {columns.map((column, columnIndex) => (
-                                        <td key={`${String(column.key)}-${columnIndex}`} className="px-2 py-2">
+                                        <td key={`${String(column.key)}-${columnIndex}`} className={cx("px-2 py-2", column.cellClassName)}>
                                             <div className="h-4 w-full min-w-16 max-w-32 animate-pulse rounded bg-secondary" />
                                         </td>
                                     ))}

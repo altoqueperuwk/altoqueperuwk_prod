@@ -83,7 +83,7 @@ function AppRoutes() {
                 <Route path="/atencion/cliente" element={<AtencionClientePage />} />
 
                 <Route path="/seguimientos/operaciones" element={<SeguimientoOperacionesPaginadoPage />} />
-                <Route path="/seguimientos/pago-deuda" element={<SeguimientoOperacionesPaginadoPage initialTab="Pago Deuda" />} />
+                <Route path="/seguimientos/pago-deuda" element={<SeguimientoOperacionesPaginadoPage />} />
                 <Route path="/reportes" element={<Navigate to="/reportes/cierre-caja" replace />} />
                 <Route path="/reportes/cierre-caja" element={<ReporteCierreCajaPage />} />
 

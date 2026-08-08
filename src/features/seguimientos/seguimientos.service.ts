@@ -33,7 +33,28 @@ export interface SeguimientoPaginado {
     total_pendientes: number;
 }
 
+export interface SeguimientoOperacionesUnificado extends SeguimientoPaginado {}
+
 export const seguimientosService = {
+    getOperacionesUnificadoPaginado(params: {
+        ruta?: string | null;
+        flujo?: string | null;
+        dni?: string;
+        codigo?: string;
+        filtroTiempo?: string;
+        page: number;
+        pageSize: number;
+    }) {
+        return rpc<SeguimientoOperacionesUnificado>("f_get_tb_seguimiento_operaciones_paginado", {
+            p_ruta: params.ruta ?? null,
+            p_flujo: params.flujo ?? null,
+            p_dni_cliente: params.dni || null,
+            p_codigo_operacion: params.codigo || null,
+            p_filtro_tiempo: params.filtroTiempo ?? "Todos",
+            p_page: params.page,
+            p_page_size: params.pageSize,
+        });
+    },
     getEfectivizacionPaginado(params: { tab: string; ruta?: string | null; filtroEstado?: string; dni?: string; codigo?: string; filtroTiempo?: string; page: number; pageSize: number }) {
         return rpc<SeguimientoPaginado>("f_get_tb_seguimiento_efectivizacion_paginado", {
             p_tab: params.tab,
