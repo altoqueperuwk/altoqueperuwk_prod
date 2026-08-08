@@ -390,6 +390,7 @@ export const BancariaOperationalTabs = ({
     const [pendingAction, setPendingAction] = useState<"Derivar" | "Emp. Ingreso" | "Emp. Salida" | "Reasignar" | "Transferencia" | "Match" | "Modalidad" | null>(null);
     const [bankDestinations, setBankDestinations] = useState<BancariaBankDestination[]>([]);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
+    const [selectedOperationsById, setSelectedOperationsById] = useState<Record<number, { row: OperacionProceso; tab: BancariaTab }>>({});
     const [individualActionIds, setIndividualActionIds] = useState<number[]>([]);
     const [estadoPagado, setEstadoPagado] = useState<{ id: number; nombre: string } | null>(null);
     const [estadoPendiente, setEstadoPendiente] = useState<{ id: number; nombre: string } | null>(null);
@@ -417,6 +418,10 @@ export const BancariaOperationalTabs = ({
     const [isProcessingOperationRestore, setIsProcessingOperationRestore] = useState(false);
     const handledDownloadKeyRef = useRef(0);
     const isActiveDigitalWallet = isDigitalWalletBank(activeCompanyCaja);
+    const clearSelection = useCallback(() => {
+        setSelectedIds([]);
+        setSelectedOperationsById({});
+    }, []);
     const visibleTabs = useMemo(
         () => {
             if (isActiveDigitalWallet) return [] as BancariaTab[];
@@ -434,16 +439,15 @@ export const BancariaOperationalTabs = ({
         setCode("");
         setDateFrom("");
         setDateTo("");
-        setSelectedIds([]);
         setIndividualActionIds([]);
     }, [activeTab]);
 
     useEffect(() => {
-        setSelectedIds([]);
+        clearSelection();
         setIndividualActionIds([]);
         setPendingAction(null);
         setConfirmQuickAction(null);
-    }, [activeAccountId, activeFilter, activeCompanyId, code, dateFrom, dateTo, dni, historyDate, refreshKey]);
+    }, [activeAccountId, activeCompanyId, clearSelection, code, dateFrom, dateTo, dni, historyDate, refreshKey]);
 
     useEffect(() => {
         if (isActiveDigitalWallet) {
@@ -452,11 +456,11 @@ export const BancariaOperationalTabs = ({
             setCode("");
             setDateFrom("");
             setDateTo("");
-            setSelectedIds([]);
+            clearSelection();
             setPendingAction(null);
             setConfirmQuickAction(null);
         }
-    }, [isActiveDigitalWallet]);
+    }, [clearSelection, isActiveDigitalWallet]);
 
     useEffect(() => {
         if (!visibleTabs.includes(activeTab)) {
@@ -568,6 +572,31 @@ export const BancariaOperationalTabs = ({
         ruta,
         tab: currentTab,
     });
+
+    useEffect(() => {
+        setSelectedOperationsById((current) => {
+            const next = { ...current };
+            let changed = false;
+
+            Object.keys(next).forEach((id) => {
+                if (!selectedIds.includes(Number(id))) {
+                    delete next[Number(id)];
+                    changed = true;
+                }
+            });
+
+            operaciones.forEach((row) => {
+                const existing = next[row.id];
+                if (selectedIds.includes(row.id) && (!existing || existing.tab === currentTab) && existing?.row !== row) {
+                    next[row.id] = { row, tab: currentTab };
+                    changed = true;
+                }
+            });
+
+            return changed ? next : current;
+        });
+    }, [currentTab, operaciones, selectedIds]);
+
     const { data: tabBadges, error: tabBadgesError } = useBancariaTabBadges(
         ruta,
         null,
@@ -889,12 +918,15 @@ export const BancariaOperationalTabs = ({
         () => getMovementColumns(ruta === "safetypay", isHistoryMode ? undefined : setMovementToDelete, isHistoryMode ? undefined : setMovementToReturn),
         [isHistoryMode, ruta],
     );
-    const selectedOperations = operaciones.filter((row) => selectedIds.includes(row.id));
+    const selectedOperations = selectedIds
+        .map((id) => selectedOperationsById[id])
+        .filter((selection): selection is { row: OperacionProceso; tab: BancariaTab } => Boolean(selection));
     const selectedTransferSummary = useMemo(() => {
         if (!["Efectivizacion", "Pago Deuda", "Derivados", "POS"].includes(currentTab)) return null;
 
-        const transferRows = selectedOperations.filter((row) => {
-            if (currentTab === "Pago Deuda") {
+        const transferRows = selectedOperations.filter(({ row, tab }) => {
+            if (!["Efectivizacion", "Pago Deuda", "Derivados", "POS"].includes(tab)) return false;
+            if (tab === "Pago Deuda") {
                 return getPagoDeudaEstadoVisual(row).action === "transferencia";
             }
 
@@ -906,7 +938,7 @@ export const BancariaOperationalTabs = ({
         return {
             count: transferRows.length,
             amount: transferRows.reduce(
-                (sum, row) => sum + toNumber(row.monto_transferencia_cliente ?? row.monto_deposito_cliente),
+                (sum, { row }) => sum + toNumber(row.monto_transferencia_cliente ?? row.monto_deposito_cliente),
                 0,
             ),
         };
@@ -1030,7 +1062,24 @@ export const BancariaOperationalTabs = ({
     }, [addToast, currentMovementColumns, currentOperationColumns, currentTab, downloadKey, movimientos, operaciones, ruta]);
 
     const handleToggleRow = (id: number) => {
-        setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+        const isSelected = selectedIds.includes(id);
+        const row = operaciones.find((item) => item.id === id);
+
+        setSelectedIds((current) => (isSelected ? current.filter((item) => item !== id) : [...current, id]));
+        setSelectedOperationsById((current) => {
+            if (isSelected) {
+                const next = { ...current };
+                delete next[id];
+                return next;
+            }
+
+            return row ? { ...current, [id]: { row, tab: currentTab } } : current;
+        });
+    };
+
+    const handleFilterChange = (value: string) => {
+        if (value !== activeFilter) clearSelection();
+        setActiveFilter(value);
     };
 
     const isActionDisabled = (action: string) => {
@@ -1488,7 +1537,7 @@ export const BancariaOperationalTabs = ({
                                 {selectedTransferSummary.count}
                             </span>
                             <span>Transferir</span>
-                            <span className="-my-px size-max rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-brand-secondary ring-1 ring-primary ring-inset shadow-xs tabular-nums">
+                            <span className="-my-px size-max rounded-md bg-concept-transferencia px-1.5 py-0.5 text-xs font-medium text-primary_on-brand ring-1 ring-concept-transferencia ring-inset shadow-xs tabular-nums">
                                 {formatMoney(selectedTransferSummary.amount)}
                             </span>
                         </div>
@@ -1532,7 +1581,7 @@ export const BancariaOperationalTabs = ({
                 onDateToChange={setDateTo}
                 onCodeChange={currentTab === "Efectivizacion" || currentTab === "Retenidos" ? setCode : undefined}
                 onDniChange={setDni}
-                onFilterChange={setActiveFilter}
+                onFilterChange={handleFilterChange}
                 isActionDisabled={isActionDisabled}
                 onAction={handleAction}
             />
