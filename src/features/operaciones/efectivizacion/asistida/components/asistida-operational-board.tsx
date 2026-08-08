@@ -23,6 +23,7 @@ import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils
 import { cx } from "@/utils/cx";
 import { LinkPagoEditModal } from "@/features/operaciones/efectivizacion/asistida/components/linkpago-edit-modal";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
+import { CopyableDni } from "@/features/operaciones/efectivizacion/shared/components/copyable-dni";
 
 interface AsistidaOperationalBoardProps {
     companies: RutaOperacionCaja[];
@@ -78,7 +79,7 @@ const CompactBadge = ({ children, tone = "default" }: { children: string; tone?:
 
 const baseColumns = [
     { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
-    { key: "dni_cliente", label: "DNI" },
+    { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
     { key: "nombre_cliente", label: "Cliente" },
     { key: "nombre_estado", label: "Estado" },
     {
@@ -98,7 +99,7 @@ const linkpagoColumns = [
             <CompactBadge>{row.nombre_banco_cliente ?? "-"}</CompactBadge>
         ),
     },
-    { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary" },
+    { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
     { key: "nombre_cliente", label: "Nombre", cellClassName: "max-w-[25ch] truncate" },
     { key: "nombre_comunidad", label: "Comunidad" },
     {
@@ -174,7 +175,7 @@ const posColumns = [
             <CompactBadge>{row.nombre_banco_cliente ?? "-"}</CompactBadge>
         ),
     },
-    { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary" },
+    { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
     { key: "nombre_cliente", label: "Nombre", cellClassName: "max-w-[25ch] truncate" },
     { key: "nombre_comunidad", label: "Comunidad" },
     {

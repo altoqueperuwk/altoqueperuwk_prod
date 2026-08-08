@@ -15,6 +15,7 @@ import { bancoService } from "@/services/banco.service";
 import { comunidadService } from "@/services/comunidad.service";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
+import { CopyableDni } from "@/features/operaciones/efectivizacion/shared/components/copyable-dni";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
 import { OperationToolbar } from "@/features/operaciones/efectivizacion/shared/components/operation-toolbar";
 import {
@@ -872,7 +873,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
         {
             key: "dni_cliente",
             label: "DNI",
-            render: (row: OperacionProceso) => <CompactCellText primary={row.dni_cliente ?? "-"} />,
+            render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} />,
         },
         {
             key: "nombre_cliente",

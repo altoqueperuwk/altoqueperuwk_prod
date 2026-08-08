@@ -22,6 +22,7 @@ import type {
     RutaOperacionCaja,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
+import { CopyableDni } from "@/features/operaciones/efectivizacion/shared/components/copyable-dni";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { downloadCsv } from "@/features/operaciones/efectivizacion/shared/utils/csv";
 import { isDigitalWalletBank } from "@/features/operaciones/efectivizacion/shared/utils/digital-wallet";
@@ -76,7 +77,7 @@ interface BancariaOperationalTabsProps {
 
 const baseOperationColumns = [
     { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
-    { key: "dni_cliente", label: "DNI" },
+    { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
     { key: "nombre_cliente", label: "Cliente" },
     { key: "nombre_estado", label: "Estado" },
     { key: "monto_transferencia_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
@@ -126,7 +127,7 @@ const getMovementColumns = (
             </div>
         ),
     },
-    { key: "dni_cliente", label: "DNI", render: (row: MovimientoMerged) => row.dni_cliente || "-" },
+    { key: "dni_cliente", label: "DNI", render: (row: MovimientoMerged) => <CopyableDni value={row.dni_cliente} /> },
     {
         key: "empresa_movimiento",
         label: "Empresa",
@@ -750,7 +751,7 @@ export const BancariaOperationalTabs = ({
             { key: "pasos", label: "Pasos", render: (row: OperacionProceso) => <PagoDeudaSteps row={row} /> },
             { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => (
                 <div className="flex items-center gap-1">
-                    <span className="font-medium text-primary">{row.dni_cliente || "-"}</span>
+                    <CopyableDni value={row.dni_cliente} />
                     <Button size="xs" color="tertiary" iconLeading={Edit03} aria-label="Editar DNI" isDisabled={hasDevolucionConfirmada(row)} onClick={() => setDniEdit({ row, value: row.dni_cliente ?? "" })} />
                 </div>
             ) },
@@ -820,7 +821,7 @@ export const BancariaOperationalTabs = ({
         ],
         Derivados: [
             { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
-            { key: "dni_cliente", label: "DNI" },
+            { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
             { key: "nombre_estado", label: "Estado" },
             { key: "ruta_origen", label: "Origen", render: (row: OperacionProceso) => row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "" },
             { key: "ruta_destino", label: "Destino", render: (row: OperacionProceso) => row.ruta_destino ? getRutaLabel(row.ruta_destino as OperacionRuta) : "" },
@@ -830,7 +831,7 @@ export const BancariaOperationalTabs = ({
         ],
         POS: [
             { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
-            { key: "dni_cliente", label: "DNI" },
+            { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
             { key: "nombre_cliente", label: "Cliente" },
             {
                 key: "empresa_cuenta_salida",
@@ -866,7 +867,7 @@ export const BancariaOperationalTabs = ({
         ],
         Retenidos: [
             { key: "codigo_operacion_deposito_cliente", label: "Codigo" },
-            { key: "dni_cliente", label: "DNI" },
+            { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
             { key: "monto_transferencia_cliente", label: "Monto", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
             { key: "fecha_deposito_cliente", label: "Fecha Deposito", render: (row: OperacionProceso) => row.fecha_deposito_cliente ? new Date(row.fecha_deposito_cliente).toLocaleString("es-PE") : "-" },
             { key: "fecha_corte_recaudacion", label: "Fecha Corte", render: (row: OperacionProceso) => row.fecha_corte_recaudacion ? new Date(row.fecha_corte_recaudacion).toLocaleString("es-PE") : "-" },

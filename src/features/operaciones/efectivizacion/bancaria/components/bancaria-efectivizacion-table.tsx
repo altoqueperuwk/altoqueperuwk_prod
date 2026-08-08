@@ -22,6 +22,7 @@ import {
     getSelectValue,
 } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
+import { CopyableDni } from "@/features/operaciones/efectivizacion/shared/components/copyable-dni";
 import type { OperacionProceso, OperacionRuta, OperacionRutaBancaria, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { formatInteger, formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { isInteractiveElement } from "@/features/operaciones/efectivizacion/shared/utils/row-selection";
@@ -1032,7 +1033,7 @@ export const BancariaEfectivizacionTable = ({
                                         <td className="px-2 py-2 align-top">
                                             {row.dni_cliente ? (
                                                 <div className="flex items-center gap-1">
-                                                    <CompactCellText primary={row.dni_cliente} />
+                                                    <CopyableDni value={row.dni_cliente} />
                                                     {!disabledIngreso && !isDerivaciones && (
                                                         <Button
                                                             size="xs"

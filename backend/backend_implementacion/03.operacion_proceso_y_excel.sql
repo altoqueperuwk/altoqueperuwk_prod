@@ -1366,6 +1366,7 @@ BEGIN
     WHERE dni_cliente = p_dni_cliente
       AND codigo_operacion_deposito_cliente = p_codigo_operacion_deposito_cliente
       AND id_codigo_servicio = p_id_codigo_servicio
+      AND COALESCE(id_estado, 0) <> 10
       AND fecha_deposito_cliente::date BETWEEN (p_fecha_deposito_cliente::date - 7) AND (p_fecha_deposito_cliente::date + 7)
     LIMIT 1;
 
@@ -2694,12 +2695,6 @@ BEGIN
         'id', v_id,
         'motivo', 'La operacion ya no se encuentra en estado Pendiente.'
       ));
-    ELSIF COALESCE(v_actual.flag_retenido, false)
-       OR UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) = 'RETENIDO' THEN
-      v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
-        'id', v_id,
-        'motivo', 'La operacion se encuentra retenida.'
-      ));
     ELSIF v_actual.id_caja_cierre IS NOT NULL THEN
       v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
         'id', v_id,
@@ -3725,6 +3720,7 @@ BEGIN
     WHERE dni_cliente = v_dni_parseado
       AND codigo_operacion_deposito_cliente = v_fila.codigo_operacion
       AND id_codigo_servicio = p_id_codigo_servicio
+      AND COALESCE(id_estado, 0) <> 10
       AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
     LIMIT 1;
 
@@ -4369,6 +4365,7 @@ BEGIN
     WHERE dni_cliente = v_dni_parseado
       AND codigo_operacion_deposito_cliente = v_fila.codigo_operacion
       AND id_codigo_servicio = p_id_codigo_servicio
+      AND COALESCE(id_estado, 0) <> 10
       AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
     LIMIT 1;
 
