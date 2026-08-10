@@ -1,0 +1,10 @@
+INSERT INTO public.tb_estado (id, nombre, id_usuario, fecha_registro) VALUES (1, 'Activo', null, '2026-07-11 03:43:43.561243 -05:00');
+INSERT INTO public.tb_estado (id, nombre, id_usuario, fecha_registro) VALUES (2, 'Inactivo', null, '2026-07-11 03:43:43.561243 -05:00');
+INSERT INTO public.tb_estado (id, nombre, id_usuario, fecha_registro) VALUES (3, 'Pendiente', null, '2026-07-13 10:50:50.287065 -05:00');
+INSERT INTO public.tb_estado (id, nombre, id_usuario, fecha_registro) VALUES (4, 'Pagado', null, '2026-07-13 10:50:50.287065 -05:00');
+INSERT INTO public.tb_estado (id, nombre, id_usuario, fecha_registro) VALUES (5, 'Rechazado', null, '2026-07-13 10:50:50.287065 -05:00');
+INSERT INTO public.tb_estado (id, nombre, id_usuario, fecha_registro) VALUES (6, 'Error', null, '2026-07-13 10:50:50.287065 -05:00');
+INSERT INTO public.tb_estado (id, nombre, id_usuario, fecha_registro) VALUES (7, 'Solicitado', null, '2026-07-13 10:50:50.287065 -05:00');
+INSERT INTO public.tb_estado (id, nombre, id_usuario, fecha_registro) VALUES (8, 'Procesado', 1, '2026-07-15 10:25:40.039071 -05:00');
+INSERT INTO public.tb_estado (id, nombre, id_usuario, fecha_registro) VALUES (9, 'Retenido', null, '2026-07-16 11:34:45.616015 -05:00');
+INSERT INTO public.tb_estado (id, nombre, id_usuario, fecha_registro) VALUES (10, 'Eliminado', null, '2026-08-01 11:03:09.484026 -05:00');

@@ -3,11 +3,20 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
-interface BusinessUser {
+export interface BusinessUser {
     id: string;
     email: string;
     [key: string]: unknown;
 }
+
+export const isAdministrator = (businessUser: BusinessUser | null | undefined) =>
+    Number(businessUser?.id_rol ?? 0) === 1
+    || String(businessUser?.rol_nombre ?? "").trim().toUpperCase() === "ADMINISTRADOR"
+    || businessUser?.flag_super_admin === true;
+
+export const isJefeTienda = (businessUser: BusinessUser | null | undefined) =>
+    Number(businessUser?.id_rol ?? 0) === 3
+    || String(businessUser?.rol_nombre ?? "").trim().toUpperCase() === "JEFE DE TIENDA";
 
 interface AuthContextType {
     user: User | null;

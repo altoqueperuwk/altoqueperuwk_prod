@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import ExcelJS from "exceljs";
 import { AppLayout } from "@/components/application/app-layout";
@@ -23,6 +23,7 @@ import { operacionesRpcService } from "@/features/operaciones/efectivizacion/sha
 import type { CajaOperativa, OperacionRutaBancaria } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { isDigitalWalletBank } from "@/features/operaciones/efectivizacion/shared/utils/digital-wallet";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
+import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { BancariaExcelUpload } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-excel-upload";
 import { BancariaInlineForms } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-inline-forms";
 import { BancariaKpiGrid } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-kpi-grid";
@@ -52,6 +53,8 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const [editSaldoInicial, setEditSaldoInicial] = useState("");
     const [isSavingCaja, setIsSavingCaja] = useState(false);
     const [isDownloadOpen, setIsDownloadOpen] = useState(false);
+    const [saldoInicialWarning, setSaldoInicialWarning] = useState<{ companyName: string; accountName: string; saldoInicial: number } | null>(null);
+    const validatedSaldoKeys = useRef(new Set<string>());
     const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
     const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
     const [todayCloseDateKey, setTodayCloseDateKey] = useState<string | null>(null);
@@ -72,7 +75,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         setActiveAccountId,
         setActiveCompanyId,
     } = useActiveCompany(cajas, ruta);
-    const { data: kpi, error: kpiError, isLoading: isLoadingKpis } = useBancariaKpis(
+    const { data: kpi, error: kpiError, isLoading: isLoadingKpis, loadedKey: loadedKpiKey } = useBancariaKpis(
         ruta,
         activeCompanyId,
         activeAccountId,
@@ -80,6 +83,27 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         selectedHistoryDate,
         refreshKey + metricsRefreshKey,
     );
+    const currentKpiKey = `${ruta}:${activeCompanyId ?? ""}:${activeAccountId ?? ""}:${activeCajaId ?? ""}:`;
+
+    useEffect(() => {
+        if (selectedHistoryDate || !activeCompanyId || !activeAccountId || !kpi || loadedKpiKey !== currentKpiKey) {
+            return;
+        }
+
+        if (validatedSaldoKeys.current.has(currentKpiKey)) {
+            return;
+        }
+
+        validatedSaldoKeys.current.add(currentKpiKey);
+
+        if (Number(kpi.caja_inicial ?? 0) <= 0) {
+            setSaldoInicialWarning({
+                companyName: activeCompanyCaja?.nombre_empresa ?? activeCompany?.nombre_empresa ?? "La empresa seleccionada",
+                accountName: activeCompanyCaja?.nombre_banco ?? routeLabel,
+                saldoInicial: Number(kpi.caja_inicial ?? 0),
+            });
+        }
+    }, [activeCompany, activeCompanyCaja, activeAccountId, activeCajaId, activeCompanyId, currentKpiKey, kpi, loadedKpiKey, routeLabel, selectedHistoryDate]);
     const activeCajaIds = useMemo(
         () => activeCajaId ? [activeCajaId] : [],
         [activeCajaId],
@@ -840,6 +864,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
 
                 {isCajasOpen && (
                     <OperacionCajasRutaModal
+                        activeCompanyId={activeCompanyId}
                         isOpen={isCajasOpen}
                         onClose={() => setIsCajasOpen(false)}
                         onSaved={() => setRefreshKey((value) => value + 1)}
@@ -936,6 +961,27 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     onConfirm={() => void handleConfirmReopenClose()}
                     title="Reabrir ultimo cierre"
                 />
+
+                <ModalOverlay isOpen={saldoInicialWarning !== null} onOpenChange={(open) => !open && setSaldoInicialWarning(null)}>
+                    <Modal className="max-w-md">
+                        <Dialog>
+                            <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                                <div className="flex flex-col gap-2">
+                                    <h2 className="text-lg font-semibold text-primary">Saldo inicial requerido</h2>
+                                    <p className="text-sm text-tertiary">
+                                        La caja de <span className="font-medium text-primary">{saldoInicialWarning?.companyName}</span> — {saldoInicialWarning?.accountName} tiene un saldo inicial de {formatMoney(saldoInicialWarning?.saldoInicial)}.
+                                    </p>
+                                    <p className="text-sm text-tertiary">
+                                        Ingresa el saldo inicial desde <span className="font-medium text-primary">Configuración &gt; Cajas</span> antes de registrar o procesar operaciones, para evitar errores por saldo negativo.
+                                    </p>
+                                </div>
+                                <div className="mt-6 flex justify-end">
+                                    <Button color="primary" onClick={() => setSaldoInicialWarning(null)}>Entendido</Button>
+                                </div>
+                            </div>
+                        </Dialog>
+                    </Modal>
+                </ModalOverlay>
 
             </div>
         </AppLayout>

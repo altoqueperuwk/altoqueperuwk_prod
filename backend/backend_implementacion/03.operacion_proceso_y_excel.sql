@@ -682,6 +682,24 @@ BEGIN
 
   v_es_linkpago := LOWER(COALESCE(v_actual.ruta_origen, '')) = 'linkpago';
 
+  IF LOWER(COALESCE(v_actual.ruta_origen, '')) IN ('pos', 'linkpago')
+     AND EXISTS (
+       SELECT 1
+       FROM public.tb_usuario u
+       LEFT JOIN public.tb_rol r ON r.id = u.id_rol
+       WHERE u.id = p_id_usuario
+         AND (
+           u.id_rol = 3
+           OR UPPER(BTRIM(COALESCE(r.nombre, ''))) = 'JEFE DE TIENDA'
+         )
+     )
+     AND (
+       v_actual.id_usuario_solicitud IS NULL
+       OR v_actual.id_usuario_solicitud IS DISTINCT FROM p_id_usuario
+     ) THEN
+    RETURN jsonb_build_object('error', 'Solo el usuario que registro la operacion puede eliminarla.');
+  END IF;
+
   IF COALESCE(v_actual.id_estado, 0) = 10
      OR UPPER(COALESCE(v_actual.nombre_estado, '')) = 'ELIMINADO'
      OR (

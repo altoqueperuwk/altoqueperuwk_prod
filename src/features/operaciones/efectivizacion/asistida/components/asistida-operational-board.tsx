@@ -5,7 +5,7 @@ import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
-import { useAuth } from "@/providers/auth-provider";
+import { isAdministrator, isJefeTienda, useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { bancoService } from "@/services/banco.service";
 import { estadoService } from "@/services/estado.service";
@@ -262,6 +262,13 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
 
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
+    const isAdministratorProfile = isAdministrator(businessUser);
+    const isJefeTiendaProfile = isJefeTienda(businessUser);
+    const canViewAllAssisted = isAdministratorProfile || isJefeTiendaProfile;
+    const canManageOperation = (row: OperacionProceso) =>
+        isAdministratorProfile
+        || !isJefeTiendaProfile
+        || (userId !== null && Number(row.id_usuario_solicitud) === userId);
     const actions: string[] = [];
     const columns = useMemo(
         () => {
@@ -275,17 +282,18 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                             <ButtonUtility
                                 size="xs"
                                 color="tertiary"
-                                tooltip="Editar solicitud"
+                                tooltip={canManageOperation(row) ? "Editar solicitud" : "Solo el usuario que registro la operacion puede editarla"}
                                 icon={Edit03}
+                                isDisabled={!canManageOperation(row)}
                                 onClick={() => setEditOperation(row)}
                             />
                         )}
                         <ButtonUtility
                             size="xs"
                             color="tertiary"
-                            tooltip="Eliminar operación"
+                            tooltip={canManageOperation(row) ? "Eliminar operacion" : "Solo el usuario que registro la operacion puede eliminarla"}
                             icon={Trash01}
-                            isDisabled={ruta !== "linkpago" && isPagado(row)}
+                            isDisabled={!canManageOperation(row) || (ruta !== "linkpago" && isPagado(row))}
                             onClick={() => setDeleteOperation(row)}
                         />
                     </div>
@@ -296,7 +304,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
             if (ruta === "linkpago") return [...linkpagoColumns, actionColumn];
             return baseColumns;
         },
-        [ruta],
+        [isAdministratorProfile, isJefeTiendaProfile, ruta, userId],
     );
     const entidadTarjetaOptions = useMemo(
         () => {
@@ -334,8 +342,8 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
             p_ruta: ruta,
             p_fecha_registro_desde: `${selectedDate}T00:00:00`,
             p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
-            p_id_usuario_solicitud: userId,
         };
+        if (!canViewAllAssisted) values.p_id_usuario_solicitud = userId;
 
         if (ruta !== "pos" && codigo.trim()) values.p_codigo_operacion = codigo.trim();
         if (dni.trim()) values.p_dni_cliente = dni.trim();
@@ -344,7 +352,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         if (entidadTarjetaFiltro) values.p_id_banco_cliente = Number(entidadTarjetaFiltro);
 
         return values;
-    }, [activeFilter, codigo, dni, entidadTarjetaFiltro, estadoSolicitado, ruta, selectedDate]);
+    }, [activeFilter, canViewAllAssisted, codigo, dni, entidadTarjetaFiltro, estadoSolicitado, ruta, selectedDate, userId]);
 
     useEffect(() => {
         let ignore = false;

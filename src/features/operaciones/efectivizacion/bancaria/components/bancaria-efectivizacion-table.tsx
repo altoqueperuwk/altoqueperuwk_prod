@@ -18,7 +18,6 @@ import {
     CompactBadgeLine,
     CompactCellText,
     CompactInlineSelect,
-    CompactMoneyCell,
     getSelectValue,
 } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
@@ -70,6 +69,8 @@ interface BancariaEfectivizacionTableProps {
     estadoPendiente: EstadoRef | null;
     isLoading?: boolean;
     mode?: "efectivizacion" | "derivaciones" | "eliminados";
+    presentation?: "operational" | "plain";
+    readOnly?: boolean;
     onMetricsChanged: () => void;
     onRefresh: () => void;
     onRowUpdated: (row: OperacionProceso) => void;
@@ -188,6 +189,8 @@ export const BancariaEfectivizacionTable = ({
     estadoPendiente,
     isLoading = false,
     mode = "efectivizacion",
+    presentation = "operational",
+    readOnly = false,
     onMetricsChanged,
     onRefresh,
     onRowUpdated,
@@ -222,7 +225,8 @@ export const BancariaEfectivizacionTable = ({
     const [pdSelectedMatchId, setPdSelectedMatchId] = useState<number | null>(null);
     const [dniEdit, setDniEdit] = useState<{ row: OperacionProceso; value: string } | null>(null);
     const [confirmAction, setConfirmAction] = useState<{ row: OperacionProceso; type: ConfirmActionType } | null>(null);
-    const hasSelection = Boolean(onToggleRow);
+    const hasSelection = Boolean(onToggleRow) && !readOnly;
+    const isPlain = presentation === "plain";
     const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
 
     useEffect(() => {
@@ -264,7 +268,10 @@ export const BancariaEfectivizacionTable = ({
     const visibleIds = paginatedRows.filter((row) => !isFrozenOriginOperation(row, mode, ruta)).map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
     const showTipoDeposito = tipoDepositoVisibleRoutes.includes(ruta);
-    const columnHeaders = useMemo(() => getColumnHeaders(mode === "derivaciones"), [mode]);
+    const columnHeaders = useMemo(
+        () => getColumnHeaders(mode === "derivaciones").filter((column) => !readOnly || column.label !== "Acciones"),
+        [mode, readOnly],
+    );
     const tableColSpan = columnHeaders.length + (hasSelection ? 1 : 0);
     const activeCompanyAccounts = useMemo(
         () => companies.filter((company) =>
@@ -989,7 +996,9 @@ export const BancariaEfectivizacionTable = ({
                                             </td>
                                         )}
                                         <td className="px-2 py-2 align-top">
-                                            {disabledIngreso ? (
+                                            {isPlain ? (
+                                                <span className="text-sm text-secondary">{row.tipo_facturacion ?? "Boleta"}</span>
+                                            ) : disabledIngreso ? (
                                                 <CompactBadgeLine color={row.tipo_facturacion === "Sin Boleta" ? "gray" : "brand"}>{row.tipo_facturacion ?? "Boleta"}</CompactBadgeLine>
                                             ) : (
                                                 <CompactInlineSelect
@@ -1004,18 +1013,26 @@ export const BancariaEfectivizacionTable = ({
 
                                         {isDerivaciones && (
                                             <td className="px-2 py-2 align-top">
-                                                <CompactBadgeLine color={row.ruta_origen ? "brand" : "gray"}>
+                                                {isPlain ? (
+                                                    <span className="text-sm text-secondary">{row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "-"}</span>
+                                                ) : <CompactBadgeLine color={row.ruta_origen ? "brand" : "gray"}>
                                                     {row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "-"}
-                                                </CompactBadgeLine>
+                                                </CompactBadgeLine>}
                                             </td>
                                         )}
 
                                         <td className="px-2 py-2 align-top">
-                                            <div className="flex flex-col items-start gap-1">
-                                                <CompactCellText primary={row.codigo_operacion_deposito_cliente ?? "-"} />
-                                                {frozenOrigin && <CompactBadgeLine color="gray">Derivada</CompactBadgeLine>}
-                                            </div>
-                                            {showTipoDeposito && (
+                                            {isPlain ? (
+                                                <div className="flex flex-col items-start gap-1 text-sm text-secondary">
+                                                    <span>{row.codigo_operacion_deposito_cliente ?? "-"}</span>
+                                                    {frozenOrigin && <span>Derivada</span>}
+                                                </div>
+                                            ) : <>
+                                                <div className="flex flex-col items-start gap-1">
+                                                    <CompactCellText primary={row.codigo_operacion_deposito_cliente ?? "-"} />
+                                                    {frozenOrigin && <CompactBadgeLine color="gray">Derivada</CompactBadgeLine>}
+                                                </div>
+                                                {showTipoDeposito && (
                                                 disabledIngreso || tipoOptions.length <= 1 ? (
                                                     <CompactBadgeLine color="gray" className="mt-1">{row.nombre_tipo_deposito ?? "Sin tipo"}</CompactBadgeLine>
                                                 ) : (
@@ -1028,10 +1045,13 @@ export const BancariaEfectivizacionTable = ({
                                                         options={tipoOptions}
                                                     />
                                                 )
-                                            )}
+                                                )}
+                                            </>}
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            {row.dni_cliente ? (
+                                            {isPlain ? (
+                                                <span className="text-sm text-secondary">{row.dni_cliente || "-"}</span>
+                                            ) : row.dni_cliente ? (
                                                 <div className="flex items-center gap-1">
                                                     <CopyableDni value={row.dni_cliente} />
                                                     {!disabledIngreso && !isDerivaciones && (
@@ -1060,17 +1080,21 @@ export const BancariaEfectivizacionTable = ({
                                             )}
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            <CompactInlineSelect
+                                            {isPlain ? (
+                                                <span className="text-sm text-secondary">{row.nombre_comunidad || "-"}</span>
+                                            ) : <CompactInlineSelect
                                                 aria-label="Comunidad"
                                                 width="w-24"
                                                 disabled={disabledIngreso}
                                                 value={String(row.id_comunidad ?? "")}
                                                 onChange={(event) => void handleCommunityChange(row, event.currentTarget.value)}
                                                 options={(comunidades ?? []).map((item) => toOption(item.id, item.nombre))}
-                                            />
+                                            />}
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            <CompactInlineSelect
+                                            {isPlain ? (
+                                                <span className="text-sm text-secondary">{row.nombre_banco_cliente_transferencia || row.nombre_banco_cliente || "-"}</span>
+                                            ) : <CompactInlineSelect
                                                 aria-label="Cuenta cliente"
                                                 width="w-32"
                                                 disabled={disabledSalida}
@@ -1089,13 +1113,15 @@ export const BancariaEfectivizacionTable = ({
                                                     }, true);
                                                 }}
                                                 options={cuentaClienteOptions}
-                                            />
+                                            />}
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            <CompactMoneyCell value={row.monto_deposito_cliente} />
+                                            <span className="text-sm tabular-nums text-secondary">{formatMoney(row.monto_deposito_cliente)}</span>
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            <div className="tabular-nums">
+                                            {isPlain ? (
+                                                <span className="text-sm tabular-nums text-secondary">{formatMoney(row.resultado_comision_servicio)}</span>
+                                            ) : <div className="tabular-nums">
                                                 {(() => {
                                                     const recurring = recurringByOperation[row.id];
                                                     const hasRecurringSpecial = recurring?.especial !== null && recurring?.especial !== undefined;
@@ -1125,10 +1151,12 @@ export const BancariaEfectivizacionTable = ({
                                                         </>
                                                     );
                                                 })()}
-                                            </div>
+                                            </div>}
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            <div className="flex items-center gap-1">
+                                            {isPlain ? (
+                                                <span className="text-sm tabular-nums text-secondary">{formatMoney(displayedTransferAmount)}</span>
+                                            ) : <div className="flex items-center gap-1">
                                                 <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-concept-transferencia">{formatMoney(displayedTransferAmount)}</span>
                                                 <Button
                                                     size="xs"
@@ -1137,22 +1165,26 @@ export const BancariaEfectivizacionTable = ({
                                                     isDisabled={frozenOrigin}
                                                     onClick={() => void handleAction({ ...row, monto_transferencia_cliente: displayedTransferAmount }, "Copiar")}
                                                 />
-                                            </div>
+                                            </div>}
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            <Button
+                                            {isPlain ? (
+                                                <span className="text-sm text-secondary">{isPagado(row) ? "Pagado" : "Pendiente"}</span>
+                                            ) : <Button
                                                 size="xs"
                                                 color={isPagado(row) ? "secondary" : "primary"}
                                                 isDisabled={rowSaving || frozenOrigin || isEliminados || isPagado(row) || !estadoPagado}
                                                 onClick={() => estadoPagado && void handleEstado(row, String(estadoPagado.id))}
                                             >
                                                 {isPagado(row) ? "Pagado" : "Pendiente"}
-                                            </Button>
+                                            </Button>}
                                         </td>
                                         <td className="px-2 py-2 align-top">
-                                            <CompactCellText primary={formatTime(row.fecha_deposito_cliente) || "-"} secondary={formatDate(row.fecha_deposito_cliente)} />
+                                            {isPlain ? (
+                                                <span className="text-sm text-secondary">{formatDate(row.fecha_deposito_cliente) || "-"}</span>
+                                            ) : <CompactCellText primary={formatTime(row.fecha_deposito_cliente) || "-"} secondary={formatDate(row.fecha_deposito_cliente)} />}
                                         </td>
-                                        <td className="px-2 py-2 text-center align-top">
+                                                {!readOnly && <td className="px-2 py-2 text-center align-top">
                                             <div className="flex items-center justify-center gap-1">
                                                 {(mode === "efectivizacion" || mode === "derivaciones") && ruta !== "safetypay" && (
                                                     <ButtonUtility
@@ -1174,7 +1206,7 @@ export const BancariaEfectivizacionTable = ({
                                                         color="secondary"
                                                         icon={CreditCardCheck}
                                                         tooltip="Confirmar Pago Deuda"
-                                                        className="rounded-lg bg-brand-solid text-white ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover"
+                                                        className="rounded-lg bg-concept-transferencia text-primary_on-brand ring-1 ring-concept-transferencia ring-inset hover:opacity-90"
                                                         isDisabled={pdDisabled}
                                                         onClick={() => {
                                                             setPdSelectedMatchId(null);
@@ -1213,7 +1245,7 @@ export const BancariaEfectivizacionTable = ({
                                             </Dropdown.Root>}
                                             </div>
                                             {rowSaving && <p className="mt-1 text-xs text-tertiary">Guardando...</p>}
-                                        </td>
+                                                </td>}
                                     </motion.tr>
                                 );
                             })

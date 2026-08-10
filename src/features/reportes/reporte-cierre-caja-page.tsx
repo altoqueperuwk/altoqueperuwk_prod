@@ -51,7 +51,7 @@ const normalizeBank = (value: string | null | undefined) => String(value ?? "").
 
 const filterButtonClass = "min-w-0 justify-center";
 
-export const ReporteCierreCajaPage = () => {
+const LegacyReporteCierreCajaPage = () => {
     const { addToast } = useToast();
     const [allRows, setAllRows] = useState<ReporteCierreCajaRow[]>([]);
     const [datedRows, setDatedRows] = useState<ReporteCierreCajaRow[]>([]);
@@ -321,3 +321,5 @@ export const ReporteCierreCajaPage = () => {
         </AppLayout>
     );
 };
+
+export { ReporteCierreCajaOperationalPage as ReporteCierreCajaPage } from "./reporte-cierre-caja-operational-page";

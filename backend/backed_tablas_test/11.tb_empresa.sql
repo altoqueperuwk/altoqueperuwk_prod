@@ -1,0 +1,14 @@
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (2, 'Hueso Cash S.A.', 'HuesoCash', true, 1, null, '2026-07-12 00:46:45.209470 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (5, 'Capital Nova S.A.', 'Capital Nova', true, 1, null, '2026-07-12 00:48:12.070843 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (4, 'Impulsa Capital Corp S.A.', 'Impulsa', true, 1, null, '2026-07-12 00:47:48.516688 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (8, 'Academia WK S.A.', 'Academia', true, 1, null, '2026-07-15 15:44:31.888422 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (11, 'Habita Express S.A.', 'Habita Express', true, 1, null, '2026-07-18 18:17:01.240828 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (12, 'Abitex S.A.', 'Abitex', true, 1, null, '2026-07-18 18:17:21.991668 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (3, 'TwoService (1) S.A.', 'TwoService (1)', true, 1, null, '2026-07-12 00:47:12.481662 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (13, 'TwoService (2) S.A.', 'TwoService (2)', true, 1, null, '2026-07-18 18:20:31.343601 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (15, 'POS', 'POS', false, 1, null, '2026-07-25 01:42:51.474374 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (16, 'Link Pago', 'Link Pago', false, 1, null, '2026-07-25 11:36:39.402118 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (10, 'F35', 'F35', true, 1, null, '2026-07-15 18:34:20.078305 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (14, 'SafetyPay', 'SafetyPay', true, 1, null, '2026-07-24 07:52:31.995629 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (7, 'A Cuenta WK S.A.', 'ACuenta', true, 1, null, '2026-07-14 23:37:38.878300 -05:00');
+INSERT INTO public.tb_empresa (id, nombre, abreviatura, flag_transferencia, id_estado, id_usuario, fecha_registro) VALUES (6, 'Fluxopay S.A.', 'Fluxopay', true, 1, null, '2026-07-12 00:48:29.922073 -05:00');

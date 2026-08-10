@@ -1,0 +1,10 @@
+INSERT INTO public.tb_comunidad (id, nombre, id_estado, id_usuario, fecha_registro) VALUES (10, 'ATK1', 1, null, '2026-07-11 10:21:27.020461 -05:00');
+INSERT INTO public.tb_comunidad (id, nombre, id_estado, id_usuario, fecha_registro) VALUES (13, 'FK', 1, null, '2026-07-11 10:21:43.522938 -05:00');
+INSERT INTO public.tb_comunidad (id, nombre, id_estado, id_usuario, fecha_registro) VALUES (14, 'BETO30', 1, null, '2026-07-11 10:21:49.123478 -05:00');
+INSERT INTO public.tb_comunidad (id, nombre, id_estado, id_usuario, fecha_registro) VALUES (15, 'LUIS30', 1, null, '2026-07-11 10:21:55.100691 -05:00');
+INSERT INTO public.tb_comunidad (id, nombre, id_estado, id_usuario, fecha_registro) VALUES (16, 'MARTIN30', 1, null, '2026-07-11 10:22:00.871734 -05:00');
+INSERT INTO public.tb_comunidad (id, nombre, id_estado, id_usuario, fecha_registro) VALUES (17, 'CCFVIP', 1, null, '2026-07-11 10:22:08.364966 -05:00');
+INSERT INTO public.tb_comunidad (id, nombre, id_estado, id_usuario, fecha_registro) VALUES (18, 'REMY', 1, null, '2026-07-11 10:22:13.684566 -05:00');
+INSERT INTO public.tb_comunidad (id, nombre, id_estado, id_usuario, fecha_registro) VALUES (19, 'JACK30', 1, null, '2026-07-25 17:25:25.819460 -05:00');
+INSERT INTO public.tb_comunidad (id, nombre, id_estado, id_usuario, fecha_registro) VALUES (11, 'ATK50', 1, null, '2026-07-11 10:21:33.412671 -05:00');
+INSERT INTO public.tb_comunidad (id, nombre, id_estado, id_usuario, fecha_registro) VALUES (12, 'ATK30', 1, null, '2026-07-11 10:21:38.374283 -05:00');

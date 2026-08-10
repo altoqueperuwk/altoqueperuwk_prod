@@ -21,6 +21,7 @@ interface OperacionCajasRutaModalProps {
     onClose: () => void;
     onSaved?: () => void;
     ruta: OperacionRutaBancaria;
+    activeCompanyId?: number | null;
 }
 
 interface CuentaRow {
@@ -94,7 +95,7 @@ const toCajaComparable = (row: CajaDraft) => ({
     id_estado: row.id_estado,
 });
 
-export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta }: OperacionCajasRutaModalProps) => {
+export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, activeCompanyId }: OperacionCajasRutaModalProps) => {
     const { businessUser } = useAuth();
     const { estados } = useSessionCache();
     const { addToast } = useToast();
@@ -154,10 +155,13 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta }: Oper
                 empresaCuentaBancariaService.getList(),
                 cajaOperativaService.getList(),
             ]);
-            const cuentaRows = (cuentasResult ?? []).map(buildCuenta);
+            const cuentaRows = (cuentasResult ?? [])
+                .map(buildCuenta)
+                .filter((cuenta) => !activeCompanyId || cuenta.id_empresa === activeCompanyId);
             const cajaRows = (cajasResult ?? [])
                 .map(buildCajaDraft)
-                .filter((caja) => isCompatibleBank(Number(caja.id_banco ?? 0), caja.nombre_banco));
+                .filter((caja) => isCompatibleBank(Number(caja.id_banco ?? 0), caja.nombre_banco))
+                .filter((caja) => !activeCompanyId || Number(caja.id_empresa) === activeCompanyId);
 
             setCuentas(cuentaRows);
             setCajas(cajaRows);
@@ -167,7 +171,7 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta }: Oper
         } finally {
             setIsLoadingCajas(false);
         }
-    }, [addToast, isCompatibleBank]);
+    }, [activeCompanyId, addToast, isCompatibleBank]);
 
     useEffect(() => {
         if (!isOpen) return;

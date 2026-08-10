@@ -467,13 +467,24 @@ Objetivo:
   Listar solo filas BANCO para el tab Pago Deuda dentro de las rutas bancarias
   (bcp, bbva, scotiabank, banbif, interbank). Excluye RETORNO y SOLICITUD.
 */
+DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_bandeja(
+  character varying,
+  bigint,
+  bigint,
+  character varying,
+  character varying,
+  bigint
+);
+
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_bandeja(
   p_ruta character varying,
   p_id_empresa_salida bigint DEFAULT NULL,
   p_id_empresa_cuenta_salida bigint DEFAULT NULL,
   p_dni_cliente character varying DEFAULT NULL,
   p_codigo_operacion character varying DEFAULT NULL,
-  p_id_estado bigint DEFAULT NULL
+  p_id_estado bigint DEFAULT NULL,
+  p_fecha_caja_cierre_desde timestamp with time zone DEFAULT NULL,
+  p_fecha_caja_cierre_hasta timestamp with time zone DEFAULT NULL
 )
 RETURNS SETOF jsonb
 LANGUAGE sql
@@ -541,6 +552,19 @@ AS $$
     AND op.ruta_destino = p_ruta
     AND (p_id_empresa_salida IS NULL OR op.id_empresa_salida = p_id_empresa_salida)
     AND (p_id_empresa_cuenta_salida IS NULL OR op.id_empresa_cuenta_salida = p_id_empresa_cuenta_salida)
+    AND (
+      (
+        p_fecha_caja_cierre_desde IS NULL
+        AND p_fecha_caja_cierre_hasta IS NULL
+        AND op.id_caja_cierre IS NULL
+      )
+      OR (
+        (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
+        AND op.id_caja_cierre IS NOT NULL
+        AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+        AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+      )
+    )
     AND (p_dni_cliente IS NULL OR op.dni_cliente ILIKE '%' || p_dni_cliente || '%')
     AND (
       p_codigo_operacion IS NULL
@@ -784,6 +808,13 @@ BEGIN
   END IF;
 
   IF v_mov.id_caja_cierre IS NOT NULL THEN
+    IF v_mov.id_caja IS DISTINCT FROM v_caja.id THEN
+      RETURN jsonb_build_object(
+        'error',
+        'La comision ya pertenece a un cierre de caja distinto y no puede reubicarse.'
+      );
+    END IF;
+
     SELECT x
     INTO v_result
     FROM public.f_get_tb_operacion_caja(p_id := v_mov.id) AS x
@@ -2058,11 +2089,6 @@ BEGIN
 
   UPDATE public.tb_operacion_proceso
   SET fecha_deposito_cliente = v_op_efect.fecha_deposito_cliente,
-      id_empresa_ingreso = v_op_efect.id_empresa_ingreso,
-      nombre_empresa_ingreso = v_op_efect.nombre_empresa_ingreso,
-      id_empresa_cuenta_ingreso = v_op_efect.id_empresa_cuenta_ingreso,
-      id_banco_empresa_cuenta_ingreso = v_op_efect.id_banco_empresa_cuenta_ingreso,
-      nombre_banco_empresa_cuenta_ingreso = v_op_efect.nombre_banco_empresa_cuenta_ingreso,
       monto_devuelto = COALESCE(v_op_deuda.monto_devuelto, 0) + COALESCE(v_op_efect.monto_deposito_cliente, 0),
       id_operacion_match = CASE
         WHEN (COALESCE(v_op_deuda.monto_devuelto, 0) + COALESCE(v_op_efect.monto_deposito_cliente, 0)) >= COALESCE(v_op_deuda.monto_deposito_cliente, 0)
@@ -2137,6 +2163,8 @@ DECLARE
   v_result jsonb;
   v_input record;
   v_op record;
+  v_root record;
+  v_cuenta_comision record;
   v_ruta_kpi character varying;
   v_salida_result jsonb;
   v_comision_result jsonb;
@@ -2145,7 +2173,8 @@ BEGIN
   INTO v_input
   FROM public.tb_operacion_proceso
   WHERE id = p_id_operacion
-  LIMIT 1;
+  LIMIT 1
+  FOR UPDATE;
 
   IF v_input.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Operacion de Pago Deuda no encontrada.');
@@ -2158,7 +2187,8 @@ BEGIN
     WHERE id_operacion_padre = v_input.id
       AND UPPER(COALESCE(tipo_flujo_pago_deuda, '')) = 'BANCO'
     ORDER BY id
-    LIMIT 1;
+    LIMIT 1
+    FOR UPDATE;
   ELSE
     v_op := v_input;
   END IF;
@@ -2167,13 +2197,14 @@ BEGIN
     RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de Pago Deuda.');
   END IF;
 
-  IF NULLIF(BTRIM(COALESCE((
-    SELECT root.codigo_operacion_deposito_cliente
-    FROM public.tb_operacion_proceso root
-    WHERE root.id = v_op.id_operacion_padre
-    LIMIT 1
-  ), '')), '') IS NULL THEN
-    RETURN jsonb_build_object('error', 'Registra el codigo de operacion de la comision antes de finalizar Pago Deuda.');
+  SELECT *
+  INTO v_root
+  FROM public.tb_operacion_proceso
+  WHERE id = COALESCE(v_op.id_operacion_padre, v_op.id)
+  FOR UPDATE;
+
+  IF v_root.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro la solicitud raiz de Pago Deuda.');
   END IF;
 
   IF v_op.id_empresa_salida IS NULL OR v_op.id_empresa_cuenta_salida IS NULL THEN
@@ -2185,15 +2216,70 @@ BEGIN
     RETURN jsonb_build_object('error', 'Primero realiza el match con la efectivizacion de retorno.');
   END IF;
 
-  IF v_op.id_empresa_ingreso IS NULL OR v_op.id_empresa_cuenta_ingreso IS NULL THEN
+  IF v_root.id_empresa_ingreso IS NULL OR v_root.id_empresa_cuenta_ingreso IS NULL THEN
     RETURN jsonb_build_object('error', 'La operacion de Pago Deuda no tiene empresa y cuenta de ingreso configuradas.');
   END IF;
+
+  SELECT
+    ecb.id,
+    ecb.id_empresa,
+    e.nombre AS empresa_nombre,
+    ecb.id_banco,
+    b.nombre AS banco_nombre,
+    cfg.flag_deposito_comision
+  INTO v_cuenta_comision
+  FROM public.tb_empresa_cuenta_bancaria ecb
+  JOIN public.tb_empresa e ON e.id = ecb.id_empresa
+  JOIN public.tb_banco b ON b.id = ecb.id_banco
+  JOIN public.tb_pago_deuda_empresa_comision cfg
+    ON cfg.id_empresa_cuenta_bancaria = ecb.id
+   AND cfg.id_empresa = ecb.id_empresa
+   AND cfg.flag_deposito_comision = true
+   AND cfg.id_estado = 1
+  WHERE ecb.id = v_root.id_empresa_cuenta_ingreso
+    AND ecb.id_empresa = v_root.id_empresa_ingreso
+    AND e.id_estado = 1
+    AND ecb.id_estado = 1
+  LIMIT 1;
+
+  IF v_cuenta_comision.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La cuenta de comision seleccionada no esta habilitada para recibir comisiones.');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja oc
+    JOIN public.tb_caja_operativa caja ON caja.id = oc.id_caja
+    WHERE oc.id_operacion_proceso = v_root.id
+      AND UPPER(COALESCE(oc.tipo_origen, '')) = 'PAGO_DEUDA_COMISION'
+      AND oc.id_caja_cierre IS NOT NULL
+      AND (
+        caja.id_empresa IS DISTINCT FROM v_cuenta_comision.id_empresa
+        OR caja.id_empresa_cuenta_bancaria IS DISTINCT FROM v_cuenta_comision.id
+      )
+  ) THEN
+    RETURN jsonb_build_object('error', 'La comision ya pertenece a un cierre de caja distinto y no puede reubicarse.');
+  END IF;
+
+  UPDATE public.tb_operacion_proceso
+  SET id_empresa_ingreso = v_root.id_empresa_ingreso,
+      nombre_empresa_ingreso = v_cuenta_comision.empresa_nombre,
+      id_empresa_cuenta_ingreso = v_root.id_empresa_cuenta_ingreso,
+      id_banco_empresa_cuenta_ingreso = v_cuenta_comision.id_banco,
+      nombre_banco_empresa_cuenta_ingreso = v_cuenta_comision.banco_nombre
+  WHERE id = v_op.id;
+
+  v_op.id_empresa_ingreso := v_root.id_empresa_ingreso;
+  v_op.nombre_empresa_ingreso := v_cuenta_comision.empresa_nombre;
+  v_op.id_empresa_cuenta_ingreso := v_root.id_empresa_cuenta_ingreso;
+  v_op.id_banco_empresa_cuenta_ingreso := v_cuenta_comision.id_banco;
+  v_op.nombre_banco_empresa_cuenta_ingreso := v_cuenta_comision.banco_nombre;
 
   IF NOT EXISTS (
     SELECT 1
     FROM public.tb_caja_operativa c
-    WHERE c.id_empresa = v_op.id_empresa_ingreso
-      AND c.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_ingreso
+    WHERE c.id_empresa = v_root.id_empresa_ingreso
+      AND c.id_empresa_cuenta_bancaria = v_root.id_empresa_cuenta_ingreso
   ) THEN
     RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de ingreso seleccionada.');
   END IF;
@@ -2697,6 +2783,7 @@ WHERE p.proname IN (
   'f_patch_tb_pago_deuda_comision_extra',
   'f_delete_tb_pago_deuda_solicitud',
   'f_patch_tb_pago_deuda_comision_cuenta',
+  'f_sync_tb_pago_deuda_comision_caja',
   'f_patch_tb_pago_deuda_match',
   'f_patch_tb_pago_deuda_salida',
   'f_patch_tb_pago_deuda_pagado',

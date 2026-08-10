@@ -21,6 +21,7 @@ export const useBancariaTabBadges = (
     activeAccountId: number | null = null,
     historyDate: string | null = null,
     refreshKey = 0,
+    enabled = true,
 ) => {
     const [data, setData] = useState<BadgeMap>(emptyBadges);
     const [error, setError] = useState<string | null>(null);
@@ -58,6 +59,15 @@ export const useBancariaTabBadges = (
 
     useEffect(() => {
         let ignore = false;
+
+        if (!enabled) {
+            setData(emptyBadges);
+            setError(null);
+            return () => {
+                ignore = true;
+            };
+        }
+
         setError(null);
 
         const request = retentionRoutes.has(ruta)
@@ -81,7 +91,7 @@ export const useBancariaTabBadges = (
         return () => {
             ignore = true;
         };
-    }, [focusRefreshKey, params, refreshKey, ruta]);
+    }, [enabled, focusRefreshKey, params, refreshKey, ruta]);
 
     return { data, error };
 };
@@ -92,6 +102,7 @@ export const useBancariaEmpresaBadges = (
     activeAccountId: number | null = null,
     historyDate: string | null = null,
     refreshKey = 0,
+    enabled = true,
 ) => {
     const [data, setData] = useState<CompanyBadgeMap>({});
     const [error, setError] = useState<string | null>(null);
@@ -128,6 +139,15 @@ export const useBancariaEmpresaBadges = (
 
     useEffect(() => {
         let ignore = false;
+
+        if (!enabled) {
+            setData({});
+            setError(null);
+            return () => {
+                ignore = true;
+            };
+        }
+
         setError(null);
 
         if (activeTab === "Movimientos") {
@@ -160,7 +180,7 @@ export const useBancariaEmpresaBadges = (
         return () => {
             ignore = true;
         };
-    }, [activeTab, focusRefreshKey, params, refreshKey, ruta]);
+    }, [activeTab, enabled, focusRefreshKey, params, refreshKey, ruta]);
 
     return { data, error };
 };

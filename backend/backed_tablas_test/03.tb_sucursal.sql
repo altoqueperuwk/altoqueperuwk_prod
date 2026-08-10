@@ -1,0 +1,4 @@
+INSERT INTO public.tb_sucursal (id, nombre, direccion, celular, email, id_estado, id_usuario, fecha_registro) VALUES (1, 'Sede Lince', null, null, null, 1, null, '2026-08-08 17:23:49.090151 -05:00');
+INSERT INTO public.tb_sucursal (id, nombre, direccion, celular, email, id_estado, id_usuario, fecha_registro) VALUES (2, 'Sede Norte', null, null, null, 1, null, '2026-08-08 17:23:56.006747 -05:00');
+INSERT INTO public.tb_sucursal (id, nombre, direccion, celular, email, id_estado, id_usuario, fecha_registro) VALUES (3, 'Sede Sur', null, null, null, 1, null, '2026-08-08 17:24:04.138241 -05:00');
+INSERT INTO public.tb_sucursal (id, nombre, direccion, celular, email, id_estado, id_usuario, fecha_registro) VALUES (4, 'Sede Miraflores', null, null, null, 1, null, '2026-08-08 17:24:11.858868 -05:00');

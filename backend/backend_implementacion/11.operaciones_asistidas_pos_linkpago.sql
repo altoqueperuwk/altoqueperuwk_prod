@@ -685,6 +685,23 @@ BEGIN
     RETURN jsonb_build_object('error', 'La operacion no pertenece a una ruta asistida.');
   END IF;
 
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_usuario u
+    LEFT JOIN public.tb_rol r ON r.id = u.id_rol
+    WHERE u.id = p_id_usuario
+      AND (
+        u.id_rol = 3
+        OR UPPER(BTRIM(COALESCE(r.nombre, ''))) = 'JEFE DE TIENDA'
+      )
+  )
+  AND (
+    v_actual.id_usuario_solicitud IS NULL
+    OR v_actual.id_usuario_solicitud IS DISTINCT FROM p_id_usuario
+  ) THEN
+    RETURN jsonb_build_object('error', 'Solo el usuario que registro la operacion puede editarla.');
+  END IF;
+
   p_dni_cliente := COALESCE(p_dni_cliente, v_actual.dni_cliente);
   p_dni_cliente := REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g');
   p_nombre_cliente := COALESCE(p_nombre_cliente, v_actual.nombre_cliente);

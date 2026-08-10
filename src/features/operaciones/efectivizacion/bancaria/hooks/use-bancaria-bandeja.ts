@@ -187,6 +187,7 @@ interface UseBancariaBandejaArgs {
     dateFrom?: string;
     dateTo?: string;
     dni: string;
+    enabled?: boolean;
     historyDate?: string | null;
     refreshKey?: number;
     ruta: OperacionRutaBancaria;
@@ -202,6 +203,7 @@ export const useBancariaBandeja = ({
     dateFrom = "",
     dateTo = "",
     dni,
+    enabled = true,
     historyDate = null,
     refreshKey = 0,
     ruta,
@@ -402,6 +404,16 @@ export const useBancariaBandeja = ({
     useEffect(() => {
         let ignore = false;
 
+        if (!enabled) {
+            setOperaciones([]);
+            setMovimientos([]);
+            setError(null);
+            setIsLoading(false);
+            return () => {
+                ignore = true;
+            };
+        }
+
         setIsLoading(true);
         setError(null);
 
@@ -419,6 +431,9 @@ export const useBancariaBandeja = ({
                     p_id_empresa_salida: activeCompanyId || undefined,
                     p_id_empresa_cuenta_salida: activeAccountId || undefined,
                     p_dni_cliente: dni.trim() || undefined,
+                    p_codigo_operacion: code.trim() || undefined,
+                    p_fecha_caja_cierre_desde: historyDate ? `${historyDate}T00:00:00` : null,
+                    p_fecha_caja_cierre_hasta: historyDate ? `${historyDate}T23:59:59` : null,
                 })
               : retentionRoutes.has(ruta)
                 ? operacionesRpcService.getOperacionesRetencionBandeja(retentionParams)
@@ -479,7 +494,7 @@ export const useBancariaBandeja = ({
         return () => {
             ignore = true;
         };
-    }, [activeAccountId, activeCajaId, activeCompanyId, activeFilter, dateFrom, dateTo, dni, historyDate, localRefreshKey, params, refreshKey, retentionParams, ruta, tab]);
+    }, [activeAccountId, activeCajaId, activeCompanyId, activeFilter, code, dateFrom, dateTo, dni, enabled, historyDate, localRefreshKey, params, refreshKey, retentionParams, ruta, tab]);
 
     return {
         error,

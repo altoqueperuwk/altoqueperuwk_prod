@@ -30,7 +30,7 @@ import { BancariaPage } from "@/features/operaciones/efectivizacion/bancaria/pag
 import { AsistidaPage } from "@/features/operaciones/efectivizacion/asistida/pages/asistida-page";
 import { PagoDeudaPage } from "@/features/operaciones/pago-deuda/pages/pago-deuda-page";
 import { SeguimientoOperacionesPaginadoPage } from "@/features/seguimientos/seguimiento-operaciones-paginado-page";
-import { ReporteCierreCajaPage } from "@/features/reportes/reporte-cierre-caja-page";
+import { ReporteCierreCajaOperationalPage } from "@/features/reportes/reporte-cierre-caja-operational-page";
 import "@/styles/globals.css";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -85,7 +85,7 @@ function AppRoutes() {
                 <Route path="/seguimientos/operaciones" element={<SeguimientoOperacionesPaginadoPage />} />
                 <Route path="/seguimientos/pago-deuda" element={<SeguimientoOperacionesPaginadoPage />} />
                 <Route path="/reportes" element={<Navigate to="/reportes/cierre-caja" replace />} />
-                <Route path="/reportes/cierre-caja" element={<ReporteCierreCajaPage />} />
+                <Route path="/reportes/cierre-caja" element={<ReporteCierreCajaOperationalPage />} />
 
                 <Route path="/operaciones/bcp" element={<BancariaPage ruta="bcp" />} />
                 <Route path="/operaciones/bbva" element={<BancariaPage ruta="bbva" />} />

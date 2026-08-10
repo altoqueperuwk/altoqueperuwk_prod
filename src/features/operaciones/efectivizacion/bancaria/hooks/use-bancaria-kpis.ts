@@ -67,10 +67,14 @@ export const useBancariaKpis = (
     const [data, setData] = useState<RutaOperacionKpi | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const requestKey = `${ruta}:${activeCompanyId ?? ""}:${activeAccountId ?? ""}:${activeCajaId ?? ""}:${historyDate ?? ""}`;
+    const [loadedKey, setLoadedKey] = useState<string | null>(null);
 
     useEffect(() => {
         let ignore = false;
 
+        setData(null);
+        setLoadedKey(null);
         setIsLoading(true);
         setError(null);
 
@@ -87,7 +91,10 @@ export const useBancariaKpis = (
 
         request
             .then((result) => {
-                if (!ignore) setData(result);
+                if (!ignore) {
+                    setData(result);
+                    setLoadedKey(requestKey);
+                }
             })
             .catch((err) => {
                 if (!ignore) setError(err instanceof Error ? err.message : "No se pudo cargar KPI.");
@@ -99,7 +106,7 @@ export const useBancariaKpis = (
         return () => {
             ignore = true;
         };
-    }, [activeAccountId, activeCajaId, activeCompanyId, historyDate, refreshKey, ruta]);
+    }, [activeAccountId, activeCajaId, activeCompanyId, historyDate, refreshKey, requestKey, ruta]);
 
-    return { data, error, isLoading };
+    return { data, error, isLoading, loadedKey };
 };

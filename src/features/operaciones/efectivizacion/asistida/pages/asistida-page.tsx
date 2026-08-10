@@ -12,7 +12,7 @@ import { OperacionReglasEfectivizacionModal } from "@/features/operaciones/efect
 import { useRouteCompanies } from "@/features/operaciones/efectivizacion/shared/hooks/use-route-companies";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { OperacionAsistidaKpi, OperacionProceso, OperacionRuta } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
-import { useAuth } from "@/providers/auth-provider";
+import { isAdministrator, isJefeTienda, useAuth } from "@/providers/auth-provider";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { formatDateValue, getPeruDateValue } from "@/features/operaciones/efectivizacion/shared/utils/date";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
@@ -45,6 +45,7 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
     const [isDownloading, setIsDownloading] = useState(false);
     const { addToast } = useToast();
     const userId = businessUser?.id ? Number(businessUser.id) : null;
+    const canViewAllAssisted = isAdministrator(businessUser) || isJefeTienda(businessUser);
     const { data: cajas, error, isLoading } = useRouteCompanies(ruta);
     const primaryCompany = useMemo(
         () => cajas.find((caja) => caja.flag_caja_ingreso_principal) ?? cajas[0] ?? null,
@@ -54,12 +55,12 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
 
     const loadReportData = async () => {
         if (userId === null) throw new Error("No se encontro el usuario autenticado.");
-        const params = {
+        const params: Record<string, unknown> = {
             p_ruta: ruta,
             p_fecha_registro_desde: `${selectedDate}T00:00:00`,
             p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
-            p_id_usuario_solicitud: userId,
         };
+        if (!canViewAllAssisted) params.p_id_usuario_solicitud = userId;
         const [rows, deletedRows, kpiRows] = await Promise.all([
             operacionesRpcService.getOperacionAsistidaBandeja(params),
             operacionesRpcService.getOperacionAsistidaBandeja({ ...params, p_nombre_estado: "Eliminado" }),
@@ -228,13 +229,15 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
         }
         setIsKpiLoading(true);
 
+        const kpiParams: Record<string, unknown> = {
+            p_ruta: ruta,
+            p_fecha_registro_desde: `${selectedDate}T00:00:00`,
+            p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
+        };
+        if (!canViewAllAssisted) kpiParams.p_id_usuario_solicitud = userId;
+
         operacionesRpcService
-            .getOperacionAsistidaKpi({
-                p_ruta: ruta,
-                p_fecha_registro_desde: `${selectedDate}T00:00:00`,
-                p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
-                p_id_usuario_solicitud: userId,
-            })
+            .getOperacionAsistidaKpi(kpiParams)
             .then((rows) => {
                 if (!ignore) setKpi(rows[0] ?? null);
             })
@@ -245,7 +248,7 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
         return () => {
             ignore = true;
         };
-    }, [refreshKey, ruta, selectedDate, userId]);
+    }, [canViewAllAssisted, refreshKey, ruta, selectedDate, userId]);
 
     const kpiCards = [
         { label: "Comisiones", value: formatMoney(kpi?.comisiones), tone: "text-concept-ingreso" },

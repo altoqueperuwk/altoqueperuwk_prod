@@ -58,16 +58,60 @@ AS $$
           p_fecha_caja_cierre_desde IS NULL
           AND p_fecha_caja_cierre_hasta IS NULL
           AND (
-            op.id_caja_cierre IS NULL
-            OR (a.tab = 'RETENIDOS' AND COALESCE(op.flag_retenido, false) = true)
+            (
+              a.tab = 'RETENIDOS'
+              AND op.id_caja_cierre IS NULL
+              AND COALESCE(op.flag_retenido, false) = true
+            )
+            OR (
+              a.tab <> 'RETENIDOS'
+              AND op.id_caja_cierre IS NULL
+              AND NOT (
+                COALESCE(op.flag_retenido, false) = true
+                AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+              )
+            )
           )
         )
         OR (
           a.tab <> 'RETENIDOS'
           AND (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
-          AND op.id_caja_cierre IS NOT NULL
-          AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
-          AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+          AND (
+            (
+              op.id_caja_cierre IS NOT NULL
+              AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+              AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+            )
+            OR (
+              COALESCE(op.flag_retenido, false) = true
+              AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+              AND EXISTS (
+                SELECT 1
+                FROM public.tb_caja_operativa_cierre ch
+                JOIN public.tb_ruta_operacion_caja rc
+                  ON rc.id_empresa = ch.id_empresa
+                 AND rc.id_empresa_cuenta_bancaria = ch.id_empresa_cuenta_bancaria
+                 AND LOWER(BTRIM(COALESCE(rc.ruta, ''))) = a.ruta
+                WHERE (p_fecha_caja_cierre_desde IS NULL OR ch.fecha_cierre >= p_fecha_caja_cierre_desde)
+                  AND (p_fecha_caja_cierre_hasta IS NULL OR ch.fecha_cierre <= p_fecha_caja_cierre_hasta)
+                  AND (
+                    (
+                      ch.id_empresa = op.id_empresa_salida
+                      AND ch.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_salida
+                    )
+                    OR (
+                      ch.id_empresa = op.id_empresa_ingreso
+                      AND ch.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_ingreso
+                    )
+                  )
+                  AND (
+                    ch.fecha_apertura IS NULL
+                    OR COALESCE(op.fecha_pagado, op.fecha_registro) >= ch.fecha_apertura
+                  )
+                  AND COALESCE(op.fecha_pagado, op.fecha_registro) <= ch.fecha_cierre
+              )
+            )
+          )
         )
       )
   )
@@ -106,7 +150,6 @@ AS $$
     OR (
       a.tab = 'PAGO DEUDA'
       AND UPPER(COALESCE(b.tipo_servicio, '')) = 'PAGO DEUDA'
-      AND COALESCE(b.flag_retenido, false) = false
       AND (p_id_empresa IS NULL OR b.id_empresa_salida = p_id_empresa)
       AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND (
@@ -117,7 +160,6 @@ AS $$
     OR (
       a.tab = 'DERIVADOS'
       AND COALESCE(b.flag_derivado, false) = true
-      AND COALESCE(b.flag_retenido, false) = false
       AND (p_id_empresa IS NULL OR b.id_empresa_salida = p_id_empresa)
       AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND (
@@ -128,7 +170,6 @@ AS $$
     OR (
       a.tab = 'POS'
       AND LOWER(COALESCE(b.ruta_origen, '')) = 'pos'
-      AND COALESCE(b.flag_retenido, false) = false
       AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND (
         a.filtro_estado = 'TODOS'
@@ -175,20 +216,60 @@ AS $$
     CROSS JOIN args a
     WHERE a.ruta IN ('bcp', 'scotiabank', 'banbif', 'safetypay')
       AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
+      AND COALESCE(op.id_estado, 0) <> 10
+      AND (
+        p_fecha_caja_cierre_desde IS NOT NULL
+        OR p_fecha_caja_cierre_hasta IS NOT NULL
+            OR COALESCE(op.flag_retenido, false) = true
+        OR (
+          COALESCE(op.flag_retenido, false) = false
+          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN ('PAGADO', 'ELIMINADO')
+        )
+      )
       AND (
         (
           p_fecha_caja_cierre_desde IS NULL
           AND p_fecha_caja_cierre_hasta IS NULL
-          AND (
-            op.id_caja_cierre IS NULL
-            OR COALESCE(op.flag_retenido, false) = true
-          )
+          AND op.id_caja_cierre IS NULL
         )
         OR (
           (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
-          AND op.id_caja_cierre IS NOT NULL
-          AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
-          AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+          AND (
+            (
+              op.id_caja_cierre IS NOT NULL
+              AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+              AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+            )
+            OR (
+              COALESCE(op.flag_retenido, false) = true
+              AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+              AND EXISTS (
+                SELECT 1
+                FROM public.tb_caja_operativa_cierre ch
+                JOIN public.tb_ruta_operacion_caja rc
+                  ON rc.id_empresa = ch.id_empresa
+                 AND rc.id_empresa_cuenta_bancaria = ch.id_empresa_cuenta_bancaria
+                 AND LOWER(BTRIM(COALESCE(rc.ruta, ''))) = a.ruta
+                WHERE (p_fecha_caja_cierre_desde IS NULL OR ch.fecha_cierre >= p_fecha_caja_cierre_desde)
+                  AND (p_fecha_caja_cierre_hasta IS NULL OR ch.fecha_cierre <= p_fecha_caja_cierre_hasta)
+                  AND (
+                    (
+                      ch.id_empresa = op.id_empresa_salida
+                      AND ch.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_salida
+                    )
+                    OR (
+                      ch.id_empresa = op.id_empresa_ingreso
+                      AND ch.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_ingreso
+                    )
+                  )
+                  AND (
+                    ch.fecha_apertura IS NULL
+                    OR COALESCE(op.fecha_pagado, op.fecha_registro) >= ch.fecha_apertura
+                  )
+                  AND COALESCE(op.fecha_pagado, op.fecha_registro) <= ch.fecha_cierre
+              )
+            )
+          )
         )
       )
   ),
@@ -197,28 +278,25 @@ AS $$
       COUNT(*) FILTER (
         WHERE UPPER(COALESCE(tipo_servicio, '')) = 'EFECTIVIZACION'
           AND COALESCE(flag_derivado, false) = false
-          AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO', 'RECHAZADO', 'PAGADO')
+          AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO', 'RECHAZADO')
           AND (p_id_empresa IS NULL OR id_empresa_salida = p_id_empresa)
           AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       )::integer AS efectivizacion,
       COUNT(*) FILTER (
         WHERE UPPER(COALESCE(tipo_servicio, '')) = 'PAGO DEUDA'
           AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
-          AND COALESCE(flag_retenido, false) = false
           AND (p_id_empresa IS NULL OR id_empresa_salida = p_id_empresa)
           AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       )::integer AS pago_deuda,
       COUNT(*) FILTER (
         WHERE COALESCE(flag_derivado, false) = true
           AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
-          AND COALESCE(flag_retenido, false) = false
           AND (p_id_empresa IS NULL OR id_empresa_salida = p_id_empresa)
           AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       )::integer AS derivados,
       COUNT(*) FILTER (
         WHERE LOWER(COALESCE(ruta_origen, '')) = 'pos'
           AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
-          AND COALESCE(flag_retenido, false) = false
           AND (p_id_empresa IS NULL OR COALESCE(id_empresa_salida, id_empresa_ingreso) = p_id_empresa)
           AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       )::integer AS pos,
@@ -271,20 +349,60 @@ AS $$
     CROSS JOIN args a
     WHERE a.ruta IN ('bcp', 'scotiabank', 'banbif', 'safetypay')
       AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
+      AND COALESCE(op.id_estado, 0) <> 10
+      AND (
+        p_fecha_caja_cierre_desde IS NOT NULL
+        OR p_fecha_caja_cierre_hasta IS NOT NULL
+        OR COALESCE(op.flag_retenido, false) = true
+        OR (
+          COALESCE(op.flag_retenido, false) = false
+          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN ('PAGADO', 'ELIMINADO')
+        )
+      )
       AND (
         (
           p_fecha_caja_cierre_desde IS NULL
           AND p_fecha_caja_cierre_hasta IS NULL
-          AND (
-            op.id_caja_cierre IS NULL
-            OR COALESCE(op.flag_retenido, false) = true
-          )
+          AND op.id_caja_cierre IS NULL
         )
         OR (
           (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
-          AND op.id_caja_cierre IS NOT NULL
-          AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
-          AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+          AND (
+            (
+              op.id_caja_cierre IS NOT NULL
+              AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+              AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+            )
+            OR (
+              COALESCE(op.flag_retenido, false) = true
+              AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+              AND EXISTS (
+                SELECT 1
+                FROM public.tb_caja_operativa_cierre ch
+                JOIN public.tb_ruta_operacion_caja rc
+                  ON rc.id_empresa = ch.id_empresa
+                 AND rc.id_empresa_cuenta_bancaria = ch.id_empresa_cuenta_bancaria
+                 AND LOWER(BTRIM(COALESCE(rc.ruta, ''))) = a.ruta
+                WHERE (p_fecha_caja_cierre_desde IS NULL OR ch.fecha_cierre >= p_fecha_caja_cierre_desde)
+                  AND (p_fecha_caja_cierre_hasta IS NULL OR ch.fecha_cierre <= p_fecha_caja_cierre_hasta)
+                  AND (
+                    (
+                      ch.id_empresa = op.id_empresa_salida
+                      AND ch.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_salida
+                    )
+                    OR (
+                      ch.id_empresa = op.id_empresa_ingreso
+                      AND ch.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_ingreso
+                    )
+                  )
+                  AND (
+                    ch.fecha_apertura IS NULL
+                    OR COALESCE(op.fecha_pagado, op.fecha_registro) >= ch.fecha_apertura
+                  )
+                  AND COALESCE(op.fecha_pagado, op.fecha_registro) <= ch.fecha_cierre
+              )
+            )
+          )
         )
       )
   ),
@@ -293,7 +411,7 @@ AS $$
     FROM base
     WHERE UPPER(COALESCE(tipo_servicio, '')) = 'EFECTIVIZACION'
       AND COALESCE(flag_derivado, false) = false
-      AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO', 'RECHAZADO', 'PAGADO')
+      AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO', 'RECHAZADO')
       AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND id_empresa_salida IS NOT NULL
 
@@ -302,7 +420,6 @@ AS $$
     FROM base
     WHERE UPPER(COALESCE(tipo_servicio, '')) = 'PAGO DEUDA'
       AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
-      AND COALESCE(flag_retenido, false) = false
       AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND id_empresa_salida IS NOT NULL
 
@@ -311,7 +428,6 @@ AS $$
     FROM base
     WHERE COALESCE(flag_derivado, false) = true
       AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
-      AND COALESCE(flag_retenido, false) = false
       AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND id_empresa_salida IS NOT NULL
 
@@ -320,7 +436,6 @@ AS $$
     FROM base
     WHERE LOWER(COALESCE(ruta_origen, '')) = 'pos'
       AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
-      AND COALESCE(flag_retenido, false) = false
       AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
       AND COALESCE(id_empresa_salida, id_empresa_ingreso) IS NOT NULL
 

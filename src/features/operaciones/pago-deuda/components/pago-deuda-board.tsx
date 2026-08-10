@@ -8,7 +8,7 @@ import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { useAuth } from "@/providers/auth-provider";
+import { isAdministrator, useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { estadoService } from "@/services/estado.service";
 import { bancoService } from "@/services/banco.service";
@@ -85,40 +85,6 @@ interface ManualCommissionState {
     value: string;
 }
 
-interface PagoDeudaCodigoCellProps {
-    code?: string | null;
-    editable: boolean;
-    isEditing: boolean;
-    isSaving: boolean;
-    value: string;
-    onChange: (value: string) => void;
-    onEdit: () => void;
-    onBlur: () => void;
-}
-
-const PagoDeudaCodigoCell = ({ code, editable, isEditing, isSaving, value, onChange, onEdit, onBlur }: PagoDeudaCodigoCellProps) => {
-    if (isEditing) {
-        return (
-            <Input
-                autoFocus
-                size="sm"
-                value={value}
-                isDisabled={isSaving}
-                onChange={onChange}
-                onBlur={onBlur}
-                aria-label="Código de operación"
-            />
-        );
-    }
-
-    return (
-        <div className="flex items-center gap-1 whitespace-nowrap">
-            <span className="font-medium text-primary">{code || "-"}</span>
-            {editable && <Button size="xs" color="tertiary" iconLeading={Edit03} aria-label="Editar código de operación" onClick={onEdit} />}
-        </div>
-    );
-};
-
 const filters = ["Todos", "Pendiente Transferencia", "Pendiente Devolución", "Pendiente Comisión"];
 const actions = ["Confirmar Comision"];
 const allowedBankNames = new Set(["BCP", "BBVA", "INTERBANK", "BANBIF", "SCOTIABANK"]);
@@ -165,12 +131,14 @@ export const getPagoDeudaEstadoVisual = (row: OperacionProceso): { action: PagoD
 interface PagoDeudaEstadoButtonProps {
     row: OperacionProceso;
     isLoading?: boolean;
+    isBlocked?: boolean;
     onFinalizar?: (row: OperacionProceso) => void;
     onTransferencia?: (row: OperacionProceso) => void;
 }
 
 export const PagoDeudaEstadoButton = ({
     isLoading = false,
+    isBlocked = false,
     onFinalizar,
     onTransferencia,
     row,
@@ -188,7 +156,7 @@ export const PagoDeudaEstadoButton = ({
         <Button
             size="xs"
             color={isActionable ? "primary" : "secondary"}
-            isDisabled={!isActionable || isLoading}
+            isDisabled={!isActionable || isLoading || isBlocked}
             isLoading={isLoading}
             onClick={handleClick}
         >
@@ -232,7 +200,6 @@ interface CuentaComisionSelectorProps {
     disabled?: boolean;
     isSaving?: boolean;
     onSelect: (idCuenta: string) => void;
-    row: OperacionProceso;
 }
 
 const CuentaComisionSelector = ({
@@ -241,9 +208,8 @@ const CuentaComisionSelector = ({
     disabled = false,
     isSaving = false,
     onSelect,
-    row,
 }: CuentaComisionSelectorProps) => {
-    const cuentaLabel = row.nombre_banco_empresa_cuenta_ingreso || currentCuenta?.banco_nombre || "Cuenta";
+    const cuentaLabel = currentCuenta?.banco_nombre || "Seleccione";
     const billeteraLabel = currentCuenta?.billetera_digital ? ` (${currentCuenta.billetera_digital})` : "";
     const selectedLabel = `${cuentaLabel}${billeteraLabel}`;
     const enabledGroups = cuentasPorEmpresa.filter((group) => group.cuentas.length > 0);
@@ -304,6 +270,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     const [activeFilter, setActiveFilter] = useState("Todos");
     const [solicitudes, setSolicitudes] = useState<OperacionProceso[]>([]);
     const [cuentasActivas, setCuentasActivas] = useState<EmpresaCuentaActiva[]>([]);
+    const [selectedCuentaComisionIds, setSelectedCuentaComisionIds] = useState<Record<number, number>>({});
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [savingCuentaIds, setSavingCuentaIds] = useState<number[]>([]);
     const [deletingSolicitud, setDeletingSolicitud] = useState<OperacionProceso | null>(null);
@@ -312,12 +279,6 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     const [isApplyingAction, setIsApplyingAction] = useState(false);
     const [editSolicitud, setEditSolicitud] = useState<EditSolicitudState | null>(null);
     const [manualCommission, setManualCommission] = useState<ManualCommissionState | null>(null);
-    const [codigoOperacionEdit, setCodigoOperacionEdit] = useState<{
-        row: OperacionProceso;
-        type: "transferencia" | "comision";
-        value: string;
-    } | null>(null);
-    const [isSavingCodigoOperacion, setIsSavingCodigoOperacion] = useState(false);
     const [isSavingSolicitud, setIsSavingSolicitud] = useState(false);
     const [isSavingCommission, setIsSavingCommission] = useState(false);
     const [savingEstadoIds, setSavingEstadoIds] = useState<number[]>([]);
@@ -328,6 +289,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     const [reglas, setReglas] = useState<PagoDeudaRegla[]>([]);
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
+    const canViewAllPagoDeuda = isAdministrator(businessUser);
     const { result: editClienteLookup, isLoading: isEditClienteLoading } = useClienteLookup(
         editSolicitud?.dni ?? "",
         editSolicitud?.tipoDocumento ?? 1,
@@ -357,11 +319,11 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
         const values: Record<string, unknown> = {
             p_fecha_desde: `${selectedDate}T00:00:00`,
             p_fecha_hasta: `${selectedDate}T23:59:59`,
-            p_id_usuario_solicitud: userId,
         };
+        if (!canViewAllPagoDeuda) values.p_id_usuario_solicitud = userId;
         if (dni.trim()) values.p_dni_cliente = dni.trim();
         return values;
-    }, [dni, selectedDate]);
+    }, [canViewAllPagoDeuda, dni, selectedDate, userId]);
 
     const cuentasComisionHabilitadas = useMemo(
         () => cuentasActivas.filter((cuenta) => cuenta.flag_deposito_comision),
@@ -535,6 +497,10 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                 p_id_usuario_gestor: userId,
                 p_nombre_usuario_gestor: userName,
             });
+            setSelectedCuentaComisionIds((current) => ({
+                ...current,
+                [row.id]: cuenta.id,
+            }));
             updateSolicitud(updated);
             addToast("success", "Cuenta de comision actualizada.");
             onChanged?.();
@@ -704,30 +670,6 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
         }
     };
 
-    const handleCodigoOperacionSave = async () => {
-        if (!codigoOperacionEdit) return;
-
-        const { row, type, value } = codigoOperacionEdit;
-        setIsSavingCodigoOperacion(true);
-        try {
-            await pagoDeudaService.patchCodigoOperacion({
-                p_id_operacion: type === "transferencia" ? (row.id_operacion_banco ?? row.id) : row.id,
-                p_tipo_codigo: type === "transferencia" ? "TRANSFERENCIA" : "COMISION",
-                p_codigo_operacion: value,
-                p_id_usuario_gestor: userId,
-                p_nombre_usuario_gestor: userName,
-            });
-            setCodigoOperacionEdit(null);
-            setActionRefreshKey((current) => current + 1);
-            addToast("success", "Código de operación actualizado.");
-            onChanged?.();
-        } catch (err) {
-            addToast("error", err instanceof Error ? err.message : "No se pudo actualizar el código de operación.");
-        } finally {
-            setIsSavingCodigoOperacion(false);
-        }
-    };
-
     const handleEditSolicitudSave = async () => {
         if (!editSolicitud) return;
 
@@ -837,6 +779,16 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     };
 
     const handleFinalizarEstado = async (row: OperacionProceso) => {
+        if (hasDevolucionConfirmada(row) && !Boolean(row.flag_comision_registrada) && !selectedCuentaComisionIds[row.id]) {
+            addToast("error", "Selecciona la cuenta de comision antes de finalizar Pago Deuda.");
+            return;
+        }
+
+        if (savingCuentaIds.includes(row.id)) {
+            addToast("error", "Espera a que termine de guardarse la cuenta de comision.");
+            return;
+        }
+
         setSavingEstadoIds((current) => [...current, row.id]);
         try {
             const saved = await pagoDeudaService.patchPagado({
@@ -845,6 +797,11 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                 p_nombre_usuario_gestor: userName,
             });
             updateSolicitud(await getSolicitudActualizada(row, saved));
+            setSelectedCuentaComisionIds((current) => {
+                const next = { ...current };
+                delete next[row.id];
+                return next;
+            });
             addToast("success", "Pago Deuda finalizado.");
             onChanged?.();
         } catch (err) {
@@ -922,34 +879,20 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             ),
         },
         {
-            key: "codigo_operacion_comision",
-            label: "Cod. Op. Comision",
-            render: (row: OperacionProceso) => {
-                const isEditing = codigoOperacionEdit?.row.id === row.id && codigoOperacionEdit.type === "comision";
-                const editable = hasDevolucionConfirmada(row)
-                    && !Boolean(row.flag_comision_registrada)
-                    && !["PAGADO", "ELIMINADO"].includes(getEstadoToken(row.nombre_estado));
-
-                return (
-                    <PagoDeudaCodigoCell
-                        code={row.pd_codigo_operacion_comision}
-                        editable={editable}
-                        isEditing={isEditing}
-                        isSaving={isSavingCodigoOperacion}
-                        value={isEditing ? codigoOperacionEdit.value : (row.pd_codigo_operacion_comision ?? "")}
-                        onChange={(value) => setCodigoOperacionEdit((current) => current ? { ...current, value } : current)}
-                        onEdit={() => setCodigoOperacionEdit({ row, type: "comision", value: row.pd_codigo_operacion_comision ?? "" })}
-                        onBlur={() => void handleCodigoOperacionSave()}
-                    />
-                );
-            },
-        },
-        {
             key: "cuenta_comision",
             label: "Cuenta Comision",
             cellClassName: "w-1 whitespace-nowrap",
             render: (row: OperacionProceso) => {
-                const currentCuenta = cuentasActivas.find((cuenta) => cuenta.id === Number(row.id_empresa_cuenta_ingreso));
+                const selectedCuentaId = selectedCuentaComisionIds[row.id];
+                const isFinalized = Boolean(row.flag_comision_registrada)
+                    || getEstadoToken(row.nombre_estado) === "PAGADO";
+                const persistedCuentaId = isFinalized && row.id_empresa_cuenta_ingreso != null
+                    ? Number(row.id_empresa_cuenta_ingreso)
+                    : null;
+                const currentCuentaId = selectedCuentaId ?? persistedCuentaId;
+                const currentCuenta = currentCuentaId == null
+                    ? undefined
+                    : cuentasComisionHabilitadas.find((cuenta) => cuenta.id === currentCuentaId);
 
                 return (
                     <CuentaComisionSelector
@@ -958,7 +901,6 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                         disabled={!hasDevolucionConfirmada(row) || Boolean(row.flag_comision_registrada)}
                         isSaving={savingCuentaIds.includes(row.id)}
                         onSelect={(idCuenta) => handleCuentaComisionSelect(row, idCuenta)}
-                        row={row}
                     />
                 );
             },
@@ -970,6 +912,12 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                 <PagoDeudaEstadoButton
                     row={row}
                     isLoading={savingEstadoIds.includes(row.id)}
+                    isBlocked={
+                        savingCuentaIds.includes(row.id)
+                        || (hasDevolucionConfirmada(row)
+                            && !Boolean(row.flag_comision_registrada)
+                            && !selectedCuentaComisionIds[row.id])
+                    }
                     onFinalizar={handleFinalizarEstado}
                 />
             ),

@@ -43,6 +43,9 @@ interface BancoDestino {
 }
 
 const getServicioNeedle = (ruta: OperacionRuta) => (ruta === "pos" ? "POS" : "LINK");
+const ASISTIDA_DEFAULT_COMMUNITY_ID = 10;
+const ASISTIDA_DEFAULT_COMMUNITY_NAME = "ATK1";
+const usesFixedCommunity = (ruta: OperacionRuta) => ruta === "pos" || ruta === "linkpago";
 
 export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: AsistidaSolicitudFormProps) => {
     const { businessUser } = useAuth();
@@ -67,6 +70,24 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const [originalComunidadId, setOriginalComunidadId] = useState("");
 
     const { result: clienteLookup, isLoading: isClienteLoading } = useClienteLookup(dni, tipoDocumento);
+
+    useEffect(() => {
+        setCodigoOperacion("");
+        setTipoDocumento(1);
+        setDni("");
+        setNombre("");
+        setWhatsapp("");
+        setMonto("");
+        setComunidadId(String(ASISTIDA_DEFAULT_COMMUNITY_ID));
+        setClienteId(null);
+        setOriginalWhatsapp("");
+        setOriginalComunidadId(String(ASISTIDA_DEFAULT_COMMUNITY_ID));
+        setEntidadTarjetaId("");
+        setBancoDestinoId("");
+        setServicio(null);
+        setEstadoSolicitado(null);
+        setEstadoPagado(null);
+    }, [ruta]);
 
     const selectedCommunity = useMemo(
         () => comunidades.find((item) => String(item.id) === comunidadId) ?? null,
@@ -111,16 +132,20 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             setNombre(clienteLookup.nombre);
             setWhatsapp(clienteLookup.celular[0] ?? "");
             setOriginalWhatsapp(clienteLookup.celular[0] ?? "");
-            if (clienteLookup.id_comunidad != null) {
+            if (usesFixedCommunity(ruta)) {
+                setComunidadId(String(ASISTIDA_DEFAULT_COMMUNITY_ID));
+            } else if (clienteLookup.id_comunidad != null) {
                 setComunidadId(String(clienteLookup.id_comunidad));
             }
-            setOriginalComunidadId(String(clienteLookup.id_comunidad));
+            setOriginalComunidadId(
+                String(usesFixedCommunity(ruta) ? ASISTIDA_DEFAULT_COMMUNITY_ID : (clienteLookup.id_comunidad ?? "")),
+            );
         } else if (!getDocumentoValidationMessage(dni, tipoDocumento)) {
             setClienteId(null);
             setOriginalWhatsapp("");
             setOriginalComunidadId("");
         }
-    }, [clienteLookup, dni, comunidadId, tipoDocumento]);
+    }, [clienteLookup, dni, comunidadId, ruta, tipoDocumento]);
 
     useEffect(() => {
         let ignore = false;
@@ -163,7 +188,11 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                     estadoItems.find((item) => item.nombre.toUpperCase() === "PAGADO") ?? null,
                 );
 
-                if (!comunidadId && comunidadItems[0]) setComunidadId(String(comunidadItems[0].id));
+                if (usesFixedCommunity(ruta) && comunidadItems.some((item) => item.id === ASISTIDA_DEFAULT_COMMUNITY_ID)) {
+                    setComunidadId(String(ASISTIDA_DEFAULT_COMMUNITY_ID));
+                } else if (!comunidadId && comunidadItems[0]) {
+                    setComunidadId(String(comunidadItems[0].id));
+                }
             })
             .catch(() => addToast("error", "Error al cargar catalogos de solicitud."));
 
@@ -199,14 +228,16 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         const cleanDni = cleanDocumento(dni, tipoDocumento);
         if (!cleanDni) return;
 
+        const effectiveCommunityId = usesFixedCommunity(ruta) ? ASISTIDA_DEFAULT_COMMUNITY_ID : Number(comunidadId);
+
         if (clienteId) {
             const whatsappChanged = whatsapp !== originalWhatsapp;
-            const comunidadChanged = comunidadId !== originalComunidadId;
+            const comunidadChanged = String(effectiveCommunityId) !== originalComunidadId;
 
             if (whatsappChanged || comunidadChanged) {
                 await clienteService.update(clienteId, {
                     p_celular: whatsapp ? Number(whatsapp) : null,
-                    p_id_comunidad: Number(comunidadId),
+                    p_id_comunidad: effectiveCommunityId,
                 });
             }
         } else {
@@ -215,7 +246,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_numero_documento: cleanDni,
                 p_nombre: nombre.trim(),
                 p_celular: whatsapp ? Number(whatsapp) : null,
-                p_id_comunidad: Number(comunidadId),
+                p_id_comunidad: effectiveCommunityId,
                 p_id_estado: (await estadoService.getList({})).find((e) => String(e.nombre).toUpperCase() === "ACTIVO")?.id,
                 p_id_usuario: userId,
             });
@@ -224,6 +255,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
 
     const handleSave = async () => {
         const amount = Number(monto.replace(",", "."));
+        const effectiveCommunityId = usesFixedCommunity(ruta) ? ASISTIDA_DEFAULT_COMMUNITY_ID : Number(comunidadId);
+        const effectiveCommunityName = usesFixedCommunity(ruta) ? ASISTIDA_DEFAULT_COMMUNITY_NAME : selectedCommunity?.nombre;
 
         if (!servicio) {
             addToast("error", `No se encontro el servicio ${routeLabel}.`);
@@ -237,7 +270,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             return;
         }
 
-        if (!selectedCommunity) {
+        if (!effectiveCommunityName) {
             addToast("error", "La comunidad es obligatoria.");
             return;
         }
@@ -276,8 +309,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_id_codigo_servicio: servicio.id,
                 p_nombre_codigo_servicio: servicio.nombre,
                 p_tipo_servicio: routeLabel.toUpperCase(),
-                p_id_comunidad: selectedCommunity.id,
-                p_nombre_comunidad: selectedCommunity.nombre,
+                p_id_comunidad: effectiveCommunityId,
+                p_nombre_comunidad: effectiveCommunityName,
                 p_tipo_documento_cliente: tipoDocumento,
                 p_dni_cliente: cleanDni,
                 p_nombre_cliente: nombre.trim() || null,

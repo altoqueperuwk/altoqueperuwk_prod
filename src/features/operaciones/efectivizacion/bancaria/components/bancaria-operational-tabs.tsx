@@ -67,12 +67,20 @@ interface BancariaOperationalTabsProps {
     activeCompanyId: number | null;
     companies: RutaOperacionCaja[];
     downloadKey?: number;
+    emptyText?: string;
+    enabled?: boolean;
     historyDate?: string | null;
+    embedded?: boolean;
+    presentation?: "operational" | "plain";
+    readOnly?: boolean;
+    showCompanyTabs?: boolean;
+    flowTabsAsButtons?: boolean;
     onChanged?: () => void;
     onMetricsChanged?: () => void;
     onCompanyChange: (id: number) => void;
     refreshKey?: number;
     ruta: OperacionRutaBancaria;
+    visibleTabs?: BancariaTab[];
 }
 
 const baseOperationColumns = [
@@ -319,6 +327,34 @@ const PagoDeudaRetornoEmpresaCuentaBadges = ({ row }: { row: OperacionProceso })
     );
 };
 
+const PagoDeudaRetornoEmpresaCuentaText = ({ row }: { row: OperacionProceso }) => {
+    const retornos = row.pd_retorno_empresas_cuentas?.filter((item) => item.empresa || item.cuenta) ?? [];
+
+    if (retornos.length) {
+        return (
+            <div className="flex min-w-0 flex-col gap-1 text-sm text-secondary">
+                {retornos.map((item, index) => (
+                    <span key={`${item.codigo ?? index}-${item.empresa ?? ""}-${item.cuenta ?? ""}`}>
+                        {[item.empresa, item.cuenta, item.monto == null ? null : formatMoney(item.monto)].filter(Boolean).join(" | ") || "-"}
+                    </span>
+                ))}
+            </div>
+        );
+    }
+
+    const empresa = row.pd_retorno_nombre_empresa_ingreso ?? row.nombre_empresa_ingreso;
+    const cuenta = row.pd_retorno_nombre_banco_empresa_cuenta_ingreso ?? row.nombre_banco_empresa_cuenta_ingreso;
+    return <span className="text-sm text-secondary">{[empresa, cuenta].filter(Boolean).join(" | ") || "-"}</span>;
+};
+
+const getPagoDeudaStepLabel = (row: OperacionProceso) => {
+    const estado = (row.nombre_estado ?? "").trim().toUpperCase();
+    if (row.flag_comision_registrada || estado === "PAGADO") return "Paso 4";
+    if (hasDevolucionConfirmada(row) || estado === "DEVUELTO") return "Paso 3";
+    if (estado === "PROCESADO" || estado === "TRANSFERIDO") return "Paso 2";
+    return "Paso 1";
+};
+
 const getExportValue = <T extends { id: number }>(
     row: T,
     column: { key: keyof T | string; render?: (row: T) => unknown },
@@ -370,12 +406,20 @@ export const BancariaOperationalTabs = ({
     activeCompanyId,
     companies,
     downloadKey = 0,
+    emptyText = "Sin operaciones para esta bandeja.",
+    enabled = true,
+    embedded = false,
     historyDate = null,
+    presentation = "operational",
+    readOnly = false,
+    showCompanyTabs = true,
+    flowTabsAsButtons = false,
     onChanged,
     onMetricsChanged,
     onCompanyChange,
     refreshKey = 0,
     ruta,
+    visibleTabs: requestedTabs,
 }: BancariaOperationalTabsProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
@@ -424,6 +468,7 @@ export const BancariaOperationalTabs = ({
     }, []);
     const visibleTabs = useMemo(
         () => {
+            if (requestedTabs) return requestedTabs;
             if (isActiveDigitalWallet) return [] as BancariaTab[];
             if (ruta === "safetypay") return ["Efectivizacion", "Movimientos", "Retenidos", "Eliminados"] as BancariaTab[];
             const hasRetencion = retentionRoutes.has(ruta) ||
@@ -431,7 +476,7 @@ export const BancariaOperationalTabs = ({
             const available = hasRetencion ? tabs : tabs.filter((tab) => tab !== "Retenidos");
             return softDeleteRoutes.has(ruta) ? available : available.filter((tab) => tab !== "Eliminados");
         },
-        [isActiveDigitalWallet, ruta, companies],
+        [isActiveDigitalWallet, requestedTabs, ruta, companies],
     );
 
     useEffect(() => {
@@ -568,6 +613,7 @@ export const BancariaOperationalTabs = ({
         dateTo,
         dni,
         historyDate,
+        enabled,
         refreshKey: refreshKey + actionRefreshKey,
         ruta,
         tab: currentTab,
@@ -603,6 +649,7 @@ export const BancariaOperationalTabs = ({
         activeAccountId,
         historyDate,
         refreshKey + actionRefreshKey + metricsRefreshKey,
+        enabled,
     );
     const { data: empresaBadges, error: empresaBadgesError } = useBancariaEmpresaBadges(
         ruta,
@@ -610,11 +657,12 @@ export const BancariaOperationalTabs = ({
         null,
         historyDate,
         refreshKey + actionRefreshKey + metricsRefreshKey,
+        enabled,
     );
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
     const isHistoryMode = Boolean(historyDate);
-    const canUseProcesoActions = procesoActionTabs.includes(currentTab) && !isHistoryMode;
+    const canUseProcesoActions = procesoActionTabs.includes(currentTab) && !isHistoryMode && !readOnly;
     const hasSelection = selectedIds.length > 0;
     const commercialCompanies = useMemo(() => companies.filter((company) => !isDigitalWalletBank(company)), [companies]);
     const actionCompanies = useMemo(
@@ -777,11 +825,11 @@ export const BancariaOperationalTabs = ({
         Efectivizacion: baseOperationColumns,
         Eliminados: baseOperationColumns,
         "Pago Deuda": [
-            { key: "pasos", label: "Pasos", render: (row: OperacionProceso) => <PagoDeudaSteps row={row} /> },
-            { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => (
+            { key: "pasos", label: "Pasos", render: (row: OperacionProceso) => presentation === "plain" ? <span className="text-sm text-secondary">{getPagoDeudaStepLabel(row)}</span> : <PagoDeudaSteps row={row} /> },
+            { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => presentation === "plain" ? <span className="text-sm text-secondary">{row.dni_cliente || "-"}</span> : (
                 <div className="flex items-center gap-1">
                     <CopyableDni value={row.dni_cliente} />
-                    <Button size="xs" color="tertiary" iconLeading={Edit03} aria-label="Editar DNI" isDisabled={hasDevolucionConfirmada(row)} onClick={() => setDniEdit({ row, value: row.dni_cliente ?? "" })} />
+                    <Button size="xs" color="tertiary" iconLeading={Edit03} aria-label="Editar DNI" isDisabled={readOnly || hasDevolucionConfirmada(row)} onClick={() => setDniEdit({ row, value: row.dni_cliente ?? "" })} />
                 </div>
             ) },
             {
@@ -790,7 +838,11 @@ export const BancariaOperationalTabs = ({
                 headerClassName: "min-w-32 whitespace-pre-line",
                 render: (row: OperacionProceso) => {
                     const isEditing = codigoOperacionEdit?.row.id === row.id && codigoOperacionEdit.type === "transferencia";
-                    const editable = !isHistoryMode && isPendingOperation(row) && !row.flag_retenido;
+                    const editable = !readOnly && !isHistoryMode && isPendingOperation(row) && !row.flag_retenido;
+
+                    if (presentation === "plain") {
+                        return <span className="text-sm text-secondary">{row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente ?? "-"}</span>;
+                    }
 
                     return (
                         <PagoDeudaCodigoCell
@@ -810,7 +862,9 @@ export const BancariaOperationalTabs = ({
                 key: "empresa_cuenta_salida",
                 label: "Empresa Cuenta",
                 headerClassName: "min-w-32",
-                render: (row: OperacionProceso) => (
+                render: (row: OperacionProceso) => presentation === "plain" ? (
+                    <span className="text-sm text-secondary">{[row.nombre_empresa_salida, row.nombre_banco_empresa_cuenta_salida].filter(Boolean).join(" | ") || "-"}</span>
+                ) : (
                     <EmpresaCuentaBadges empresa={row.nombre_empresa_salida} cuenta={row.nombre_banco_empresa_cuenta_salida} />
                 ),
             },
@@ -818,19 +872,19 @@ export const BancariaOperationalTabs = ({
                 key: "nombre_banco_cliente",
                 label: "Cuenta Cliente",
                 headerClassName: "min-w-28",
-                render: (row: OperacionProceso) => <CompactBadgeLine>{row.nombre_banco_cliente || "-"}</CompactBadgeLine>,
+                render: (row: OperacionProceso) => presentation === "plain" ? <span className="text-sm text-secondary">{row.nombre_banco_cliente || "-"}</span> : <CompactBadgeLine>{row.nombre_banco_cliente || "-"}</CompactBadgeLine>,
             },
             { key: "monto_transferencia_cliente", label: "Monto\nTransferencia", headerClassName: "min-w-32 whitespace-pre-line", cellClassName: "font-semibold text-concept-transferencia tabular-nums", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
             { key: "codigo_operacion_devolucion", label: "Cod. Op.\nDevolucion", headerClassName: "min-w-32 whitespace-pre-line", render: (row: OperacionProceso) => <PagoDeudaCodigosRetorno row={row} /> },
             {
                 key: "empresa_cuenta_ingreso",
-                label: "Cuenta Comision",
-                render: (row: OperacionProceso) => <PagoDeudaRetornoEmpresaCuentaBadges row={row} />,
+                label: "Empresa Cuenta",
+                render: (row: OperacionProceso) => presentation === "plain" ? <PagoDeudaRetornoEmpresaCuentaText row={row} /> : <PagoDeudaRetornoEmpresaCuentaBadges row={row} />,
                 headerClassName: "min-w-48",
                 cellClassName: "min-w-48 max-w-56 whitespace-normal",
             },
             { key: "monto_devuelto", label: "Monto\nDevolucion", headerClassName: "min-w-32 whitespace-pre-line", render: (row: OperacionProceso) => formatMoney(row.pd_retorno_monto_devolucion ?? row.monto_devuelto ?? 0) },
-            { key: "estado_visual", label: "Estado", render: (row: OperacionProceso) => (
+            { key: "estado_visual", label: "Estado", render: (row: OperacionProceso) => presentation === "plain" ? <span className="text-sm text-secondary">{row.nombre_estado || "-"}</span> : (
                 <PagoDeudaEstadoButton
                     row={row}
                     isLoading={savingPagoDeudaEstadoIds.includes(row.id)}
@@ -912,7 +966,7 @@ export const BancariaOperationalTabs = ({
                 ),
             },
         ],
-    } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [codigoOperacionEdit, handleCodigoOperacionSave, handlePagoDeudaTransferenciaRow, handlePosEstadoRow, isHistoryMode, isSavingCodigoOperacion, savingPagoDeudaEstadoIds, savingPosEstadoIds]);
+    } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [codigoOperacionEdit, handleCodigoOperacionSave, handlePagoDeudaTransferenciaRow, handlePosEstadoRow, isHistoryMode, isSavingCodigoOperacion, presentation, readOnly, savingPagoDeudaEstadoIds, savingPosEstadoIds]);
     const currentOperationColumns = currentTab === "Movimientos" ? baseOperationColumns : operationColumnsByTab[currentTab];
     const currentMovementColumns = useMemo(
         () => getMovementColumns(ruta === "safetypay", isHistoryMode ? undefined : setMovementToDelete, isHistoryMode ? undefined : setMovementToReturn),
@@ -1518,59 +1572,89 @@ export const BancariaOperationalTabs = ({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}
-            className="overflow-hidden rounded-lg border border-secondary bg-primary shadow-xs"
+            className={embedded ? "overflow-hidden bg-primary" : "overflow-hidden rounded-lg border border-secondary bg-primary shadow-xs"}
         >
             <div className="flex flex-col gap-3 p-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex flex-wrap items-center gap-3">
-                        <EmpresaTabs
-                            companies={companies}
-                            activeCompanyId={activeCompanyId}
-                            badges={empresaBadges}
-                            onChange={onCompanyChange}
-                        />
+                {(showCompanyTabs || selectedTransferSummary) && (
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        {showCompanyTabs ? (
+                            <div className="flex flex-wrap items-center gap-3">
+                                <EmpresaTabs
+                                    companies={companies}
+                                    activeCompanyId={activeCompanyId}
+                                    badges={empresaBadges}
+                                    onChange={onCompanyChange}
+                                />
+                            </div>
+                        ) : null}
+                        {selectedTransferSummary ? (
+                            <div className="flex h-11 items-center gap-2 rounded-lg border border-secondary bg-secondary px-3 text-sm font-semibold text-primary shadow-xs">
+                                <span>Seleccionado</span>
+                                <span className="-my-px size-max rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-primary ring-inset shadow-xs">
+                                    {selectedTransferSummary.count}
+                                </span>
+                                <span>Transferir</span>
+                                <span className="-my-px size-max rounded-md bg-concept-transferencia px-1.5 py-0.5 text-xs font-medium text-primary_on-brand ring-1 ring-concept-transferencia ring-inset shadow-xs tabular-nums">
+                                    {formatMoney(selectedTransferSummary.amount)}
+                                </span>
+                            </div>
+                        ) : null}
                     </div>
-                    {selectedTransferSummary ? (
-                        <div className="flex h-11 items-center gap-2 rounded-lg border border-secondary bg-secondary px-3 text-sm font-semibold text-primary shadow-xs">
-                            <span>Seleccionado</span>
-                            <span className="-my-px size-max rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-primary ring-inset shadow-xs">
-                                {selectedTransferSummary.count}
-                            </span>
-                            <span>Transferir</span>
-                            <span className="-my-px size-max rounded-md bg-concept-transferencia px-1.5 py-0.5 text-xs font-medium text-primary_on-brand ring-1 ring-concept-transferencia ring-inset shadow-xs tabular-nums">
-                                {formatMoney(selectedTransferSummary.amount)}
-                            </span>
+                )}
+                {flowTabsAsButtons ? (
+                    <div className="flex flex-col gap-2">
+                        <p className="text-xs font-semibold uppercase text-tertiary">Bandeja</p>
+                        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Bandejas operativas">
+                            {visibleTabs.map((tab) => (
+                                <Button
+                                    key={tab}
+                                    size="sm"
+                                    color={currentTab === tab ? "primary" : "secondary"}
+                                    className="justify-center"
+                                    role="tab"
+                                    aria-selected={currentTab === tab}
+                                    onClick={() => setActiveTab(tab)}
+                                >
+                                    <span>{tab}</span>
+                                    {tabBadges[tab] ? (
+                                        <span className="rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-primary ring-inset">
+                                            {tabBadges[tab]}
+                                        </span>
+                                    ) : null}
+                                </Button>
+                            ))}
                         </div>
-                    ) : null}
-                </div>
-                <Tabs
-                    className="w-fit max-w-full overflow-x-auto"
-                    selectedKey={currentTab}
-                    onSelectionChange={(key) => setActiveTab(key as BancariaTab)}
-                >
-                    <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
-                        {visibleTabs.map((tab) => (
-                            <Tabs.Item
-                                id={tab}
-                                key={tab}
-                                badge={tabBadges[tab] || undefined}
-                                className={({ isSelected }) =>
-                                    isSelected
-                                        ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
-                                        : ""
-                                }
-                            >
-                                {tab}
-                            </Tabs.Item>
-                        ))}
-                    </Tabs.List>
-                </Tabs>
+                    </div>
+                ) : (
+                    <Tabs
+                        className="w-fit max-w-full overflow-x-auto"
+                        selectedKey={currentTab}
+                        onSelectionChange={(key) => setActiveTab(key as BancariaTab)}
+                    >
+                        <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
+                            {visibleTabs.map((tab) => (
+                                <Tabs.Item
+                                    id={tab}
+                                    key={tab}
+                                    badge={tabBadges[tab] || undefined}
+                                    className={({ isSelected }) =>
+                                        isSelected
+                                            ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
+                                            : ""
+                                    }
+                                >
+                                    {tab}
+                                </Tabs.Item>
+                            ))}
+                        </Tabs.List>
+                    </Tabs>
+                )}
             </div>
 
             <OperationToolbar
                 activeFilter={activeFilter}
-                actions={contract.actions}
-                code={currentTab === "Efectivizacion" || currentTab === "Retenidos" ? code : undefined}
+                actions={readOnly ? [] : contract.actions}
+                code={currentTab === "Movimientos" ? undefined : code}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
                 dateRangeLabel={currentTab === "Retenidos" ? "Fecha Deposito" : undefined}
@@ -1579,11 +1663,11 @@ export const BancariaOperationalTabs = ({
                 showDateRange={currentTab === "Retenidos"}
                 onDateFromChange={setDateFrom}
                 onDateToChange={setDateTo}
-                onCodeChange={currentTab === "Efectivizacion" || currentTab === "Retenidos" ? setCode : undefined}
+                onCodeChange={currentTab === "Movimientos" ? undefined : setCode}
                 onDniChange={setDni}
                 onFilterChange={handleFilterChange}
                 isActionDisabled={isActionDisabled}
-                onAction={handleAction}
+                onAction={readOnly ? undefined : handleAction}
             />
 
             {(error || tabBadgesError || empresaBadgesError) && (
@@ -1593,18 +1677,20 @@ export const BancariaOperationalTabs = ({
             )}
 
             {currentTab === "Movimientos" ? (
-                <OperationTable columns={currentMovementColumns} data={movimientos} emptyText="Sin movimientos para esta bandeja." isLoading={isLoading} />
+                <OperationTable columns={currentMovementColumns} data={movimientos} emptyText={emptyText} isLoading={isLoading} />
             ) : currentTab === "Efectivizacion" || currentTab === "Derivados" || currentTab === "Eliminados" ? (
             <BancariaEfectivizacionTable
                     activeAccountId={activeAccountId}
                     activeCompanyId={activeCompanyId}
                     companies={companies}
                     data={operaciones}
-                    emptyText="Sin operaciones para esta bandeja."
+                    emptyText={emptyText}
                     estadoPagado={estadoPagado}
                     estadoPendiente={estadoPendiente}
                     isLoading={isLoading}
                     mode={currentTab === "Derivados" ? "derivaciones" : currentTab === "Eliminados" ? "eliminados" : "efectivizacion"}
+                    presentation={presentation}
+                    readOnly={readOnly}
                     onMetricsChanged={refreshMetrics}
                     onRefresh={() => {
                         setActionRefreshKey((value) => value + 1);
@@ -1626,12 +1712,12 @@ export const BancariaOperationalTabs = ({
                 <OperationTable
                     columns={currentOperationColumns}
                     data={operaciones}
-                    emptyText="Sin operaciones para esta bandeja."
+                    emptyText={emptyText}
                     isLoading={isLoading}
                     selectedIds={selectedIds}
                     onToggleRow={canUseProcesoActions ? handleToggleRow : undefined}
                     renderActions={
-                        currentTab === "POS" || currentTab === "Pago Deuda"
+                        !readOnly && (currentTab === "POS" || currentTab === "Pago Deuda")
                             ? (row) => {
                                   const canDerive = !isHistoryMode && (currentTab === "POS" ? isPosSolicitado(row) : isPagoDeudaDerivable(row));
                                   return (
