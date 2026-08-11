@@ -169,6 +169,12 @@ const linkpagoColumns = [
 
 const posColumns = [
     {
+        key: "codigo_operacion_deposito_cliente",
+        label: "Cod. Operacion",
+        cellClassName: "font-medium text-primary tabular-nums",
+        render: (row: OperacionProceso) => row.codigo_operacion_deposito_cliente ?? "-",
+    },
+    {
         key: "nombre_banco_cliente",
         label: "Entidad Tarjeta",
         render: (row: OperacionProceso) => (
@@ -176,7 +182,7 @@ const posColumns = [
         ),
     },
     { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
-    { key: "nombre_cliente", label: "Nombre", cellClassName: "max-w-[25ch] truncate" },
+    { key: "nombre_cliente", label: "Nombre", cellClassName: "w-40 max-w-40 truncate" },
     { key: "nombre_comunidad", label: "Comunidad" },
     {
         key: "monto_deposito_cliente",
@@ -514,6 +520,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                     activeFilter={activeFilter}
                     actions={actions}
                     code={codigo}
+                    codeMaxLength={ruta === "pos" ? 15 : undefined}
                     dni={dni}
                     extraFilters={ruta === "pos" ? (
                         <NativeSelect
@@ -535,7 +542,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                     filters={filters}
                     isActionDisabled={() => isApplyingAction || !selectedIds.length}
                     onAction={handleAction}
-                    onCodeChange={ruta === "pos" ? undefined : setCodigo}
+                    onCodeChange={(value) => setCodigo(value.slice(0, 15))}
                     onDniChange={setDni}
                     onFilterChange={setActiveFilter}
                 />

@@ -371,8 +371,25 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
 
     return (
         <InlineFormCard title={`Solicitud ${routeLabel}`}>
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-                <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap xl:flex-nowrap xl:items-end">
+            <div className={ruta === "pos" ? "flex flex-col gap-3" : "flex flex-col gap-3 xl:flex-row xl:items-end"}>
+                <div
+                    className={
+                        ruta === "pos"
+                            ? "flex w-full min-w-0 flex-wrap items-end gap-3"
+                            : "flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap xl:flex-nowrap xl:items-end"
+                    }
+                >
+                    {ruta === "pos" && (
+                        <Input
+                            size="sm"
+                            label="Cod. Operacion"
+                            placeholder="Código de operación"
+                            value={codigoOperacion}
+                            maxLength={15}
+                            onChange={(value) => setCodigoOperacion(value.slice(0, 15))}
+                            className="w-full min-w-0 sm:w-[15ch] xl:w-[16ch] xl:shrink-0"
+                        />
+                    )}
                     {(ruta === "pos" || ruta === "linkpago") && (
                         <NativeSelect
                             size="sm"
@@ -456,7 +473,13 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         className="w-full min-w-0 xl:min-w-[8ch] xl:max-w-[9rem]"
                     />
                 </div>
-                <div className="flex w-full min-w-0 shrink-0 gap-2 sm:justify-end xl:w-auto">
+                <div
+                    className={
+                        ruta === "pos"
+                            ? "flex w-full min-w-0 justify-end gap-2"
+                            : "flex w-full min-w-0 shrink-0 gap-2 sm:justify-end xl:w-auto"
+                    }
+                >
                     <Button
                         size="sm"
                         color="primary"

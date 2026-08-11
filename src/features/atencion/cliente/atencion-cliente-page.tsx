@@ -27,6 +27,18 @@ const getActivoId = (estadosList: { id: string | number; label: string }[]) => {
     return activo ? Number(activo.id) : 0;
 };
 
+const isDuplicateClienteError = (error: unknown) => {
+    if (!error || typeof error !== "object") return false;
+
+    const candidate = error as Record<string, unknown>;
+    const errorText = [candidate.code, candidate.message, candidate.details, candidate.hint]
+        .filter(Boolean)
+        .map(String)
+        .join(" ");
+
+    return candidate.code === "23505" || /tb_cliente_documento_unique|duplicate key value|already exists/i.test(errorText);
+};
+
 const KpiCard = ({ label, value }: { label: string; value: unknown }) => (
     <div className="rounded-lg border border-secondary bg-primary px-4 py-3 shadow-xs">
         <p className="text-xs font-medium text-secondary">{label}</p>
@@ -166,8 +178,13 @@ export const AtencionClientePage = () => {
             resetForm();
             setPage(1);
             await loadData();
-        } catch {
-            addToast("error", "Error al crear cliente");
+        } catch (error) {
+            addToast(
+                "error",
+                isDuplicateClienteError(error)
+                    ? `Cliente duplicado: el documento ${doc} ya se encuentra registrado.`
+                    : "Error al crear cliente",
+            );
         } finally {
             setIsSaving(false);
         }

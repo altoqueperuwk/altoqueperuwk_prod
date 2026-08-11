@@ -6,6 +6,7 @@ interface OperationToolbarProps {
     activeFilter: string;
     actions: string[];
     code?: string;
+    codeMaxLength?: number;
     dateFrom?: string;
     dateTo?: string;
     dateRangeLabel?: string;
@@ -26,6 +27,7 @@ export const OperationToolbar = ({
     activeFilter,
     actions,
     code = "",
+    codeMaxLength,
     dateFrom = "",
     dateTo = "",
     dateRangeLabel,
@@ -56,6 +58,7 @@ export const OperationToolbar = ({
                         aria-label="Codigo operacion"
                         placeholder="Cod. Operacion"
                         value={code}
+                        maxLength={codeMaxLength}
                         onChange={onCodeChange}
                         className="w-44"
                     />

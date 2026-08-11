@@ -178,7 +178,10 @@ AS $$
     )
     AND (p_nombre_estado IS NULL OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = UPPER(BTRIM(p_nombre_estado)))
     AND (p_dni_cliente IS NULL OR COALESCE(op.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
-    AND (p_codigo_operacion IS NULL OR COALESCE(op.codigo_operacion_deposito_cliente, '') ILIKE '%' || p_codigo_operacion || '%')
+    AND (
+      NULLIF(BTRIM(COALESCE(p_codigo_operacion, '')), '') IS NULL
+      OR COALESCE(op.codigo_operacion_deposito_cliente, '') ILIKE '%' || BTRIM(p_codigo_operacion) || '%'
+    )
     AND (p_id_banco_cliente IS NULL OR op.id_banco_cliente = p_id_banco_cliente)
   ORDER BY op.fecha_registro DESC, op.id DESC;
 $$;
@@ -262,6 +265,14 @@ BEGIN
 
   IF v_ruta NOT IN ('pos', 'linkpago') THEN
     RETURN jsonb_build_object('error', 'La ruta asistida no es valida.');
+  END IF;
+
+  p_codigo_operacion_deposito_cliente := NULLIF(BTRIM(COALESCE(p_codigo_operacion_deposito_cliente, '')), '');
+
+  IF v_ruta = 'pos'
+     AND p_codigo_operacion_deposito_cliente IS NOT NULL
+     AND LENGTH(p_codigo_operacion_deposito_cliente) > 15 THEN
+    RETURN jsonb_build_object('error', 'El codigo de operacion POS no puede superar los 15 caracteres.');
   END IF;
 
   IF v_ruta = 'pos' AND p_id_banco_destino IS NULL THEN

@@ -1374,14 +1374,16 @@ BEGIN
     v_flag_retencion_cuenta_val := false;
   END IF;
 
-  IF COALESCE(p_dni_cliente, '') <> ''
-     AND COALESCE(p_codigo_operacion_deposito_cliente, '') <> ''
+  IF COALESCE(p_codigo_operacion_deposito_cliente, '') <> ''
      AND p_id_codigo_servicio IS NOT NULL
+     AND p_monto_deposito_cliente IS NOT NULL
      AND p_fecha_deposito_cliente IS NOT NULL THEN
     SELECT id
     INTO v_dup_id
     FROM public.tb_operacion_proceso
-    WHERE dni_cliente = p_dni_cliente
+    WHERE 1 = 1
+      -- AND dni_cliente = p_dni_cliente
+      AND COALESCE(monto_deposito_cliente, 0)::bigint = COALESCE(p_monto_deposito_cliente, 0)::bigint
       AND codigo_operacion_deposito_cliente = p_codigo_operacion_deposito_cliente
       AND id_codigo_servicio = p_id_codigo_servicio
       AND COALESCE(id_estado, 0) <> 10
@@ -1390,7 +1392,7 @@ BEGIN
 
     IF v_dup_id IS NOT NULL THEN
       RETURN jsonb_build_object(
-        'error', 'Operacion duplicada por DNI, codigo de operacion, servicio y ventana de deposito de 7 dias.',
+        'error', 'Operacion duplicada por monto, codigo de operacion, servicio y ventana de deposito de 7 dias.',
         'estado', 'OMITIDO',
         'id_operacion', v_dup_id
       );
@@ -3735,7 +3737,9 @@ BEGIN
     SELECT id
     INTO v_dup_id
     FROM public.tb_operacion_proceso
-    WHERE dni_cliente = v_dni_parseado
+    WHERE 1 = 1
+      -- AND dni_cliente = v_dni_parseado
+      AND COALESCE(monto_deposito_cliente, 0)::bigint = COALESCE(v_monto, 0)::bigint
       AND codigo_operacion_deposito_cliente = v_fila.codigo_operacion
       AND id_codigo_servicio = p_id_codigo_servicio
       AND COALESCE(id_estado, 0) <> 10
@@ -3747,7 +3751,7 @@ BEGIN
         'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
         'codigo_operacion', v_fila.codigo_operacion,
         'estado', 'OMITIDO',
-        'motivo', 'Duplicado por DNI, codigo de operacion, servicio y ventana de deposito de 7 dias',
+        'motivo', 'Duplicado por monto, codigo de operacion, servicio y ventana de deposito de 7 dias',
         'id_operacion', v_dup_id
       );
       v_filas_omitidas := v_filas_omitidas + 1;
@@ -4380,7 +4384,9 @@ BEGIN
     SELECT id
     INTO v_dup_id
     FROM public.tb_operacion_proceso
-    WHERE dni_cliente = v_dni_parseado
+    WHERE 1 = 1
+      -- AND dni_cliente = v_dni_parseado
+      AND COALESCE(monto_deposito_cliente, 0)::bigint = COALESCE(v_monto, 0)::bigint
       AND codigo_operacion_deposito_cliente = v_fila.codigo_operacion
       AND id_codigo_servicio = p_id_codigo_servicio
       AND COALESCE(id_estado, 0) <> 10
@@ -4392,7 +4398,7 @@ BEGIN
         'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
         'codigo_operacion', v_fila.codigo_operacion,
         'estado', 'OMITIDO',
-        'motivo', 'Duplicado por DNI, codigo de operacion, servicio y ventana de deposito de 7 dias',
+        'motivo', 'Duplicado por monto, codigo de operacion, servicio y ventana de deposito de 7 dias',
         'id_operacion', v_dup_id
       );
       v_filas_omitidas := v_filas_omitidas + 1;
