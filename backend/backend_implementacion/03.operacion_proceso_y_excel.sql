@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
   nombre_cliente character varying,
   id_banco_cliente bigint,
   nombre_banco_cliente character varying,
-  monto_deposito_cliente bigint,
+  monto_deposito_cliente numeric,
   codigo_operacion_deposito_cliente character varying,
   fecha_deposito_cliente timestamp with time zone,
   id_empresa_ingreso bigint,
@@ -166,6 +166,46 @@ ALTER TABLE public.tb_operacion_proceso
 ALTER TABLE public.tb_operacion_proceso
   ALTER COLUMN comision_monto_extra_servicio TYPE numeric
   USING comision_monto_extra_servicio::numeric;
+
+ALTER TABLE public.tb_operacion_proceso
+  ALTER COLUMN monto_deposito_cliente TYPE numeric
+  USING monto_deposito_cliente::numeric;
+
+/*
+Migracion de contratos: el monto de deposito pasa de bigint a numeric para
+conservar centavos en el registro manual, edicion y carga Excel.
+*/
+DO $$
+DECLARE
+  v_function record;
+BEGIN
+  FOR v_function IN
+    SELECT
+      n.nspname AS schema_name,
+      p.proname AS function_name,
+      pg_get_function_identity_arguments(p.oid) AS identity_arguments
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname IN (
+        'f_get_tb_operacion_proceso',
+        'f_get_tb_operacion_comision_efectivizacion_cliente',
+        'f_post_tb_operacion_proceso',
+        'f_patch_tb_operacion_proceso_base',
+        'f_get_tb_operacion_calculo_comision_servicio',
+        'f_get_tb_operacion_calculo_comision_banco_ingreso',
+        'f_get_tb_operacion_proceso_calculo'
+      )
+  LOOP
+    EXECUTE format(
+      'DROP FUNCTION IF EXISTS %I.%I(%s);',
+      v_function.schema_name,
+      v_function.function_name,
+      v_function.identity_arguments
+    );
+  END LOOP;
+END;
+$$;
 
 DO $$
 BEGIN
@@ -467,7 +507,7 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_proceso(
   p_nombre_cliente character varying DEFAULT NULL,
   p_id_banco_cliente bigint DEFAULT NULL,
   p_nombre_banco_cliente character varying DEFAULT NULL,
-  p_monto_deposito_cliente bigint DEFAULT NULL,
+  p_monto_deposito_cliente numeric DEFAULT NULL,
   p_codigo_operacion_deposito_cliente character varying DEFAULT NULL,
   p_fecha_deposito_desde timestamp with time zone DEFAULT NULL,
   p_fecha_deposito_hasta timestamp with time zone DEFAULT NULL,
@@ -946,7 +986,7 @@ Objetivo:
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_comision_efectivizacion_cliente(
   p_id_cliente bigint,
-  p_monto_deposito_cliente bigint,
+  p_monto_deposito_cliente numeric,
   p_comision_servicio_regla numeric,
   p_monto_minimo_deposito_servicio numeric,
   p_comision_minima_servicio numeric
@@ -957,9 +997,9 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_porcentaje_recurrente numeric;
-  v_extra_recurrente bigint := 0;
+  v_extra_recurrente numeric := 0;
   v_porcentaje numeric;
-  v_extra bigint := 0;
+  v_extra numeric := 0;
   v_calc jsonb;
   v_tiene_porcentaje boolean := false;
 BEGIN
@@ -1023,7 +1063,7 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_proceso(
   p_nombre_cliente character varying DEFAULT NULL,
   p_id_banco_cliente bigint DEFAULT NULL,
   p_nombre_banco_cliente character varying DEFAULT NULL,
-  p_monto_deposito_cliente bigint DEFAULT NULL,
+  p_monto_deposito_cliente numeric DEFAULT NULL,
   p_codigo_operacion_deposito_cliente character varying DEFAULT NULL,
   p_fecha_deposito_cliente timestamp with time zone DEFAULT NULL,
   p_id_empresa_ingreso bigint DEFAULT NULL,
@@ -1383,10 +1423,9 @@ BEGIN
     FROM public.tb_operacion_proceso
     WHERE 1 = 1
       -- AND dni_cliente = p_dni_cliente
-      AND COALESCE(monto_deposito_cliente, 0)::bigint = COALESCE(p_monto_deposito_cliente, 0)::bigint
+      AND COALESCE(monto_deposito_cliente, 0)::numeric = COALESCE(p_monto_deposito_cliente, 0)::numeric
       AND codigo_operacion_deposito_cliente = p_codigo_operacion_deposito_cliente
       AND id_codigo_servicio = p_id_codigo_servicio
-      AND COALESCE(id_estado, 0) <> 10
       AND fecha_deposito_cliente::date BETWEEN (p_fecha_deposito_cliente::date - 7) AND (p_fecha_deposito_cliente::date + 7)
     LIMIT 1;
 
@@ -1669,7 +1708,7 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_base(
   p_nombre_cliente character varying DEFAULT NULL,
   p_id_banco_cliente bigint DEFAULT NULL,
   p_nombre_banco_cliente character varying DEFAULT NULL,
-  p_monto_deposito_cliente bigint DEFAULT NULL,
+  p_monto_deposito_cliente numeric DEFAULT NULL,
   p_codigo_operacion_deposito_cliente character varying DEFAULT NULL,
   p_fecha_deposito_cliente timestamp with time zone DEFAULT NULL,
   p_id_empresa_ingreso bigint DEFAULT NULL,
@@ -2970,8 +3009,11 @@ Uso:
   - cargas Excel
   - procesos de parseo previos a crear cliente u operacion
 */
+DROP FUNCTION IF EXISTS public.f_get_tb_parse_documento(text);
+
 CREATE OR REPLACE FUNCTION public.f_get_tb_parse_documento(
-  p_raw text
+  p_raw text,
+  p_id_codigo_servicio bigint DEFAULT NULL
 )
 RETURNS TABLE(valor character varying, tipo character varying)
 LANGUAGE plpgsql
@@ -2997,7 +3039,11 @@ BEGIN
 
   v_clean := RIGHT(v_digits, 8);
   IF LENGTH(v_clean) < 8 THEN
-    v_clean := RPAD(v_clean, 8, '0');
+    IF p_id_codigo_servicio = 3 THEN
+      v_clean := LPAD(v_clean, 8, '0');
+    ELSE
+      v_clean := RPAD(v_clean, 8, '0');
+    END IF;
   END IF;
 
   RETURN QUERY SELECT v_clean::varchar, 'DNI'::varchar;
@@ -3058,7 +3104,7 @@ Objetivo:
   Calcular la comision del servicio y el monto neto a transferir al cliente.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_calculo_comision_servicio(
-  p_monto_deposito_cliente bigint,
+  p_monto_deposito_cliente numeric,
   p_comision_servicio numeric,
   p_monto_minimo_deposito_servicio numeric,
   p_comision_minima_servicio numeric,
@@ -3102,7 +3148,7 @@ Regla de ITF:
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_calculo_comision_banco_ingreso(
   p_flag_por_sol_comision_banco_ingreso boolean,
-  p_monto_deposito_cliente bigint,
+  p_monto_deposito_cliente numeric,
   p_comision_banco_ingreso numeric,
   p_comision_minimo_banco_ingreso numeric DEFAULT 0,
   p_comision_igv_banco_ingreso numeric DEFAULT 0,
@@ -3220,7 +3266,7 @@ Objetivo:
   operacion antes de guardar.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_proceso_calculo(
-  p_monto_deposito_cliente bigint,
+  p_monto_deposito_cliente numeric,
   p_comision_servicio numeric,
   p_monto_minimo_deposito_servicio numeric,
   p_comision_minima_servicio numeric,
@@ -3335,7 +3381,7 @@ DECLARE
   v_dni_parseado character varying;
   v_tipo_doc character varying;
   v_tipo_documento bigint;
-  v_monto bigint;
+  v_monto numeric;
   v_fecha_deposito timestamp with time zone;
   v_cliente_id bigint;
   v_cliente_nombre character varying;
@@ -3663,14 +3709,17 @@ BEGIN
     BEGIN
       SELECT valor, tipo
       INTO v_dni_parseado, v_tipo_doc
-      FROM public.f_get_tb_parse_documento(COALESCE(v_fila.dni, ''));
+      FROM public.f_get_tb_parse_documento(
+        p_raw := COALESCE(v_fila.dni, ''),
+        p_id_codigo_servicio := p_id_codigo_servicio
+      );
     EXCEPTION WHEN OTHERS THEN
       v_error_motivo := 'DNI invÃ¡lido: ' || COALESCE(v_fila.dni, 'vacÃ­o');
     END;
 
     IF v_error_motivo IS NULL THEN
       BEGIN
-        v_monto := COALESCE(REGEXP_REPLACE(COALESCE(v_fila.monto, '0'), '[^0-9.]', '', 'g')::numeric::bigint, 0);
+        v_monto := COALESCE(REGEXP_REPLACE(REPLACE(COALESCE(v_fila.monto, '0'), ',', '.'), '[^0-9.]', '', 'g')::numeric, 0);
       EXCEPTION WHEN OTHERS THEN
         v_error_motivo := 'Monto invÃ¡lido: ' || COALESCE(v_fila.monto, 'vacÃ­o');
       END;
@@ -3739,10 +3788,9 @@ BEGIN
     FROM public.tb_operacion_proceso
     WHERE 1 = 1
       -- AND dni_cliente = v_dni_parseado
-      AND COALESCE(monto_deposito_cliente, 0)::bigint = COALESCE(v_monto, 0)::bigint
+      AND COALESCE(monto_deposito_cliente, 0)::numeric = COALESCE(v_monto, 0)::numeric
       AND codigo_operacion_deposito_cliente = v_fila.codigo_operacion
       AND id_codigo_servicio = p_id_codigo_servicio
-      AND COALESCE(id_estado, 0) <> 10
       AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
     LIMIT 1;
 
@@ -4088,7 +4136,7 @@ DECLARE
   v_dni_parseado character varying;
   v_tipo_doc character varying;
   v_tipo_documento bigint;
-  v_monto bigint;
+  v_monto numeric;
   v_fecha_deposito timestamp with time zone;
   v_cliente_id bigint;
   v_cliente_nombre character varying;
@@ -4327,13 +4375,16 @@ BEGIN
     BEGIN
       SELECT valor, tipo
       INTO v_dni_parseado, v_tipo_doc
-      FROM public.f_get_tb_parse_documento(COALESCE(v_fila.dni, ''));
+      FROM public.f_get_tb_parse_documento(
+        p_raw := COALESCE(v_fila.dni, ''),
+        p_id_codigo_servicio := p_id_codigo_servicio
+      );
     EXCEPTION WHEN OTHERS THEN
       v_dni_parseado := '';
     END;
 
     BEGIN
-      v_monto := COALESCE(REGEXP_REPLACE(COALESCE(v_fila.monto, '0'), '[^0-9.]', '', 'g')::numeric::bigint, 0);
+      v_monto := COALESCE(REGEXP_REPLACE(REPLACE(COALESCE(v_fila.monto, '0'), ',', '.'), '[^0-9.]', '', 'g')::numeric, 0);
     EXCEPTION WHEN OTHERS THEN
       v_monto := 0;
     END;
@@ -4386,10 +4437,9 @@ BEGIN
     FROM public.tb_operacion_proceso
     WHERE 1 = 1
       -- AND dni_cliente = v_dni_parseado
-      AND COALESCE(monto_deposito_cliente, 0)::bigint = COALESCE(v_monto, 0)::bigint
+      AND COALESCE(monto_deposito_cliente, 0)::numeric = COALESCE(v_monto, 0)::numeric
       AND codigo_operacion_deposito_cliente = v_fila.codigo_operacion
       AND id_codigo_servicio = p_id_codigo_servicio
-      AND COALESCE(id_estado, 0) <> 10
       AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
     LIMIT 1;
 
@@ -4924,8 +4974,10 @@ WHERE p.proname IN (
   'f_delete_tb_operacion_carga_excel_rollback',
   'f_get_tb_operacion_carga_excel_rollback',
   'f_get_tb_operacion_proceso',
+  'f_get_tb_parse_documento',
   'f_get_tb_operacion_comision_efectivizacion_cliente',
   'f_get_tb_operacion_calculo_comision_servicio',
+  'f_get_tb_operacion_calculo_comision_banco_ingreso',
   'f_get_tb_operacion_proceso_calculo',
   'f_patch_tb_operacion_proceso_base',
   'f_patch_tb_operacion_proceso_comision_extra',

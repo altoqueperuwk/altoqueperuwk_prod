@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabase";
 export interface BusinessUser {
     id: string;
     email: string;
+    id_sucursal?: number | null;
+    nombre_sucursal?: string | null;
     [key: string]: unknown;
 }
 

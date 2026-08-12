@@ -165,6 +165,7 @@ export interface OperacionProceso {
     nombre_banco_cliente_transferencia?: string | null;
     tipo_facturacion?: string | null;
     tipo_recaudacion_sf?: string | null;
+    nombre_usuario?: string | null;
     nombre_usuario_gestor?: string | null;
     id_usuario_solicitud?: number | null;
     nombre_usuario_solicitud?: string | null;

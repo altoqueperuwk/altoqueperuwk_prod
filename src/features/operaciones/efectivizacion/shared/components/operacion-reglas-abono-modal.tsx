@@ -23,6 +23,11 @@ const normalizeTime = (value: unknown, fallback: string) => {
     return /^\d{2}:\d{2}$/.test(text) ? text : fallback;
 };
 
+const normalizeBaseCalculo = (value: unknown) => {
+    const normalized = String(value ?? "").trim().toUpperCase();
+    return normalized === "CORTE" || normalized === "DEPOSITO" ? normalized : "";
+};
+
 const estadoOptions = [
     { value: "1", label: "Activo" },
     { value: "2", label: "Inactivo" },
@@ -87,7 +92,7 @@ export const OperacionReglasAbonoModal = ({
                     setHoraCorte(normalizeTime(current.hora_corte, defaults.horaCorte));
                     setDiasHabiles(current.dias_habiles_abono == null ? defaults.dias : String(current.dias_habiles_abono));
                     setHoraLiberacion(normalizeTime(current.hora_liberacion, defaults.horaLiberacion));
-                    setBaseCalculo(String(current.base_calculo_abono ?? defaults.baseCalculo));
+                    setBaseCalculo(normalizeBaseCalculo(current.base_calculo_abono));
                     setLiberacionAutomatica(Boolean(current.flag_liberacion_automatica));
                     setEstado(String(current.id_estado ?? 1));
                 }
@@ -238,7 +243,7 @@ export const OperacionReglasAbonoModal = ({
                             <Button
                                 color="primary"
                                 isLoading={isSaving}
-                                isDisabled={!activeCompanyCaja || isLoading || !horaCorte || !diasHabiles || !horaLiberacion || !baseCalculo}
+                                isDisabled={!activeCompanyCaja || isLoading || !horaCorte || diasHabiles.trim() === "" || !horaLiberacion || !baseCalculo}
                                 onClick={handleSave}
                             >
                                 Guardar

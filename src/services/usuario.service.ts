@@ -21,6 +21,7 @@ export const usuarioService = {
     p_id_rol: number;
     p_id_estado: number;
     p_flag_super_admin?: boolean;
+    p_id_sucursal?: number | null;
   }) {
     const { data, error } = await supabase.rpc("f_post_tb_usuario", params);
     if (error) throw error;
@@ -35,6 +36,7 @@ export const usuarioService = {
     p_id_rol?: number;
     p_id_estado?: number;
     p_flag_super_admin?: boolean;
+    p_id_sucursal?: number | null;
   }) {
     const { data, error } = await supabase.rpc("f_patch_tb_usuario", { p_id: id, ...params });
     if (error) throw error;
