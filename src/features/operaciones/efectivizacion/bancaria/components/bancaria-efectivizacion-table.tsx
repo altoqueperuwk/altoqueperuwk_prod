@@ -1053,7 +1053,7 @@ export const BancariaEfectivizacionTable = ({
                                                 <span className="text-sm text-secondary">{row.dni_cliente || "-"}</span>
                                             ) : row.dni_cliente ? (
                                                 <div className="flex items-center gap-1">
-                                                    <CopyableDni value={row.dni_cliente} />
+                                                    <CopyableDni value={row.dni_cliente} className="text-sm" />
                                                     {!disabledIngreso && !isDerivaciones && (
                                                         <Button
                                                             size="xs"

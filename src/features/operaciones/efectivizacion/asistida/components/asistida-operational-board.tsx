@@ -93,6 +93,11 @@ const baseColumns = [
 
 const linkpagoColumns = [
     {
+        key: "nombre_usuario",
+        label: "Usuario",
+        render: (row: OperacionProceso) => <CompactBadge>{row.nombre_usuario ?? "-"}</CompactBadge>,
+    },
+    {
         key: "nombre_banco_cliente",
         label: "Entidad Tarjeta",
         render: (row: OperacionProceso) => (
@@ -168,6 +173,11 @@ const linkpagoColumns = [
 ];
 
 const posColumns = [
+    {
+        key: "nombre_usuario",
+        label: "Usuario",
+        render: (row: OperacionProceso) => <CompactBadge>{row.nombre_usuario ?? "-"}</CompactBadge>,
+    },
     {
         key: "codigo_operacion_deposito_cliente",
         label: "Cod. Operacion",

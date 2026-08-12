@@ -16,7 +16,7 @@ import { PagoDeudaBoard } from "@/features/operaciones/pago-deuda/components/pag
 import { PagoDeudaEmpresasComisionModal } from "@/features/operaciones/pago-deuda/components/pago-deuda-empresas-comision-modal";
 import { PagoDeudaSolicitudForm } from "@/features/operaciones/pago-deuda/components/pago-deuda-solicitud-form";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
-import { isAdministrator, useAuth } from "@/providers/auth-provider";
+import { isAdministrator, isJefeTienda, useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { PagoDeudaReportPdf, getPagoDeudaReportAccount, getPagoDeudaReportSteps, type PagoDeudaReportAccountConfig, type PagoDeudaReportKpi } from "@/features/operaciones/pago-deuda/components/pago-deuda-reporte";
 import type { OperacionProceso } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
@@ -53,6 +53,7 @@ export const PagoDeudaPage = () => {
     const [selectedDate, setSelectedDate] = useState(getTodayValue);
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const canViewAllPagoDeuda = isAdministrator(businessUser);
+    const canViewSucursalPagoDeuda = isJefeTienda(businessUser);
 
     useEffect(() => {
         let ignore = false;
@@ -67,7 +68,8 @@ export const PagoDeudaPage = () => {
             p_fecha_registro_desde: `${selectedDate}T00:00:00`,
             p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
         };
-        if (!canViewAllPagoDeuda) kpiParams.p_id_usuario_solicitud = userId;
+        if (canViewSucursalPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
+        else if (!canViewAllPagoDeuda) kpiParams.p_id_usuario_solicitud = userId;
 
         pagoDeudaService
             .getKpi(kpiParams)
@@ -81,7 +83,7 @@ export const PagoDeudaPage = () => {
         return () => {
             ignore = true;
         };
-    }, [canViewAllPagoDeuda, refreshKey, selectedDate, userId]);
+    }, [canViewAllPagoDeuda, canViewSucursalPagoDeuda, refreshKey, selectedDate, userId]);
 
     const handleCalendarChange = (date: any) => {
         if (!date) return;
@@ -103,13 +105,15 @@ export const PagoDeudaPage = () => {
             p_fecha_desde: `${selectedDate}T00:00:00`,
             p_fecha_hasta: `${selectedDate}T23:59:59`,
         };
-        if (!canViewAllPagoDeuda) solicitudParams.p_id_usuario_solicitud = userId;
+        if (canViewSucursalPagoDeuda) solicitudParams.p_id_usuario_consulta = userId;
+        else if (!canViewAllPagoDeuda) solicitudParams.p_id_usuario_solicitud = userId;
 
         const kpiParams: Record<string, unknown> = {
             p_fecha_registro_desde: `${selectedDate}T00:00:00`,
             p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
         };
-        if (!canViewAllPagoDeuda) kpiParams.p_id_usuario_solicitud = userId;
+        if (canViewSucursalPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
+        else if (!canViewAllPagoDeuda) kpiParams.p_id_usuario_solicitud = userId;
 
         const [rows, accountRows, kpiRows] = await Promise.all([
             pagoDeudaService.getSolicitudes(solicitudParams),

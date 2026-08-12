@@ -116,8 +116,8 @@ BEGIN
   END IF;
 
   IF COALESCE(p_flag_deposito_comision, false) = true
-     AND UPPER(COALESCE(v_billetera, '')) NOT IN ('YAPE', 'PLIN', 'QR') THEN
-    RETURN jsonb_build_object('error', 'Selecciona una billetera digital valida: Yape, Plin o QR.');
+     AND UPPER(COALESCE(v_billetera, '')) NOT IN ('YAPE', 'PLIN', 'QR', 'TRANSFERENCIA') THEN
+    RETURN jsonb_build_object('error', 'Selecciona una opcion valida: Yape, Plin, QR o Transferencia.');
   END IF;
 
   INSERT INTO public.tb_pago_deuda_empresa_comision (
@@ -167,6 +167,11 @@ Regla de fecha:
     para que no desaparezcan de la bandeja operativa;
   - si el dia consultado es historico, muestra solo solicitudes Pagado.
 */
+DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda(
+  bigint, character varying, bigint, character varying,
+  timestamp with time zone, timestamp with time zone, bigint, bigint
+);
+
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda(
   p_id bigint DEFAULT NULL,
   p_dni_cliente character varying DEFAULT NULL,
@@ -175,7 +180,8 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda(
   p_fecha_desde timestamp with time zone DEFAULT NULL,
   p_fecha_hasta timestamp with time zone DEFAULT NULL,
   p_id_usuario_gestor bigint DEFAULT NULL,
-  p_id_usuario_solicitud bigint DEFAULT NULL
+  p_id_usuario_solicitud bigint DEFAULT NULL,
+  p_id_usuario_consulta bigint DEFAULT NULL
 )
 RETURNS SETOF jsonb
 LANGUAGE plpgsql
@@ -184,7 +190,27 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_id_codigo_servicio_pago_deuda bigint;
+  v_consulta_id_sucursal bigint;
+  v_consulta_es_administrador boolean := false;
+  v_consulta_es_jefe_tienda boolean := false;
 BEGIN
+  IF p_id_usuario_consulta IS NOT NULL THEN
+    SELECT
+      u.id_sucursal,
+      COALESCE(u.flag_super_admin, false)
+        OR u.id_rol = 1
+        OR UPPER(BTRIM(COALESCE(r.nombre, ''))) = 'ADMINISTRADOR',
+      u.id_rol = 3
+        OR UPPER(BTRIM(COALESCE(r.nombre, ''))) = 'JEFE DE TIENDA'
+    INTO
+      v_consulta_id_sucursal,
+      v_consulta_es_administrador,
+      v_consulta_es_jefe_tienda
+    FROM public.tb_usuario u
+    LEFT JOIN public.tb_rol r ON r.id = u.id_rol
+    WHERE u.id = p_id_usuario_consulta;
+  END IF;
+
   SELECT cs.id
   INTO v_id_codigo_servicio_pago_deuda
   FROM public.tb_codigo_servicio cs
@@ -250,7 +276,31 @@ BEGIN
       )
     )
     AND (p_id_usuario_gestor IS NULL OR op.id_usuario_gestor = p_id_usuario_gestor)
-    AND (p_id_usuario_solicitud IS NULL OR op.id_usuario_solicitud = p_id_usuario_solicitud)
+    AND (
+      (
+        p_id_usuario_consulta IS NULL
+        AND (p_id_usuario_solicitud IS NULL OR op.id_usuario_solicitud = p_id_usuario_solicitud)
+      )
+      OR (
+        p_id_usuario_consulta IS NOT NULL
+        AND (
+          v_consulta_es_administrador
+          OR (
+            v_consulta_es_jefe_tienda
+            AND v_consulta_id_sucursal IS NOT NULL
+            AND EXISTS (
+              SELECT 1
+              FROM public.tb_usuario creador
+              JOIN public.tb_rol rol_creador ON rol_creador.id = creador.id_rol
+              WHERE creador.id = op.id_usuario_solicitud
+                AND creador.id_rol = 4
+                AND creador.id_sucursal = v_consulta_id_sucursal
+                AND (p_id_usuario_solicitud IS NULL OR creador.id = p_id_usuario_solicitud)
+            )
+          )
+        )
+      )
+    )
   ORDER BY op.id DESC;
 END;
 $$;
@@ -263,10 +313,15 @@ Objetivo:
   arrastran solo cuando se consulta el dia actual. En historico solo cuenta
   solicitudes Pagado.
 */
+DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_kpi(
+  timestamp with time zone, timestamp with time zone, bigint
+);
+
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_kpi(
   p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
   p_fecha_registro_hasta timestamp with time zone DEFAULT NULL,
-  p_id_usuario_solicitud bigint DEFAULT NULL
+  p_id_usuario_solicitud bigint DEFAULT NULL,
+  p_id_usuario_consulta bigint DEFAULT NULL
 )
 RETURNS TABLE (
   total_operaciones_pendientes integer,
@@ -279,6 +334,18 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 AS $$
+  WITH consulta AS (
+    SELECT
+      u.id_sucursal,
+      COALESCE(u.flag_super_admin, false)
+        OR u.id_rol = 1
+        OR UPPER(BTRIM(COALESCE(r.nombre, ''))) = 'ADMINISTRADOR' AS es_administrador,
+      u.id_rol = 3
+        OR UPPER(BTRIM(COALESCE(r.nombre, ''))) = 'JEFE DE TIENDA' AS es_jefe_tienda
+    FROM public.tb_usuario u
+    LEFT JOIN public.tb_rol r ON r.id = u.id_rol
+    WHERE u.id = p_id_usuario_consulta
+  )
   SELECT
     COUNT(*) FILTER (
       WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PAGADO'
@@ -305,9 +372,33 @@ AS $$
       0
     )::numeric AS monto_devueltos
   FROM public.tb_operacion_proceso op
+  LEFT JOIN consulta c ON true
   WHERE op.id_operacion_padre IS NULL
     AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'SOLICITUD'
-    AND (p_id_usuario_solicitud IS NULL OR op.id_usuario_solicitud = p_id_usuario_solicitud)
+    AND (
+      (
+        p_id_usuario_consulta IS NULL
+        AND (p_id_usuario_solicitud IS NULL OR op.id_usuario_solicitud = p_id_usuario_solicitud)
+      )
+      OR (
+        p_id_usuario_consulta IS NOT NULL
+        AND (
+          COALESCE(c.es_administrador, false)
+          OR (
+            COALESCE(c.es_jefe_tienda, false)
+            AND c.id_sucursal IS NOT NULL
+            AND EXISTS (
+              SELECT 1
+              FROM public.tb_usuario creador
+              WHERE creador.id = op.id_usuario_solicitud
+                AND creador.id_rol = 4
+                AND creador.id_sucursal = c.id_sucursal
+                AND (p_id_usuario_solicitud IS NULL OR creador.id = p_id_usuario_solicitud)
+            )
+          )
+        )
+      )
+    )
     AND (
       (p_fecha_registro_desde IS NULL AND p_fecha_registro_hasta IS NULL)
       OR (

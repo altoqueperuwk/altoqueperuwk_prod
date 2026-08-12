@@ -31,6 +31,7 @@ const billeteraOptions = [
     { label: "Yape", value: "Yape" },
     { label: "Plin", value: "Plin" },
     { label: "QR", value: "QR" },
+    { label: "Transferencia", value: "Transferencia" },
 ];
 
 const mapRow = (row: Record<string, unknown>): EmpresaComisionRow => ({

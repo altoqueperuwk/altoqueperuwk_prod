@@ -699,6 +699,27 @@ CREATE TABLE IF NOT EXISTS public.tb_usuario_his AS
 TABLE public.tb_usuario
 WITH NO DATA;
 
+ALTER TABLE public.tb_usuario
+  ADD COLUMN IF NOT EXISTS id_sucursal bigint;
+
+ALTER TABLE public.tb_usuario_his
+  ADD COLUMN IF NOT EXISTS id_sucursal bigint;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'tb_usuario_fk_sucursal'
+      AND conrelid = 'public.tb_usuario'::regclass
+  ) THEN
+    ALTER TABLE public.tb_usuario
+      ADD CONSTRAINT tb_usuario_fk_sucursal
+      FOREIGN KEY (id_sucursal) REFERENCES public.tb_sucursal(id);
+  END IF;
+END;
+$$;
+
 DROP TRIGGER IF EXISTS trg_tb_usuario_his ON public.tb_usuario;
 CREATE TRIGGER trg_tb_usuario_his
 AFTER INSERT OR UPDATE ON public.tb_usuario
@@ -718,6 +739,12 @@ Contrato:
   - request: filtros opcionales por campos propios del usuario
   - response: pk + campos propios + nombres de FK
 */
+DROP FUNCTION IF EXISTS public.f_get_tb_usuario(
+  bigint, character varying, character varying, character varying,
+  character varying, boolean, bigint, bigint,
+  timestamp with time zone, timestamp with time zone
+);
+
 CREATE OR REPLACE FUNCTION public.f_get_tb_usuario(
   p_id bigint DEFAULT NULL,
   p_username character varying DEFAULT NULL,
@@ -728,7 +755,8 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_usuario(
   p_id_rol bigint DEFAULT NULL,
   p_id_estado bigint DEFAULT NULL,
   p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL
+  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL,
+  p_id_sucursal bigint DEFAULT NULL
 )
 RETURNS SETOF jsonb
 LANGUAGE sql
@@ -744,6 +772,8 @@ AS $$
     'flag_super_admin', t.flag_super_admin,
     'id_rol', t.id_rol,
     'rol_nombre', r.nombre,
+    'id_sucursal', t.id_sucursal,
+    'nombre_sucursal', s.nombre,
     'id_estado', t.id_estado,
     'estado_nombre', e.nombre,
     'fecha_registro', t.fecha_registro
@@ -751,6 +781,7 @@ AS $$
   FROM public.tb_usuario t
   LEFT JOIN public.tb_rol r ON t.id_rol = r.id
   LEFT JOIN public.tb_estado e ON t.id_estado = e.id
+  LEFT JOIN public.tb_sucursal s ON t.id_sucursal = s.id
   WHERE (p_id IS NULL OR t.id = p_id)
     AND (p_username IS NULL OR t.username ILIKE '%' || p_username || '%')
     AND (p_password IS NULL OR t.password = p_password)
@@ -761,8 +792,15 @@ AS $$
     AND (p_id_estado IS NULL OR t.id_estado = p_id_estado)
     AND (p_fecha_registro_desde IS NULL OR t.fecha_registro >= p_fecha_registro_desde)
     AND (p_fecha_registro_hasta IS NULL OR t.fecha_registro <= p_fecha_registro_hasta)
+    AND (p_id_sucursal IS NULL OR t.id_sucursal = p_id_sucursal)
   ORDER BY t.id;
 $$;
+
+DROP FUNCTION IF EXISTS public.f_get_tb_usuario_his(
+  bigint, character varying, character varying, character varying,
+  character varying, boolean, bigint, bigint,
+  timestamp with time zone, timestamp with time zone
+);
 
 CREATE OR REPLACE FUNCTION public.f_get_tb_usuario_his(
   p_id bigint DEFAULT NULL,
@@ -774,7 +812,8 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_usuario_his(
   p_id_rol bigint DEFAULT NULL,
   p_id_estado bigint DEFAULT NULL,
   p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL
+  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL,
+  p_id_sucursal bigint DEFAULT NULL
 )
 RETURNS SETOF jsonb
 LANGUAGE sql
@@ -793,6 +832,7 @@ AS $$
     AND (p_id_estado IS NULL OR t.id_estado = p_id_estado)
     AND (p_fecha_registro_desde IS NULL OR t.fecha_registro >= p_fecha_registro_desde)
     AND (p_fecha_registro_hasta IS NULL OR t.fecha_registro <= p_fecha_registro_hasta)
+    AND (p_id_sucursal IS NULL OR t.id_sucursal = p_id_sucursal)
   ORDER BY t.fecha_registro, t.id;
 $$;
 
@@ -801,6 +841,11 @@ Funcion: f_post_tb_usuario
 Objetivo:
   Crear un usuario nuevo incluyendo su condicion administrativa.
 */
+DROP FUNCTION IF EXISTS public.f_post_tb_usuario(
+  character varying, character varying, character varying, character varying,
+  bigint, bigint, boolean
+);
+
 CREATE OR REPLACE FUNCTION public.f_post_tb_usuario(
   p_username character varying,
   p_password character varying,
@@ -808,7 +853,8 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_usuario(
   p_nombre character varying,
   p_id_rol bigint,
   p_id_estado bigint,
-  p_flag_super_admin boolean DEFAULT false
+  p_flag_super_admin boolean DEFAULT false,
+  p_id_sucursal bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -817,8 +863,8 @@ AS $$
 DECLARE
   v_id bigint;
 BEGIN
-  INSERT INTO public.tb_usuario (username, password, email, nombre, flag_super_admin, id_rol, id_estado)
-  VALUES (p_username, p_password, p_email, p_nombre, COALESCE(p_flag_super_admin, false), p_id_rol, p_id_estado)
+  INSERT INTO public.tb_usuario (username, password, email, nombre, flag_super_admin, id_rol, id_estado, id_sucursal)
+  VALUES (p_username, p_password, p_email, p_nombre, COALESCE(p_flag_super_admin, false), p_id_rol, p_id_estado, p_id_sucursal)
   RETURNING id INTO v_id;
 
   RETURN (
@@ -834,6 +880,11 @@ Funcion: f_patch_tb_usuario
 Objetivo:
   Actualizar un usuario existente, incluido el flag de super admin.
 */
+DROP FUNCTION IF EXISTS public.f_patch_tb_usuario(
+  bigint, character varying, character varying, character varying,
+  character varying, boolean, bigint, bigint
+);
+
 CREATE OR REPLACE FUNCTION public.f_patch_tb_usuario(
   p_id bigint,
   p_username character varying DEFAULT NULL,
@@ -842,7 +893,8 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_usuario(
   p_nombre character varying DEFAULT NULL,
   p_flag_super_admin boolean DEFAULT NULL,
   p_id_rol bigint DEFAULT NULL,
-  p_id_estado bigint DEFAULT NULL
+  p_id_estado bigint DEFAULT NULL,
+  p_id_sucursal bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -856,7 +908,8 @@ BEGIN
       nombre = COALESCE(p_nombre, nombre),
       flag_super_admin = COALESCE(p_flag_super_admin, flag_super_admin),
       id_rol = COALESCE(p_id_rol, id_rol),
-      id_estado = COALESCE(p_id_estado, id_estado)
+      id_estado = COALESCE(p_id_estado, id_estado),
+      id_sucursal = COALESCE(p_id_sucursal, id_sucursal)
   WHERE id = p_id;
 
   RETURN (
@@ -1434,6 +1487,10 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
+    'f_get_tb_usuario',
+    'f_get_tb_usuario_his',
+    'f_post_tb_usuario',
+    'f_patch_tb_usuario',
     'f_put_tb_permiso_usuario_lote'
 )
 ORDER BY n.nspname, p.proname;

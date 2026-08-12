@@ -8,7 +8,7 @@ import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { isAdministrator, useAuth } from "@/providers/auth-provider";
+import { isAdministrator, isJefeTienda, useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { estadoService } from "@/services/estado.service";
 import { bancoService } from "@/services/banco.service";
@@ -36,6 +36,7 @@ import type { OperacionProceso } from "@/features/operaciones/efectivizacion/sha
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 import { cx } from "@/utils/cx";
 import { reglasEfectivizacionService } from "@/services/reglas-efectivizacion.service";
+import { usuarioService } from "@/services/usuario.service";
 
 interface PagoDeudaBoardProps {
     onChanged?: () => void;
@@ -286,10 +287,14 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     const [actionRefreshKey, setActionRefreshKey] = useState(0);
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
     const [bancos, setBancos] = useState<CatalogItem[]>([]);
+    const [usuariosSucursal, setUsuariosSucursal] = useState<CatalogItem[]>([]);
+    const [selectedUsuarioId, setSelectedUsuarioId] = useState("");
     const [reglas, setReglas] = useState<PagoDeudaRegla[]>([]);
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
     const canViewAllPagoDeuda = isAdministrator(businessUser);
+    const canViewSucursalPagoDeuda = isJefeTienda(businessUser);
+    const sucursalId = businessUser?.id_sucursal == null ? null : Number(businessUser.id_sucursal);
     const { result: editClienteLookup, isLoading: isEditClienteLoading } = useClienteLookup(
         editSolicitud?.dni ?? "",
         editSolicitud?.tipoDocumento ?? 1,
@@ -320,10 +325,14 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             p_fecha_desde: `${selectedDate}T00:00:00`,
             p_fecha_hasta: `${selectedDate}T23:59:59`,
         };
-        if (!canViewAllPagoDeuda) values.p_id_usuario_solicitud = userId;
+        if (canViewSucursalPagoDeuda) values.p_id_usuario_consulta = userId;
+        else if (!canViewAllPagoDeuda) values.p_id_usuario_solicitud = userId;
+        if (canViewSucursalPagoDeuda && selectedUsuarioId) {
+            values.p_id_usuario_solicitud = Number(selectedUsuarioId);
+        }
         if (dni.trim()) values.p_dni_cliente = dni.trim();
         return values;
-    }, [canViewAllPagoDeuda, dni, selectedDate, userId]);
+    }, [canViewAllPagoDeuda, canViewSucursalPagoDeuda, dni, selectedDate, selectedUsuarioId, userId]);
 
     const cuentasComisionHabilitadas = useMemo(
         () => cuentasActivas.filter((cuenta) => cuenta.flag_deposito_comision),
@@ -415,8 +424,37 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     }, [addToast]);
 
     useEffect(() => {
+        if (!canViewSucursalPagoDeuda || sucursalId == null) {
+            setUsuariosSucursal([]);
+            setSelectedUsuarioId("");
+            return;
+        }
+
+        let ignore = false;
+        setSelectedUsuarioId("");
+        usuarioService
+            .getList({ p_id_rol: 4, p_id_sucursal: sucursalId, p_id_estado: 1 })
+            .then((rows) => {
+                if (ignore) return;
+                setUsuariosSucursal(
+                    (rows ?? []).map((row) => ({
+                        id: Number(row.id),
+                        nombre: String(row.nombre ?? row.username ?? ""),
+                    })),
+                );
+            })
+            .catch(() => {
+                if (!ignore) addToast("error", "Error al cargar los usuarios de la sucursal.");
+            });
+
+        return () => {
+            ignore = true;
+        };
+    }, [addToast, canViewSucursalPagoDeuda, sucursalId]);
+
+    useEffect(() => {
         setSelectedIds([]);
-    }, [activeFilter, dni, refreshKey, selectedDate]);
+    }, [activeFilter, dni, refreshKey, selectedDate, selectedUsuarioId]);
 
     const filterSolicitudes = (rows: OperacionProceso[], filter: string) => {
         if (filter === "Todos") return rows;
@@ -823,6 +861,13 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
 
     const columns = [
         {
+            key: "nombre_usuario",
+            label: "Usuario",
+            render: (row: OperacionProceso) => (
+                <CompactBadgeLine>{row.nombre_usuario ?? "-"}</CompactBadgeLine>
+            ),
+        },
+        {
             key: "pasos",
             label: "Pasos",
             render: (row: OperacionProceso) => <PagoDeudaSteps row={row} />,
@@ -973,6 +1018,23 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                 activeFilter={activeFilter}
                 actions={actions}
                 dni={dni}
+                extraFilters={canViewSucursalPagoDeuda ? (
+                    <NativeSelect
+                        size="sm"
+                        label=""
+                        aria-label="Seleccionar Usuario"
+                        value={selectedUsuarioId}
+                        onChange={(event) => setSelectedUsuarioId(event.currentTarget.value)}
+                        options={[
+                            { label: "Seleccionar Usuario", value: "" },
+                            ...usuariosSucursal.map((usuario) => ({
+                                label: usuario.nombre,
+                                value: String(usuario.id),
+                            })),
+                        ]}
+                        className="w-52"
+                    />
+                ) : undefined}
                 filters={filters}
                 isActionDisabled={isActionDisabled}
                 onAction={handleAction}
