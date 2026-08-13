@@ -288,15 +288,17 @@ BEGIN
           OR (
             v_consulta_es_jefe_tienda
             AND v_consulta_id_sucursal IS NOT NULL
-            AND EXISTS (
-              SELECT 1
-              FROM public.tb_usuario creador
-              JOIN public.tb_rol rol_creador ON rol_creador.id = creador.id_rol
-              WHERE creador.id = op.id_usuario_solicitud
-                AND creador.id_rol = 4
-                AND creador.id_sucursal = v_consulta_id_sucursal
-                AND (p_id_usuario_solicitud IS NULL OR creador.id = p_id_usuario_solicitud)
+            AND (
+              op.id_usuario_solicitud = p_id_usuario_consulta
+              OR EXISTS (
+                SELECT 1
+                FROM public.tb_usuario creador
+                WHERE creador.id = op.id_usuario_solicitud
+                  AND creador.id_rol = 4
+                  AND creador.id_sucursal = v_consulta_id_sucursal
+              )
             )
+            AND (p_id_usuario_solicitud IS NULL OR op.id_usuario_solicitud = p_id_usuario_solicitud)
           )
         )
       )
@@ -387,14 +389,17 @@ AS $$
           OR (
             COALESCE(c.es_jefe_tienda, false)
             AND c.id_sucursal IS NOT NULL
-            AND EXISTS (
-              SELECT 1
-              FROM public.tb_usuario creador
-              WHERE creador.id = op.id_usuario_solicitud
-                AND creador.id_rol = 4
-                AND creador.id_sucursal = c.id_sucursal
-                AND (p_id_usuario_solicitud IS NULL OR creador.id = p_id_usuario_solicitud)
+            AND (
+              op.id_usuario_solicitud = p_id_usuario_consulta
+              OR EXISTS (
+                SELECT 1
+                FROM public.tb_usuario creador
+                WHERE creador.id = op.id_usuario_solicitud
+                  AND creador.id_rol = 4
+                  AND creador.id_sucursal = c.id_sucursal
+              )
             )
+            AND (p_id_usuario_solicitud IS NULL OR op.id_usuario_solicitud = p_id_usuario_solicitud)
           )
         )
       )
@@ -2863,22 +2868,7 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_pago_deuda_empresa_comision',
   'f_get_tb_pago_deuda',
-  'f_get_tb_pago_deuda_kpi',
-  'f_patch_tb_pago_deuda_empresa_comision',
-  'f_get_tb_pago_deuda_bandeja',
-  'f_patch_tb_pago_deuda_codigo_operacion',
-  'f_post_tb_pago_deuda_solicitud',
-  'f_patch_tb_pago_deuda_comision_especial',
-  'f_patch_tb_pago_deuda_comision_extra',
-  'f_delete_tb_pago_deuda_solicitud',
-  'f_patch_tb_pago_deuda_comision_cuenta',
-  'f_sync_tb_pago_deuda_comision_caja',
-  'f_patch_tb_pago_deuda_match',
-  'f_patch_tb_pago_deuda_salida',
-  'f_patch_tb_pago_deuda_pagado',
-  'f_patch_tb_pago_deuda_reiniciar_transferencia',
-  'f_patch_tb_pago_deuda_derivar_banco'
+  'f_get_tb_pago_deuda_kpi'
 )
 ORDER BY n.nspname, p.proname;

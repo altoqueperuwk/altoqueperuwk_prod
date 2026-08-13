@@ -359,7 +359,8 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
             p_fecha_registro_desde: `${selectedDate}T00:00:00`,
             p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
         };
-        if (!canViewAllAssisted) values.p_id_usuario_solicitud = userId;
+        if (canViewAllAssisted) values.p_id_usuario_consulta = userId;
+        else values.p_id_usuario_solicitud = userId;
 
         if (ruta !== "pos" && codigo.trim()) values.p_codigo_operacion = codigo.trim();
         if (dni.trim()) values.p_dni_cliente = dni.trim();
