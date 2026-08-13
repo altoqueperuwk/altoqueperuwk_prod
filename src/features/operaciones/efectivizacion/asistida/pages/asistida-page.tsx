@@ -60,7 +60,8 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
             p_fecha_registro_desde: `${selectedDate}T00:00:00`,
             p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
         };
-        if (!canViewAllAssisted) params.p_id_usuario_solicitud = userId;
+        if (canViewAllAssisted) params.p_id_usuario_consulta = userId;
+        else params.p_id_usuario_solicitud = userId;
         const [rows, deletedRows, kpiRows] = await Promise.all([
             operacionesRpcService.getOperacionAsistidaBandeja(params),
             operacionesRpcService.getOperacionAsistidaBandeja({ ...params, p_nombre_estado: "Eliminado" }),
@@ -234,7 +235,8 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
             p_fecha_registro_desde: `${selectedDate}T00:00:00`,
             p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
         };
-        if (!canViewAllAssisted) kpiParams.p_id_usuario_solicitud = userId;
+        if (canViewAllAssisted) kpiParams.p_id_usuario_consulta = userId;
+        else kpiParams.p_id_usuario_solicitud = userId;
 
         operacionesRpcService
             .getOperacionAsistidaKpi(kpiParams)

@@ -68,7 +68,8 @@ export const PagoDeudaPage = () => {
             p_fecha_registro_desde: `${selectedDate}T00:00:00`,
             p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
         };
-        if (canViewSucursalPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
+        if (canViewAllPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
+        else if (canViewSucursalPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
         else if (!canViewAllPagoDeuda) kpiParams.p_id_usuario_solicitud = userId;
 
         pagoDeudaService
@@ -105,14 +106,16 @@ export const PagoDeudaPage = () => {
             p_fecha_desde: `${selectedDate}T00:00:00`,
             p_fecha_hasta: `${selectedDate}T23:59:59`,
         };
-        if (canViewSucursalPagoDeuda) solicitudParams.p_id_usuario_consulta = userId;
+        if (canViewAllPagoDeuda) solicitudParams.p_id_usuario_consulta = userId;
+        else if (canViewSucursalPagoDeuda) solicitudParams.p_id_usuario_consulta = userId;
         else if (!canViewAllPagoDeuda) solicitudParams.p_id_usuario_solicitud = userId;
 
         const kpiParams: Record<string, unknown> = {
             p_fecha_registro_desde: `${selectedDate}T00:00:00`,
             p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
         };
-        if (canViewSucursalPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
+        if (canViewAllPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
+        else if (canViewSucursalPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
         else if (!canViewAllPagoDeuda) kpiParams.p_id_usuario_solicitud = userId;
 
         const [rows, accountRows, kpiRows] = await Promise.all([

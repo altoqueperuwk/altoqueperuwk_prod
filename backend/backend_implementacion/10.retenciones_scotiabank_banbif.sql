@@ -66,10 +66,6 @@ AS $$
             OR (
               a.tab <> 'RETENIDOS'
               AND op.id_caja_cierre IS NULL
-              AND NOT (
-                COALESCE(op.flag_retenido, false) = true
-                AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
-              )
             )
           )
         )
@@ -462,8 +458,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_operacion_retencion_bandeja',
-  'f_get_tb_operacion_retencion_bandeja_badges',
-  'f_get_tb_operacion_retencion_empresa_badges'
+  'f_get_tb_operacion_retencion_bandeja'
 )
 ORDER BY n.nspname, p.proname;

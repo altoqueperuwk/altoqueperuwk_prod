@@ -325,7 +325,8 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             p_fecha_desde: `${selectedDate}T00:00:00`,
             p_fecha_hasta: `${selectedDate}T23:59:59`,
         };
-        if (canViewSucursalPagoDeuda) values.p_id_usuario_consulta = userId;
+        if (canViewAllPagoDeuda) values.p_id_usuario_consulta = userId;
+        else if (canViewSucursalPagoDeuda) values.p_id_usuario_consulta = userId;
         else if (!canViewAllPagoDeuda) values.p_id_usuario_solicitud = userId;
         if (canViewSucursalPagoDeuda && selectedUsuarioId) {
             values.p_id_usuario_solicitud = Number(selectedUsuarioId);
@@ -436,12 +437,19 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             .getList({ p_id_rol: 4, p_id_sucursal: sucursalId, p_id_estado: 1 })
             .then((rows) => {
                 if (ignore) return;
-                setUsuariosSucursal(
-                    (rows ?? []).map((row) => ({
-                        id: Number(row.id),
-                        nombre: String(row.nombre ?? row.username ?? ""),
-                    })),
-                );
+                const usuarios = (rows ?? []).map((row) => ({
+                    id: Number(row.id),
+                    nombre: String(row.nombre ?? row.username ?? ""),
+                }));
+
+                if (userId !== null) {
+                    usuarios.unshift({
+                        id: userId,
+                        nombre: userName ?? String(businessUser?.username ?? "Usuario actual"),
+                    });
+                }
+
+                setUsuariosSucursal(Array.from(new Map(usuarios.map((usuario) => [usuario.id, usuario])).values()));
             })
             .catch(() => {
                 if (!ignore) addToast("error", "Error al cargar los usuarios de la sucursal.");
@@ -450,7 +458,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
         return () => {
             ignore = true;
         };
-    }, [addToast, canViewSucursalPagoDeuda, sucursalId]);
+    }, [addToast, businessUser?.username, canViewSucursalPagoDeuda, sucursalId, userId, userName]);
 
     useEffect(() => {
         setSelectedIds([]);
