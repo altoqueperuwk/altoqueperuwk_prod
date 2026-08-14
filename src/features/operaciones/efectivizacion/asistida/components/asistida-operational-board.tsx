@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Edit03, Trash01 } from "@untitledui/icons";
 import { motion } from "motion/react";
 import { Button } from "@/components/base/buttons/button";
@@ -24,6 +24,8 @@ import { cx } from "@/utils/cx";
 import { LinkPagoEditModal } from "@/features/operaciones/efectivizacion/asistida/components/linkpago-edit-modal";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import { CopyableDni } from "@/features/operaciones/efectivizacion/shared/components/copyable-dni";
+import { useWindowFocusRefresh } from "@/features/operaciones/efectivizacion/shared/hooks/use-window-focus-refresh";
+import { reconcileRows } from "@/features/operaciones/efectivizacion/shared/utils/reconcile-rows";
 
 interface AsistidaOperationalBoardProps {
     companies: RutaOperacionCaja[];
@@ -105,12 +107,17 @@ const linkpagoColumns = [
         ),
     },
     { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
-    { key: "nombre_cliente", label: "Nombre", cellClassName: "max-w-[25ch] truncate" },
+    {
+        key: "nombre_cliente",
+        label: "Nombre",
+        cellClassName: "max-w-[25ch] truncate",
+        render: (row: OperacionProceso) => row.nombre_cliente?.toUpperCase() || "-",
+    },
     { key: "nombre_comunidad", label: "Comunidad" },
     {
         key: "monto_deposito_cliente",
-        label: "Monto",
-        cellClassName: "font-semibold text-primary tabular-nums",
+        label: "Monto Deposito",
+        cellClassName: "font-semibold text-concept-transferencia tabular-nums",
         render: (row: OperacionProceso) => formatMoney(row.monto_deposito_cliente),
     },
     {
@@ -192,7 +199,12 @@ const posColumns = [
         ),
     },
     { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
-    { key: "nombre_cliente", label: "Nombre", cellClassName: "w-40 max-w-40 truncate" },
+    {
+        key: "nombre_cliente",
+        label: "Nombre",
+        cellClassName: "w-40 max-w-40 truncate",
+        render: (row: OperacionProceso) => row.nombre_cliente?.toUpperCase() || "-",
+    },
     {
         key: "email_cliente",
         label: "Email",
@@ -201,8 +213,8 @@ const posColumns = [
     { key: "nombre_comunidad", label: "Comunidad" },
     {
         key: "monto_deposito_cliente",
-        label: "Monto",
-        cellClassName: "font-semibold text-primary tabular-nums",
+        label: "Monto Deposito",
+        cellClassName: "font-semibold text-concept-transferencia tabular-nums",
         render: (row: OperacionProceso) => formatMoney(row.monto_deposito_cliente),
     },
     {
@@ -270,7 +282,8 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
     const [dni, setDni] = useState("");
     const [operaciones, setOperaciones] = useState<OperacionProceso[]>([]);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isInitialLoading, setIsInitialLoading] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [isApplyingAction, setIsApplyingAction] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [estadoPagado, setEstadoPagado] = useState<{ id: number; nombre: string } | null>(null);
@@ -280,6 +293,9 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
     const [deleteOperation, setDeleteOperation] = useState<OperacionProceso | null>(null);
     const [entidadTarjetaFiltro, setEntidadTarjetaFiltro] = useState("");
     const [bancosFiltro, setBancosFiltro] = useState<{ id: number; nombre: string; tipo: string }[]>([]);
+    const focusRefreshKey = useWindowFocusRefresh();
+    const hasLoadedRows = useRef(false);
+    const lastQuerySignature = useRef<string | null>(null);
 
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
@@ -407,28 +423,37 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         let ignore = false;
         if (userId === null) {
             setOperaciones([]);
-            setIsLoading(false);
+            setIsInitialLoading(false);
+            setIsRefreshing(false);
             return () => { ignore = true; };
         }
-        setIsLoading(true);
+        const querySignature = JSON.stringify(params);
+        const isBackgroundRefresh = hasLoadedRows.current && lastQuerySignature.current === querySignature;
+        lastQuerySignature.current = querySignature;
+        setIsInitialLoading(!isBackgroundRefresh);
+        setIsRefreshing(isBackgroundRefresh);
         setError(null);
 
         operacionesRpcService
             .getOperacionAsistidaBandeja(params)
             .then((result) => {
-                if (!ignore) setOperaciones(result ?? []);
+                if (!ignore) setOperaciones((current) => reconcileRows(current, result ?? []));
             })
             .catch((err) => {
                 if (!ignore) setError(err instanceof Error ? err.message : "No se pudo cargar la bandeja asistida.");
             })
             .finally(() => {
-                if (!ignore) setIsLoading(false);
+                if (!ignore) {
+                    hasLoadedRows.current = true;
+                    setIsInitialLoading(false);
+                    setIsRefreshing(false);
+                }
             });
 
         return () => {
             ignore = true;
         };
-    }, [params, refreshKey, userId]);
+    }, [focusRefreshKey, params, refreshKey, userId]);
 
     const handleToggleRow = (id: number) => {
         setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
@@ -570,7 +595,8 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                 columns={columns}
                 data={operaciones}
                 emptyText="Sin solicitudes para esta bandeja."
-                isLoading={isLoading}
+                isLoading={isInitialLoading}
+                isRefreshing={isRefreshing}
                 selectedIds={selectedIds}
                 onToggleRow={actions.length ? handleToggleRow : undefined}
             />

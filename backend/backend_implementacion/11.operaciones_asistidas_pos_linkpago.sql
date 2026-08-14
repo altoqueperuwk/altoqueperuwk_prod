@@ -261,7 +261,8 @@ DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida(
   bigint, character varying, character varying, numeric, character varying,
   bigint, character varying, bigint, character varying, bigint,
   character varying, bigint, character varying, bigint, bigint,
-  timestamp with time zone, bigint, character varying, character varying
+  timestamp with time zone, bigint, character varying, character varying,
+  character varying
 );
 
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
@@ -288,7 +289,8 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
   p_tipo_documento_cliente bigint DEFAULT NULL,
   p_nombre_cliente character varying DEFAULT NULL,
   p_celular_cliente character varying DEFAULT NULL,
-  p_email_cliente character varying DEFAULT NULL
+  p_email_cliente character varying DEFAULT NULL,
+  p_id_empresa_destino bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -359,12 +361,22 @@ BEGIN
     JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
     JOIN public.tb_banco b ON b.id = ecb.id_banco
     WHERE ecb.id_banco = p_id_banco_destino
-      AND rc.flag_caja_ingreso_principal = true
       AND rc.id_estado = 1
+      AND ecb.id_estado = 1
+      AND e.id_estado = 1
+      AND (p_id_empresa_destino IS NULL OR rc.id_empresa = p_id_empresa_destino)
+      AND (p_id_empresa_destino IS NOT NULL OR rc.flag_caja_ingreso_principal = true)
+    ORDER BY e.nombre ASC, rc.id ASC
     LIMIT 1;
 
     IF v_ruta_caja.ruta IS NULL THEN
-      RETURN jsonb_build_object('error', 'No existe caja de ingreso principal configurada para el banco seleccionado.');
+      RETURN jsonb_build_object(
+        'error', CASE
+          WHEN p_id_empresa_destino IS NOT NULL
+            THEN 'La empresa seleccionada no tiene una cuenta activa configurada para el banco seleccionado.'
+          ELSE 'No existe caja de ingreso principal configurada para el banco seleccionado.'
+        END
+      );
     END IF;
 
     v_ruta_destino := v_ruta_caja.ruta;
@@ -999,9 +1011,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_operacion_asistida_kpi',
-  'f_get_tb_operacion_asistida_bandeja',
-  'f_post_tb_operacion_asistida',
-  'f_patch_tb_operacion_asistida'
+  'f_post_tb_operacion_asistida'
 )
 ORDER BY n.nspname, p.proname;

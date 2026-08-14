@@ -38,12 +38,13 @@ interface CompactMoneyCellProps {
     value: number | null | undefined;
     secondary?: ReactNode;
     className?: string;
+    valueClassName?: string;
 }
 
-export const CompactMoneyCell = ({ className, secondary, value }: CompactMoneyCellProps) => (
+export const CompactMoneyCell = ({ className, secondary, value, valueClassName }: CompactMoneyCellProps) => (
     <div className={cx("tabular-nums", className)}>
         <div className={cx("flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:justify-end", !secondary && "block")}>
-            <span className="whitespace-nowrap text-sm font-semibold text-primary">{formatMoney(value)}</span>
+            <span className={cx("whitespace-nowrap text-sm font-semibold text-primary", valueClassName)}>{formatMoney(value)}</span>
             {secondary ? <span className="flex flex-wrap justify-end gap-1">{secondary}</span> : null}
         </div>
     </div>

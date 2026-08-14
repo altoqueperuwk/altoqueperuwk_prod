@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Check, ChevronDown, Coins01, Edit03, Percent01, Trash01 } from "@untitledui/icons";
 import { SubmenuTrigger } from "react-aria-components";
 import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
@@ -16,6 +17,8 @@ import { comunidadService } from "@/services/comunidad.service";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import { CopyableDni } from "@/features/operaciones/efectivizacion/shared/components/copyable-dni";
+import { useWindowFocusRefresh } from "@/features/operaciones/efectivizacion/shared/hooks/use-window-focus-refresh";
+import { reconcileRows } from "@/features/operaciones/efectivizacion/shared/utils/reconcile-rows";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
 import { OperationToolbar } from "@/features/operaciones/efectivizacion/shared/components/operation-toolbar";
 import {
@@ -276,7 +279,8 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     const [savingCuentaIds, setSavingCuentaIds] = useState<number[]>([]);
     const [deletingSolicitud, setDeletingSolicitud] = useState<OperacionProceso | null>(null);
     const [isDeletingSolicitud, setIsDeletingSolicitud] = useState(false);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isInitialLoading, setIsInitialLoading] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [isApplyingAction, setIsApplyingAction] = useState(false);
     const [editSolicitud, setEditSolicitud] = useState<EditSolicitudState | null>(null);
     const [manualCommission, setManualCommission] = useState<ManualCommissionState | null>(null);
@@ -284,7 +288,9 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     const [isSavingCommission, setIsSavingCommission] = useState(false);
     const [savingEstadoIds, setSavingEstadoIds] = useState<number[]>([]);
     const [error, setError] = useState<string | null>(null);
-    const [actionRefreshKey, setActionRefreshKey] = useState(0);
+    const focusRefreshKey = useWindowFocusRefresh();
+    const hasLoadedRows = useRef(false);
+    const lastQuerySignature = useRef<string | null>(null);
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
     const [bancos, setBancos] = useState<CatalogItem[]>([]);
     const [usuariosSucursal, setUsuariosSucursal] = useState<CatalogItem[]>([]);
@@ -490,34 +496,37 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
         let ignore = false;
         if (userId === null) {
             setSolicitudes([]);
-            setIsLoading(false);
+            setIsInitialLoading(false);
+            setIsRefreshing(false);
             return () => { ignore = true; };
         }
-        setIsLoading(true);
+        const querySignature = JSON.stringify(params);
+        const isBackgroundRefresh = hasLoadedRows.current && lastQuerySignature.current === querySignature;
+        lastQuerySignature.current = querySignature;
+        setIsInitialLoading(!isBackgroundRefresh);
+        setIsRefreshing(isBackgroundRefresh);
         setError(null);
 
         pagoDeudaService
             .getSolicitudes(params)
             .then((result) => {
-                if (!ignore) setSolicitudes(result ?? []);
+                if (!ignore) setSolicitudes((current) => reconcileRows(current, result ?? []));
             })
             .catch((err) => {
                 if (!ignore) setError(err instanceof Error ? err.message : "No se pudo cargar Pago Deuda.");
             })
             .finally(() => {
-                if (!ignore) setIsLoading(false);
+                if (!ignore) {
+                    hasLoadedRows.current = true;
+                    setIsInitialLoading(false);
+                    setIsRefreshing(false);
+                }
             });
 
         return () => {
             ignore = true;
         };
-    }, [actionRefreshKey, params, refreshKey, userId]);
-
-    useEffect(() => {
-        const handleFocus = () => setActionRefreshKey((value) => value + 1);
-        window.addEventListener("focus", handleFocus);
-        return () => window.removeEventListener("focus", handleFocus);
-    }, []);
+    }, [focusRefreshKey, params, refreshKey, userId]);
 
     const handleToggleRow = (id: number) => {
         setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
@@ -858,7 +867,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     };
 
     const isActionDisabled = (action: string) => {
-        if (isApplyingAction || isLoading || !selectedIds.length) return true;
+        if (isApplyingAction || isInitialLoading || isRefreshing || !selectedIds.length) return true;
         if (action === "Confirmar Comision") {
             return !solicitudes.some(
                 (row) => selectedIds.includes(row.id) && hasDevolucionConfirmada(row) && !Boolean(row.flag_comision_registrada),
@@ -891,9 +900,9 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             cellClassName: "w-[25ch] max-w-[25ch]",
             render: (row: OperacionProceso) => (
                 <CompactCellText
-                    primary={row.nombre_cliente || "-"}
+                    primary={row.nombre_cliente?.toUpperCase() || "-"}
                     className="max-w-[25ch]"
-                    title={row.nombre_cliente || undefined}
+                    title={row.nombre_cliente?.toUpperCase() || undefined}
                 />
             ),
         },
@@ -905,7 +914,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
         {
             key: "monto_deposito_cliente",
             label: "Monto Solicitado",
-            render: (row: OperacionProceso) => <CompactMoneyCell value={row.monto_deposito_cliente} />,
+            render: (row: OperacionProceso) => <CompactMoneyCell value={row.monto_deposito_cliente} valueClassName="text-concept-transferencia" />,
         },
         {
             key: "resultado_comision_servicio",
@@ -928,7 +937,10 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             key: "monto_devuelto",
             label: "Monto Devuelto",
             render: (row: OperacionProceso) => (
-                <CompactMoneyCell value={hasDevolucionConfirmada(row) ? row.monto_deposito_cliente : row.monto_devuelto} />
+                <CompactMoneyCell
+                    value={hasDevolucionConfirmada(row) ? row.monto_deposito_cliente : row.monto_devuelto}
+                    valueClassName="text-concept-transferencia"
+                />
             ),
         },
         {
@@ -988,28 +1000,42 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             render: (row: OperacionProceso) => {
                 const canEdit = canEditSolicitud(row);
                 const canEditExtra = !Boolean(row.flag_comision_registrada);
-                const canOpenActions = canEdit || canEditExtra;
 
                 return (
-                    <Dropdown.Root>
-                        <Dropdown.DotsButton aria-label="Acciones de Pago Deuda" isDisabled={!canOpenActions} />
-                        <Dropdown.Popover>
-                            <Dropdown.Menu
-                                onAction={(key) => {
-                                    if (key === "Editar") openEditSolicitud(row);
-                                    if (key === "ComisionEspecial") openManualCommission(row, "especial");
-                                    if (key === "ComisionExtra") openManualCommission(row, "extra");
-                                    if (key === "EliminarSolicitud") setDeletingSolicitud(row);
-                                }}
-                            >
-                                {canEdit && <Dropdown.Item id="Editar" icon={Edit03}>Editar</Dropdown.Item>}
-                                {canEdit && <Dropdown.Item id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
-                                {canEditExtra && <Dropdown.Item id="ComisionExtra" icon={Coins01}>S/ Com. Extra</Dropdown.Item>}
-                                {canEdit && <Dropdown.Separator />}
-                                {canEdit && <Dropdown.Item id="EliminarSolicitud" icon={Trash01}>Eliminar Solicitud</Dropdown.Item>}
-                            </Dropdown.Menu>
-                        </Dropdown.Popover>
-                    </Dropdown.Root>
+                    <div className="flex items-center justify-center gap-1">
+                        <ButtonUtility
+                            size="xs"
+                            color="tertiary"
+                            tooltip={canEdit ? "Editar solicitud" : "La solicitud no puede editarse en su estado actual"}
+                            icon={Edit03}
+                            isDisabled={!canEdit}
+                            onClick={() => openEditSolicitud(row)}
+                        />
+                        <ButtonUtility
+                            size="xs"
+                            color="tertiary"
+                            tooltip={canEdit ? "Eliminar Solicitud" : "La solicitud no puede eliminarse en su estado actual"}
+                            icon={Trash01}
+                            isDisabled={!canEdit}
+                            onClick={() => setDeletingSolicitud(row)}
+                        />
+                        {canEditExtra && (
+                            <Dropdown.Root>
+                                <Dropdown.DotsButton aria-label="Más acciones de Pago Deuda" />
+                                <Dropdown.Popover>
+                                    <Dropdown.Menu
+                                        onAction={(key) => {
+                                            if (key === "ComisionEspecial") openManualCommission(row, "especial");
+                                            if (key === "ComisionExtra") openManualCommission(row, "extra");
+                                        }}
+                                    >
+                                        {canEdit && <Dropdown.Item id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
+                                        <Dropdown.Item id="ComisionExtra" icon={Coins01}>S/ Com. Extra</Dropdown.Item>
+                                    </Dropdown.Menu>
+                                </Dropdown.Popover>
+                            </Dropdown.Root>
+                        )}
+                    </div>
                 );
             },
         },
@@ -1056,7 +1082,8 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                 columns={columns}
                 data={solicitudesFiltradas}
                 emptyText="Sin solicitudes de Pago Deuda."
-                isLoading={isLoading}
+                isLoading={isInitialLoading}
+                isRefreshing={isRefreshing}
                 selectedIds={selectedIds}
                 onToggleRow={handleToggleRow}
             />

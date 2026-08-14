@@ -12,7 +12,13 @@ import { codigoServicioService } from "@/services/codigo-servicio.service";
 import { comunidadService } from "@/services/comunidad.service";
 import { estadoService } from "@/services/estado.service";
 import { InlineFormCard } from "@/features/operaciones/efectivizacion/shared/components/inline-form-card";
+import {
+    BancoEmpresaSelector,
+    type BancoEmpresaOption,
+    type EmpresaCuentaOption,
+} from "@/features/operaciones/efectivizacion/shared/components/banco-empresa-selector";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
+import { empresaCuentaBancariaService } from "@/services/empresa-cuenta-bancaria.service";
 import type { OperacionRuta, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
@@ -46,6 +52,7 @@ const getServicioNeedle = (ruta: OperacionRuta) => (ruta === "pos" ? "POS" : "LI
 const ASISTIDA_DEFAULT_COMMUNITY_ID = 10;
 const ASISTIDA_DEFAULT_COMMUNITY_NAME = "ATK1";
 const usesFixedCommunity = (ruta: OperacionRuta) => ruta === "pos" || ruta === "linkpago";
+const allowedBankNames = new Set(["BBVA", "BCP", "SCOTIABANK", "BANBIF", "INTERBANK"]);
 
 export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: AsistidaSolicitudFormProps) => {
     const { businessUser } = useAuth();
@@ -63,7 +70,9 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const [estadoSolicitado, setEstadoSolicitado] = useState<CatalogItem | null>(null);
     const [estadoPagado, setEstadoPagado] = useState<CatalogItem | null>(null);
     const [bancosDestino, setBancosDestino] = useState<BancoDestino[]>([]);
+    const [cuentasEmpresa, setCuentasEmpresa] = useState<EmpresaCuentaOption[]>([]);
     const [bancoDestinoId, setBancoDestinoId] = useState("");
+    const [empresaDestinoId, setEmpresaDestinoId] = useState<number | null>(null);
     const [entidadTarjetaId, setEntidadTarjetaId] = useState("");
     const [isSaving, setIsSaving] = useState(false);
     const [clienteId, setClienteId] = useState<number | null>(null);
@@ -86,6 +95,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         setOriginalComunidadId(String(ASISTIDA_DEFAULT_COMMUNITY_ID));
         setEntidadTarjetaId("");
         setBancoDestinoId("");
+        setEmpresaDestinoId(null);
         setServicio(null);
         setEstadoSolicitado(null);
         setEstadoPagado(null);
@@ -105,8 +115,14 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         [bancosDestino, ruta],
     );
     const bancoTransferirList = useMemo(
-        () => bancosDestino.filter((item) => item.tipo === "Tarjeta Crédito"),
+        () => bancosDestino.filter((item) => item.tipo === "Tarjeta Crédito" && allowedBankNames.has(item.nombre.trim().toUpperCase())),
         [bancosDestino],
+    );
+    const cuentasEmpresaPermitidas = useMemo(
+        () => ruta === "pos"
+            ? cuentasEmpresa.filter((item) => allowedBankNames.has(item.banco_nombre.trim().toUpperCase()))
+            : [],
+        [cuentasEmpresa, ruta],
     );
     const selectedEntidadTarjeta = useMemo(
         () => entidadTarjetaList.find((item) => String(item.id) === entidadTarjetaId) ?? null,
@@ -206,18 +222,32 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     useEffect(() => {
         let ignore = false;
 
-        bancoService
-            .getList({ p_id_estado: 1 })
-            .then((rows) => {
+        Promise.all([
+            bancoService.getList({ p_id_estado: 1 }),
+            empresaCuentaBancariaService.getList({ p_id_estado: 1 }),
+        ])
+            .then(([rows, cuentaRows]) => {
                 if (ignore) return;
                 const items = rows.map((row) => ({
                     id: Number(row.id),
                     nombre: String(row.nombre ?? ""),
                     tipo: String(row.tipo ?? ""),
                 }));
+                const cuentaItems = cuentaRows
+                    .map((row) => ({
+                        id: Number(row.id),
+                        id_empresa: Number(row.id_empresa),
+                        empresa_nombre: String(row.empresa_nombre ?? ""),
+                        id_banco: Number(row.id_banco),
+                        banco_nombre: String(row.banco_nombre ?? ""),
+                        id_estado: Number(row.id_estado ?? 0),
+                    }))
+                    .filter((row) => row.id > 0 && row.id_empresa > 0 && row.id_banco > 0 && row.id_estado === 1);
                 setBancosDestino(items);
+                setCuentasEmpresa(cuentaItems);
                 setBancoDestinoId("");
                 setEntidadTarjetaId("");
+                setEmpresaDestinoId(null);
             })
             .catch(() => addToast("error", "Error al cargar bancos destino."));
 
@@ -329,6 +359,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_id_usuario_solicitud: userId,
                 p_nombre_usuario_solicitud: userName,
                 p_id_banco_destino: ruta === "pos" ? selectedBancoTransferir?.id : null,
+                p_id_empresa_destino: ruta === "pos" ? empresaDestinoId : null,
                 p_id_banco_cliente: (ruta === "pos" || ruta === "linkpago") ? selectedEntidadTarjeta?.id : null,
                 p_fecha_registro: now,
             });
@@ -346,6 +377,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             setMonto("");
             setEntidadTarjetaId("");
             setBancoDestinoId("");
+            setEmpresaDestinoId(null);
             setClienteId(null);
             setOriginalWhatsapp("");
             setOriginalComunidadId("");
@@ -369,6 +401,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         setMonto("");
         setEntidadTarjetaId("");
         setBancoDestinoId("");
+        setEmpresaDestinoId(null);
         setClienteId(null);
         setOriginalWhatsapp("");
         setOriginalComunidadId("");
@@ -463,19 +496,15 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         className="w-full max-w-[10ch] shrink-0"
                     />
                     {ruta === "pos" && (
-                        <NativeSelect
-                            size="sm"
+                        <BancoEmpresaSelector
                             label="Banco Transferir"
                             isRequired
+                            banks={bancoTransferirList as BancoEmpresaOption[]}
+                            accounts={cuentasEmpresaPermitidas}
                             value={bancoDestinoId}
-                            onChange={(event) => setBancoDestinoId(event.currentTarget.value)}
-                            options={[
-                                { label: "Seleccionar", value: "", disabled: true },
-                                ...bancoTransferirList.map((item) => ({
-                                    label: item.nombre,
-                                    value: String(item.id),
-                                })),
-                            ]}
+                            selectedCompanyId={empresaDestinoId}
+                            onBankChange={setBancoDestinoId}
+                            onCompanyChange={setEmpresaDestinoId}
                             className="w-full min-w-0 xl:w-[14ch] xl:shrink-0"
                         />
                     )}
@@ -492,7 +521,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 <div
                     className={
                         ruta === "pos"
-                            ? "flex w-full min-w-0 justify-end gap-2"
+                            ? "flex w-full min-w-0 justify-end gap-2 xl:ml-auto xl:w-[calc(14ch+9rem+0.5rem)]"
                             : "flex w-full min-w-0 shrink-0 gap-2 sm:justify-end xl:w-auto"
                     }
                 >
@@ -502,7 +531,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         iconLeading={Save01}
                         isLoading={isSaving}
                         onClick={handleSave}
-                        className="min-w-0 flex-1 xl:flex-none"
+                        className={ruta === "pos" ? "min-w-0 flex-1" : "min-w-0 flex-1 xl:flex-none"}
                     >
                         Guardar
                     </Button>
@@ -512,7 +541,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         iconLeading={XClose}
                         isDisabled={isSaving}
                         onClick={handleClear}
-                        className="min-w-0 flex-1 xl:flex-none"
+                        className={ruta === "pos" ? "min-w-0 flex-1" : "min-w-0 flex-1 xl:flex-none"}
                     >
                         Cancelar
                     </Button>

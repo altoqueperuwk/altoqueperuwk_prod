@@ -20,6 +20,7 @@ interface OperationTableProps<T extends { id: number }> {
     data: T[];
     emptyText: string;
     isLoading?: boolean;
+    isRefreshing?: boolean;
     onToggleRow?: (id: number) => void;
     renderActions?: (row: T) => ReactNode;
     selectedIds?: number[];
@@ -66,6 +67,7 @@ export const OperationTable = <T extends { id: number }>({
     data,
     emptyText,
     isLoading = false,
+    isRefreshing = false,
     onToggleRow,
     renderActions,
     selectedIds = [],
@@ -113,7 +115,7 @@ export const OperationTable = <T extends { id: number }>({
     };
 
     return (
-        <div className="overflow-hidden border-t border-secondary" aria-busy={isLoading}>
+        <div className="overflow-hidden border-t border-secondary" aria-busy={isLoading || isRefreshing}>
             <div className="overflow-x-auto">
                 <table className="w-full min-w-max table-auto divide-y divide-secondary">
                     <thead className="bg-secondary">

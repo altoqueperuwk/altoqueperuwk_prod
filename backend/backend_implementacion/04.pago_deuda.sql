@@ -995,6 +995,13 @@ Objetivo:
   Crear una solicitud raiz para atencion al cliente y una operacion hija
   bancaria visible en el tab Pago Deuda de la ruta destino.
 */
+DROP FUNCTION IF EXISTS public.f_post_tb_pago_deuda_solicitud(
+  bigint, character varying, character varying, bigint, character varying,
+  bigint, bigint, character varying, bigint, bigint, character varying,
+  bigint, character varying, character varying, character varying, numeric,
+  bigint
+);
+
 CREATE OR REPLACE FUNCTION public.f_post_tb_pago_deuda_solicitud(
   p_id_usuario bigint,
   p_dni_cliente character varying,
@@ -1012,7 +1019,8 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_pago_deuda_solicitud(
   p_ruta_origen character varying DEFAULT NULL,
   p_ruta_destino character varying DEFAULT NULL,
   p_comision_servicio_manual numeric DEFAULT NULL,
-  p_tipo_documento_cliente bigint DEFAULT NULL
+  p_tipo_documento_cliente bigint DEFAULT NULL,
+  p_id_empresa_destino bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -1181,12 +1189,21 @@ BEGIN
   SELECT rc.ruta
   INTO v_ruta_banco
   FROM public.tb_ruta_operacion_caja rc
+  JOIN public.tb_empresa e ON e.id = rc.id_empresa
   JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
   WHERE rc.id_estado = 1
     AND ecb.id_estado = 1
     AND ecb.id_banco = p_id_banco_cliente
-  ORDER BY rc.flag_caja_ingreso_principal DESC, rc.id ASC
+    AND e.id_estado = 1
+    AND (p_id_empresa_destino IS NULL OR rc.id_empresa = p_id_empresa_destino)
+  ORDER BY rc.flag_caja_ingreso_principal DESC, e.nombre ASC, rc.id ASC
   LIMIT 1;
+
+  IF p_id_empresa_destino IS NOT NULL AND v_ruta_banco IS NULL THEN
+    RETURN jsonb_build_object(
+      'error', 'La empresa seleccionada no tiene una cuenta operativa activa para el banco solicitado.'
+    );
+  END IF;
 
   v_ruta_banco := COALESCE(
     v_ruta_banco,
@@ -1212,8 +1229,16 @@ BEGIN
   WHERE rc.ruta = v_ruta_banco
     AND rc.id_estado = 1
     AND ecb.id_estado = 1
-  ORDER BY (ecb.id_banco = p_id_banco_cliente) DESC, rc.flag_caja_ingreso_principal DESC, rc.id ASC
+    AND e.id_estado = 1
+    AND (p_id_empresa_destino IS NULL OR rc.id_empresa = p_id_empresa_destino)
+  ORDER BY (ecb.id_banco = p_id_banco_cliente) DESC, rc.flag_caja_ingreso_principal DESC, e.nombre ASC, rc.id ASC
   LIMIT 1;
+
+  IF p_id_empresa_destino IS NOT NULL AND v_cuenta_salida.id_empresa IS NULL THEN
+    RETURN jsonb_build_object(
+      'error', 'La empresa seleccionada no tiene una cuenta operativa activa para el banco solicitado.'
+    );
+  END IF;
 
   SELECT
     cfg.id_empresa,
@@ -2868,7 +2893,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_pago_deuda',
-  'f_get_tb_pago_deuda_kpi'
+  'f_post_tb_pago_deuda_solicitud'
 )
 ORDER BY n.nspname, p.proname;

@@ -10,7 +10,13 @@ import { bancoService } from "@/services/banco.service";
 import { comunidadService } from "@/services/comunidad.service";
 import { reglasEfectivizacionService } from "@/services/reglas-efectivizacion.service";
 import { InlineFormCard } from "@/features/operaciones/efectivizacion/shared/components/inline-form-card";
+import {
+    BancoEmpresaSelector,
+    type BancoEmpresaOption,
+    type EmpresaCuentaOption,
+} from "@/features/operaciones/efectivizacion/shared/components/banco-empresa-selector";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
+import { empresaCuentaBancariaService } from "@/services/empresa-cuenta-bancaria.service";
 import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
 import {
     DocumentoInputGroup,
@@ -65,6 +71,8 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
     const [bancoId, setBancoId] = useState("");
     const [bancos, setBancos] = useState<BancoItem[]>([]);
+    const [cuentasEmpresa, setCuentasEmpresa] = useState<EmpresaCuentaOption[]>([]);
+    const [empresaDestinoId, setEmpresaDestinoId] = useState<number | null>(null);
     const [reglas, setReglas] = useState<ReglaPagoDeudaItem[]>([]);
     const [commissionMode, setCommissionMode] = useState<CommissionMode>("preferencial");
     const [manualCommission, setManualCommission] = useState("");
@@ -91,6 +99,10 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
     const bancosPermitidos = useMemo(
         () => bancos.filter((item) => allowedBankNames.has(item.nombre.trim().toUpperCase())),
         [bancos],
+    );
+    const cuentasEmpresaPermitidas = useMemo(
+        () => cuentasEmpresa.filter((item) => allowedBankNames.has(item.banco_nombre.trim().toUpperCase())),
+        [cuentasEmpresa],
     );
     const amount = Number(monto.replace(",", "."));
     const userId = businessUser?.id ? Number(businessUser.id) : null;
@@ -119,8 +131,9 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
         Promise.all([
             comunidadService.getList({ p_id_estado: 1 }),
             bancoService.getList({ p_id_estado: 1 }),
+            empresaCuentaBancariaService.getList({ p_id_estado: 1 }),
         ])
-            .then(([comunidadRows, bancoRows]) => {
+            .then(([comunidadRows, bancoRows, cuentaRows]) => {
                 if (ignore) return;
 
                 const comunidadItems = comunidadRows.map((row) => ({
@@ -131,9 +144,20 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                     id: Number(row.id),
                     nombre: String(row.nombre ?? ""),
                 }));
+                const cuentaItems = cuentaRows
+                    .map((row) => ({
+                        id: Number(row.id),
+                        id_empresa: Number(row.id_empresa),
+                        empresa_nombre: String(row.empresa_nombre ?? ""),
+                        id_banco: Number(row.id_banco),
+                        banco_nombre: String(row.banco_nombre ?? ""),
+                        id_estado: Number(row.id_estado ?? 0),
+                    }))
+                    .filter((row) => row.id > 0 && row.id_empresa > 0 && row.id_banco > 0 && row.id_estado === 1);
 
                 setComunidades(comunidadItems);
                 setBancos(bancoItems);
+                setCuentasEmpresa(cuentaItems);
 
                 if (!comunidadId && comunidadItems[0]) setComunidadId(String(comunidadItems[0].id));
                 const firstAllowedBank = bancoItems.find((item) => allowedBankNames.has(item.nombre.trim().toUpperCase()));
@@ -239,6 +263,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                 p_nombre_usuario_solicitud: userName,
                 p_ruta_origen: "deuda",
                 p_ruta_destino: "deuda",
+                p_id_empresa_destino: empresaDestinoId,
             });
 
             if (result && "error" in result) {
@@ -250,6 +275,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
             setNombre("");
             setWhatsapp("");
             setMonto("");
+            setEmpresaDestinoId(null);
             setCommissionMode("preferencial");
             setManualCommission("");
             onSaved();
@@ -268,6 +294,7 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
         setNombre("");
         setWhatsapp("");
         setMonto("");
+        setEmpresaDestinoId(null);
         setClienteId(null);
         setCommissionMode("preferencial");
         setManualCommission("");
@@ -308,13 +335,15 @@ export const PagoDeudaSolicitudForm = ({ onSaved }: PagoDeudaSolicitudFormProps)
                         onChange={(value) => setWhatsapp(sanitizeWhatsapp(value))}
                         className="w-full min-w-0 max-w-full"
                     />
-                    <NativeSelect
-                        size="sm"
+                    <BancoEmpresaSelector
                         label="Banco Solicitado"
                         isRequired
+                        banks={bancosPermitidos as BancoEmpresaOption[]}
+                        accounts={cuentasEmpresaPermitidas}
                         value={bancoId}
-                        onChange={(event) => setBancoId(event.currentTarget.value)}
-                        options={bancosPermitidos.map((item) => ({ label: item.nombre, value: String(item.id) }))}
+                        selectedCompanyId={empresaDestinoId}
+                        onBankChange={setBancoId}
+                        onCompanyChange={setEmpresaDestinoId}
                         className="w-full min-w-0 max-w-full"
                     />
                     <Input
