@@ -15,6 +15,7 @@ import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/sha
 import { OperacionCajasRutaModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-cajas-ruta-modal";
 import { OperacionConfigDropdown } from "@/features/operaciones/efectivizacion/shared/components/operacion-config-dropdown";
 import { OperacionEmpresasModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-empresas-modal";
+import { OperacionEmpresaPrincipalModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-empresa-principal-modal";
 import { OperacionReglasAbonoModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-reglas-abono-modal";
 import { OperacionReglasEfectivizacionModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-reglas-efectivizacion-modal";
 import { useActiveCompany } from "@/features/operaciones/efectivizacion/shared/hooks/use-active-company";
@@ -42,6 +43,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const [downloadKey, setDownloadKey] = useState(0);
     const [isCajasOpen, setIsCajasOpen] = useState(false);
     const [isEmpresasOpen, setIsEmpresasOpen] = useState(false);
+    const [isEmpresaPrincipalOpen, setIsEmpresaPrincipalOpen] = useState(false);
     const [isReglasAbonoOpen, setIsReglasAbonoOpen] = useState(false);
     const [isReglasOpen, setIsReglasOpen] = useState(false);
     const [isClosing, setIsClosing] = useState(false);
@@ -761,10 +763,12 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     />
                     <OperacionConfigDropdown
                         onOpenCajas={() => setIsCajasOpen(true)}
+                        onOpenEmpresaPrincipal={() => setIsEmpresaPrincipalOpen(true)}
                         onOpenEmpresas={() => setIsEmpresasOpen(true)}
                         onOpenReglasAbono={() => setIsReglasAbonoOpen(true)}
                         onOpenReglas={() => setIsReglasOpen(true)}
                         showCajas
+                        showEmpresaPrincipal
                         showEmpresas
                         showReglasAbono
                     />
@@ -868,6 +872,18 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                         isOpen={isCajasOpen}
                         onClose={() => setIsCajasOpen(false)}
                         onSaved={() => setRefreshKey((value) => value + 1)}
+                        ruta={ruta}
+                    />
+                )}
+
+                {isEmpresaPrincipalOpen && (
+                    <OperacionEmpresaPrincipalModal
+                        isOpen={isEmpresaPrincipalOpen}
+                        onClose={() => setIsEmpresaPrincipalOpen(false)}
+                        onSaved={() => {
+                            setRefreshKey((value) => value + 1);
+                            setMetricsRefreshKey((value) => value + 1);
+                        }}
                         ruta={ruta}
                     />
                 )}

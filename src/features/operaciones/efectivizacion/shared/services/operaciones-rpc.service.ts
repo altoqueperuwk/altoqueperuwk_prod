@@ -81,6 +81,10 @@ export const operacionesRpcService = {
         });
     },
 
+    patchRutaOperacionCajaPrincipal(params: Record<string, unknown>) {
+        return rpc<RutaOperacionCaja>("f_patch_tb_ruta_operacion_caja_principal", params);
+    },
+
     getRutaKpi(ruta: string, idEmpresa?: number | null, idEmpresaCuentaBancaria?: number | null) {
         return rpc<RutaOperacionKpi[]>("f_get_tb_ruta_operacion_kpi", {
             p_ruta: ruta,

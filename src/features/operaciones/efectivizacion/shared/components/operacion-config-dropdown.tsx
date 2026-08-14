@@ -1,14 +1,16 @@
-import { Bank, Building07, Calendar, ChevronDown, CreditCard01, Settings01, Sliders04 } from "@untitledui/icons";
+import { Bank, Building07, Calendar, CheckCircle, ChevronDown, CreditCard01, Settings01, Sliders04 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 
 interface OperacionConfigDropdownProps {
     onOpenCajas?: () => void;
+    onOpenEmpresaPrincipal?: () => void;
     onOpenEmpresasComision?: () => void;
     onOpenEmpresas?: () => void;
     onOpenReglasAbono?: () => void;
     onOpenReglas: () => void;
     showCajas?: boolean;
+    showEmpresaPrincipal?: boolean;
     showEmpresasComision?: boolean;
     showEmpresas?: boolean;
     showReglasAbono?: boolean;
@@ -16,11 +18,13 @@ interface OperacionConfigDropdownProps {
 
 export const OperacionConfigDropdown = ({
     onOpenCajas,
+    onOpenEmpresaPrincipal,
     onOpenEmpresasComision,
     onOpenEmpresas,
     onOpenReglasAbono,
     onOpenReglas,
     showCajas = false,
+    showEmpresaPrincipal = false,
     showEmpresasComision = false,
     showEmpresas = false,
     showReglasAbono = false,
@@ -52,6 +56,11 @@ export const OperacionConfigDropdown = ({
                 {showCajas && (
                     <Dropdown.Item icon={Bank} onAction={onOpenCajas}>
                         Cajas
+                    </Dropdown.Item>
+                )}
+                {showEmpresaPrincipal && (
+                    <Dropdown.Item icon={CheckCircle} onAction={onOpenEmpresaPrincipal}>
+                        Empresa Principal
                     </Dropdown.Item>
                 )}
             </Dropdown.Menu>
