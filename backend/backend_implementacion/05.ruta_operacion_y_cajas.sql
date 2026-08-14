@@ -212,6 +212,71 @@ END;
 $$;
 
 /*
+Funcion: f_patch_tb_ruta_operacion_caja_principal
+Objetivo:
+  Cambiar de forma atomica la empresa principal de una ruta, evitando que dos
+  asociaciones activas queden marcadas como principales durante el cambio.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_ruta_operacion_caja_principal(
+  p_id_ruta_operacion_caja bigint,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_target public.tb_ruta_operacion_caja%ROWTYPE;
+  v_result jsonb;
+BEGIN
+  SELECT rc.*
+  INTO v_target
+  FROM public.tb_ruta_operacion_caja rc
+  WHERE rc.id = p_id_ruta_operacion_caja
+  FOR UPDATE;
+
+  IF v_target.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La asociacion de ruta no existe.');
+  END IF;
+
+  IF v_target.id_estado <> 1 THEN
+    RETURN jsonb_build_object('error', 'La asociacion de ruta no esta activa.');
+  END IF;
+
+  -- Todas las filas se bloquean en orden estable para evitar carreras entre
+  -- dos cambios simultaneos sobre la misma ruta.
+  PERFORM 1
+  FROM public.tb_ruta_operacion_caja rc
+  WHERE rc.ruta = v_target.ruta
+    AND rc.id_estado = 1
+  ORDER BY rc.id
+  FOR UPDATE;
+
+  UPDATE public.tb_ruta_operacion_caja rc
+  SET flag_caja_ingreso_principal = false
+  WHERE rc.ruta = v_target.ruta
+    AND rc.id_estado = 1;
+
+  UPDATE public.tb_ruta_operacion_caja rc
+  SET flag_caja_ingreso_principal = true,
+      id_usuario = COALESCE(p_id_usuario, rc.id_usuario)
+  WHERE rc.id = v_target.id;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(
+    v_target.ruta,
+    COALESCE(p_id_usuario, v_target.id_usuario)
+  );
+
+  SELECT to_jsonb(x)
+  INTO v_result
+  FROM public.f_get_tb_ruta_operacion_caja(p_id := v_target.id) AS x
+  LIMIT 1;
+
+  RETURN v_result;
+END;
+$$;
+
+/*
 Funcion: f_post_tb_ruta_operacion_caja
 Objetivo:
   Asociar una caja operativa base a una ruta de Operaciones para bootstrap
@@ -2146,6 +2211,10 @@ BEGIN
     AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
     AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) <> 'RETENIDO'
     AND COALESCE(op.flag_retenido, false) = false
+    AND NOT (
+      op.id IS NOT NULL
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'RECHAZADO')
+    )
     AND UPPER(BTRIM(COALESCE(oc.tipo_origen, ''))) IN (
       'EFECTIVIZACION',
       'PAGO_DEUDA',
@@ -2303,6 +2372,12 @@ BEGIN
     AND NOT (
       UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
       AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) = 'RETENIDO'
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.tb_operacion_proceso op
+      WHERE op.id = oc.id_operacion_proceso
+        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'RECHAZADO')
     );
 
   GET DIAGNOSTICS v_movimientos_abiertos = ROW_COUNT;
@@ -4805,6 +4880,7 @@ WHERE p.proname IN (
   'f_post_tb_operacion_caja',
   'f_patch_tb_operacion_proceso_retornar_retencion',
   'f_patch_tb_ruta_operacion_caja',
+  'f_patch_tb_ruta_operacion_caja_principal',
   'f_post_tb_caja_operativa',
   'f_post_tb_ruta_operacion_caja',
   'f_sync_tb_ruta_operacion_caja_principal',

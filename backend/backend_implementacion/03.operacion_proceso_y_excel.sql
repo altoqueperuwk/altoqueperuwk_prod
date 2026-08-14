@@ -714,6 +714,12 @@ DECLARE
   v_usuario bigint;
   v_ruta character varying;
   v_es_linkpago boolean := false;
+  v_saldo_caja numeric;
+  v_saldo_simulado numeric;
+  v_caja_simulada bigint;
+  v_monto_reversion numeric;
+  v_es_operacion_pendiente boolean := false;
+  v_movimientos_cerrados_conservados integer := 0;
 BEGIN
   SELECT * INTO v_actual
   FROM public.tb_operacion_proceso
@@ -725,6 +731,8 @@ BEGIN
   END IF;
 
   v_es_linkpago := LOWER(COALESCE(v_actual.ruta_origen, '')) = 'linkpago';
+  v_es_operacion_pendiente := UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) IN ('PENDIENTE', 'RECHAZADO');
+  v_usuario := COALESCE(p_id_usuario, v_actual.id_usuario_gestor, v_actual.id_usuario);
 
   IF LOWER(COALESCE(v_actual.ruta_origen, '')) IN ('pos', 'linkpago')
      AND EXISTS (
@@ -758,8 +766,84 @@ BEGIN
     FROM public.tb_operacion_caja c
     WHERE c.id_operacion_proceso = p_id
       AND c.id_caja_cierre IS NOT NULL
-  ) THEN
+  ) AND NOT v_es_operacion_pendiente THEN
     RETURN jsonb_build_object('error', 'No se puede eliminar una operacion con movimientos cerrados por caja.');
+  END IF;
+
+  -- Validate the reversal before changing the caja. A prior income may have
+  -- already been consumed by later operations in the same open cycle.
+  FOR v_mov IN
+    SELECT c.*
+    FROM public.tb_operacion_caja c
+    WHERE c.id_operacion_proceso = p_id
+      AND (c.id_caja_cierre IS NULL OR v_es_operacion_pendiente)
+    ORDER BY c.id
+  LOOP
+    IF v_caja_simulada IS DISTINCT FROM v_mov.id_caja THEN
+      SELECT c.saldo_actual
+      INTO v_saldo_caja
+      FROM public.tb_caja_operativa c
+      WHERE c.id = v_mov.id_caja
+      FOR UPDATE;
+
+      v_caja_simulada := v_mov.id_caja;
+      v_saldo_simulado := COALESCE(v_saldo_caja, 0);
+    END IF;
+
+    IF UPPER(BTRIM(COALESCE(v_mov.tipo_movimiento, ''))) = 'INGRESO' THEN
+      IF UPPER(BTRIM(COALESCE(v_mov.nombre_estado, ''))) = 'RETENIDO' THEN
+        v_monto_reversion := -COALESCE(v_mov.monto_gasto, 0);
+      ELSE
+        v_monto_reversion := COALESCE(v_mov.monto_ingreso, 0) - COALESCE(v_mov.monto_gasto, 0);
+      END IF;
+    ELSIF UPPER(BTRIM(COALESCE(v_mov.tipo_movimiento, ''))) = 'SALIDA' THEN
+      v_monto_reversion := -(COALESCE(v_mov.monto_salida, 0) + COALESCE(v_mov.monto_gasto, 0));
+    ELSE
+      v_monto_reversion := 0;
+    END IF;
+
+    v_saldo_simulado := COALESCE(v_saldo_simulado, 0) - v_monto_reversion;
+
+    IF v_saldo_simulado < 0 THEN
+      RETURN jsonb_build_object(
+        'error', 'No se puede eliminar la operacion porque la caja no tiene saldo suficiente para revertir el movimiento.',
+        'saldo_disponible', COALESCE(v_saldo_caja, 0),
+        'monto_reversion', ABS(v_monto_reversion),
+        'id_caja', v_mov.id_caja
+      );
+    END IF;
+  END LOOP;
+
+  -- Los movimientos ya cerrados de una operacion pendiente se conservan como
+  -- historico. Solo se descuenta su impacto del saldo de la caja viva.
+  IF v_es_operacion_pendiente THEN
+    FOR v_mov IN
+      SELECT c.*
+      FROM public.tb_operacion_caja c
+      WHERE c.id_operacion_proceso = p_id
+        AND c.id_caja_cierre IS NOT NULL
+      ORDER BY c.id
+    LOOP
+      IF UPPER(BTRIM(COALESCE(v_mov.tipo_movimiento, ''))) = 'INGRESO' THEN
+        IF UPPER(BTRIM(COALESCE(v_mov.nombre_estado, ''))) = 'RETENIDO' THEN
+          v_monto_reversion := -COALESCE(v_mov.monto_gasto, 0);
+        ELSE
+          v_monto_reversion := COALESCE(v_mov.monto_ingreso, 0) - COALESCE(v_mov.monto_gasto, 0);
+        END IF;
+      ELSIF UPPER(BTRIM(COALESCE(v_mov.tipo_movimiento, ''))) = 'SALIDA' THEN
+        v_monto_reversion := -(COALESCE(v_mov.monto_salida, 0) + COALESCE(v_mov.monto_gasto, 0));
+      ELSE
+        v_monto_reversion := 0;
+      END IF;
+
+      UPDATE public.tb_caja_operativa c
+      SET saldo_actual = c.saldo_actual - v_monto_reversion,
+          saldo_total = c.saldo_total - v_monto_reversion,
+          id_usuario = COALESCE(v_usuario, c.id_usuario)
+      WHERE c.id = v_mov.id_caja;
+
+      v_movimientos_cerrados_conservados := v_movimientos_cerrados_conservados + 1;
+    END LOOP;
   END IF;
 
   SELECT id, nombre INTO v_estado_eliminado_id, v_estado_eliminado_nombre
@@ -772,7 +856,6 @@ BEGIN
     RETURN jsonb_build_object('error', 'No existe el estado Eliminado (id 10).');
   END IF;
 
-  v_usuario := COALESCE(p_id_usuario, v_actual.id_usuario_gestor, v_actual.id_usuario);
   SELECT COALESCE(v_actual.ruta_destino, v_actual.ruta_origen) INTO v_ruta;
 
   SELECT COALESCE(jsonb_agg(to_jsonb(c) ORDER BY c.id), '[]'::jsonb)
@@ -854,7 +937,8 @@ BEGIN
     'id', p_id,
     'id_estado', v_estado_eliminado_id,
     'nombre_estado', v_estado_eliminado_nombre,
-    'movimientos_revertidos', jsonb_array_length(v_snapshot)
+    'movimientos_revertidos', jsonb_array_length(v_snapshot),
+    'movimientos_historicos_conservados', v_movimientos_cerrados_conservados
   );
 END;
 $$;
