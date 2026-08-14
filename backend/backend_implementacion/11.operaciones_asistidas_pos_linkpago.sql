@@ -256,6 +256,14 @@ Reglas:
   - calcula comisiones automaticamente usando las funciones de calculo;
   - no llama a funciones de tb_operacion_caja.
 */
+DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida(
+  character varying, bigint, character varying, character varying,
+  bigint, character varying, character varying, numeric, character varying,
+  bigint, character varying, bigint, character varying, bigint,
+  character varying, bigint, character varying, bigint, bigint,
+  timestamp with time zone, bigint, character varying, character varying
+);
+
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
   p_ruta character varying,
   p_id_codigo_servicio bigint,
@@ -279,7 +287,8 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
   p_fecha_registro timestamp with time zone DEFAULT NULL,
   p_tipo_documento_cliente bigint DEFAULT NULL,
   p_nombre_cliente character varying DEFAULT NULL,
-  p_celular_cliente character varying DEFAULT NULL
+  p_celular_cliente character varying DEFAULT NULL,
+  p_email_cliente character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -575,6 +584,7 @@ BEGIN
     id_cliente,
     dni_cliente,
     nombre_cliente,
+    email_cliente,
     monto_deposito_cliente,
     codigo_operacion_deposito_cliente,
     fecha_deposito_cliente,
@@ -628,6 +638,7 @@ BEGIN
     v_cliente_id,
     p_dni_cliente,
     COALESCE(NULLIF(BTRIM(COALESCE(v_cliente_nombre, '')), ''), NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''), ''),
+    NULLIF(BTRIM(COALESCE(p_email_cliente, '')), ''),
     ROUND(COALESCE(p_monto_deposito_cliente, 0))::bigint,
     p_codigo_operacion_deposito_cliente,
     COALESCE(p_fecha_registro, now()),
@@ -693,6 +704,11 @@ $$;
 --   - no crea movimientos de caja;
 --   - no cambia estado ni fechas de control.
 -- ============================================================================
+DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
+  bigint, bigint, character varying, character varying, bigint,
+  character varying, numeric, bigint, character varying, bigint, bigint
+);
+
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_id bigint,
   p_id_banco_cliente bigint DEFAULT NULL,
@@ -704,7 +720,8 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_id_usuario bigint DEFAULT NULL,
   p_nombre_usuario character varying DEFAULT NULL,
   p_tipo_documento_cliente bigint DEFAULT NULL,
-  p_id_banco_destino bigint DEFAULT NULL
+  p_id_banco_destino bigint DEFAULT NULL,
+  p_email_cliente character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -771,6 +788,7 @@ BEGIN
   p_dni_cliente := COALESCE(p_dni_cliente, v_actual.dni_cliente);
   p_dni_cliente := REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g');
   p_nombre_cliente := COALESCE(p_nombre_cliente, v_actual.nombre_cliente);
+  p_email_cliente := NULLIF(BTRIM(COALESCE(p_email_cliente, '')), '');
   p_id_comunidad := COALESCE(p_id_comunidad, v_actual.id_comunidad);
   p_nombre_comunidad := COALESCE(p_nombre_comunidad, v_actual.nombre_comunidad);
   p_monto_deposito_cliente := COALESCE(p_monto_deposito_cliente, v_actual.monto_deposito_cliente);
@@ -927,6 +945,7 @@ BEGIN
   SET id_cliente = COALESCE(v_cliente_id, id_cliente),
       dni_cliente = p_dni_cliente,
       nombre_cliente = COALESCE(v_cliente_nombre, p_nombre_cliente, ''),
+      email_cliente = COALESCE(p_email_cliente, email_cliente),
       id_comunidad = p_id_comunidad,
       nombre_comunidad = p_nombre_comunidad,
       monto_deposito_cliente = ROUND(COALESCE(p_monto_deposito_cliente, 0))::bigint,

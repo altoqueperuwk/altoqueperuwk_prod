@@ -54,6 +54,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
     const [nombre, setNombre] = useState("");
+    const [email, setEmail] = useState("");
     const [whatsapp, setWhatsapp] = useState("");
     const [monto, setMonto] = useState("");
     const [comunidadId, setComunidadId] = useState("");
@@ -76,6 +77,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         setTipoDocumento(1);
         setDni("");
         setNombre("");
+        setEmail("");
         setWhatsapp("");
         setMonto("");
         setComunidadId(String(ASISTIDA_DEFAULT_COMMUNITY_ID));
@@ -314,6 +316,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 p_tipo_documento_cliente: tipoDocumento,
                 p_dni_cliente: cleanDni,
                 p_nombre_cliente: nombre.trim() || null,
+                p_email_cliente: ruta === "pos" ? email.trim() || null : null,
                 p_celular_cliente: whatsapp || null,
                 p_monto_deposito_cliente: amount,
                 p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null,
@@ -338,6 +341,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             setDni("");
             setTipoDocumento(1);
             setNombre("");
+            setEmail("");
             setWhatsapp("");
             setMonto("");
             setEntidadTarjetaId("");
@@ -360,6 +364,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         setDni("");
         setTipoDocumento(1);
         setNombre("");
+        setEmail("");
         setWhatsapp("");
         setMonto("");
         setEntidadTarjetaId("");
@@ -429,8 +434,19 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         value={nombre}
                         onChange={setNombre}
                         isDisabled={!!clienteId}
-                        className="w-full min-w-0 flex-1"
+                        className="w-full min-w-0 flex-1 xl:min-w-[14ch]"
                     />
+                    {ruta === "pos" && (
+                        <Input
+                            size="sm"
+                            label="Email"
+                            type="email"
+                            placeholder="Correo del cliente"
+                            value={email}
+                            onChange={setEmail}
+                            className="w-full min-w-0 xl:w-[15ch] xl:shrink-0"
+                        />
+                    )}
                     <Input
                         size="sm"
                         label="Whatsapp"

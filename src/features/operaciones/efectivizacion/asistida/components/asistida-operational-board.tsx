@@ -193,6 +193,11 @@ const posColumns = [
     },
     { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
     { key: "nombre_cliente", label: "Nombre", cellClassName: "w-40 max-w-40 truncate" },
+    {
+        key: "email_cliente",
+        label: "Email",
+        render: (row: OperacionProceso) => <CompactBadge>{row.email_cliente ?? "-"}</CompactBadge>,
+    },
     { key: "nombre_comunidad", label: "Comunidad" },
     {
         key: "monto_deposito_cliente",

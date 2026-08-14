@@ -11,6 +11,8 @@ Funcion: f_get_tb_operacion_retencion_bandeja
 Objetivo:
   Consultar bandejas operativas para bancos con retencion sin mezclar reglas
   de GET generico, cierre historico y movimientos contables.
+  Una operacion pagada vinculada temporalmente a una caja cerrada se consulta
+  solo dentro de ese historico, aunque aun no tenga id_caja_cierre materializado.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_retencion_bandeja(
   p_tab character varying,
@@ -66,6 +68,32 @@ AS $$
             OR (
               a.tab <> 'RETENIDOS'
               AND op.id_caja_cierre IS NULL
+              AND NOT (
+                UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+                AND EXISTS (
+                  SELECT 1
+                  FROM public.tb_caja_operativa_cierre ch
+                  JOIN public.tb_ruta_operacion_caja rc
+                    ON rc.id_empresa = ch.id_empresa
+                   AND rc.id_empresa_cuenta_bancaria = ch.id_empresa_cuenta_bancaria
+                   AND LOWER(BTRIM(COALESCE(rc.ruta, ''))) = a.ruta
+                  WHERE (
+                    (
+                      ch.id_empresa = op.id_empresa_salida
+                      AND ch.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_salida
+                    )
+                    OR (
+                      ch.id_empresa = op.id_empresa_ingreso
+                      AND ch.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_ingreso
+                    )
+                  )
+                  AND (
+                    ch.fecha_apertura IS NULL
+                    OR COALESCE(op.fecha_pagado, op.fecha_registro) >= ch.fecha_apertura
+                  )
+                  AND COALESCE(op.fecha_pagado, op.fecha_registro) <= ch.fecha_cierre
+                )
+              )
             )
           )
         )
@@ -79,7 +107,7 @@ AS $$
               AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
             )
             OR (
-              COALESCE(op.flag_retenido, false) = true
+              op.id_caja_cierre IS NULL
               AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
               AND EXISTS (
                 SELECT 1

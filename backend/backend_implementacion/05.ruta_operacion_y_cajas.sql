@@ -584,7 +584,9 @@ BEGIN
         )), 0) AS total_recaudado,
         COALESCE(SUM(c.salida), 0) AS salidas,
         COALESCE(SUM(c.gastos), 0) AS gastos_operacionales,
-        COALESCE(SUM(c.ganancia), 0) AS ganancias,
+        -- La retencion separa la ganancia en ganancia_retenido, pero no la elimina
+        -- del resultado economico de la ruta.
+        COALESCE(SUM(COALESCE(c.ganancia, 0) + COALESCE(c.ganancia_retenido, 0)), 0) AS ganancias,
         COALESCE(SUM((
           SELECT COALESCE(SUM(op.monto_deposito_cliente), 0)
           FROM public.tb_operacion_proceso op
@@ -1224,6 +1226,7 @@ BEGIN
       ), 0) AS ingresos_retenido,
       c.gastos,
       c.ganancia,
+      c.ganancia_retenido,
       c.salida
     FROM public.tb_ruta_operacion_caja rc
     JOIN public.tb_caja_operativa c
@@ -1280,7 +1283,9 @@ BEGIN
       COALESCE((SELECT im.ingresos FROM ingresos_movimientos im), 0) AS ingresos,
       COALESCE(SUM(cr.salida), 0) AS salidas,
       COALESCE(SUM(cr.gastos), 0) AS gastos_operacionales,
-      COALESCE(SUM(cr.ganancia), 0) AS ganancias,
+      -- La ganancia retenida sigue siendo ganancia generada y debe permanecer
+      -- visible en el KPI mientras espera su liberacion.
+      COALESCE(SUM(COALESCE(cr.ganancia, 0) + COALESCE(cr.ganancia_retenido, 0)), 0) AS ganancias,
       COALESCE(SUM(cr.ingresos_retenido), 0) AS ingresos_retenidos
     FROM cajas_ruta cr
     LEFT JOIN recaudacion_movimientos rm ON rm.id = cr.id

@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
   id_cliente bigint,
   dni_cliente character varying,
   nombre_cliente character varying,
+  email_cliente character varying,
   id_banco_cliente bigint,
   nombre_banco_cliente character varying,
   monto_deposito_cliente numeric,
@@ -170,6 +171,9 @@ ALTER TABLE public.tb_operacion_proceso
 ALTER TABLE public.tb_operacion_proceso
   ALTER COLUMN monto_deposito_cliente TYPE numeric
   USING monto_deposito_cliente::numeric;
+
+ALTER TABLE public.tb_operacion_proceso
+  ADD COLUMN IF NOT EXISTS email_cliente character varying;
 
 /*
 Migracion de contratos: el monto de deposito pasa de bigint a numeric para
@@ -1156,6 +1160,7 @@ DECLARE
   v_comision_igv_banco_ingreso_val numeric := 0;
   v_regla record;
   v_dup_id bigint;
+  v_monto_duplicidad numeric;
   v_calc_serv jsonb;
   v_comision_efectivizacion jsonb;
   v_calc_ing jsonb;
@@ -1418,12 +1423,14 @@ BEGIN
      AND p_id_codigo_servicio IS NOT NULL
      AND p_monto_deposito_cliente IS NOT NULL
      AND p_fecha_deposito_cliente IS NOT NULL THEN
+    v_monto_duplicidad := ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2);
+
     SELECT id
     INTO v_dup_id
     FROM public.tb_operacion_proceso
     WHERE 1 = 1
       -- AND dni_cliente = p_dni_cliente
-      AND COALESCE(monto_deposito_cliente, 0)::numeric = COALESCE(p_monto_deposito_cliente, 0)::numeric
+      AND ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2) = v_monto_duplicidad
       AND codigo_operacion_deposito_cliente = p_codigo_operacion_deposito_cliente
       AND id_codigo_servicio = p_id_codigo_servicio
       AND fecha_deposito_cliente::date BETWEEN (p_fecha_deposito_cliente::date - 7) AND (p_fecha_deposito_cliente::date + 7)
@@ -3382,6 +3389,10 @@ DECLARE
   v_tipo_doc character varying;
   v_tipo_documento bigint;
   v_monto numeric;
+  v_monto_raw character varying;
+  v_monto_normalizado character varying;
+  v_ultima_coma integer;
+  v_ultimo_punto integer;
   v_fecha_deposito timestamp with time zone;
   v_cliente_id bigint;
   v_cliente_nombre character varying;
@@ -3719,7 +3730,40 @@ BEGIN
 
     IF v_error_motivo IS NULL THEN
       BEGIN
-        v_monto := COALESCE(REGEXP_REPLACE(REPLACE(COALESCE(v_fila.monto, '0'), ',', '.'), '[^0-9.]', '', 'g')::numeric, 0);
+        v_monto_raw := BTRIM(COALESCE(v_fila.monto, '0'));
+
+        -- Excel puede enviar el resultado como =DECIMAL("2,000.00").
+        IF v_monto_raw ~ '^\s*=' THEN
+          v_monto_raw := REGEXP_REPLACE(
+            v_monto_raw,
+            '^.*\(\s*"?([^")]+)"?\s*\).*$','\1'
+          );
+        END IF;
+
+        v_monto_raw := REGEXP_REPLACE(v_monto_raw, '[^0-9,.-]', '', 'g');
+        v_monto_normalizado := v_monto_raw;
+        v_ultima_coma := LENGTH(v_monto_raw) - STRPOS(REVERSE(v_monto_raw), ',') + 1;
+        v_ultimo_punto := LENGTH(v_monto_raw) - STRPOS(REVERSE(v_monto_raw), '.') + 1;
+
+        IF STRPOS(v_monto_raw, ',') > 0 AND STRPOS(v_monto_raw, '.') > 0 THEN
+          IF v_ultima_coma > v_ultimo_punto THEN
+            v_monto_normalizado := REPLACE(REPLACE(v_monto_raw, '.', ''), ',', '.');
+          ELSE
+            v_monto_normalizado := REPLACE(v_monto_raw, ',', '');
+          END IF;
+        ELSIF STRPOS(v_monto_raw, ',') > 0 THEN
+          IF LENGTH(v_monto_raw) - v_ultima_coma <= 2
+             AND LENGTH(v_monto_raw) - LENGTH(REPLACE(v_monto_raw, ',', '')) = 1 THEN
+            v_monto_normalizado := REPLACE(v_monto_raw, ',', '.');
+          ELSE
+            v_monto_normalizado := REPLACE(v_monto_raw, ',', '');
+          END IF;
+        END IF;
+
+        v_monto := COALESCE(NULLIF(v_monto_normalizado, '')::numeric, 0);
+        IF v_monto < 0 THEN
+          RAISE EXCEPTION 'monto negativo';
+        END IF;
       EXCEPTION WHEN OTHERS THEN
         v_error_motivo := 'Monto invÃ¡lido: ' || COALESCE(v_fila.monto, 'vacÃ­o');
       END;
@@ -4137,6 +4181,10 @@ DECLARE
   v_tipo_doc character varying;
   v_tipo_documento bigint;
   v_monto numeric;
+  v_monto_raw character varying;
+  v_monto_normalizado character varying;
+  v_ultima_coma integer;
+  v_ultimo_punto integer;
   v_fecha_deposito timestamp with time zone;
   v_cliente_id bigint;
   v_cliente_nombre character varying;
@@ -4384,7 +4432,40 @@ BEGIN
     END;
 
     BEGIN
-      v_monto := COALESCE(REGEXP_REPLACE(REPLACE(COALESCE(v_fila.monto, '0'), ',', '.'), '[^0-9.]', '', 'g')::numeric, 0);
+      v_monto_raw := BTRIM(COALESCE(v_fila.monto, '0'));
+
+      -- Excel puede enviar el resultado como =DECIMAL("2,000.00").
+      IF v_monto_raw ~ '^\s*=' THEN
+        v_monto_raw := REGEXP_REPLACE(
+          v_monto_raw,
+          '^.*\(\s*"?([^")]+)"?\s*\).*$','\1'
+        );
+      END IF;
+
+      v_monto_raw := REGEXP_REPLACE(v_monto_raw, '[^0-9,.-]', '', 'g');
+      v_monto_normalizado := v_monto_raw;
+      v_ultima_coma := LENGTH(v_monto_raw) - STRPOS(REVERSE(v_monto_raw), ',') + 1;
+      v_ultimo_punto := LENGTH(v_monto_raw) - STRPOS(REVERSE(v_monto_raw), '.') + 1;
+
+      IF STRPOS(v_monto_raw, ',') > 0 AND STRPOS(v_monto_raw, '.') > 0 THEN
+        IF v_ultima_coma > v_ultimo_punto THEN
+          v_monto_normalizado := REPLACE(REPLACE(v_monto_raw, '.', ''), ',', '.');
+        ELSE
+          v_monto_normalizado := REPLACE(v_monto_raw, ',', '');
+        END IF;
+      ELSIF STRPOS(v_monto_raw, ',') > 0 THEN
+        IF LENGTH(v_monto_raw) - v_ultima_coma <= 2
+           AND LENGTH(v_monto_raw) - LENGTH(REPLACE(v_monto_raw, ',', '')) = 1 THEN
+          v_monto_normalizado := REPLACE(v_monto_raw, ',', '.');
+        ELSE
+          v_monto_normalizado := REPLACE(v_monto_raw, ',', '');
+        END IF;
+      END IF;
+
+      v_monto := COALESCE(NULLIF(v_monto_normalizado, '')::numeric, 0);
+      IF v_monto < 0 THEN
+        RAISE EXCEPTION 'monto negativo';
+      END IF;
     EXCEPTION WHEN OTHERS THEN
       v_monto := 0;
     END;
