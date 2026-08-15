@@ -560,16 +560,16 @@ BEGIN
   END IF;
 
   v_calc_serv := public.f_get_tb_operacion_calculo_comision_servicio(
-    COALESCE(p_monto_deposito_cliente, 0)::bigint,
+    ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2),
     v_regla.comision_servicio,
     v_regla.monto_minimo_deposito_servicio,
     v_regla.comision_minima_servicio,
-    0::bigint
+    0::numeric
   );
 
   v_calc_ing := public.f_get_tb_operacion_calculo_comision_banco_ingreso(
     v_flag_por_sol_comision_banco_ingreso,
-    COALESCE(p_monto_deposito_cliente, 0)::bigint,
+    ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2),
     v_comision_banco_ingreso,
     v_comision_minimo_banco_ingreso,
     v_comision_igv_banco_ingreso,
@@ -651,7 +651,7 @@ BEGIN
     p_dni_cliente,
     COALESCE(NULLIF(BTRIM(COALESCE(v_cliente_nombre, '')), ''), NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''), ''),
     NULLIF(BTRIM(COALESCE(p_email_cliente, '')), ''),
-    ROUND(COALESCE(p_monto_deposito_cliente, 0))::bigint,
+    ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2),
     p_codigo_operacion_deposito_cliente,
     COALESCE(p_fecha_registro, now()),
     CASE WHEN v_ruta IN ('pos', 'linkpago') THEN v_id_empresa_ingreso ELSE NULL END,
@@ -928,16 +928,16 @@ BEGIN
   v_monto_itf_ingreso := 0;
 
   v_calc_serv := public.f_get_tb_operacion_calculo_comision_servicio(
-    COALESCE(p_monto_deposito_cliente, 0)::bigint,
+    ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2),
     v_regla.comision_servicio,
     v_regla.monto_minimo_deposito_servicio,
     v_regla.comision_minima_servicio,
-    0::bigint
+    0::numeric
   );
 
   v_calc_ing := public.f_get_tb_operacion_calculo_comision_banco_ingreso(
     v_flag_por_sol_comision_banco_ingreso,
-    COALESCE(p_monto_deposito_cliente, 0)::bigint,
+    ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2),
     v_comision_banco_ingreso,
     v_comision_minimo_banco_ingreso,
     v_comision_igv_banco_ingreso,
@@ -960,7 +960,7 @@ BEGIN
       email_cliente = COALESCE(p_email_cliente, email_cliente),
       id_comunidad = p_id_comunidad,
       nombre_comunidad = p_nombre_comunidad,
-      monto_deposito_cliente = ROUND(COALESCE(p_monto_deposito_cliente, 0))::bigint,
+      monto_deposito_cliente = ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2),
       id_banco_cliente = v_id_banco_cliente_resolved,
       nombre_banco_cliente = v_nombre_banco_cliente_resolved,
       id_banco_cliente_transferencia = v_id_banco_empresa_cuenta_salida,
@@ -1011,6 +1011,7 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_post_tb_operacion_asistida'
+  'f_post_tb_operacion_asistida',
+  'f_patch_tb_operacion_asistida'
 )
 ORDER BY n.nspname, p.proname;

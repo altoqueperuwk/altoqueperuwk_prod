@@ -441,10 +441,14 @@ Reglas:
   - busca por DNI y monto
   - usa fecha_deposito_cliente como fecha operacional del Excel
 */
+DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_match(
+  bigint, character varying, bigint, bigint
+);
+
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_match(
   p_id_operacion_pago_deuda bigint DEFAULT NULL,
   p_dni_cliente character varying DEFAULT NULL,
-  p_monto_deposito_cliente bigint DEFAULT NULL,
+  p_monto_deposito_cliente numeric DEFAULT NULL,
   p_id_operacion_efectivizacion bigint DEFAULT NULL
 )
 RETURNS SETOF jsonb
@@ -455,7 +459,7 @@ AS $$
 DECLARE
   v_id_codigo_servicio_pago_deuda bigint;
   v_dni_cliente character varying;
-  v_monto_deposito_cliente bigint;
+  v_monto_deposito_cliente numeric;
   v_banco_cliente bigint;
   v_fecha_operacion date;
 BEGIN
@@ -1001,6 +1005,18 @@ DROP FUNCTION IF EXISTS public.f_post_tb_pago_deuda_solicitud(
   bigint, character varying, character varying, character varying, numeric,
   bigint
 );
+DROP FUNCTION IF EXISTS public.f_post_tb_pago_deuda_solicitud(
+  bigint, character varying, character varying, bigint, character varying,
+  bigint, bigint, character varying, bigint, bigint, character varying,
+  bigint, character varying, character varying, character varying, numeric,
+  bigint, bigint
+);
+DROP FUNCTION IF EXISTS public.f_post_tb_pago_deuda_solicitud(
+  bigint, character varying, character varying, bigint, character varying,
+  numeric, bigint, character varying, bigint, bigint, character varying,
+  bigint, character varying, character varying, character varying, numeric,
+  bigint, bigint
+);
 
 CREATE OR REPLACE FUNCTION public.f_post_tb_pago_deuda_solicitud(
   p_id_usuario bigint,
@@ -1008,7 +1024,7 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_pago_deuda_solicitud(
   p_nombre_cliente character varying,
   p_id_banco_cliente bigint,
   p_nombre_banco_cliente character varying,
-  p_monto_deposito_cliente bigint,
+  p_monto_deposito_cliente numeric,
   p_id_comunidad bigint DEFAULT NULL,
   p_celular_cliente character varying DEFAULT NULL,
   p_id_operacion bigint DEFAULT NULL,
@@ -1056,6 +1072,8 @@ DECLARE
   v_monto_minimo_deposito_final numeric;
   v_cuenta_comision record;
 BEGIN
+  p_monto_deposito_cliente := ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2);
+
   IF p_tipo_documento_cliente IS NOT NULL THEN
     IF p_tipo_documento_cliente NOT IN (1, 2) THEN
       RETURN jsonb_build_object('error', 'Tipo de documento invalido.');
@@ -1544,9 +1562,13 @@ Objetivo:
   confirmar la comision final. El monto extra recalcula la comision total y se
   replica en la operacion hija BANCO.
 */
+DROP FUNCTION IF EXISTS public.f_patch_tb_pago_deuda_comision_extra(
+  bigint, bigint, bigint, character varying
+);
+
 CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_comision_extra(
   p_id_operacion bigint,
-  p_comision_monto_extra_servicio bigint,
+  p_comision_monto_extra_servicio numeric,
   p_id_usuario_gestor bigint DEFAULT NULL,
   p_nombre_usuario_gestor character varying DEFAULT NULL
 )
@@ -2973,8 +2995,10 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
+  'f_get_tb_pago_deuda_match',
   'f_patch_tb_pago_deuda_salida',
   'f_patch_tb_pago_deuda_pagado',
-  'f_post_tb_pago_deuda_solicitud'
+  'f_post_tb_pago_deuda_solicitud',
+  'f_patch_tb_pago_deuda_comision_extra'
 )
 ORDER BY n.nspname, p.proname;

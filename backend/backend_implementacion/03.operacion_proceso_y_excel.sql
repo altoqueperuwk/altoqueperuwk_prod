@@ -169,15 +169,42 @@ ALTER TABLE public.tb_operacion_proceso
   USING comision_monto_extra_servicio::numeric;
 
 ALTER TABLE public.tb_operacion_proceso
-  ALTER COLUMN monto_deposito_cliente TYPE numeric
-  USING monto_deposito_cliente::numeric;
+  ALTER COLUMN monto_deposito_cliente TYPE numeric(18,2)
+  USING CASE
+    WHEN monto_deposito_cliente IS NULL THEN NULL
+    ELSE ROUND(monto_deposito_cliente::numeric, 2)
+  END;
+
+-- Los importes derivados tambien conservan centavos. Las tasas de ITF y
+-- porcentajes permanecen numeric sin escala fija porque no son importes.
+ALTER TABLE public.tb_operacion_proceso
+  ALTER COLUMN monto_transferencia_cliente TYPE numeric(18,2)
+  USING CASE
+    WHEN monto_transferencia_cliente IS NULL THEN NULL
+    ELSE ROUND(monto_transferencia_cliente::numeric, 2)
+  END,
+  ALTER COLUMN resultado_comision_banco_ingreso TYPE numeric(18,2)
+  USING CASE
+    WHEN resultado_comision_banco_ingreso IS NULL THEN NULL
+    ELSE ROUND(resultado_comision_banco_ingreso::numeric, 2)
+  END,
+  ALTER COLUMN resultado_comision_servicio TYPE numeric(18,2)
+  USING CASE
+    WHEN resultado_comision_servicio IS NULL THEN NULL
+    ELSE ROUND(resultado_comision_servicio::numeric, 2)
+  END,
+  ALTER COLUMN resultado_comision_banco_salida TYPE numeric(18,2)
+  USING CASE
+    WHEN resultado_comision_banco_salida IS NULL THEN NULL
+    ELSE ROUND(resultado_comision_banco_salida::numeric, 2)
+  END;
 
 ALTER TABLE public.tb_operacion_proceso
   ADD COLUMN IF NOT EXISTS email_cliente character varying;
 
 /*
-Migracion de contratos: el monto de deposito pasa de bigint a numeric para
-conservar centavos en el registro manual, edicion y carga Excel.
+Migracion de contratos: los importes de deposito, transferencia, devolucion y
+resultados de comision conservan centavos en registro, edicion y carga.
 */
 DO $$
 DECLARE
@@ -398,10 +425,17 @@ BEGIN
     FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'monto_devuelto'
   ) THEN
-    ALTER TABLE public.tb_operacion_proceso ADD COLUMN monto_devuelto bigint NOT NULL DEFAULT 0;
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN monto_devuelto numeric(18,2) NOT NULL DEFAULT 0;
   END IF;
 END;
 $$;
+
+ALTER TABLE public.tb_operacion_proceso
+  ALTER COLUMN monto_devuelto TYPE numeric(18,2)
+  USING CASE
+    WHEN monto_devuelto IS NULL THEN 0
+    ELSE ROUND(monto_devuelto::numeric, 2)
+  END;
 
 -- ALTER TABLE: id_tipo_deposito ya no se usa; el tipo aplicado se congela en nombre_tipo_deposito.
 DO $$
@@ -1245,12 +1279,17 @@ DECLARE
   v_regla record;
   v_dup_id bigint;
   v_monto_duplicidad numeric;
+  v_codigo_duplicidad character varying;
   v_calc_serv jsonb;
   v_comision_efectivizacion jsonb;
   v_calc_ing jsonb;
   v_calc_sal jsonb;
   v_sincroniza_cliente boolean := false;
 BEGIN
+  IF p_monto_deposito_cliente IS NOT NULL THEN
+    p_monto_deposito_cliente := ROUND(p_monto_deposito_cliente::numeric, 2);
+  END IF;
+
   v_cliente_id := p_id_cliente;
   v_cliente_nombre := p_nombre_cliente;
   v_tipo_servicio := p_tipo_servicio;
@@ -1503,11 +1542,21 @@ BEGIN
     v_flag_retencion_cuenta_val := false;
   END IF;
 
-  IF COALESCE(p_codigo_operacion_deposito_cliente, '') <> ''
+  v_codigo_duplicidad := NULLIF(BTRIM(COALESCE(p_codigo_operacion_deposito_cliente, '')), '');
+
+  IF v_codigo_duplicidad IS NOT NULL
      AND p_id_codigo_servicio IS NOT NULL
      AND p_monto_deposito_cliente IS NOT NULL
      AND p_fecha_deposito_cliente IS NOT NULL THEN
     v_monto_duplicidad := ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2);
+
+    -- Serialize identical deposits across simultaneous manual and Excel loads.
+    PERFORM pg_advisory_xact_lock(
+      hashtextextended(
+        CONCAT_WS('|', p_id_codigo_servicio::text, UPPER(v_codigo_duplicidad), v_monto_duplicidad::text),
+        0
+      )
+    );
 
     SELECT id
     INTO v_dup_id
@@ -1515,7 +1564,7 @@ BEGIN
     WHERE 1 = 1
       -- AND dni_cliente = p_dni_cliente
       AND ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2) = v_monto_duplicidad
-      AND codigo_operacion_deposito_cliente = p_codigo_operacion_deposito_cliente
+      AND UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, ''))) = UPPER(v_codigo_duplicidad)
       AND id_codigo_servicio = p_id_codigo_servicio
       AND fecha_deposito_cliente::date BETWEEN (p_fecha_deposito_cliente::date - 7) AND (p_fecha_deposito_cliente::date + 7)
     LIMIT 1;
@@ -3631,6 +3680,7 @@ DECLARE
   v_cliente_nombre character varying;
   v_cliente_comunidad bigint;
   v_dup_id bigint;
+  v_codigo_duplicidad character varying;
   v_banco_cliente_id bigint;
   v_banco_cliente_nombre character varying;
   v_calc_serv jsonb;
@@ -3997,6 +4047,7 @@ BEGIN
         IF v_monto < 0 THEN
           RAISE EXCEPTION 'monto negativo';
         END IF;
+        v_monto := ROUND(v_monto, 2);
       EXCEPTION WHEN OTHERS THEN
         v_error_motivo := 'Monto invÃ¡lido: ' || COALESCE(v_fila.monto, 'vacÃ­o');
       END;
@@ -4060,16 +4111,29 @@ BEGIN
       END IF;
     END IF;
 
-    SELECT id
-    INTO v_dup_id
-    FROM public.tb_operacion_proceso
-    WHERE 1 = 1
-      -- AND dni_cliente = v_dni_parseado
-      AND COALESCE(monto_deposito_cliente, 0)::numeric = COALESCE(v_monto, 0)::numeric
-      AND codigo_operacion_deposito_cliente = v_fila.codigo_operacion
-      AND id_codigo_servicio = p_id_codigo_servicio
-      AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
-    LIMIT 1;
+    v_codigo_duplicidad := NULLIF(BTRIM(COALESCE(v_fila.codigo_operacion, '')), '');
+    IF v_codigo_duplicidad IS NOT NULL THEN
+      -- Serialize identical deposits across simultaneous Excel loads.
+      PERFORM pg_advisory_xact_lock(
+        hashtextextended(
+          CONCAT_WS('|', p_id_codigo_servicio::text, UPPER(v_codigo_duplicidad), ROUND(COALESCE(v_monto, 0)::numeric, 2)::text),
+          0
+        )
+      );
+
+      SELECT id
+      INTO v_dup_id
+      FROM public.tb_operacion_proceso
+      WHERE 1 = 1
+        -- AND dni_cliente = v_dni_parseado
+        AND ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2) = ROUND(COALESCE(v_monto, 0)::numeric, 2)
+        AND UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, ''))) = UPPER(v_codigo_duplicidad)
+        AND id_codigo_servicio = p_id_codigo_servicio
+        AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
+      LIMIT 1;
+    ELSE
+      v_dup_id := NULL;
+    END IF;
 
     IF v_dup_id IS NOT NULL THEN
       v_detalle := v_detalle || jsonb_build_object(
@@ -4422,6 +4486,7 @@ DECLARE
   v_cliente_id bigint;
   v_cliente_nombre character varying;
   v_dup_id bigint;
+  v_codigo_duplicidad character varying;
   v_id_empresa_cuenta_ingreso bigint;
   v_itf_cuenta numeric := 0;
   v_flag_por_sol_comision_banco_ingreso boolean := false;
@@ -4699,6 +4764,7 @@ BEGIN
       IF v_monto < 0 THEN
         RAISE EXCEPTION 'monto negativo';
       END IF;
+      v_monto := ROUND(v_monto, 2);
     EXCEPTION WHEN OTHERS THEN
       v_monto := 0;
     END;
@@ -4746,16 +4812,29 @@ BEGIN
       END IF;
     END IF;
 
-    SELECT id
-    INTO v_dup_id
-    FROM public.tb_operacion_proceso
-    WHERE 1 = 1
-      -- AND dni_cliente = v_dni_parseado
-      AND COALESCE(monto_deposito_cliente, 0)::numeric = COALESCE(v_monto, 0)::numeric
-      AND codigo_operacion_deposito_cliente = v_fila.codigo_operacion
-      AND id_codigo_servicio = p_id_codigo_servicio
-      AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
-    LIMIT 1;
+    v_codigo_duplicidad := NULLIF(BTRIM(COALESCE(v_fila.codigo_operacion, '')), '');
+    IF v_codigo_duplicidad IS NOT NULL THEN
+      -- Serialize identical deposits across simultaneous Excel loads.
+      PERFORM pg_advisory_xact_lock(
+        hashtextextended(
+          CONCAT_WS('|', p_id_codigo_servicio::text, UPPER(v_codigo_duplicidad), ROUND(COALESCE(v_monto, 0)::numeric, 2)::text),
+          0
+        )
+      );
+
+      SELECT id
+      INTO v_dup_id
+      FROM public.tb_operacion_proceso
+      WHERE 1 = 1
+        -- AND dni_cliente = v_dni_parseado
+        AND ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2) = ROUND(COALESCE(v_monto, 0)::numeric, 2)
+        AND UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, ''))) = UPPER(v_codigo_duplicidad)
+        AND id_codigo_servicio = p_id_codigo_servicio
+        AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
+      LIMIT 1;
+    ELSE
+      v_dup_id := NULL;
+    END IF;
 
     IF v_dup_id IS NOT NULL THEN
       v_detalle := v_detalle || jsonb_build_object(

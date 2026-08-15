@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type {
     CajaOperativaCierre,
@@ -56,6 +56,28 @@ const buildHistoryKpi = (ruta: OperacionRutaBancaria, rows: CajaOperativaCierre[
     };
 };
 
+const mergeKpis = (ruta: OperacionRutaBancaria, rows: RutaOperacionKpi[]): RutaOperacionKpi | null => {
+    if (!rows.length) return null;
+    const first = rows[0];
+    const sum = (key: keyof RutaOperacionKpi) => rows.reduce((total, row) => total + Number(row[key] ?? 0), 0);
+
+    return {
+        ...first,
+        ruta,
+        caja_inicial: sum("caja_inicial"),
+        caja_actual: sum("caja_actual"),
+        total_recaudado: sum("total_recaudado"),
+        ingresos: sum("ingresos"),
+        salidas: sum("salidas"),
+        gastos_operacionales: sum("gastos_operacionales"),
+        ganancias: sum("ganancias"),
+        ingresos_retenidos: sum("ingresos_retenidos"),
+        pendiente_depositar: sum("pendiente_depositar"),
+        total_efectivizacion: sum("total_efectivizacion"),
+        total_pago_deuda: sum("total_pago_deuda"),
+    };
+};
+
 export const useBancariaKpis = (
     ruta: OperacionRutaBancaria,
     activeCompanyId: number | null,
@@ -63,11 +85,13 @@ export const useBancariaKpis = (
     activeCajaId: number | null,
     historyDate: string | null = null,
     refreshKey = 0,
+    queryRoutes: OperacionRutaBancaria[] = [ruta],
 ) => {
     const [data, setData] = useState<RutaOperacionKpi | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const requestKey = `${ruta}:${activeCompanyId ?? ""}:${activeAccountId ?? ""}:${activeCajaId ?? ""}:${historyDate ?? ""}`;
+    const routes = useMemo(() => Array.from(new Set(queryRoutes.length ? queryRoutes : [ruta])), [queryRoutes, ruta]);
+    const requestKey = `${routes.join(",")}:${activeCompanyId ?? ""}:${activeAccountId ?? ""}:${activeCajaId ?? ""}:${historyDate ?? ""}`;
     const [loadedKey, setLoadedKey] = useState<string | null>(null);
 
     useEffect(() => {
@@ -82,11 +106,21 @@ export const useBancariaKpis = (
             if (historyDate && !activeCajaId && !activeCompanyId) return Promise.resolve(null);
             if (historyDate) {
                 return operacionesRpcService
-                    .getCajaCierres(activeCajaId ? { p_id_caja: activeCajaId } : { p_id_empresa: activeCompanyId })
+                    .getCajaCierres(
+                        activeCajaId && routes.length === 1
+                            ? { p_id_caja: activeCajaId }
+                            : { p_id_empresa: activeCompanyId },
+                    )
                     .then((rows) => buildHistoryKpi(ruta, rows, historyDate));
             }
 
-            return operacionesRpcService.getRutaKpi(ruta, activeCompanyId, activeAccountId).then((result) => result?.[0] ?? null);
+            return Promise.all(
+                routes.map((item) => operacionesRpcService.getRutaKpi(
+                    item,
+                    activeCompanyId,
+                    routes.length === 1 ? activeAccountId : null,
+                )),
+            ).then((groups) => mergeKpis(ruta, groups.flatMap((group) => group?.[0] ? [group[0]] : [])));
         })();
 
         request
@@ -106,7 +140,7 @@ export const useBancariaKpis = (
         return () => {
             ignore = true;
         };
-    }, [activeAccountId, activeCajaId, activeCompanyId, historyDate, refreshKey, requestKey, ruta]);
+    }, [activeAccountId, activeCajaId, activeCompanyId, historyDate, queryRoutes, refreshKey, requestKey, ruta, routes]);
 
     return { data, error, isLoading, loadedKey };
 };
