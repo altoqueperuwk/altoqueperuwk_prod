@@ -65,7 +65,11 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const routeLabel = getRutaLabel(ruta);
-    const { data: cajas, error: companiesError, isLoading: isLoadingCompanies } = useRouteCompanies(ruta, refreshKey);
+    const workspaceRoutes = useMemo<OperacionRutaBancaria[]>(
+        () => ruta === "interbank" ? ["interbank", "safetypay"] : [ruta],
+        [ruta],
+    );
+    const { data: cajas, error: companiesError, isLoading: isLoadingCompanies } = useRouteCompanies(workspaceRoutes, refreshKey);
     const {
         activeAccountId,
         activeCajaId,
@@ -77,15 +81,30 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         setActiveAccountId,
         setActiveCompanyId,
     } = useActiveCompany(cajas, ruta);
+    const activeOperationRoute = (activeCompanyCaja?.ruta as OperacionRutaBancaria | undefined) ?? ruta;
+    const orderedCompanies = useMemo(() => {
+        if (ruta !== "interbank" && ruta !== "safetypay") return companies;
+
+        const safetyPayCompanies = companies.filter((company) => String(company.nombre_empresa ?? "").trim().toUpperCase() === "SAFETYPAY");
+        const otherCompanies = companies.filter((company) => String(company.nombre_empresa ?? "").trim().toUpperCase() !== "SAFETYPAY");
+        return [...safetyPayCompanies, ...otherCompanies];
+    }, [companies, ruta]);
+    const visibleAccountTabs = useMemo(
+        () => ruta === "interbank"
+            ? activeCompanyCajas.filter((account) => String(account.nombre_banco ?? "").trim().toUpperCase() !== "INTERBANK")
+            : activeCompanyCajas,
+        [activeCompanyCajas, ruta],
+    );
     const { data: kpi, error: kpiError, isLoading: isLoadingKpis, loadedKey: loadedKpiKey } = useBancariaKpis(
-        ruta,
+        activeOperationRoute,
         activeCompanyId,
         activeAccountId,
         activeCajaId,
         selectedHistoryDate,
         refreshKey + metricsRefreshKey,
+        workspaceRoutes,
     );
-    const currentKpiKey = `${ruta}:${activeCompanyId ?? ""}:${activeAccountId ?? ""}:${activeCajaId ?? ""}:`;
+    const currentKpiKey = `${workspaceRoutes.join(",")}:${activeCompanyId ?? ""}:${activeAccountId ?? ""}:${activeCajaId ?? ""}:${selectedHistoryDate ?? ""}`;
 
     useEffect(() => {
         if (selectedHistoryDate || !activeCompanyId || !activeAccountId || !kpi || loadedKpiKey !== currentKpiKey) {
@@ -776,8 +795,8 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
 
                 <div className="flex flex-wrap items-center gap-3">
                     <div className="flex flex-wrap items-center gap-3">
-                        <EmpresaTabs companies={companies} activeCompanyId={activeCompanyId} onChange={setActiveCompanyId} />
-                        <CuentaTabs accounts={activeCompanyCajas} activeAccountId={activeAccountId} onChange={setActiveAccountId} />
+                        <EmpresaTabs companies={orderedCompanies} activeCompanyId={activeCompanyId} onChange={setActiveCompanyId} />
+                        <CuentaTabs accounts={visibleAccountTabs} activeAccountId={activeAccountId} onChange={setActiveAccountId} />
                     </div>
                     {isLoadingCompanies && <span className="text-sm text-tertiary">Cargando empresas...</span>}
                 </div>
@@ -805,18 +824,18 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     routeCajas={cajas}
                     showMiniMovimientos={isActiveDigitalWallet}
                     onSaved={() => setRefreshKey((value) => value + 1)}
-                    ruta={ruta}
+                    ruta={activeOperationRoute}
                 />
 
                 {!isActiveDigitalWallet && (
                     <BancariaExcelUpload
                         activeCompany={activeCompanyCaja ?? activeCompany}
                         activeCompanyId={activeCompanyId}
-                        companies={companies}
+                        companies={orderedCompanies}
                         companyName={companyName}
                         onCompanyChange={setActiveCompanyId}
                         onProcessed={() => setRefreshKey((value) => value + 1)}
-                        ruta={ruta}
+                        ruta={activeOperationRoute}
                     />
                 )}
 
@@ -826,14 +845,15 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                         activeCajaId={activeCajaId}
                         activeCompanyId={activeCompanyId}
                         activeCompanyCaja={activeCompanyCaja}
-                        companies={companies}
+                        companies={orderedCompanies}
                         downloadKey={downloadKey}
                         historyDate={selectedHistoryDate}
                         onChanged={() => setRefreshKey((value) => value + 1)}
                         onMetricsChanged={() => setMetricsRefreshKey((value) => value + 1)}
                         onCompanyChange={setActiveCompanyId}
                         refreshKey={refreshKey}
-                        ruta={ruta}
+                        ruta={activeOperationRoute}
+                        queryRoutes={workspaceRoutes}
                     />
                 )}
 
@@ -843,7 +863,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                         isOpen={isReglasOpen}
                         onClose={() => setIsReglasOpen(false)}
                         onSaved={() => setRefreshKey((value) => value + 1)}
-                        ruta={ruta}
+                        ruta={activeOperationRoute}
                     />
                 )}
 
@@ -853,7 +873,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                         isOpen={isReglasAbonoOpen}
                         onClose={() => setIsReglasAbonoOpen(false)}
                         onSaved={() => setRefreshKey((value) => value + 1)}
-                        ruta={ruta}
+                        ruta={activeOperationRoute}
                     />
                 )}
 
@@ -862,7 +882,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                         isOpen={isEmpresasOpen}
                         onClose={() => setIsEmpresasOpen(false)}
                         onSaved={() => setRefreshKey((value) => value + 1)}
-                        ruta={ruta}
+                        ruta={activeOperationRoute}
                     />
                 )}
 
@@ -872,7 +892,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                         isOpen={isCajasOpen}
                         onClose={() => setIsCajasOpen(false)}
                         onSaved={() => setRefreshKey((value) => value + 1)}
-                        ruta={ruta}
+                        ruta={activeOperationRoute}
                     />
                 )}
 
@@ -884,7 +904,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                             setRefreshKey((value) => value + 1);
                             setMetricsRefreshKey((value) => value + 1);
                         }}
-                        ruta={ruta}
+                        ruta={activeOperationRoute}
                     />
                 )}
 

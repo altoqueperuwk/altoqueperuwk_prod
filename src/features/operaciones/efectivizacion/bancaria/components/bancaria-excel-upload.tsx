@@ -189,7 +189,19 @@ export const BancariaExcelUpload = ({
 
             setResult(response);
             onProcessed();
-            addToast("success", "Excel procesado correctamente.");
+            const filasOmitidas = Number(response.filas_omitidas ?? 0);
+            const filasProcesadas = Number(response.filas_procesadas ?? 0);
+
+            if (filasOmitidas > 0) {
+                addToast(
+                    "info",
+                    filasProcesadas > 0
+                        ? `Excel procesado. ${filasOmitidas} operacion(es) duplicada(s) fueron omitida(s).`
+                        : "No se insertaron operaciones: todas fueron identificadas como duplicadas.",
+                );
+            } else {
+                addToast("success", "Excel procesado correctamente.");
+            }
         } catch (err) {
             const message = err instanceof Error ? err.message : "Error al procesar Excel.";
             addToast("error", message);

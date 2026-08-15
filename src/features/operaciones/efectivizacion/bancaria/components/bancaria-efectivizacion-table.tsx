@@ -79,6 +79,7 @@ interface BancariaEfectivizacionTableProps {
     onRestoreOperation?: (row: OperacionProceso) => void;
     onToggleRow?: (id: number) => void;
     ruta: OperacionRutaBancaria;
+    showBanca?: boolean;
     selectedIds?: number[];
     user: UserRef;
 }
@@ -164,7 +165,8 @@ const formatTime = (value?: string | null) => {
     return new Date(value).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
 };
 
-const getColumnHeaders = (showDerivo: boolean) => [
+const getColumnHeaders = (showBanca: boolean, showDerivo: boolean) => [
+    ...(showBanca ? [{ label: "Banca" }] : []),
     { label: "Facturacion" },
     ...(showDerivo ? [{ label: "Derivo" }] : []),
     { label: "Cod. Op." },
@@ -199,6 +201,7 @@ export const BancariaEfectivizacionTable = ({
     onRestoreOperation,
     onToggleRow,
     ruta,
+    showBanca = false,
     selectedIds = [],
     user,
 }: BancariaEfectivizacionTableProps) => {
@@ -269,8 +272,8 @@ export const BancariaEfectivizacionTable = ({
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
     const showTipoDeposito = tipoDepositoVisibleRoutes.includes(ruta);
     const columnHeaders = useMemo(
-        () => getColumnHeaders(mode === "derivaciones").filter((column) => !readOnly || column.label !== "Acciones"),
-        [mode, readOnly],
+        () => getColumnHeaders(showBanca, mode === "derivaciones").filter((column) => !readOnly || column.label !== "Acciones"),
+        [mode, readOnly, showBanca],
     );
     const tableColSpan = columnHeaders.length + (hasSelection ? 1 : 0);
     const activeCompanyAccounts = useMemo(
@@ -992,6 +995,15 @@ export const BancariaEfectivizacionTable = ({
                                                     isDisabled={rowSaving}
                                                     onChange={() => onToggleRow?.(row.id)}
                                                 />
+                                                )}
+                                            </td>
+                                        )}
+                                        {showBanca && (
+                                            <td className="px-2 py-2 align-top">
+                                                {isPlain ? (
+                                                    <span className="text-sm text-secondary">{row.nombre_codigo_servicio || "-"}</span>
+                                                ) : (
+                                                    <CompactBadgeLine color="brand">{row.nombre_codigo_servicio || "-"}</CompactBadgeLine>
                                                 )}
                                             </td>
                                         )}

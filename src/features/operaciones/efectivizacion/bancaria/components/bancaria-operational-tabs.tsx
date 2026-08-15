@@ -60,6 +60,11 @@ const tabs: BancariaTab[] = ["Efectivizacion", "Pago Deuda", "Derivados", "POS",
 const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
 const softDeleteRoutes = new Set<OperacionRutaBancaria>(["bcp", "bbva", "scotiabank", "banbif", "interbank", "safetypay"]);
 
+const getOperationRoute = (row: Pick<OperacionProceso, "ruta_destino" | "ruta_origen">, fallback: OperacionRutaBancaria) => {
+    const candidate = String(row.ruta_destino ?? row.ruta_origen ?? "").toLowerCase() as OperacionRutaBancaria;
+    return bancariaRouteKeys.includes(candidate) ? candidate : fallback;
+};
+
 interface BancariaOperationalTabsProps {
     activeAccountId: number | null;
     activeCajaId: number | null;
@@ -80,6 +85,7 @@ interface BancariaOperationalTabsProps {
     onCompanyChange: (id: number) => void;
     refreshKey?: number;
     ruta: OperacionRutaBancaria;
+    queryRoutes?: OperacionRutaBancaria[];
     visibleTabs?: BancariaTab[];
 }
 
@@ -419,6 +425,7 @@ export const BancariaOperationalTabs = ({
     onCompanyChange,
     refreshKey = 0,
     ruta,
+    queryRoutes = [ruta],
     visibleTabs: requestedTabs,
 }: BancariaOperationalTabsProps) => {
     const { businessUser } = useAuth();
@@ -595,16 +602,14 @@ export const BancariaOperationalTabs = ({
 
         return base;
     }, [currentTab, ruta]);
-    const {
-        error,
-        isLoading,
-        movimientos,
-        operaciones,
-        refreshBandeja,
-        replaceOperacion,
-        replaceOperaciones,
-    } = useBancariaBandeja({
-        activeAccountId,
+    const scopedRoutes = useMemo(
+        () => Array.from(new Set([ruta, ...queryRoutes])),
+        [queryRoutes, ruta],
+    );
+    const secondaryRuta = scopedRoutes.find((item) => item !== ruta) ?? null;
+    const scopedAccountId = secondaryRuta ? null : activeAccountId;
+    const primaryBandeja = useBancariaBandeja({
+        activeAccountId: scopedAccountId,
         activeCajaId,
         activeCompanyId,
         activeFilter,
@@ -618,6 +623,45 @@ export const BancariaOperationalTabs = ({
         ruta,
         tab: currentTab,
     });
+    const secondaryBandeja = useBancariaBandeja({
+        activeAccountId: secondaryRuta ? null : activeAccountId,
+        activeCajaId,
+        activeCompanyId,
+        activeFilter,
+        code,
+        dateFrom,
+        dateTo,
+        dni,
+        enabled: enabled && Boolean(secondaryRuta),
+        historyDate,
+        refreshKey: refreshKey + actionRefreshKey,
+        ruta: secondaryRuta ?? ruta,
+        tab: currentTab,
+    });
+    const operaciones = useMemo(() => {
+        const byId = new Map<number, OperacionProceso>();
+        [...primaryBandeja.operaciones, ...secondaryBandeja.operaciones].forEach((row) => byId.set(row.id, row));
+        return Array.from(byId.values());
+    }, [primaryBandeja.operaciones, secondaryBandeja.operaciones]);
+    const movimientos = useMemo(() => {
+        const byId = new Map<number, MovimientoMerged>();
+        [...primaryBandeja.movimientos, ...secondaryBandeja.movimientos].forEach((row) => byId.set(row.id, row));
+        return Array.from(byId.values());
+    }, [primaryBandeja.movimientos, secondaryBandeja.movimientos]);
+    const error = primaryBandeja.error ?? secondaryBandeja.error;
+    const isLoading = primaryBandeja.isLoading || secondaryBandeja.isLoading;
+    const refreshBandeja = useCallback(() => {
+        primaryBandeja.refreshBandeja();
+        secondaryBandeja.refreshBandeja();
+    }, [primaryBandeja, secondaryBandeja]);
+    const replaceOperacion = useCallback((updated: OperacionProceso) => {
+        primaryBandeja.replaceOperacion(updated);
+        secondaryBandeja.replaceOperacion(updated);
+    }, [primaryBandeja, secondaryBandeja]);
+    const replaceOperaciones = useCallback((updated: OperacionProceso[]) => {
+        primaryBandeja.replaceOperaciones(updated);
+        secondaryBandeja.replaceOperaciones(updated);
+    }, [primaryBandeja, secondaryBandeja]);
 
     useEffect(() => {
         setSelectedOperationsById((current) => {
@@ -643,15 +687,31 @@ export const BancariaOperationalTabs = ({
         });
     }, [currentTab, operaciones, selectedIds]);
 
-    const { data: tabBadges, error: tabBadgesError } = useBancariaTabBadges(
+    const { data: primaryTabBadges, error: primaryTabBadgesError } = useBancariaTabBadges(
         ruta,
         null,
-        activeAccountId,
+        scopedAccountId,
         historyDate,
         refreshKey + actionRefreshKey + metricsRefreshKey,
         enabled,
     );
-    const { data: empresaBadges, error: empresaBadgesError } = useBancariaEmpresaBadges(
+    const { data: secondaryTabBadges, error: secondaryTabBadgesError } = useBancariaTabBadges(
+        secondaryRuta ?? ruta,
+        null,
+        secondaryRuta ? null : activeAccountId,
+        historyDate,
+        refreshKey + actionRefreshKey + metricsRefreshKey,
+        enabled && Boolean(secondaryRuta),
+    );
+    const tabBadges = useMemo(() => {
+        const merged = { ...primaryTabBadges };
+        Object.entries(secondaryTabBadges).forEach(([tab, count]) => {
+            merged[tab as BancariaTab] = Number(merged[tab as BancariaTab] ?? 0) + Number(count ?? 0);
+        });
+        return merged;
+    }, [primaryTabBadges, secondaryTabBadges]);
+    const tabBadgesError = primaryTabBadgesError ?? secondaryTabBadgesError;
+    const { data: primaryEmpresaBadges, error: primaryEmpresaBadgesError } = useBancariaEmpresaBadges(
         ruta,
         currentTab,
         null,
@@ -659,6 +719,22 @@ export const BancariaOperationalTabs = ({
         refreshKey + actionRefreshKey + metricsRefreshKey,
         enabled,
     );
+    const { data: secondaryEmpresaBadges, error: secondaryEmpresaBadgesError } = useBancariaEmpresaBadges(
+        secondaryRuta ?? ruta,
+        currentTab,
+        null,
+        historyDate,
+        refreshKey + actionRefreshKey + metricsRefreshKey,
+        enabled && Boolean(secondaryRuta),
+    );
+    const empresaBadges = useMemo(() => {
+        const merged = { ...primaryEmpresaBadges };
+        Object.entries(secondaryEmpresaBadges).forEach(([companyId, count]) => {
+            merged[Number(companyId)] = Number(merged[Number(companyId)] ?? 0) + Number(count ?? 0);
+        });
+        return merged;
+    }, [primaryEmpresaBadges, secondaryEmpresaBadges]);
+    const empresaBadgesError = primaryEmpresaBadgesError ?? secondaryEmpresaBadgesError;
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
     const isHistoryMode = Boolean(historyDate);
@@ -681,7 +757,7 @@ export const BancariaOperationalTabs = ({
                 p_id_operacion: row.id,
                 p_id_usuario_gestor: userId,
                 p_nombre_usuario_gestor: userName,
-                p_ruta_destino: ruta,
+                p_ruta_destino: getOperationRoute(row, ruta),
             });
             replaceOperacion(saved);
             setMetricsRefreshKey((value) => value + 1);
@@ -1182,11 +1258,12 @@ export const BancariaOperationalTabs = ({
                 const updatedRows: OperacionProceso[] = [];
 
                 for (const id of eligibleIds) {
+                    const operation = operaciones.find((row) => row.id === id);
                     const saved = await operacionesRpcService.patchPagoDeudaSalida({
                         p_id_operacion: id,
                         p_id_usuario_gestor: userId,
                         p_nombre_usuario_gestor: userName,
-                        p_ruta_destino: ruta,
+                        p_ruta_destino: operation ? getOperationRoute(operation, ruta) : ruta,
                     });
                     updatedRows.push(saved);
                 }
@@ -1438,7 +1515,7 @@ export const BancariaOperationalTabs = ({
                         });
                     } else {
                         saved = await operacionesRpcService.patchOperacionDerivacion(
-                            buildOperacionDerivacionPayload(id, ruta, value, { userId, userName }),
+                            buildOperacionDerivacionPayload(id, getOperationRoute(operation, ruta), value, { userId, userName }),
                         );
                     }
                     updatedRows.push(saved);
@@ -1477,7 +1554,10 @@ export const BancariaOperationalTabs = ({
                             p_id_empresa_cuenta_salida: company.id_empresa_cuenta_bancaria,
                             p_id_usuario_gestor: userId,
                             p_nombre_usuario_gestor: userName,
-                            p_ruta_destino: ruta,
+                            p_ruta_destino: getOperationRoute(
+                                operaciones.find((row) => row.id === id) ?? { ruta_destino: ruta, ruta_origen: ruta },
+                                ruta,
+                            ),
                         });
                         updatedRows.push(saved);
                     } else if (pendingAction === "Emp. Ingreso") {
@@ -1538,7 +1618,15 @@ export const BancariaOperationalTabs = ({
                     }
 
                     const saved = await operacionesRpcService.patchPagoDeudaSalida(
-                        buildPagoDeudaSalidaPayload(id, company, ruta, { userId, userName }),
+                        buildPagoDeudaSalidaPayload(
+                            id,
+                            company,
+                            getOperationRoute(
+                                operaciones.find((row) => row.id === id) ?? { ruta_destino: ruta, ruta_origen: ruta },
+                                ruta,
+                            ),
+                            { userId, userName },
+                        ),
                     );
                     updatedRows.push(saved);
                 }
@@ -1704,6 +1792,7 @@ export const BancariaOperationalTabs = ({
                 }}
                     onRestoreOperation={setOperationToRestore}
                     ruta={ruta}
+                    showBanca={scopedRoutes.length > 1 && currentTab === "Efectivizacion"}
                     selectedIds={selectedIds}
                     user={{ userId, userName }}
                     onToggleRow={canUseProcesoActions ? handleToggleRow : undefined}
