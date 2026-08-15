@@ -2144,8 +2144,8 @@ $$;
 Funcion: f_post_tb_caja_operativa_cierre
 Objetivo:
   Ejecutar un cierre compacto de caja congelando su snapshot actual en
-  tb_caja_operativa_cierre. No crea movimientos ni redistribuye saldos; Ãºnicamente
-  registra el cierre y reinicia la fecha_apertura manteniendo saldo_actual.
+  tb_caja_operativa_cierre. Registra el cierre, reinicia la fecha_apertura y
+  traslada una sola vez los gastos operacionales del ciclo a la caja viva.
 */
 CREATE OR REPLACE FUNCTION public.f_post_tb_caja_operativa_cierre(
   p_id_caja bigint,
@@ -2169,6 +2169,7 @@ DECLARE
   v_movimientos_abiertos integer := 0;
   v_movimientos_salida_retenidos integer := 0;
   v_total_recaudado numeric := 0;
+  v_gastos_ciclo_cerrado numeric := 0;
   v_ingresos_retenidos_abiertos numeric := 0;
   v_ganancia_retenida_abierta numeric := 0;
 BEGIN
@@ -2221,6 +2222,35 @@ BEGIN
       'PAGO_DEUDA_DEVOLUCION',
       'PAGO_DEUDA_COMISION'
     );
+
+  -- Los gastos de operaciones que se congelaran pertenecen al ciclo cerrado.
+  -- Se trasladaran a la caja viva despues de crear el snapshot historico.
+  SELECT COALESCE(SUM(COALESCE(oc.monto_gasto, 0)), 0)
+  INTO v_gastos_ciclo_cerrado
+  FROM public.tb_operacion_caja oc
+  LEFT JOIN public.tb_operacion_proceso op
+    ON op.id = oc.id_operacion_proceso
+  WHERE oc.id_caja = p_id_caja
+    AND oc.id_caja_cierre IS NULL
+    AND oc.id_operacion_proceso IS NOT NULL
+    AND NOT (
+      COALESCE(op.flag_retenido, false) = true
+      AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
+      AND oc.fecha_registro < COALESCE(v_caja.fecha_apertura, '-infinity'::timestamptz)
+    )
+    AND NOT (
+      UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'RECHAZADO')
+    );
+
+  IF COALESCE(v_caja.saldo_actual, 0) - v_gastos_ciclo_cerrado < 0 THEN
+    RETURN jsonb_build_object(
+      'error', 'El gasto operacional del ciclo deja la caja posterior con saldo negativo.',
+      'codigo', 'SALDO_INSUFICIENTE',
+      'id_caja', p_id_caja,
+      'saldo_disponible', COALESCE(v_caja.saldo_actual, 0),
+      'gasto_operacional', v_gastos_ciclo_cerrado
+    );
+  END IF;
 
   v_kpi_snapshot := COALESCE(
     p_kpi_snapshot,
@@ -2408,6 +2438,28 @@ BEGIN
       fecha_apertura = now()
   WHERE id = p_id_caja;
 
+  -- El snapshot anterior queda intacto. El gasto del ciclo cerrado impacta
+  -- una sola vez sobre la caja viva mediante un movimiento administrativo.
+  IF v_gastos_ciclo_cerrado > 0 THEN
+    PERFORM public.f_post_tb_operacion_caja(
+      p_id_caja := p_id_caja,
+      p_tipo_origen := 'GASTO OPERACIONAL CIERRE',
+      p_tipo_movimiento := 'SALIDA',
+      p_detalle := format(
+        'Gasto operacional trasladado del cierre %s: %s',
+        v_historial_id,
+        v_gastos_ciclo_cerrado
+      ),
+      p_monto_salida := v_gastos_ciclo_cerrado,
+      p_monto_gasto := 0,
+      p_monto_ingreso := 0,
+      p_monto_ganancia := 0,
+      p_flag_contabiliza_operacion := false,
+      p_id_usuario := p_id_usuario,
+      p_nombre_usuario := NULL
+    );
+  END IF;
+
   SELECT to_jsonb(x)
   INTO v_result
   FROM public.f_get_tb_caja_operativa_cierre(p_id := v_historial_id) AS x
@@ -2482,9 +2534,18 @@ BEGIN
     WHERE oc.id_caja = p_id_caja
       AND oc.id_caja_cierre IS NULL
       AND oc.fecha_registro > v_cierre.fecha_cierre
+      AND UPPER(BTRIM(COALESCE(oc.tipo_origen, ''))) <> 'GASTO OPERACIONAL CIERRE'
   ) THEN
     RETURN jsonb_build_object('error', 'No se puede reabrir el cierre porque existen movimientos posteriores en la caja.');
   END IF;
+
+  -- El movimiento administrativo se elimina junto con el ultimo cierre,
+  -- despues de validar que no existan movimientos operativos posteriores.
+  DELETE FROM public.tb_operacion_caja
+  WHERE id_caja = p_id_caja
+    AND id_caja_cierre IS NULL
+    AND UPPER(BTRIM(COALESCE(tipo_origen, ''))) = 'GASTO OPERACIONAL CIERRE'
+    AND fecha_registro >= v_cierre.fecha_cierre;
 
   v_retenciones_revertidas := 0;
 
@@ -2812,7 +2873,8 @@ BEGIN
       AND REPLACE(UPPER(COALESCE(oc.tipo_origen, '')), '_', ' ') IN (
         'PAGO DEUDA COMISION',
         'OTROS',
-        'TRANSFERENCIA INTERNA'
+        'TRANSFERENCIA INTERNA',
+        'GASTO OPERACIONAL CIERRE'
       )
       AND UPPER(COALESCE(oc.nombre_estado, '')) <> 'RETENIDO'
       AND (
@@ -3316,9 +3378,9 @@ Objetivo:
   caja afectada.
 
 Reglas compactas:
-  - INGRESO confirmado: suma monto_ingreso y descuenta monto_gasto;
-  - INGRESO retenido: no suma monto_ingreso, solo descuenta monto_gasto;
-  - SALIDA: descuenta monto_salida y monto_gasto;
+  - INGRESO confirmado: suma monto_ingreso; el gasto se acumula para el cierre;
+  - INGRESO retenido: no suma monto_ingreso ni descuenta el gasto;
+  - SALIDA: descuenta monto_salida; el gasto se acumula para el cierre;
   - monto_ganancia queda congelado como dato de reporte, sin alterar por si solo
     el saldo porque ya esta implÃ­cito en la combinacion ingreso/gasto.
 */
@@ -3431,13 +3493,23 @@ BEGIN
 
   v_saldo_anterior := COALESCE(v_caja.saldo_actual, 0);
 
-  IF UPPER(p_tipo_movimiento) = 'INGRESO' THEN
+  IF UPPER(BTRIM(COALESCE(p_tipo_origen, ''))) = 'GASTO OPERACIONAL CIERRE' THEN
+    v_monto_requerido := COALESCE(p_monto_salida, 0);
+    v_saldo_nuevo := v_saldo_anterior - v_monto_requerido;
+    v_delta_ingresos := 0;
+    v_delta_ingresos_retenido := 0;
+    v_delta_total_recaudado := 0;
+    v_delta_gastos := 0;
+    v_delta_ganancia := 0;
+    v_delta_ganancia_retenido := 0;
+    v_delta_salida := 0;
+  ELSIF UPPER(p_tipo_movimiento) = 'INGRESO' THEN
       IF v_estado_retenido_id IS NOT NULL AND v_estado_id = v_estado_retenido_id THEN
-        v_saldo_nuevo := v_saldo_anterior - COALESCE(p_monto_gasto, 0);
+        v_saldo_nuevo := v_saldo_anterior;
         v_delta_ingresos_retenido := COALESCE(p_monto_ingreso, 0);
         v_delta_ganancia_retenido := COALESCE(p_monto_ganancia, 0);
       ELSE
-        v_saldo_nuevo := v_saldo_anterior + COALESCE(p_monto_ingreso, 0) - COALESCE(p_monto_gasto, 0);
+        v_saldo_nuevo := v_saldo_anterior + COALESCE(p_monto_ingreso, 0);
         IF UPPER(BTRIM(COALESCE(p_tipo_origen, ''))) IN (
           'EFECTIVIZACION',
           'PAGO_DEUDA',
@@ -3455,10 +3527,12 @@ BEGIN
       END IF;
     v_delta_gastos := COALESCE(p_monto_gasto, 0);
   ELSIF UPPER(p_tipo_movimiento) = 'SALIDA' THEN
-    v_monto_requerido := COALESCE(p_monto_salida, 0) + COALESCE(p_monto_gasto, 0);
+    v_monto_requerido := COALESCE(p_monto_salida, 0);
     v_saldo_nuevo := v_saldo_anterior - v_monto_requerido;
     v_delta_gastos := COALESCE(p_monto_gasto, 0);
-    v_delta_salida := COALESCE(p_monto_salida, 0);
+    IF UPPER(BTRIM(COALESCE(p_tipo_origen, ''))) <> 'GASTO OPERACIONAL CIERRE' THEN
+      v_delta_salida := COALESCE(p_monto_salida, 0);
+    END IF;
   ELSE
     RETURN jsonb_build_object('error', 'tipo_movimiento debe ser INGRESO o SALIDA.');
   END IF;
@@ -3634,19 +3708,19 @@ BEGIN
 
   IF v_tipo_movimiento = 'INGRESO' THEN
     IF v_nombre_estado = 'RETENIDO' THEN
-      v_saldo_delta := -COALESCE(p_monto_gasto, 0);
+      v_saldo_delta := 0;
       v_delta_ingresos_retenido := COALESCE(p_monto_ingreso, 0);
       v_delta_ganancia_retenido := COALESCE(p_monto_ganancia, 0);
     ELSE
-      v_saldo_delta := COALESCE(p_monto_ingreso, 0) - COALESCE(p_monto_gasto, 0);
+      v_saldo_delta := COALESCE(p_monto_ingreso, 0);
       v_delta_ingresos := COALESCE(p_monto_ingreso, 0);
       v_delta_total_recaudado := COALESCE(p_monto_ingreso, 0);
       v_delta_ganancia := COALESCE(p_monto_ganancia, 0);
     END IF;
     v_delta_gastos := COALESCE(p_monto_gasto, 0);
   ELSIF v_tipo_movimiento = 'SALIDA' THEN
-    v_monto_requerido := COALESCE(p_monto_salida, 0) + COALESCE(p_monto_gasto, 0);
-    v_saldo_delta := -v_monto_requerido;
+    v_monto_requerido := COALESCE(p_monto_salida, 0);
+    v_saldo_delta := -COALESCE(p_monto_salida, 0);
     v_delta_gastos := COALESCE(p_monto_gasto, 0);
     v_delta_salida := COALESCE(p_monto_salida, 0);
   ELSE
@@ -3936,10 +4010,10 @@ BEGIN
       FOR UPDATE;
 
       IF v_mov.id_caja = v_id_caja AND UPPER(BTRIM(COALESCE(v_mov.tipo_movimiento, ''))) = 'SALIDA' THEN
-        v_saldo_disponible := v_saldo_disponible + COALESCE(v_mov.monto_salida, 0) + COALESCE(v_mov.monto_gasto, 0);
+        v_saldo_disponible := v_saldo_disponible + COALESCE(v_mov.monto_salida, 0);
       END IF;
 
-      v_monto_requerido := COALESCE(v_monto_salida, 0) + COALESCE(v_monto_gasto, 0);
+      v_monto_requerido := COALESCE(v_monto_salida, 0);
 
       IF v_saldo_disponible < v_monto_requerido THEN
         RETURN jsonb_build_object(
@@ -4882,7 +4956,9 @@ WHERE p.proname IN (
   'f_patch_tb_ruta_operacion_caja',
   'f_patch_tb_ruta_operacion_caja_principal',
   'f_post_tb_caja_operativa',
+  'f_post_tb_operacion_caja_desde_proceso',
   'f_post_tb_ruta_operacion_caja',
+  'f_apply_tb_operacion_caja_delta',
   'f_sync_tb_ruta_operacion_caja_principal',
   'f_sync_tb_ruta_operacion_kpi_caja',
   'f_sync_tb_ruta_operacion_kpi_operacion'

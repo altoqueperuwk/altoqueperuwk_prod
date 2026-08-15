@@ -6,6 +6,7 @@ const MOVEMENT_ORIGIN_LABELS: Record<string, string> = {
     OTROS: "Otros",
     "TRANSFERENCIA INTERNA": "Movimiento Saldo",
     "EDICION SALDO INICIAL CAJA": "Edicion de Saldo Inicial Caja",
+    "GASTO OPERACIONAL CIERRE": "Gasto Operacional Cierre",
 };
 
 export const formatMovimientoOrigen = (value: string | null | undefined) => {
