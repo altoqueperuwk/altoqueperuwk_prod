@@ -2658,20 +2658,73 @@ DECLARE
   v_tiene_ingreso boolean := false;
   v_tiene_salida boolean := false;
   v_es_pos boolean := false;
+  v_aplica_validacion_saldo boolean := false;
+  v_caja_salida record;
+  v_saldo_disponible numeric := 0;
+  v_monto_requerido numeric := 0;
+  v_salida_abierta numeric := 0;
 BEGIN
   SELECT *
   INTO v_actual
   FROM public.tb_operacion_proceso
   WHERE id = p_id
-  LIMIT 1;
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_actual.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion no existe.');
+  END IF;
 
   v_es_pos := UPPER(COALESCE(v_actual.tipo_servicio, '')) = 'POS';
+  v_aplica_validacion_saldo := UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) IN ('EFECTIVIZACION', 'POS');
 
   SELECT id
   INTO v_estado_retenido_id
   FROM public.tb_estado
   WHERE UPPER(nombre) = 'RETENIDO'
   LIMIT 1;
+
+  /*
+    La salida debe validarse antes de marcar la operacion como Pagado.
+    El bloqueo de la caja mantiene consistente esta validacion frente a
+    pagos concurrentes y replica el ajuste de idempotencia de la funcion
+    de movimientos para una salida abierta ya existente.
+  */
+  IF v_aplica_validacion_saldo THEN
+    SELECT c.id, c.saldo_actual
+    INTO v_caja_salida
+    FROM public.tb_caja_operativa c
+    WHERE c.id_empresa = v_actual.id_empresa_salida
+      AND c.id_empresa_cuenta_bancaria = v_actual.id_empresa_cuenta_salida
+    LIMIT 1
+    FOR UPDATE;
+
+    IF v_caja_salida.id IS NULL THEN
+      RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida de la operacion.');
+    END IF;
+
+    v_monto_requerido := COALESCE(v_actual.monto_transferencia_cliente, v_actual.monto_deposito_cliente, 0);
+
+    SELECT COALESCE(SUM(c.monto_salida), 0)
+    INTO v_salida_abierta
+    FROM public.tb_operacion_caja c
+    WHERE c.id_operacion_proceso = p_id
+      AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
+      AND c.id_caja = v_caja_salida.id
+      AND c.id_caja_cierre IS NULL;
+
+    v_saldo_disponible := COALESCE(v_caja_salida.saldo_actual, 0) + v_salida_abierta;
+
+    IF v_saldo_disponible < v_monto_requerido THEN
+      RETURN jsonb_build_object(
+        'error', 'Saldo insuficiente en caja actual.',
+        'codigo', 'SALDO_INSUFICIENTE',
+        'id_caja', v_caja_salida.id,
+        'saldo_disponible', v_saldo_disponible,
+        'monto_requerido', v_monto_requerido
+      );
+    END IF;
+  END IF;
 
   UPDATE public.tb_operacion_proceso
   SET id_estado = p_id_estado,
@@ -2795,10 +2848,17 @@ DECLARE
   v_ids bigint[];
   v_id bigint;
   v_actual record;
+  v_caja_salida record;
   v_result jsonb;
   v_actualizadas jsonb := '[]'::jsonb;
   v_detalle jsonb := '[]'::jsonb;
   v_ruta character varying;
+  v_saldo_disponible numeric := 0;
+  v_monto_requerido numeric := 0;
+  v_salida_abierta numeric := 0;
+  v_cantidad_bloque bigint := 0;
+  v_bloqueos_saldo jsonb := '[]'::jsonb;
+  v_bloqueo_saldo jsonb;
 BEGIN
   IF p_ids_operaciones IS NULL OR jsonb_typeof(p_ids_operaciones) <> 'array' THEN
     RETURN jsonb_build_object(
@@ -2861,6 +2921,20 @@ BEGIN
         'id', v_id,
         'motivo', 'La operacion no tiene una cuenta operativa valida.'
       ));
+    ELSE
+      SELECT c.id
+      INTO v_caja_salida
+      FROM public.tb_caja_operativa c
+      WHERE c.id_empresa = v_actual.id_empresa_salida
+        AND c.id_empresa_cuenta_bancaria = v_actual.id_empresa_cuenta_salida
+      LIMIT 1;
+
+      IF v_caja_salida.id IS NULL THEN
+        v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
+          'id', v_id,
+          'motivo', 'No existe caja inicial para la empresa y cuenta de salida de la operacion.'
+        ));
+      END IF;
     END IF;
   END LOOP;
 
@@ -2868,6 +2942,81 @@ BEGIN
     RETURN jsonb_build_object(
       'error', 'No se pudo procesar el lote completo.',
       'detalle', v_detalle
+    );
+  END IF;
+
+  /*
+    La validacion del saldo se realiza por bloque y por caja. Primero se
+    bloquean todas las cajas en orden estable; despues se compara la suma de
+    las transferencias de cada caja contra su saldo actual. Asi ninguna
+    operacion del lote puede avanzar parcialmente.
+  */
+  FOR v_caja_salida IN
+    SELECT c.id, c.id_empresa, c.id_empresa_cuenta_bancaria, c.saldo_actual
+    FROM public.tb_caja_operativa c
+    WHERE c.id IN (
+      SELECT DISTINCT cx.id
+      FROM public.tb_operacion_proceso op
+      JOIN public.tb_caja_operativa cx
+        ON cx.id_empresa = op.id_empresa_salida
+       AND cx.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_salida
+      WHERE op.id = ANY(v_ids)
+        AND op.id_empresa_salida IS NOT NULL
+        AND op.id_empresa_cuenta_salida IS NOT NULL
+    )
+    ORDER BY c.id
+    FOR UPDATE
+  LOOP
+    SELECT
+      COALESCE(SUM(COALESCE(op.monto_transferencia_cliente, op.monto_deposito_cliente, 0)), 0),
+      COALESCE(SUM(COALESCE(salidas.monto_salida, 0)), 0),
+      COUNT(*)
+    INTO v_monto_requerido, v_salida_abierta, v_cantidad_bloque
+    FROM public.tb_operacion_proceso op
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(oc.monto_salida), 0) AS monto_salida
+      FROM public.tb_operacion_caja oc
+      WHERE oc.id_operacion_proceso = op.id
+        AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'SALIDA'
+        AND oc.id_caja = v_caja_salida.id
+        AND oc.id_caja_cierre IS NULL
+    ) salidas ON true
+    WHERE op.id = ANY(v_ids)
+      AND op.id_empresa_salida = v_caja_salida.id_empresa
+      AND op.id_empresa_cuenta_salida = v_caja_salida.id_empresa_cuenta_bancaria;
+
+    v_saldo_disponible := COALESCE(v_caja_salida.saldo_actual, 0) + v_salida_abierta;
+
+    IF v_saldo_disponible < v_monto_requerido THEN
+      v_bloqueos_saldo := v_bloqueos_saldo || jsonb_build_array(jsonb_build_object(
+        'id_caja', v_caja_salida.id,
+        'saldo_disponible', v_saldo_disponible,
+        'monto_requerido', v_monto_requerido,
+        'monto_faltante', v_monto_requerido - v_saldo_disponible,
+        'cantidad_operaciones', v_cantidad_bloque
+      ));
+    END IF;
+  END LOOP;
+
+  IF jsonb_array_length(v_bloqueos_saldo) > 0 THEN
+    IF jsonb_array_length(v_bloqueos_saldo) = 1 THEN
+      v_bloqueo_saldo := v_bloqueos_saldo -> 0;
+
+      RETURN jsonb_build_object(
+        'error', 'Saldo insuficiente para procesar el bloque.',
+        'codigo', 'SALDO_INSUFICIENTE_BLOQUE',
+        'id_caja', v_bloqueo_saldo->'id_caja',
+        'saldo_disponible', v_bloqueo_saldo->'saldo_disponible',
+        'monto_requerido', v_bloqueo_saldo->'monto_requerido',
+        'monto_faltante', v_bloqueo_saldo->'monto_faltante',
+        'cantidad_operaciones', v_bloqueo_saldo->'cantidad_operaciones'
+      );
+    END IF;
+
+    RETURN jsonb_build_object(
+      'error', 'Saldo insuficiente para procesar el bloque.',
+      'codigo', 'SALDO_INSUFICIENTE_BLOQUE',
+      'detalle_cajas', v_bloqueos_saldo
     );
   END IF;
 
@@ -5148,6 +5297,7 @@ WHERE p.proname IN (
   'f_patch_tb_operacion_proceso_comision_extra',
   'f_patch_tb_operacion_proceso_comision_recurrente',
   'f_patch_tb_operacion_proceso_eliminar',
+  'f_patch_tb_operacion_proceso_pagado',
   'f_patch_tb_operacion_proceso_pagado_lote',
   'f_patch_tb_operacion_proceso_restaurar',
   'f_post_tb_operacion_proceso',

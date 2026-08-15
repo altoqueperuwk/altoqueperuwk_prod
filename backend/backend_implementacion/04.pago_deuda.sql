@@ -1789,12 +1789,17 @@ DECLARE
   v_ruta_kpi_final character varying;
   v_id_empresa_salida_final bigint;
   v_id_empresa_cuenta_salida_final bigint;
+  v_caja_salida record;
+  v_saldo_disponible numeric := 0;
+  v_monto_requerido numeric := 0;
+  v_salida_abierta numeric := 0;
 BEGIN
   SELECT *
   INTO v_input
   FROM public.tb_operacion_proceso
   WHERE id = p_id_operacion
-  LIMIT 1;
+  LIMIT 1
+  FOR UPDATE;
 
   IF v_input.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Operacion no encontrada.');
@@ -1807,7 +1812,8 @@ BEGIN
     WHERE id_operacion_padre = v_input.id
       AND UPPER(COALESCE(tipo_flujo_pago_deuda, '')) = 'BANCO'
     ORDER BY id
-    LIMIT 1;
+    LIMIT 1
+    FOR UPDATE;
   ELSE
     v_op := v_input;
   END IF;
@@ -1823,18 +1829,6 @@ BEGIN
   v_ruta_kpi_actual := COALESCE(v_op.ruta_destino, v_op.ruta_origen);
   v_id_empresa_salida_final := COALESCE(p_id_empresa_salida, v_op.id_empresa_salida);
   v_id_empresa_cuenta_salida_final := COALESCE(p_id_empresa_cuenta_salida, v_op.id_empresa_cuenta_salida);
-
-  SELECT id, nombre
-  INTO v_estado_procesado_id, v_estado_procesado_nombre
-  FROM public.tb_estado
-  WHERE UPPER(nombre) = 'PROCESADO'
-  LIMIT 1;
-
-  IF v_estado_procesado_id IS NULL THEN
-    INSERT INTO public.tb_estado (nombre, id_usuario)
-    VALUES ('Procesado', p_id_usuario_gestor)
-    RETURNING id, nombre INTO v_estado_procesado_id, v_estado_procesado_nombre;
-  END IF;
 
   SELECT
     ecb.id,
@@ -1867,6 +1861,53 @@ BEGIN
     p_id_banco_empresa_cuenta_salida := v_cuenta.id_banco,
     p_id_banco_cliente_transferencia := v_op.id_banco_cliente
   );
+
+  /* Validar el saldo antes de mover la operacion al Paso 2 (Procesado). */
+  SELECT c.id, c.saldo_actual
+  INTO v_caja_salida
+  FROM public.tb_caja_operativa c
+  WHERE c.id_empresa = v_id_empresa_salida_final
+    AND c.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_salida_final
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_caja_salida.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida seleccionada.');
+  END IF;
+
+  v_monto_requerido := COALESCE(v_op.monto_deposito_cliente, 0);
+
+  SELECT COALESCE(SUM(c.monto_salida), 0)
+  INTO v_salida_abierta
+  FROM public.tb_operacion_caja c
+  WHERE c.id_operacion_proceso = v_op.id
+    AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
+    AND c.id_caja = v_caja_salida.id
+    AND c.id_caja_cierre IS NULL;
+
+  v_saldo_disponible := COALESCE(v_caja_salida.saldo_actual, 0) + v_salida_abierta;
+
+  IF v_saldo_disponible < v_monto_requerido THEN
+    RETURN jsonb_build_object(
+      'error', 'Saldo insuficiente en caja actual.',
+      'codigo', 'SALDO_INSUFICIENTE',
+      'id_caja', v_caja_salida.id,
+      'saldo_disponible', v_saldo_disponible,
+      'monto_requerido', v_monto_requerido
+    );
+  END IF;
+
+  SELECT id, nombre
+  INTO v_estado_procesado_id, v_estado_procesado_nombre
+  FROM public.tb_estado
+  WHERE UPPER(nombre) = 'PROCESADO'
+  LIMIT 1;
+
+  IF v_estado_procesado_id IS NULL THEN
+    INSERT INTO public.tb_estado (nombre, id_usuario)
+    VALUES ('Procesado', p_id_usuario_gestor)
+    RETURNING id, nombre INTO v_estado_procesado_id, v_estado_procesado_nombre;
+  END IF;
 
   UPDATE public.tb_operacion_proceso
   SET id_empresa_salida = v_id_empresa_salida_final,
@@ -2289,6 +2330,10 @@ DECLARE
   v_ruta_kpi character varying;
   v_salida_result jsonb;
   v_comision_result jsonb;
+  v_caja_salida record;
+  v_saldo_disponible numeric := 0;
+  v_monto_requerido numeric := 0;
+  v_salida_abierta numeric := 0;
 BEGIN
   SELECT *
   INTO v_input
@@ -2382,20 +2427,6 @@ BEGIN
     RETURN jsonb_build_object('error', 'La comision ya pertenece a un cierre de caja distinto y no puede reubicarse.');
   END IF;
 
-  UPDATE public.tb_operacion_proceso
-  SET id_empresa_ingreso = v_root.id_empresa_ingreso,
-      nombre_empresa_ingreso = v_cuenta_comision.empresa_nombre,
-      id_empresa_cuenta_ingreso = v_root.id_empresa_cuenta_ingreso,
-      id_banco_empresa_cuenta_ingreso = v_cuenta_comision.id_banco,
-      nombre_banco_empresa_cuenta_ingreso = v_cuenta_comision.banco_nombre
-  WHERE id = v_op.id;
-
-  v_op.id_empresa_ingreso := v_root.id_empresa_ingreso;
-  v_op.nombre_empresa_ingreso := v_cuenta_comision.empresa_nombre;
-  v_op.id_empresa_cuenta_ingreso := v_root.id_empresa_cuenta_ingreso;
-  v_op.id_banco_empresa_cuenta_ingreso := v_cuenta_comision.id_banco;
-  v_op.nombre_banco_empresa_cuenta_ingreso := v_cuenta_comision.banco_nombre;
-
   IF NOT EXISTS (
     SELECT 1
     FROM public.tb_caja_operativa c
@@ -2413,6 +2444,55 @@ BEGIN
   ) THEN
     RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida seleccionada.');
   END IF;
+
+  /* Validar el saldo antes de actualizar la operacion y su solicitud raiz. */
+  SELECT c.id, c.saldo_actual
+  INTO v_caja_salida
+  FROM public.tb_caja_operativa c
+  WHERE c.id_empresa = v_op.id_empresa_salida
+    AND c.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_salida
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_caja_salida.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida seleccionada.');
+  END IF;
+
+  v_monto_requerido := COALESCE(v_op.monto_transferencia_cliente, v_op.monto_deposito_cliente, 0);
+
+  SELECT COALESCE(SUM(c.monto_salida), 0)
+  INTO v_salida_abierta
+  FROM public.tb_operacion_caja c
+  WHERE c.id_operacion_proceso = v_op.id
+    AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
+    AND c.id_caja = v_caja_salida.id
+    AND c.id_caja_cierre IS NULL;
+
+  v_saldo_disponible := COALESCE(v_caja_salida.saldo_actual, 0) + v_salida_abierta;
+
+  IF v_saldo_disponible < v_monto_requerido THEN
+    RETURN jsonb_build_object(
+      'error', 'Saldo insuficiente en caja actual.',
+      'codigo', 'SALDO_INSUFICIENTE',
+      'id_caja', v_caja_salida.id,
+      'saldo_disponible', v_saldo_disponible,
+      'monto_requerido', v_monto_requerido
+    );
+  END IF;
+
+  UPDATE public.tb_operacion_proceso
+  SET id_empresa_ingreso = v_root.id_empresa_ingreso,
+      nombre_empresa_ingreso = v_cuenta_comision.empresa_nombre,
+      id_empresa_cuenta_ingreso = v_root.id_empresa_cuenta_ingreso,
+      id_banco_empresa_cuenta_ingreso = v_cuenta_comision.id_banco,
+      nombre_banco_empresa_cuenta_ingreso = v_cuenta_comision.banco_nombre
+  WHERE id = v_op.id;
+
+  v_op.id_empresa_ingreso := v_root.id_empresa_ingreso;
+  v_op.nombre_empresa_ingreso := v_cuenta_comision.empresa_nombre;
+  v_op.id_empresa_cuenta_ingreso := v_root.id_empresa_cuenta_ingreso;
+  v_op.id_banco_empresa_cuenta_ingreso := v_cuenta_comision.id_banco;
+  v_op.nombre_banco_empresa_cuenta_ingreso := v_cuenta_comision.banco_nombre;
 
   SELECT id, nombre
   INTO v_estado_pagado_id, v_estado_pagado_nombre
@@ -2893,6 +2973,8 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
+  'f_patch_tb_pago_deuda_salida',
+  'f_patch_tb_pago_deuda_pagado',
   'f_post_tb_pago_deuda_solicitud'
 )
 ORDER BY n.nspname, p.proname;

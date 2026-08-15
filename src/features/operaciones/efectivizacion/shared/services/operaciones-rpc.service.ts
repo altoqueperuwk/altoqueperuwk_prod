@@ -20,6 +20,15 @@ const formatMoney = (value: unknown) => {
 };
 
 const buildRpcErrorMessage = (payload: Record<string, unknown>) => {
+    if (payload.codigo === "SALDO_INSUFICIENTE_BLOQUE") {
+        const boxes = Array.isArray(payload.detalle_cajas) ? payload.detalle_cajas : [];
+        if (boxes.length > 1) {
+            return "Saldo insuficiente para procesar el bloque. Revisa el saldo disponible de cada caja operativa.";
+        }
+
+        return `Saldo insuficiente para procesar el bloque. Saldo actual: ${formatMoney(payload.saldo_disponible)}. Total a transferir: ${formatMoney(payload.monto_requerido)}. Faltante: ${formatMoney(payload.monto_faltante)}. No se procesó ninguna operación.`;
+    }
+
     if (payload.codigo === "SALDO_INSUFICIENTE") {
         return `Saldo insuficiente en caja actual. Disponible: ${formatMoney(payload.saldo_disponible)}. Requerido: ${formatMoney(payload.monto_requerido)}.`;
     }
