@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cajas Operativas: Opciones de Funcionamiento</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --soft: #f9fafb;
+      --line: #dfe3e8;
+      --text: #17202a;
+      --muted: #667085;
+      --brand: #7650d7;
+      --brand-soft: #f0ebff;
+      --green: #159570;
+      --red: #d56859;
+      --amber: #a86b00;
+      --shadow: 0 8px 24px rgba(16, 24, 40, .07);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    .page { width: min(1180px, calc(100% - 32px)); margin: 32px auto 56px; }
+    .eyebrow { margin: 0 0 8px; color: var(--brand); font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 8px; font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.15; }
+    h2 { margin-bottom: 8px; font-size: 1.35rem; }
+    h3 { margin-bottom: 6px; font-size: 1rem; }
+    .lead { max-width: 780px; margin-bottom: 24px; color: var(--muted); font-size: 1.05rem; }
+    .panel { margin-top: 20px; padding: 24px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+    .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    .panel-head p { margin-bottom: 0; color: var(--muted); }
+    .tag { display: inline-flex; flex: 0 0 auto; padding: 4px 10px; color: #5436a5; background: var(--brand-soft); border-radius: 999px; font-size: .76rem; font-weight: 700; }
+    .notice { margin-top: 18px; padding: 14px 16px; background: #fff9ed; border: 1px solid #f0d69d; border-radius: 10px; color: #704d00; }
+    .notice.green { background: #eaf8f2; border-color: #b7e6d3; color: #17654f; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .kpi { min-height: 92px; padding: 14px; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; }
+    .kpi span { display: block; color: var(--muted); font-size: .78rem; }
+    .kpi strong { display: block; margin-top: 9px; font-size: 1.15rem; }
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+    .attention { color: var(--amber); }
+    .stage { margin-top: 18px; }
+    .stage-title { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .stage-title h3 { margin-bottom: 0; }
+    .option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .option { padding: 20px; border: 1px solid var(--line); border-radius: 12px; }
+    .option.current { border-color: #cbbaff; }
+    .option p { color: var(--muted); }
+    .option ul { margin: 12px 0 0; padding-left: 20px; }
+    .option li { margin: 6px 0; }
+    .mini-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+    .mini { padding: 11px; background: var(--soft); border: 1px solid var(--line); border-radius: 8px; }
+    .mini span { display: block; color: var(--muted); font-size: .72rem; }
+    .mini strong { display: block; margin-top: 4px; font-size: .98rem; }
+    .timeline { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .step { padding: 16px; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; }
+    .step-number { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; margin-bottom: 10px; color: #fff; background: var(--brand); border-radius: 50%; font-weight: 700; }
+    .step p { margin-bottom: 0; color: var(--muted); font-size: .9rem; }
+    .quote { margin: 0; padding: 16px; background: var(--brand-soft); border-left: 4px solid var(--brand); border-radius: 8px; color: #443080; }
+    @media (max-width: 900px) { .kpi-grid, .timeline { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 650px) { .page { width: calc(100% - 20px); margin-top: 20px; } .panel { padding: 16px; } .panel-head { display: block; } .option-grid, .kpi-grid, .mini-grid, .timeline { grid-template-columns: 1fr; } .tag { margin-top: 10px; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <p class="eyebrow">Configuración de operaciones</p>
+    <h1>Cajas Operativas y Cierre de Caja</h1>
+    <p class="lead">Esta guía explica de forma sencilla cómo funciona el saldo de una caja y qué opciones existen para iniciar un nuevo día.</p>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>¿Qué es el modal Cajas?</h2>
+          <p>Permite asociar una empresa con una cuenta bancaria dentro de una ruta.</p>
+        </div>
+        <span class="tag">Configuración &gt; Cajas</span>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi"><span>Saldo Inicial</span><strong>Monto de apertura</strong></div>
+        <div class="kpi"><span>Saldo Actual</span><strong class="positive">Saldo disponible</strong></div>
+        <div class="kpi"><span>Estado</span><strong>Caja activa o inactiva</strong></div>
+        <div class="kpi"><span>Cuenta Bancaria</span><strong>Cuenta asociada</strong></div>
+      </div>
+      <div class="notice"><strong>Importante:</strong> el saldo actual se calcula con ingresos, salidas y gastos. Cambiar el saldo inicial cuando ya existen movimientos puede cambiar los KPI y los cálculos de la caja.</div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Opción 1: Mantener el funcionamiento actual</h2>
+          <p>Esta es la forma en la que actualmente funciona el sistema.</p>
+        </div>
+        <span class="tag">Funcionamiento actual</span>
+      </div>
+      <p>La caja continúa trabajando con el saldo disponible del ciclo anterior. Cada operación actualiza los KPI que corresponden y el saldo actual se calcula automáticamente.</p>
+      <h3>¿Qué significa cada KPI?</h3>
+      <div class="kpi-grid">
+        <div class="kpi"><span>Caja Inicial</span><strong>Monto con el que comenzó el ciclo</strong></div>
+        <div class="kpi"><span>Caja Actual</span><strong class="positive">Saldo disponible para operar</strong></div>
+        <div class="kpi"><span>Caja Recaudación</span><strong class="positive">Depósitos recibidos</strong></div>
+        <div class="kpi"><span>Ingresos</span><strong class="positive">Otros ingresos registrados</strong></div>
+        <div class="kpi"><span>Salidas</span><strong class="negative">Transferencias y pagos</strong></div>
+        <div class="kpi"><span>Gastos Operacionales</span><strong class="negative">Comisiones y gastos</strong></div>
+        <div class="kpi"><span>Ganancias</span><strong class="positive">Comisiones del servicio</strong></div>
+        <div class="kpi"><span>Retención Recaudación</span><strong class="attention">Montos pendientes de liberar</strong></div>
+      </div>
+
+      <div class="stage">
+        <div class="stage-title"><span class="tag">Ejemplo</span><h3>Al abrir</h3></div>
+        <div class="mini-grid">
+          <div class="mini"><span>Caja Inicial</span><strong>S/ 10,000.00</strong></div>
+          <div class="mini"><span>Caja Actual</span><strong class="positive">S/ 10,000.00</strong></div>
+          <div class="mini"><span>Caja Recaudación</span><strong class="positive">S/ 0.00</strong></div>
+          <div class="mini"><span>Ingresos</span><strong class="positive">S/ 0.00</strong></div>
+          <div class="mini"><span>Salidas</span><strong class="negative">S/ 0.00</strong></div>
+          <div class="mini"><span>Gastos Operacionales</span><strong class="negative">S/ 0.00</strong></div>
+          <div class="mini"><span>Ganancias</span><strong class="positive">S/ 0.00</strong></div>
+          <div class="mini"><span>Retención Recaudación</span><strong class="attention">S/ 0.00</strong></div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="stage-title"><span class="tag">Ejemplo</span><h3>Después de operaciones</h3></div>
+        <div class="mini-grid">
+          <div class="mini"><span>Caja Inicial</span><strong>S/ 10,000.00</strong></div>
+          <div class="mini"><span>Caja Actual</span><strong class="positive">S/ 11,200.00</strong></div>
+          <div class="mini"><span>Caja Recaudación</span><strong class="positive">S/ 2,000.00</strong></div>
+          <div class="mini"><span>Ingresos</span><strong class="positive">S/ 0.00</strong></div>
+          <div class="mini"><span>Salidas</span><strong class="negative">S/ 800.00</strong></div>
+          <div class="mini"><span>Gastos Operacionales</span><strong class="negative">S/ 20.00</strong></div>
+          <div class="mini"><span>Ganancias</span><strong class="positive">S/ 18.00</strong></div>
+          <div class="mini"><span>Retención Recaudación</span><strong class="attention">S/ 0.00</strong></div>
+        </div>
+        <div class="notice">La caja actual refleja los ingresos y las salidas. El gasto queda visible en su KPI y se controla al momento del cierre.</div>
+      </div>
+
+      <div class="stage">
+        <div class="stage-title"><span class="tag">Cierre</span><h3>¿Qué ocurre al cerrar?</h3></div>
+        <ol>
+          <li>Los KPI del día quedan guardados en el historial.</li>
+          <li>La fecha cerrada queda congelada para consulta.</li>
+          <li>Las operaciones pagadas quedan relacionadas con ese cierre.</li>
+          <li>Las operaciones pendientes o retenidas continúan con sus reglas.</li>
+          <li>La nueva caja continúa con el saldo disponible del ciclo anterior.</li>
+        </ol>
+        <div class="mini-grid">
+          <div class="mini"><span>Caja Inicial del nuevo ciclo</span><strong>S/ 11,200.00</strong></div>
+          <div class="mini"><span>Caja Actual</span><strong class="positive">S/ 11,180.00</strong></div>
+          <div class="mini"><span>Gastos Operacionales</span><strong class="negative">S/ 0.00</strong></div>
+        </div>
+        <div class="notice">La diferencia de S/ 20.00 queda registrada como un movimiento de gasto de cierre para explicar por qué el saldo actual es menor que el saldo inicial.</div>
+      </div>
+      <div class="notice"><strong>Importante:</strong> no se debe editar el saldo inicial después de registrar operaciones, salvo que se esté corrigiendo un dato autorizado.</div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Opción 2: Comenzar cada día en cero</h2>
+          <p>Cada nuevo día inicia con todos los KPI en S/ 0.00. El usuario registra el saldo inicial antes de trabajar.</p>
+        </div>
+        <span class="tag">Propuesta</span>
+      </div>
+      <div class="mini-grid">
+        <div class="mini"><span>Caja Inicial</span><strong>S/ 0.00</strong></div>
+        <div class="mini"><span>Caja Actual</span><strong>S/ 0.00</strong></div>
+        <div class="mini"><span>Caja Recaudación</span><strong>S/ 0.00</strong></div>
+        <div class="mini"><span>Ingresos</span><strong>S/ 0.00</strong></div>
+        <div class="mini"><span>Salidas</span><strong>S/ 0.00</strong></div>
+        <div class="mini"><span>Gastos Operacionales</span><strong>S/ 0.00</strong></div>
+      </div>
+      <p class="notice"><strong>Regla de edición:</strong> si el usuario se equivoca al ingresar el saldo, puede editarlo mientras no haya cargado Excel, registrado operaciones o generado movimientos. Después de la primera operación, el saldo inicial queda bloqueado.</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div><h2>Flujo de los días</h2><p>Ejemplo de ayer, hoy y mañana.</p></div>
+      </div>
+      <div class="timeline">
+        <article class="step"><span class="step-number">1</span><h3>Ayer: cierre</h3><p>Los KPI finales se guardan y el cierre queda congelado en el historial.</p><div class="mini"><span>Caja Actual</span><strong>S/ 11,180.00</strong></div></article>
+        <article class="step"><span class="step-number">2</span><h3>Hoy: inicio</h3><p>En la Opción 1 continúa el saldo. En la Opción 2 todos los KPI empiezan en cero.</p><div class="mini"><span>KPI iniciales Opción 2</span><strong>S/ 0.00</strong></div></article>
+        <article class="step"><span class="step-number">3</span><h3>Hoy: cierre</h3><p>Los resultados del día se guardan y se separan de las operaciones futuras.</p><div class="mini"><span>Historial</span><strong>Congelado</strong></div></article>
+        <article class="step"><span class="step-number">4</span><h3>Mañana: inicio</h3><p>En la Opción 1 continúa el saldo. En la Opción 2 se inicia nuevamente en cero.</p><div class="mini"><span>KPI iniciales Opción 2</span><strong>S/ 0.00</strong></div></article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Recomendación</h2>
+      <p>La Opción 1 es la que utiliza actualmente el sistema y permite continuidad de saldo. La Opción 2 separa completamente cada día y requiere que el usuario registre el saldo inicial antes de operar.</p>
+      <blockquote class="quote">El saldo inicial define con cuánto dinero comienza la caja. Si la caja ya tiene operaciones, no se debe modificar directamente porque puede cambiar los cálculos.</blockquote>
+    </section>
+  </main>
+</body>
+</html>

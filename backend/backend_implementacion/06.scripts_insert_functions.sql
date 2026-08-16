@@ -586,6 +586,33 @@ create table tb_reglas_efectivizacion
 );
 */
 
+/*
+Correccion de configuracion para Pago Deuda.
+
+La funcion de calculo interpreta:
+  - monto_minimo_deposito_servicio: umbral del deposito;
+  - comision_minima_servicio: importe minimo de comision.
+
+Las reglas activas de Pago Deuda existentes tenian ambos valores invertidos.
+Este ajuste es idempotente y no modifica el porcentaje ni las operaciones ya
+registradas, cuyos importes permanecen congelados.
+*/
+UPDATE public.tb_reglas_efectivizacion r
+SET monto_minimo_deposito_servicio = CASE
+      WHEN r.id_banco = 5 THEN 1500
+      ELSE 2000
+    END,
+    comision_minima_servicio = 30
+WHERE r.id_codigo_servicio = 10
+  AND r.id_banco IN (1, 2, 3, 4, 5)
+  AND r.id_estado = (
+    SELECT e.id
+    FROM public.tb_estado e
+    WHERE UPPER(BTRIM(COALESCE(e.nombre, ''))) = 'ACTIVO'
+    ORDER BY e.id
+    LIMIT 1
+  );
+
 --3. genera el insert en base a la nueva tabla tb_reglas_efectivizacion
 
 DO $$
@@ -641,11 +668,11 @@ BEGIN
       ('Interbank', 'INTERBANK', 7, 1, 1.5, 1500, 30, 'Activo', 2, '2026-06-09 11:12:12.011635 -05:00'::timestamptz),
       ('Interbank', 'INTERBANK', 8, 1, 1.5, 1500, 30, 'Activo', 2, '2026-06-09 11:12:16.260980 -05:00'::timestamptz),
       ('Interbank', 'INTERBANK', 9, 1, 2, 1500, 30, 'Activo', 2, '2026-06-27 10:04:11.453766 -05:00'::timestamptz),
-      ('Pago Deuda', 'BBVA', 1, 1, 1, 0, 0, 'Activo', 2, '2026-06-17 00:14:08.074680 -05:00'::timestamptz),
-      ('Pago Deuda', 'BCP', 1, 1, 1, 0, 0, 'Activo', 2, '2026-06-17 00:15:03.627061 -05:00'::timestamptz),
-      ('Pago Deuda', 'SCOTIABANK', 1, 1, 1.5, 0, 0, 'Activo', 2, '2026-06-17 00:16:13.565924 -05:00'::timestamptz),
-      ('Pago Deuda', 'BANBIF', 1, 1, 1, 0, 0, 'Activo', 2, '2026-06-17 00:17:33.366335 -05:00'::timestamptz),
-      ('Pago Deuda', 'INTERBANK', 1, 1, 2, 0, 0, 'Activo', 2, '2026-06-17 00:19:55.732019 -05:00'::timestamptz),
+      ('Pago Deuda', 'BBVA', 1, 1, 1, 2000, 30, 'Activo', 2, '2026-06-17 00:14:08.074680 -05:00'::timestamptz),
+      ('Pago Deuda', 'BCP', 1, 1, 1, 2000, 30, 'Activo', 2, '2026-06-17 00:15:03.627061 -05:00'::timestamptz),
+      ('Pago Deuda', 'SCOTIABANK', 1, 1, 1.5, 2000, 30, 'Activo', 2, '2026-06-17 00:16:13.565924 -05:00'::timestamptz),
+      ('Pago Deuda', 'BANBIF', 1, 1, 1, 2000, 30, 'Activo', 2, '2026-06-17 00:17:33.366335 -05:00'::timestamptz),
+      ('Pago Deuda', 'INTERBANK', 1, 1, 2, 1500, 30, 'Activo', 2, '2026-06-17 00:19:55.732019 -05:00'::timestamptz),
       ('SafetyPay', 'SAFETYPAY', 1, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:11:45.083605 -05:00'::timestamptz),
       ('SafetyPay', 'SAFETYPAY', 2, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:11:49.441426 -05:00'::timestamptz),
       ('SafetyPay', 'SAFETYPAY', 3, 1, 2, 1500, 30, 'Activo', 2, '2026-06-09 11:11:55.103947 -05:00'::timestamptz),
@@ -724,14 +751,19 @@ BEGIN
       FROM public.tb_reglas_efectivizacion t
       WHERE t.id_codigo_servicio = r.id_codigo_servicio
         AND t.id_banco = r.id_banco
-        AND t.id_comunidad = r.id_comunidad
-        AND t.tipo_deposito = r.tipo_deposito
-        AND t.comision_servicio = r.comision_servicio
-        AND t.monto_minimo_deposito_servicio = r.monto_minimo_deposito_servicio
-        AND t.comision_minima_servicio = r.comision_minima_servicio
         AND t.id_estado = r.id_estado
-        AND coalesce(t.id_usuario, 0) = coalesce(r.id_usuario, 0)
-        AND t.fecha_registro = r.fecha_registro
+        AND (
+          r.id_codigo_servicio = 10
+          OR (
+            t.id_comunidad = r.id_comunidad
+            AND t.tipo_deposito = r.tipo_deposito
+            AND t.comision_servicio = r.comision_servicio
+            AND t.monto_minimo_deposito_servicio = r.monto_minimo_deposito_servicio
+            AND t.comision_minima_servicio = r.comision_minima_servicio
+            AND coalesce(t.id_usuario, 0) = coalesce(r.id_usuario, 0)
+            AND t.fecha_registro = r.fecha_registro
+          )
+        )
     )
     RETURNING 1
   )

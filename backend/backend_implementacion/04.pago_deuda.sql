@@ -2216,6 +2216,9 @@ DECLARE
   v_op_efect record;
   v_estado_pagado_id bigint;
   v_estado_pagado_nombre character varying;
+  v_estado_retenido_id bigint;
+  v_estado_retenido_nombre character varying;
+  v_movimiento_efect record;
   v_ingreso_result jsonb;
 BEGIN
   SELECT *
@@ -2254,6 +2257,25 @@ BEGIN
     RETURN jsonb_build_object('error', 'Operacion de efectivizacion no encontrada.');
   END IF;
 
+  -- El match reutiliza el ingreso de la efectivizacion. Se bloquea el
+  -- movimiento para poder actualizarlo en sitio y evitar una reversa
+  -- temporal que pueda llevar la caja a saldo negativo.
+  SELECT oc.*
+  INTO v_movimiento_efect
+  FROM public.tb_operacion_caja oc
+  WHERE oc.id_operacion_proceso = v_op_efect.id
+    AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
+  ORDER BY oc.id
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_movimiento_efect.id IS NOT NULL
+     AND v_movimiento_efect.id_caja_cierre IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'error', 'No se puede realizar el match porque el movimiento de efectivizacion ya pertenece a un cierre de caja.'
+    );
+  END IF;
+
   IF COALESCE(v_op_deuda.dni_cliente, '') <> COALESCE(v_op_efect.dni_cliente, '') THEN
     RETURN jsonb_build_object('error', 'Los DNIs no coinciden.');
   END IF;
@@ -2269,6 +2291,12 @@ BEGIN
   INTO v_estado_pagado_id, v_estado_pagado_nombre
   FROM public.tb_estado
   WHERE UPPER(nombre) = 'PAGADO'
+  LIMIT 1;
+
+  SELECT id, nombre
+  INTO v_estado_retenido_id, v_estado_retenido_nombre
+  FROM public.tb_estado
+  WHERE UPPER(nombre) = 'RETENIDO'
   LIMIT 1;
 
   UPDATE public.tb_operacion_proceso
@@ -2304,17 +2332,66 @@ BEGIN
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = v_op_efect.id;
 
-  v_ingreso_result := public.f_post_tb_operacion_caja_desde_proceso(
-    p_id_operacion_proceso := v_op_efect.id,
-    p_tipo_origen := 'PAGO_DEUDA_DEVOLUCION',
-    p_tipo_movimiento := 'INGRESO',
-    p_id_usuario := COALESCE(p_id_usuario_gestor, v_op_efect.id_usuario_gestor, v_op_efect.id_usuario),
-    p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_op_efect.nombre_usuario_gestor, v_op_efect.nombre_usuario),
-    p_id_estado := v_estado_pagado_id
-  );
+  IF v_movimiento_efect.id IS NOT NULL THEN
+    -- El monto ingresado no cambia con el match. Solo se reemplaza la
+    -- naturaleza del movimiento y se revierten los acumulados que ya no
+    -- corresponden a la efectivizacion original.
+    UPDATE public.tb_operacion_caja
+    SET tipo_origen = 'PAGO_DEUDA_DEVOLUCION',
+        detalle = 'Retorno Pago Deuda',
+        monto_ingreso = COALESCE(v_op_efect.monto_deposito_cliente, 0),
+        monto_gasto = 0,
+        monto_ganancia = 0,
+        monto_salida = 0,
+        id_estado = CASE
+          WHEN COALESCE(v_op_efect.flag_retenido, false) AND v_estado_retenido_id IS NOT NULL
+            THEN v_estado_retenido_id
+          ELSE v_estado_pagado_id
+        END,
+        nombre_estado = CASE
+          WHEN COALESCE(v_op_efect.flag_retenido, false) AND v_estado_retenido_nombre IS NOT NULL
+            THEN v_estado_retenido_nombre
+          ELSE v_estado_pagado_nombre
+        END,
+        id_usuario = COALESCE(p_id_usuario_gestor, v_op_efect.id_usuario_gestor, v_op_efect.id_usuario, id_usuario),
+        nombre_usuario = COALESCE(p_nombre_usuario_gestor, v_op_efect.nombre_usuario_gestor, v_op_efect.nombre_usuario, nombre_usuario)
+    WHERE id = v_movimiento_efect.id;
 
-  IF v_ingreso_result ? 'error' THEN
-    RETURN v_ingreso_result;
+    UPDATE public.tb_caja_operativa
+    SET gastos = GREATEST(COALESCE(gastos, 0) - COALESCE(v_movimiento_efect.monto_gasto, 0), 0),
+        ganancia = CASE
+          WHEN UPPER(BTRIM(COALESCE(v_movimiento_efect.nombre_estado, ''))) = 'RETENIDO'
+            THEN COALESCE(ganancia, 0)
+          ELSE GREATEST(COALESCE(ganancia, 0) - COALESCE(v_movimiento_efect.monto_ganancia, 0), 0)
+        END,
+        ganancia_retenido = CASE
+          WHEN UPPER(BTRIM(COALESCE(v_movimiento_efect.nombre_estado, ''))) = 'RETENIDO'
+            THEN GREATEST(COALESCE(ganancia_retenido, 0) - COALESCE(v_movimiento_efect.monto_ganancia, 0), 0)
+          ELSE COALESCE(ganancia_retenido, 0)
+        END,
+        id_usuario = COALESCE(p_id_usuario_gestor, id_usuario)
+    WHERE id = v_movimiento_efect.id_caja;
+
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario_gestor)
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_caja_operativa c
+      ON c.id_empresa = rc.id_empresa
+     AND c.id_empresa_cuenta_bancaria = rc.id_empresa_cuenta_bancaria
+    WHERE c.id = v_movimiento_efect.id_caja
+      AND rc.id_estado = 1;
+  ELSE
+    v_ingreso_result := public.f_post_tb_operacion_caja_desde_proceso(
+      p_id_operacion_proceso := v_op_efect.id,
+      p_tipo_origen := 'PAGO_DEUDA_DEVOLUCION',
+      p_tipo_movimiento := 'INGRESO',
+      p_id_usuario := COALESCE(p_id_usuario_gestor, v_op_efect.id_usuario_gestor, v_op_efect.id_usuario),
+      p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_op_efect.nombre_usuario_gestor, v_op_efect.nombre_usuario),
+      p_id_estado := v_estado_pagado_id
+    );
+
+    IF v_ingreso_result ? 'error' THEN
+      RETURN v_ingreso_result;
+    END IF;
   END IF;
 
   RETURN (
@@ -2996,6 +3073,7 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_tb_pago_deuda_match',
+  'f_patch_tb_pago_deuda_match',
   'f_patch_tb_pago_deuda_salida',
   'f_patch_tb_pago_deuda_pagado',
   'f_post_tb_pago_deuda_solicitud',
