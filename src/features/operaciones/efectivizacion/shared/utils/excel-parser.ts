@@ -382,13 +382,14 @@ export const parseBcpTxtRows = (content: string): ExcelRow[] => {
         const dniRaw = descripcion.match(/EFECTIVO0*(\d+)$/)?.[1] ?? headerToken.slice(-8);
         const dni = dniRaw.padStart(8, "0");
         const monto = Number(montoRaw) / 100;
+        const codigoReferencia = referencia.replace(/\D/g, "").slice(-8);
 
         if (!Number.isFinite(monto) || monto <= 0 || !dni.trim()) continue;
 
         rows.push({
             dni: descripcion || `EFECTIVO000000${dni}`,
             monto: String(monto),
-            codigo_operacion: codigoCorto || referencia,
+            codigo_operacion: codigoReferencia || codigoCorto,
             fecha_pago: formatBcpTxtDateTime(fechaRaw, horaRaw),
             hora_proceso: horaRaw,
             nombre_cliente_banco_ingreso: "BCP",

@@ -63,9 +63,5 @@ export const isBancariaActionDisabled = ({
         return activeTab !== "Efectivizacion" || !hasSelection;
     }
 
-    if (action === "Forzar Abono") {
-        return activeTab !== "Retenidos" || !hasSelection;
-    }
-
     return true;
 };

@@ -137,6 +137,14 @@ AS $$
             )
           )
         )
+        OR (
+          a.tab = 'RETENIDOS'
+          AND (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
+          AND op.id_caja_cierre IS NOT NULL
+          AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+          AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+          AND COALESCE(op.flag_retenido, false) = true
+        )
       )
   )
   SELECT to_jsonb(b)
@@ -166,8 +174,19 @@ AS $$
     OR (
       a.tab = 'RETENIDOS'
       AND COALESCE(b.flag_retenido, false) = true
-      AND p_fecha_caja_cierre_desde IS NULL
-      AND p_fecha_caja_cierre_hasta IS NULL
+      AND (
+        (
+          p_fecha_caja_cierre_desde IS NULL
+          AND p_fecha_caja_cierre_hasta IS NULL
+          AND b.id_caja_cierre IS NULL
+        )
+        OR (
+          (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
+          AND b.id_caja_cierre IS NOT NULL
+          AND (p_fecha_caja_cierre_desde IS NULL OR b.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+          AND (p_fecha_caja_cierre_hasta IS NULL OR b.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+        )
+      )
       AND (p_id_empresa IS NULL OR b.id_empresa_ingreso = p_id_empresa)
       AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
     )
@@ -326,8 +345,19 @@ AS $$
       )::integer AS pos,
       COUNT(*) FILTER (
         WHERE COALESCE(flag_retenido, false) = true
-          AND p_fecha_caja_cierre_desde IS NULL
-          AND p_fecha_caja_cierre_hasta IS NULL
+          AND (
+            (
+              p_fecha_caja_cierre_desde IS NULL
+              AND p_fecha_caja_cierre_hasta IS NULL
+              AND id_caja_cierre IS NULL
+            )
+            OR (
+              (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
+              AND id_caja_cierre IS NOT NULL
+              AND (p_fecha_caja_cierre_desde IS NULL OR fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+              AND (p_fecha_caja_cierre_hasta IS NULL OR fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+            )
+          )
           AND (p_id_empresa IS NULL OR id_empresa_ingreso = p_id_empresa)
           AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
       )::integer AS retenidos
@@ -467,8 +497,19 @@ AS $$
     SELECT 'Retenidos'::character varying AS tab, id_empresa_ingreso AS id_empresa
     FROM base
     WHERE COALESCE(flag_retenido, false) = true
-      AND p_fecha_caja_cierre_desde IS NULL
-      AND p_fecha_caja_cierre_hasta IS NULL
+      AND (
+        (
+          p_fecha_caja_cierre_desde IS NULL
+          AND p_fecha_caja_cierre_hasta IS NULL
+          AND id_caja_cierre IS NULL
+        )
+        OR (
+          (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
+          AND id_caja_cierre IS NOT NULL
+          AND (p_fecha_caja_cierre_desde IS NULL OR fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+          AND (p_fecha_caja_cierre_hasta IS NULL OR fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+        )
+      )
       AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
       AND id_empresa_ingreso IS NOT NULL
   )
@@ -486,6 +527,8 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_operacion_retencion_bandeja'
+  'f_get_tb_operacion_retencion_bandeja',
+  'f_get_tb_operacion_retencion_bandeja_badges',
+  'f_get_tb_operacion_retencion_empresa_badges'
 )
 ORDER BY n.nspname, p.proname;

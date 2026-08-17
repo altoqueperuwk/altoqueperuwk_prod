@@ -1034,10 +1034,10 @@ export const BancariaOperationalTabs = ({
             { key: "motivo_retencion", label: "Motivo" },
             {
                 key: "flag_liberable_abono",
-                label: "Liberable",
+                label: "Información",
                 render: (row: OperacionProceso) => (
-                    <CompactBadgeLine color={row.flag_liberable_abono ? "success" : "gray"}>
-                        {row.flag_liberable_abono ? "Si" : "No"}
+                    <CompactBadgeLine color="gray">
+                        Retención informativa
                     </CompactBadgeLine>
                 ),
             },
@@ -1045,7 +1045,7 @@ export const BancariaOperationalTabs = ({
     } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [codigoOperacionEdit, handleCodigoOperacionSave, handlePagoDeudaTransferenciaRow, handlePosEstadoRow, isHistoryMode, isSavingCodigoOperacion, presentation, readOnly, savingPagoDeudaEstadoIds, savingPosEstadoIds]);
     const currentOperationColumns = currentTab === "Movimientos" ? baseOperationColumns : operationColumnsByTab[currentTab];
     const currentMovementColumns = useMemo(
-        () => getMovementColumns(ruta === "safetypay", isHistoryMode ? undefined : setMovementToDelete, isHistoryMode ? undefined : setMovementToReturn),
+        () => getMovementColumns(ruta === "safetypay", isHistoryMode ? undefined : setMovementToDelete),
         [isHistoryMode, ruta],
     );
     const selectedOperations = selectedIds
@@ -1879,7 +1879,7 @@ export const BancariaOperationalTabs = ({
             />
             <OperacionConfirmModal
                 confirmLabel="Retornar"
-                description="La operacion volvera al tab Retenidos, se reetiquetara su movimiento como RETENIDO y se revertira el impacto del abono en la caja actual. Si su abono estimado ya vencio, podra liberarse nuevamente con el job o con Forzar Abono."
+                description="Las retenciones son informativas y permanecen asociadas al cierre de caja donde fueron generadas. No se liberan desde esta bandeja."
                 isLoading={isReturningRetention}
                 isOpen={movementToReturn !== null}
                 onClose={() => {

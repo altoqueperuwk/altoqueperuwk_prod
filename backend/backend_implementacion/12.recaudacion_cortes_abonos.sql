@@ -601,7 +601,8 @@ $$;
 /*
 Funcion: f_run_tb_recaudacion_liberar_retenciones
 Objetivo:
-  Liberar retenciones vencidas segun reglas activas con liberacion automatica.
+  Mantener una respuesta segura sin liberar retenciones. La funcion se conserva
+  para compatibilidad con los jobs existentes.
 */
 CREATE OR REPLACE FUNCTION public.f_run_tb_recaudacion_liberar_retenciones(
   p_ruta character varying DEFAULT NULL,
@@ -622,6 +623,16 @@ DECLARE
   v_errores integer := 0;
   v_detalle jsonb := '[]'::jsonb;
 BEGIN
+  -- Las retenciones son informativas. El cron puede seguir invocando esta
+  -- funcion durante la transicion, pero ya no puede liberar fondos.
+  RETURN jsonb_build_object(
+    'operaciones_liberadas', 0,
+    'operaciones_omitidas', 0,
+    'operaciones_error', 0,
+    'motivo', 'RETENCIONES_INFORMATIVAS',
+    'detalle', 'La liberacion automatica esta desactivada.'
+  );
+
   IF p_id_usuario IS NOT NULL THEN
     SELECT COALESCE(u.nombre, 'Sistema')
     INTO v_usuario
@@ -681,10 +692,7 @@ $$;
 /*
 Funcion: f_patch_tb_recaudacion_confirmar_si_vencida
 Objetivo:
-  Confirmar inmediatamente una retencion recien creada si su abono ya vencio.
-  La confirmacion por carga tardia no depende de flag_liberacion_automatica:
-  si la fecha estimada de abono ya paso, la operacion impacta la caja en el
-  mismo flujo de carga. El flag solo gobierna la liberacion automatica por job.
+  Conservar la compatibilidad de la carga tardia sin liberar retenciones.
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_recaudacion_confirmar_si_vencida(
   p_id_operacion_proceso bigint,
@@ -700,6 +708,11 @@ DECLARE
   v_info jsonb;
   v_result jsonb;
 BEGIN
+  RETURN jsonb_build_object(
+    'confirmado', false,
+    'motivo', 'RETENCIONES_INFORMATIVAS'
+  );
+
   SELECT *
   INTO v_op
   FROM public.tb_operacion_proceso
@@ -914,10 +927,7 @@ BEGIN
     'fecha_corte_recaudacion', COALESCE((calc.info->>'fecha_corte')::timestamp with time zone, rl.fecha_corte),
     'fecha_estimada_abono', COALESCE((calc.info->>'fecha_estimada_abono')::date, rl.fecha_estimada_abono),
     'fecha_liberacion_abono', COALESCE((calc.info->>'fecha_liberacion')::timestamp with time zone, rl.fecha_liberacion),
-    'flag_liberable_abono', COALESCE(
-      COALESCE((calc.info->>'liberable')::boolean, false),
-      CASE WHEN rl.fecha_liberacion IS NULL THEN NULL ELSE now() >= rl.fecha_liberacion END
-    ),
+    'flag_liberable_abono', false,
     'estado_lote_abono', rl.estado
   )
   FROM public.tb_operacion_proceso op
@@ -938,4 +948,17 @@ BEGIN
   ORDER BY op.id DESC;
 END;
 $$;
+
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN (
+  'f_run_tb_recaudacion_liberar_retenciones',
+  'f_patch_tb_recaudacion_confirmar_si_vencida',
+  'f_get_tb_recaudacion_operacion_info'
+)
+ORDER BY n.nspname, p.proname;
 

@@ -50,9 +50,8 @@ describe("action-rules", () => {
         expect(isBancariaActionDisabled({ ...base, action: "Match" })).toBe(true);
     });
 
-    it("enables Forzar Abono only for Retenidos", () => {
-        expect(isBancariaActionDisabled({ ...base, action: "Forzar Abono", activeTab: "Retenidos" })).toBe(false);
-        expect(isBancariaActionDisabled({ ...base, action: "Forzar Abono" })).toBe(true);
+    it("does not enable retention release actions", () => {
+        expect(isBancariaActionDisabled({ ...base, action: "Forzar Abono", activeTab: "Retenidos" })).toBe(true);
     });
 
     it("disables every action while applying", () => {

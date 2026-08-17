@@ -53,7 +53,7 @@ describe("excel-parser", () => {
             {
                 dni: "EFECTIVO00000044779896",
                 monto: "609",
-                codigo_operacion: "848075",
+                codigo_operacion: "00496406",
                 fecha_pago: "2026-07-09 07:54:15",
                 hora_proceso: "075415",
                 nombre_cliente_banco_ingreso: "BCP",
