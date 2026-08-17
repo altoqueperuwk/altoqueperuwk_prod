@@ -47,14 +47,19 @@ export const BancariaActionModal = ({
     selectedCount,
 }: BancariaActionModalProps) => {
     const [value, setValue] = useState("");
+    const [companyValue, setCompanyValue] = useState("");
+    const [accountValue, setAccountValue] = useState("");
     const [users, setUsers] = useState<UserOption[]>([]);
 
     useEffect(() => {
         if (!isOpen) return;
 
         if (action === "Derivar") {
+            setCompanyValue("");
+            setAccountValue("");
+
             if (derivationDestinations.length) {
-                setValue(String(derivationDestinations[0].id));
+                setValue("");
             } else if (deriveByBank) {
                 setValue(bankDestinations[0] ? String(bankDestinations[0].id) : "");
             } else {
@@ -92,12 +97,25 @@ export const BancariaActionModal = ({
         }
     }, [action, bankDestinations, companies, currentRuta, derivationDestinations, deriveByBank, isOpen]);
 
+    const isCompanyAccountDerivation = action === "Derivar" && derivationDestinations.length > 0;
+    const companyOptions = [
+        ...new Map(
+            derivationDestinations.map((destination) => [
+                destination.id_empresa,
+                { label: destination.nombre_empresa, value: String(destination.id_empresa) },
+            ]),
+        ).values(),
+    ].sort((a, b) => a.label.localeCompare(b.label));
+    const accountOptions = derivationDestinations
+        .filter((destination) => String(destination.id_empresa) === companyValue)
+        .map((destination) => ({
+            label: `${destination.nombre_banco} - ${getRutaLabel(destination.ruta as OperacionRuta)}`,
+            value: String(destination.id),
+        }));
+
     const options =
-        action === "Derivar" && derivationDestinations.length > 0
-            ? derivationDestinations.map((destination) => ({
-                  label: `${destination.nombre_empresa} - ${destination.nombre_banco} - ${getRutaLabel(destination.ruta as OperacionRuta)}`,
-                  value: String(destination.id),
-              }))
+        isCompanyAccountDerivation
+            ? accountOptions
         : action === "Derivar" && deriveByBank
             ? bankDestinations.map((bank) => ({ label: `${bank.nombre} - ${getRutaLabel(bank.ruta as OperacionRuta)}`, value: String(bank.id) }))
         : action === "Derivar"
@@ -129,21 +147,48 @@ export const BancariaActionModal = ({
                         </div>
 
                         <div className="mt-5">
-                            <NativeSelect
-                                size="sm"
-                                label={
-                                    action === "Derivar"
-                                        ? derivationDestinations.length ? "Empresa y cuenta destino" : deriveByBank ? "Banco destino" : "Ruta destino"
-                                        : action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Transferencia"
-                                          ? "Empresa y cuenta"
-                                          : action === "Modalidad"
-                                            ? "Modalidad"
-                                            : "Usuario gestor"
-                                }
-                                value={value}
-                                onChange={(event) => setValue(event.currentTarget.value)}
-                                options={options}
-                            />
+                            {isCompanyAccountDerivation ? (
+                                <div className="grid gap-4">
+                                    <NativeSelect
+                                        size="sm"
+                                        label="Empresa"
+                                        value={companyValue}
+                                        onChange={(event) => {
+                                            setCompanyValue(event.currentTarget.value);
+                                            setAccountValue("");
+                                            setValue("");
+                                        }}
+                                        options={[{ label: "Seleccionar", value: "" }, ...companyOptions]}
+                                    />
+                                    <NativeSelect
+                                        size="sm"
+                                        label="Cuenta"
+                                        value={accountValue}
+                                        disabled={!companyValue}
+                                        onChange={(event) => {
+                                            setAccountValue(event.currentTarget.value);
+                                            setValue(event.currentTarget.value);
+                                        }}
+                                        options={[{ label: "Seleccionar", value: "" }, ...accountOptions]}
+                                    />
+                                </div>
+                            ) : (
+                                <NativeSelect
+                                    size="sm"
+                                    label={
+                                        action === "Derivar"
+                                            ? deriveByBank ? "Banco destino" : "Ruta destino"
+                                            : action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Transferencia"
+                                              ? "Empresa y cuenta"
+                                              : action === "Modalidad"
+                                                ? "Modalidad"
+                                                : "Usuario gestor"
+                                    }
+                                    value={value}
+                                    onChange={(event) => setValue(event.currentTarget.value)}
+                                    options={options}
+                                />
+                            )}
                         </div>
 
                         <div className="mt-6 flex justify-end gap-2">
@@ -151,7 +196,7 @@ export const BancariaActionModal = ({
                                 Cancelar
                             </Button>
                             <Button
-                                isDisabled={!value}
+                                isDisabled={isCompanyAccountDerivation ? !companyValue || !accountValue : !value}
                                 isLoading={isSaving}
                                 onClick={() => onSubmit(value, options.find((option) => option.value === value)?.label ?? "")}
                             >

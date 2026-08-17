@@ -7,6 +7,7 @@ import { estadoService } from "@/services/estado.service";
 import { clienteService } from "@/services/cliente.service";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
+import { NativeSelect } from "@/components/base/select/select-native";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Edit03, Send01, Trash01 } from "@untitledui/icons";
 import { EmpresaTabs } from "@/features/operaciones/efectivizacion/shared/components/empresa-tabs";
@@ -57,8 +58,14 @@ import {
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 
 const tabs: BancariaTab[] = ["Unificado", "Pago Deuda", "Movimientos", "Eliminados", "Efectivizacion", "Derivados", "POS", "Retenidos"];
+const primaryTabs: BancariaTab[] = ["Unificado", "Pago Deuda", "Movimientos"];
 const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
 const softDeleteRoutes = new Set<OperacionRutaBancaria>(["bcp", "bbva", "scotiabank", "banbif", "interbank", "safetypay"]);
+const tabLabels: Partial<Record<BancariaTab, string>> = {
+    Unificado: "Efectivización TC",
+    "Pago Deuda": "Pago Deuda TC",
+};
+const getTabLabel = (tab: BancariaTab) => tabLabels[tab] ?? tab;
 const isPagado = (row: Pick<OperacionProceso, "nombre_estado">) =>
     (row.nombre_estado ?? "").trim().toUpperCase() === "PAGADO";
 
@@ -428,7 +435,7 @@ export const BancariaOperationalTabs = ({
 }: BancariaOperationalTabsProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
-    const [activeTab, setActiveTab] = useState<BancariaTab>("Efectivizacion");
+    const [activeTab, setActiveTab] = useState<BancariaTab>(() => requestedTabs?.[0] ?? "Unificado");
     const [activeFilter, setActiveFilter] = useState("Todos");
     const [actionRefreshKey, setActionRefreshKey] = useState(0);
     const [metricsRefreshKey, setMetricsRefreshKey] = useState(0);
@@ -518,6 +525,19 @@ export const BancariaOperationalTabs = ({
     }, [activeTab, visibleTabs]);
 
     const currentTab = activeTab;
+    const compactTabMenu = !requestedTabs;
+    const primaryVisibleTabs = visibleTabs.filter((tab) => primaryTabs.includes(tab));
+    const secondaryVisibleTabs = visibleTabs.filter((tab) => !primaryTabs.includes(tab));
+    const selectedSecondaryTab = secondaryVisibleTabs.includes(currentTab) ? currentTab : "";
+
+    const secondaryTabOptions = [
+        { label: "Seleccionar", value: "" },
+        ...secondaryVisibleTabs.map((tab) => ({ label: tab, value: tab })),
+    ];
+
+    const handleSecondaryTabChange = (value: string) => {
+        if (value) setActiveTab(value as BancariaTab);
+    };
 
     useEffect(() => {
         if (currentTab !== "POS" && currentTab !== "Pago Deuda") {
@@ -575,7 +595,7 @@ export const BancariaOperationalTabs = ({
 
                 const destinations = new Map<number, RutaOperacionCaja>();
                 groups.flat().forEach((item) => {
-                    if (item.id_estado === 1 && !isDigitalWalletBank(item)) {
+                    if (item.id_estado === 1 && item.ruta !== "safetypay" && !isDigitalWalletBank(item)) {
                         destinations.set(item.id, item);
                     }
                 });
@@ -1754,8 +1774,8 @@ export const BancariaOperationalTabs = ({
                 {flowTabsAsButtons ? (
                     <div className="flex flex-col gap-2">
                         <p className="text-xs font-semibold uppercase text-tertiary">Bandeja</p>
-                        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Bandejas operativas">
-                            {visibleTabs.map((tab) => (
+                        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Bandejas operativas">
+                            {(compactTabMenu ? primaryVisibleTabs : visibleTabs).map((tab) => (
                                 <Button
                                     key={tab}
                                     size="sm"
@@ -1765,7 +1785,7 @@ export const BancariaOperationalTabs = ({
                                     aria-selected={currentTab === tab}
                                     onClick={() => setActiveTab(tab)}
                                 >
-                                    <span>{tab}</span>
+                                    <span>{compactTabMenu ? getTabLabel(tab) : tab}</span>
                                     {tabBadges[tab] ? (
                                         <span className="rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-primary ring-inset">
                                             {tabBadges[tab]}
@@ -1773,31 +1793,80 @@ export const BancariaOperationalTabs = ({
                                     ) : null}
                                 </Button>
                             ))}
+                            {compactTabMenu && secondaryVisibleTabs.length > 0 ? (
+                                <NativeSelect
+                                    aria-label="Seleccionar bandeja"
+                                    className="w-auto min-w-44"
+                                    selectClassName="h-9 min-w-44 rounded-lg bg-primary pr-8 text-sm font-semibold text-primary ring-secondary"
+                                    options={secondaryTabOptions}
+                                    size="sm"
+                                    value={selectedSecondaryTab}
+                                    onChange={(event) => handleSecondaryTabChange(event.target.value)}
+                                />
+                            ) : null}
                         </div>
                     </div>
                 ) : (
-                    <Tabs
-                        className="w-fit max-w-full overflow-x-auto"
-                        selectedKey={currentTab}
-                        onSelectionChange={(key) => setActiveTab(key as BancariaTab)}
-                    >
-                        <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
-                            {visibleTabs.map((tab) => (
-                                <Tabs.Item
-                                    id={tab}
-                                    key={tab}
-                                    badge={tabBadges[tab] || undefined}
-                                    className={({ isSelected }) =>
-                                        isSelected
-                                            ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
-                                            : ""
-                                    }
-                                >
-                                    {tab}
-                                </Tabs.Item>
-                            ))}
-                        </Tabs.List>
-                    </Tabs>
+                    compactTabMenu ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Tabs
+                                className="w-fit max-w-full overflow-x-auto"
+                                selectedKey={currentTab}
+                                onSelectionChange={(key) => setActiveTab(key as BancariaTab)}
+                            >
+                                <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
+                                    {primaryVisibleTabs.map((tab) => (
+                                        <Tabs.Item
+                                            id={tab}
+                                            key={tab}
+                                            badge={tabBadges[tab] || undefined}
+                                            className={({ isSelected }) =>
+                                                isSelected
+                                                    ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
+                                                    : ""
+                                            }
+                                        >
+                                            {getTabLabel(tab)}
+                                        </Tabs.Item>
+                                    ))}
+                                </Tabs.List>
+                            </Tabs>
+                            {secondaryVisibleTabs.length > 0 ? (
+                                <NativeSelect
+                                    aria-label="Seleccionar bandeja"
+                                    className="w-auto min-w-44"
+                                    selectClassName="h-9 min-w-44 rounded-lg bg-primary pr-8 text-sm font-semibold text-primary ring-secondary"
+                                    options={secondaryTabOptions}
+                                    size="sm"
+                                    value={selectedSecondaryTab}
+                                    onChange={(event) => handleSecondaryTabChange(event.target.value)}
+                                />
+                            ) : null}
+                        </div>
+                    ) : (
+                        <Tabs
+                            className="w-fit max-w-full overflow-x-auto"
+                            selectedKey={currentTab}
+                            onSelectionChange={(key) => setActiveTab(key as BancariaTab)}
+                        >
+                            <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
+                                {visibleTabs.map((tab) => (
+                                    <Tabs.Item
+                                        id={tab}
+                                        key={tab}
+                                        badge={tabBadges[tab] || undefined}
+                                        className={({ isSelected }) =>
+                                            isSelected
+                                                ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
+                                                : ""
+                                        }
+                                    >
+                                        {tab}
+                                    </Tabs.Item>
+                                ))}
+                            </Tabs.List>
+                        </Tabs>
+                    )
                 )}
             </div>
 

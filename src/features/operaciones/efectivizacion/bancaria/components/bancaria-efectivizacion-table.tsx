@@ -319,15 +319,23 @@ export const BancariaEfectivizacionTable = ({
     );
 
     useEffect(() => {
-        if (mode !== "efectivizacion" || ruta === "safetypay" || !paginatedRows.length) {
+        if ((mode !== "efectivizacion" && mode !== "unificado") || ruta === "safetypay" || !paginatedRows.length) {
             setPagoDeudaMatches({});
             return;
         }
 
         let ignore = false;
+        const matchRows = paginatedRows.filter((row) =>
+            mode !== "unificado" || (!row.flag_derivado && String(row.ruta_origen ?? "").toLowerCase() !== "pos"),
+        );
+
+        if (!matchRows.length) {
+            setPagoDeudaMatches({});
+            return;
+        }
 
         Promise.all(
-            paginatedRows.map(async (row) => {
+            matchRows.map(async (row) => {
                 if (isPagado(row) || row.tipo_flujo_pago_deuda) return [row.id, []] as const;
                 const matches = await pagoDeudaService.getMatches({ p_id_operacion_efectivizacion: row.id });
                 return [row.id, matches ?? []] as const;
@@ -1299,7 +1307,7 @@ export const BancariaEfectivizacionTable = ({
                                                         )}
                                                     </>
                                                 )}
-                                                {!frozenOrigin && rowIsEfectivizacion && mode === "efectivizacion" && ruta !== "safetypay" && Boolean(pagoDeudaMatches[row.id]?.length) && (
+                                                {!frozenOrigin && rowIsEfectivizacion && (mode === "efectivizacion" || mode === "unificado") && ruta !== "safetypay" && Boolean(pagoDeudaMatches[row.id]?.length) && (
                                                     <ButtonUtility
                                                         size="xs"
                                                         color="secondary"
