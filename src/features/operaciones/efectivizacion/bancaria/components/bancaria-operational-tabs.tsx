@@ -8,7 +8,7 @@ import { clienteService } from "@/services/cliente.service";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Edit03, ReverseLeft, Send01, Trash01 } from "@untitledui/icons";
+import { Edit03, Send01, Trash01 } from "@untitledui/icons";
 import { EmpresaTabs } from "@/features/operaciones/efectivizacion/shared/components/empresa-tabs";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
@@ -59,6 +59,8 @@ import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pag
 const tabs: BancariaTab[] = ["Efectivizacion", "Pago Deuda", "Derivados", "POS", "Movimientos", "Retenidos", "Eliminados"];
 const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
 const softDeleteRoutes = new Set<OperacionRutaBancaria>(["bcp", "bbva", "scotiabank", "banbif", "interbank", "safetypay"]);
+const isPagado = (row: Pick<OperacionProceso, "nombre_estado">) =>
+    (row.nombre_estado ?? "").trim().toUpperCase() === "PAGADO";
 
 const getOperationRoute = (row: Pick<OperacionProceso, "ruta_destino" | "ruta_origen">, fallback: OperacionRutaBancaria) => {
     const candidate = String(row.ruta_destino ?? row.ruta_origen ?? "").toLowerCase() as OperacionRutaBancaria;
@@ -116,7 +118,6 @@ const isDeletableMovement = (row: MovimientoMerged) => {
 const getMovementColumns = (
     showModalidad: boolean,
     onDelete?: (row: MovimientoMerged) => void,
-    onReturnRetencion?: (row: MovimientoMerged) => void,
 ) => [
     { key: "tipo_origen", label: "Origen", render: (row: MovimientoMerged) => <CompactBadgeLine color="brand">{formatMovimientoOrigen(row.tipo_origen)}</CompactBadgeLine> },
     ...(showModalidad ? [{
@@ -189,21 +190,11 @@ const getMovementColumns = (
         const date = new Date(row.fecha_registro);
         return <span className="whitespace-pre-line">{date.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}{"\n"}{date.toLocaleDateString("es-PE")}</span>;
     } },
-    ...(onDelete || onReturnRetencion ? [{
+    ...(onDelete ? [{
         key: "acciones",
         label: "Acciones",
         render: (row: MovimientoMerged) => (
             <div className="flex items-center gap-1">
-                {onReturnRetencion && row.flag_paso_retencion && row.movimientos.includes("INGRESO") && (
-                    <Button
-                        size="xs"
-                        color="tertiary"
-                        iconLeading={ReverseLeft}
-                        aria-label="Retornar retencion"
-                        title="Retornar retencion"
-                        onClick={() => onReturnRetencion(row)}
-                    />
-                )}
                 {onDelete && isDeletableMovement(row) && (
                     <Button
                         size="xs"
@@ -461,8 +452,6 @@ export const BancariaOperationalTabs = ({
     const [isRollbackProcessing, setIsRollbackProcessing] = useState(false);
     const [movementToDelete, setMovementToDelete] = useState<MovimientoMerged | null>(null);
     const [isDeletingMovement, setIsDeletingMovement] = useState(false);
-    const [movementToReturn, setMovementToReturn] = useState<MovimientoMerged | null>(null);
-    const [isReturningRetention, setIsReturningRetention] = useState(false);
     const [operationToDelete, setOperationToDelete] = useState<OperacionProceso | null>(null);
     const [operationToRestore, setOperationToRestore] = useState<OperacionProceso | null>(null);
     const [isProcessingOperationDelete, setIsProcessingOperationDelete] = useState(false);
@@ -835,30 +824,6 @@ export const BancariaOperationalTabs = ({
         }
     }, [addToast, movementToDelete, onChanged, onMetricsChanged, userId]);
 
-    const handleReturnRetencion = useCallback(async () => {
-        if (!movementToReturn?.id_operacion_proceso) return;
-
-        setIsReturningRetention(true);
-        try {
-            await operacionesRpcService.retornarRetencion({
-                p_id: movementToReturn.id_operacion_proceso,
-                p_id_usuario_gestor: userId,
-                p_nombre_usuario_gestor: userName,
-            });
-            addToast("success", "Retencion retornada: la operacion volvio al tab Retenidos y la caja fue revertida.");
-            setMovementToReturn(null);
-            setSelectedIds([]);
-            setActionRefreshKey((value) => value + 1);
-            setMetricsRefreshKey((value) => value + 1);
-            onChanged?.();
-            onMetricsChanged?.();
-        } catch (err) {
-            addToast("error", err instanceof Error ? err.message : "No se pudo retornar la retencion.");
-        } finally {
-            setIsReturningRetention(false);
-        }
-    }, [addToast, movementToReturn, onChanged, onMetricsChanged, userId, userName]);
-
     const handleDeleteOperation = useCallback(async () => {
         if (!operationToDelete) return;
         setIsProcessingOperationDelete(true);
@@ -1206,6 +1171,24 @@ export const BancariaOperationalTabs = ({
             return row ? { ...current, [id]: { row, tab: currentTab } } : current;
         });
     };
+
+    const handleToggleFueraHorario = useCallback(async (row: OperacionProceso, value: boolean) => {
+        if (readOnly || isHistoryMode || isPagado(row) || row.id_caja_cierre) return;
+
+        try {
+            const saved = await operacionesRpcService.patchOperacionFueraHorario({
+                p_id: row.id,
+                p_flag_fuera_horario: value,
+                p_id_usuario_gestor: userId,
+                p_nombre_usuario_gestor: userName,
+            });
+            replaceOperacion(saved);
+            refreshMetrics();
+            addToast("success", value ? "Operacion marcada fuera de horario." : "Operacion marcada como retencion informativa.");
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo cambiar la clasificacion.");
+        }
+    }, [addToast, isHistoryMode, readOnly, refreshMetrics, replaceOperacion, userId, userName]);
 
     const handleFilterChange = (value: string) => {
         if (value !== activeFilter) clearSelection();
@@ -1741,7 +1724,7 @@ export const BancariaOperationalTabs = ({
 
             <OperationToolbar
                 activeFilter={activeFilter}
-                actions={readOnly ? [] : contract.actions}
+                actions={readOnly ? [] : contract.actions.filter((action) => action !== "Forzar Abono")}
                 code={currentTab === "Movimientos" ? undefined : code}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
@@ -1791,6 +1774,7 @@ export const BancariaOperationalTabs = ({
                     setPendingAction("Derivar");
                 }}
                     onRestoreOperation={setOperationToRestore}
+                    onToggleFueraHorario={canUseProcesoActions ? handleToggleFueraHorario : undefined}
                     ruta={ruta}
                     showBanca={scopedRoutes.length > 1 && currentTab === "Efectivizacion"}
                     selectedIds={selectedIds}
@@ -1876,17 +1860,6 @@ export const BancariaOperationalTabs = ({
                 }}
                 onConfirm={() => void handleDeleteMovement()}
                 title="Eliminar movimiento"
-            />
-            <OperacionConfirmModal
-                confirmLabel="Retornar"
-                description="Las retenciones son informativas y permanecen asociadas al cierre de caja donde fueron generadas. No se liberan desde esta bandeja."
-                isLoading={isReturningRetention}
-                isOpen={movementToReturn !== null}
-                onClose={() => {
-                    if (!isReturningRetention) setMovementToReturn(null);
-                }}
-                onConfirm={() => void handleReturnRetencion()}
-                title="Retornar retencion"
             />
             <BancariaActionModal
                 action={pendingAction === "Match" ? null : pendingAction}

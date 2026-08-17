@@ -218,6 +218,7 @@ export const BancariaReporteCierrePdf = ({ data }: BancariaReporteCierrePdfProps
                     <KpiCard label="Caja Actual" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_actual} />
                     <KpiCard label="Caja Recaudación" tags={["Efectivización", "Pago Deuda"]} value={kpi.total_recaudado} tone="green" />
                     <KpiCard label="Ingresos" tags={["Movimientos"]} value={kpi.ingresos} tone="green" />
+                    <KpiCard label="Fuera de Horario" tags={["Efectivizacion"]} value={kpi.fuera_horario} tone="green" />
                     <KpiCard label="Salidas" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.salidas} tone="coral" />
                     <KpiCard label="Gastos Operacionales" tags={["Efectivización", "Pago Deuda"]} value={kpi.gastos_operacionales} tone="coral" />
                     <KpiCard label="Ganancias" tags={["Efectivización", "Pago Deuda"]} value={kpi.ganancias} tone="green" />

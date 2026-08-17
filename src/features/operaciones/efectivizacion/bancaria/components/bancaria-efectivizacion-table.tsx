@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
+import { Toggle } from "@/components/base/toggle/toggle";
 import { useSessionCache } from "@/providers/session-cache-provider";
 import { useToast } from "@/providers/toast-provider";
 import { reglasEfectivizacionService } from "@/services/reglas-efectivizacion.service";
@@ -78,6 +79,7 @@ interface BancariaEfectivizacionTableProps {
     onDeriveRow?: (row: OperacionProceso) => void;
     onRestoreOperation?: (row: OperacionProceso) => void;
     onToggleRow?: (id: number) => void;
+    onToggleFueraHorario?: (row: OperacionProceso, value: boolean) => void;
     ruta: OperacionRutaBancaria;
     showBanca?: boolean;
     selectedIds?: number[];
@@ -176,6 +178,7 @@ const getColumnHeaders = (showBanca: boolean, showDerivo: boolean) => [
     { label: "Monto" },
     { label: "Comision" },
     { label: "Transferencia" },
+    { label: "Fuera de Horario" },
     { label: "Estado" },
     { label: "Hora", className: "w-24" },
     { label: "Acciones", className: "w-14 text-center" },
@@ -200,6 +203,7 @@ export const BancariaEfectivizacionTable = ({
     onDeriveRow,
     onRestoreOperation,
     onToggleRow,
+    onToggleFueraHorario,
     ruta,
     showBanca = false,
     selectedIds = [],
@@ -1177,7 +1181,20 @@ export const BancariaEfectivizacionTable = ({
                                                     isDisabled={frozenOrigin}
                                                     onClick={() => void handleAction({ ...row, monto_transferencia_cliente: displayedTransferAmount }, "Copiar")}
                                                 />
-                                            </div>}
+                                                </div>}
+                                        </td>
+                                        <td className="px-2 py-2 align-top">
+                                            {isPlain ? (
+                                                <span className="text-sm text-secondary">{row.flag_fuera_horario ? "Sí" : "No"}</span>
+                                            ) : (
+                                                <Toggle
+                                                    aria-label={`Fuera de horario ${row.id}`}
+                                                    size="sm"
+                                                    isSelected={Boolean(row.flag_fuera_horario)}
+                                                    isDisabled={readOnly || isPagado(row) || Boolean(row.id_caja_cierre) || rowSaving || !onToggleFueraHorario}
+                                                    onChange={(value) => onToggleFueraHorario?.(row, value)}
+                                                />
+                                            )}
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             {isPlain ? (
