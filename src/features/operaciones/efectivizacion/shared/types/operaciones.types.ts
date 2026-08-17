@@ -39,6 +39,7 @@ export interface RutaOperacionKpi {
     gastos_operacionales: number;
     ganancias: number;
     ingresos_retenidos: number;
+    fuera_horario: number;
     pendiente_depositar: number;
     total_efectivizacion: number;
     total_pago_deuda: number;
@@ -195,12 +196,17 @@ export interface OperacionProceso {
     ruta_origen: string | null;
     ruta_destino: string | null;
     flag_derivado: boolean;
+    id_caja_cierre?: number | null;
     flag_retenido: boolean;
+    flag_fuera_horario?: boolean | null;
     fecha_deposito_cliente?: string | null;
     fecha_pendiente?: string | null;
     fecha_pagado?: string | null;
     fecha_derivacion?: string | null;
     fecha_retencion?: string | null;
+    fecha_fuera_horario?: string | null;
+    id_usuario_fuera_horario?: number | null;
+    motivo_fuera_horario?: string | null;
     fecha_corte_recaudacion?: string | null;
     fecha_estimada_abono?: string | null;
     fecha_liberacion_abono?: string | null;
@@ -251,6 +257,7 @@ export interface CajaOperativa {
     total_recaudado: number;
     ingresos: number;
     ingresos_retenido: number;
+    fuera_horario?: number | null;
     gastos: number;
     ganancia: number;
     ganancia_retenido: number;
@@ -278,6 +285,7 @@ export interface CajaOperativaCierre {
     total_recaudado: number;
     ingresos: number;
     ingresos_retenido: number;
+    fuera_horario?: number | null;
     gastos: number;
     ganancia: number;
     ganancia_retenido: number;

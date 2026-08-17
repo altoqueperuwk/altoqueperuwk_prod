@@ -141,10 +141,14 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
   id_usuario_deriva bigint,
   nombre_usuario_deriva character varying,
   flag_retenido boolean NOT NULL DEFAULT false,
+  flag_fuera_horario boolean NOT NULL DEFAULT false,
   fecha_retencion timestamp with time zone,
+  fecha_fuera_horario timestamp with time zone,
   id_usuario_retiene bigint,
+  id_usuario_fuera_horario bigint,
   nombre_usuario_retiene character varying,
   motivo_retencion text,
+  motivo_fuera_horario text,
   fecha_pendiente timestamp with time zone,
   fecha_pagado timestamp with time zone,
   error_motivo character varying,
@@ -342,6 +346,34 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'flag_retenido'
   ) THEN
     ALTER TABLE public.tb_operacion_proceso ADD COLUMN flag_retenido boolean NOT NULL DEFAULT false;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'flag_fuera_horario'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN flag_fuera_horario boolean NOT NULL DEFAULT false;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'fecha_fuera_horario'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN fecha_fuera_horario timestamp with time zone;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'id_usuario_fuera_horario'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN id_usuario_fuera_horario bigint;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tb_operacion_proceso' AND column_name = 'motivo_fuera_horario'
+  ) THEN
+    ALTER TABLE public.tb_operacion_proceso ADD COLUMN motivo_fuera_horario text;
   END IF;
 
   IF NOT EXISTS (
@@ -683,10 +715,19 @@ AS $$
     AND (
       p_id IS NOT NULL
       OR
-      (p_id_caja_cierre IS NOT NULL AND t.id_caja_cierre = p_id_caja_cierre)
+      (
+        p_id_caja_cierre IS NOT NULL
+        AND t.id_caja_cierre = p_id_caja_cierre
+        AND UPPER(BTRIM(COALESCE(t.nombre_estado, ''))) NOT IN (
+          'PENDIENTE', 'RECHAZADO', 'SOLICITADO', 'PROCESADO'
+        )
+      )
       OR (
         (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
         AND t.id_caja_cierre IS NOT NULL
+        AND UPPER(BTRIM(COALESCE(t.nombre_estado, ''))) NOT IN (
+          'PENDIENTE', 'RECHAZADO', 'SOLICITADO', 'PROCESADO'
+        )
       )
       OR (
         p_id_caja_cierre IS NULL
@@ -695,7 +736,6 @@ AS $$
         AND (
           COALESCE(p_incluir_cerradas, false)
           OR t.id_caja_cierre IS NULL
-          OR COALESCE(p_flag_retenido, false) = true
         )
       )
     )
@@ -1159,6 +1199,62 @@ END;
 $$;
 
 /*
+Funcion: f_get_tb_operacion_clasificacion_horaria
+Objetivo:
+  Clasificar un deposito con la hora de corte de su cuenta. La fecha de cierre
+  de caja no participa en esta decision: el operador puede cerrar antes de
+  terminar de cargar los depositos del dia.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_clasificacion_horaria(
+  p_fecha_deposito timestamp with time zone,
+  p_fecha_referencia timestamp with time zone DEFAULT now(),
+  p_hora_corte time DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  v_deposito_local timestamp;
+  v_referencia_local timestamp;
+  v_es_ayer boolean := false;
+  v_es_hoy boolean := false;
+  v_fuera_horario boolean := false;
+  v_retenido boolean := false;
+BEGIN
+  IF p_fecha_deposito IS NULL OR p_hora_corte IS NULL THEN
+    RETURN jsonb_build_object('flag_fuera_horario', false, 'flag_retenido', false);
+  END IF;
+
+  v_deposito_local := p_fecha_deposito AT TIME ZONE 'America/Lima';
+  v_referencia_local := COALESCE(p_fecha_referencia, now()) AT TIME ZONE 'America/Lima';
+  v_es_ayer := v_deposito_local::date = v_referencia_local::date - 1;
+  v_es_hoy := v_deposito_local::date = v_referencia_local::date
+    AND v_deposito_local <= v_referencia_local;
+
+  -- 00:00 representa un corte de inicio de dia: todo deposito de ayer
+  -- queda fuera de horario. Los depositos de hoy siguen retenidos.
+  IF v_es_ayer AND p_hora_corte = '00:00:00'::time THEN
+    v_fuera_horario := true;
+  ELSIF v_es_ayer AND v_deposito_local::time < p_hora_corte THEN
+    v_fuera_horario := true;
+  ELSIF (v_es_ayer AND v_deposito_local::time >= p_hora_corte) OR v_es_hoy THEN
+    v_retenido := true;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'flag_fuera_horario', v_fuera_horario,
+    'flag_retenido', v_retenido,
+    'motivo', CASE
+      WHEN v_fuera_horario THEN 'Deposito de ayer anterior a la hora de corte'
+      WHEN v_retenido THEN 'Deposito posterior a la hora de corte'
+      ELSE NULL
+    END
+  );
+END;
+$$;
+
+/*
 Funcion: f_post_tb_operacion_proceso
 Objetivo:
   Crear una operacion manual ya resuelta y con resultados congelados.
@@ -1273,6 +1369,10 @@ DECLARE
   v_itf_cuenta numeric := 0;
   v_flag_por_sol_comision_banco_ingreso_val boolean := false;
   v_flag_retencion_cuenta_val boolean := false;
+  v_flag_fuera_horario_val boolean := false;
+  v_flag_retenido_final boolean := false;
+  v_hora_corte time;
+  v_clasificacion_horaria jsonb := '{}'::jsonb;
   v_comision_banco_ingreso_val numeric := 0;
   v_comision_minimo_banco_ingreso_val numeric := 0;
   v_comision_igv_banco_ingreso_val numeric := 0;
@@ -1542,6 +1642,27 @@ BEGIN
     v_flag_retencion_cuenta_val := false;
   END IF;
 
+  SELECT r.hora_corte
+  INTO v_hora_corte
+  FROM public.tb_recaudacion_regla_abono r
+  WHERE LOWER(r.ruta) = LOWER(v_ruta_kpi)
+    AND r.id_empresa_cuenta_bancaria = v_id_ecb_ingreso
+    AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
+  ORDER BY r.id DESC
+  LIMIT 1;
+
+  v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria(
+    p_fecha_deposito_cliente,
+    now(),
+    v_hora_corte
+  );
+  v_flag_fuera_horario_val := COALESCE((v_clasificacion_horaria->>'flag_fuera_horario')::boolean, false);
+  v_flag_retenido_final := CASE
+    WHEN v_flag_fuera_horario_val THEN false
+    ELSE COALESCE((v_clasificacion_horaria->>'flag_retenido')::boolean, false)
+      AND (COALESCE(v_flag_retencion_cuenta_val, false) OR COALESCE(p_flag_retenido, false))
+  END;
+
   v_codigo_duplicidad := NULLIF(BTRIM(COALESCE(p_codigo_operacion_deposito_cliente, '')), '');
 
   IF v_codigo_duplicidad IS NOT NULL
@@ -1702,6 +1823,10 @@ BEGIN
     id_usuario_retiene,
     nombre_usuario_retiene,
     motivo_retencion,
+    flag_fuera_horario,
+    fecha_fuera_horario,
+    id_usuario_fuera_horario,
+    motivo_fuera_horario,
     fecha_pendiente,
     fecha_pagado,
     error_motivo,
@@ -1767,11 +1892,15 @@ BEGIN
     p_fecha_derivacion,
     p_id_usuario_deriva,
     p_nombre_usuario_deriva,
-    CASE WHEN v_flag_retencion_cuenta_val THEN true ELSE COALESCE(p_flag_retenido, false) END,
-    CASE WHEN v_flag_retencion_cuenta_val THEN now() ELSE p_fecha_retencion END,
+    v_flag_retenido_final,
+    CASE WHEN v_flag_retenido_final THEN now() ELSE p_fecha_retencion END,
     p_id_usuario_retiene,
     p_nombre_usuario_retiene,
     p_motivo_retencion,
+    v_flag_fuera_horario_val,
+    CASE WHEN v_flag_fuera_horario_val THEN now() ELSE NULL END,
+    CASE WHEN v_flag_fuera_horario_val THEN p_id_usuario ELSE NULL END,
+    CASE WHEN v_flag_fuera_horario_val THEN COALESCE(v_clasificacion_horaria->>'motivo', 'Fuera de horario') ELSE NULL END,
     p_fecha_pendiente,
     p_fecha_pagado,
     p_error_motivo,
@@ -2816,7 +2945,12 @@ BEGIN
       END IF;
     END IF;
   ELSE
-    IF COALESCE(v_actual.flag_retenido, false) THEN
+    IF COALESCE(v_actual.flag_fuera_horario, false) THEN
+      -- Fuera de Horario ya fue reconocido informativamente al cargarlo.
+      -- Al pagarse solo debe ejecutar la salida real de la caja; no debe
+      -- volver a registrar ingreso, recaudacion ni gasto de ingreso.
+      NULL;
+    ELSIF COALESCE(v_actual.flag_retenido, false) THEN
       IF NOT v_tiene_ingreso THEN
         v_ingreso_result := public.f_post_tb_operacion_caja_desde_proceso(
           p_id_operacion_proceso := p_id,
@@ -3659,6 +3793,10 @@ DECLARE
   v_comision_minimo_banco_ingreso numeric := 0;
   v_comision_igv_banco_ingreso numeric := 0;
   v_flag_retencion_cuenta boolean := false;
+  v_flag_fuera_horario boolean := false;
+  v_flag_retenido_fila boolean := false;
+  v_hora_corte time;
+  v_clasificacion_horaria jsonb := '{}'::jsonb;
   v_regla record;
   v_regla_cliente record;
   v_dni_parseado character varying;
@@ -3932,6 +4070,15 @@ BEGIN
     v_flag_retencion_cuenta := false;
   END IF;
 
+  SELECT r.hora_corte
+  INTO v_hora_corte
+  FROM public.tb_recaudacion_regla_abono r
+  WHERE LOWER(r.ruta) = LOWER(p_ruta_actual)
+    AND r.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_ingreso
+    AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
+  ORDER BY r.id DESC
+  LIMIT 1;
+
   v_nombre_archivo_final := COALESCE(NULLIF(BTRIM(p_nombre_archivo), ''), 'Archivo sin nombre');
 
   INSERT INTO public.tb_operacion_carga_excel (
@@ -4052,14 +4199,42 @@ BEGIN
         v_fecha_deposito := public.f_get_tb_parsear_fecha(v_fila.fecha_pago)::timestamp with time zone;
         IF v_fecha_deposito::time = '00:00:00'::time THEN
           IF COALESCE(v_fila.hora_proceso, '') <> '' THEN
-            v_fecha_deposito := (v_fecha_deposito::date + v_fila.hora_proceso::time)::timestamp with time zone;
+            -- BCP entrega la hora en horario local de Lima. Convertirla
+            -- explicitamente evita interpretarla como UTC.
+            v_fecha_deposito := (
+              v_fecha_deposito::date + v_fila.hora_proceso::time
+            ) AT TIME ZONE 'America/Lima';
           ELSE
-            v_fecha_deposito := (v_fecha_deposito::date + current_time)::timestamp with time zone;
+            v_fecha_deposito := (
+              v_fecha_deposito::date + (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::time
+            ) AT TIME ZONE 'America/Lima';
           END IF;
         END IF;
       EXCEPTION WHEN OTHERS THEN
         v_error_motivo := 'Fecha invÃ¡lida: ' || COALESCE(v_fila.fecha_pago, 'vacÃ­a');
       END;
+    END IF;
+
+    IF v_error_motivo IS NULL THEN
+      IF v_hora_corte IS NULL THEN
+        SELECT r.hora_corte
+        INTO v_hora_corte
+        FROM public.tb_recaudacion_regla_abono r
+        WHERE LOWER(r.ruta) = LOWER(p_ruta_actual)
+          AND r.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_ingreso
+          AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
+        ORDER BY r.id DESC
+        LIMIT 1;
+      END IF;
+
+      v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria(
+        v_fecha_deposito,
+        v_fecha_carga_excel,
+        v_hora_corte
+      );
+      v_flag_fuera_horario := COALESCE((v_clasificacion_horaria->>'flag_fuera_horario')::boolean, false);
+      v_flag_retenido_fila := NOT v_flag_fuera_horario AND COALESCE(v_flag_retencion_cuenta, false)
+        AND COALESCE((v_clasificacion_horaria->>'flag_retenido')::boolean, false);
     END IF;
 
     IF v_error_motivo IS NOT NULL THEN
@@ -4292,6 +4467,10 @@ BEGIN
       id_usuario_retiene,
       nombre_usuario_retiene,
       motivo_retencion,
+      flag_fuera_horario,
+      fecha_fuera_horario,
+      id_usuario_fuera_horario,
+      motivo_fuera_horario,
       fecha_pendiente,
       tipo_recaudacion_sf,
       id_carga_excel,
@@ -4351,15 +4530,19 @@ BEGIN
       p_ruta_actual,
       COALESCE(p_ruta_actual, NULL),
       false,
-      COALESCE(v_flag_retencion_cuenta, false),
-      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN NOW() ELSE NULL END,
-      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN p_id_usuario ELSE NULL END,
-      CASE WHEN COALESCE(v_flag_retencion_cuenta, false) THEN v_username ELSE NULL END,
+      v_flag_retenido_fila,
+      CASE WHEN v_flag_retenido_fila THEN NOW() ELSE NULL END,
+      CASE WHEN v_flag_retenido_fila THEN p_id_usuario ELSE NULL END,
+      CASE WHEN v_flag_retenido_fila THEN v_username ELSE NULL END,
       CASE
-        WHEN COALESCE(v_flag_retencion_cuenta, false)
+        WHEN v_flag_retenido_fila
           THEN 'Retencion automatica por cuenta bancaria'
         ELSE NULL
       END,
+      v_flag_fuera_horario,
+      CASE WHEN v_flag_fuera_horario THEN NOW() ELSE NULL END,
+      CASE WHEN v_flag_fuera_horario THEN p_id_usuario ELSE NULL END,
+      CASE WHEN v_flag_fuera_horario THEN COALESCE(v_clasificacion_horaria->>'motivo', 'Fuera de horario') ELSE NULL END,
       NOW(),
       v_tipo_recaudacion_sf,
       v_id_carga_excel,
@@ -4484,6 +4667,10 @@ DECLARE
   v_id_empresa_cuenta_ingreso bigint;
   v_itf_cuenta numeric := 0;
   v_flag_por_sol_comision_banco_ingreso boolean := false;
+  v_flag_fuera_horario boolean := false;
+  v_flag_retenido_fila boolean := false;
+  v_hora_corte time;
+  v_clasificacion_horaria jsonb := '{}'::jsonb;
   v_comision_banco_ingreso numeric := 0;
   v_comision_minimo_banco_ingreso numeric := 0;
   v_comision_igv_banco_ingreso numeric := 0;
@@ -4767,14 +4954,40 @@ BEGIN
       v_fecha_deposito := public.f_get_tb_parsear_fecha(v_fila.fecha_pago)::timestamp with time zone;
       IF v_fecha_deposito::time = '00:00:00'::time THEN
         IF COALESCE(v_fila.hora_proceso, '') <> '' THEN
-          v_fecha_deposito := (v_fecha_deposito::date + v_fila.hora_proceso::time)::timestamp with time zone;
+          -- BCP entrega la hora en horario local de Lima. Convertirla
+          -- explicitamente evita interpretarla como UTC.
+          v_fecha_deposito := (
+            v_fecha_deposito::date + v_fila.hora_proceso::time
+          ) AT TIME ZONE 'America/Lima';
         ELSE
-          v_fecha_deposito := (v_fecha_deposito::date + current_time)::timestamp with time zone;
+          v_fecha_deposito := (
+            v_fecha_deposito::date + (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::time
+          ) AT TIME ZONE 'America/Lima';
         END IF;
       END IF;
     EXCEPTION WHEN OTHERS THEN
       v_fecha_deposito := NOW();
     END;
+
+    IF v_hora_corte IS NULL THEN
+      SELECT r.hora_corte
+      INTO v_hora_corte
+      FROM public.tb_recaudacion_regla_abono r
+      WHERE LOWER(r.ruta) = LOWER(p_ruta_actual)
+        AND r.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_ingreso
+        AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
+      ORDER BY r.id DESC
+      LIMIT 1;
+    END IF;
+
+    v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria(
+      v_fecha_deposito,
+      v_fecha_carga_excel,
+      v_hora_corte
+    );
+    v_flag_fuera_horario := COALESCE((v_clasificacion_horaria->>'flag_fuera_horario')::boolean, false);
+    v_flag_retenido_fila := NOT v_flag_fuera_horario
+      AND COALESCE((v_clasificacion_horaria->>'flag_retenido')::boolean, false);
 
     v_cliente_id := NULL;
     v_cliente_nombre := '';
@@ -4902,6 +5115,10 @@ BEGIN
       flag_derivado,
       flag_retenido,
       fecha_pendiente,
+      flag_fuera_horario,
+      fecha_fuera_horario,
+      id_usuario_fuera_horario,
+      motivo_fuera_horario,
       id_carga_excel,
       nombre_carga_excel,
       fecha_carga_excel,
@@ -4956,8 +5173,12 @@ BEGIN
       p_ruta_actual,
       COALESCE(p_ruta_actual, NULL),
       false,
-      false,
+      v_flag_retenido_fila,
       NOW(),
+      v_flag_fuera_horario,
+      CASE WHEN v_flag_fuera_horario THEN NOW() ELSE NULL END,
+      CASE WHEN v_flag_fuera_horario THEN p_id_usuario ELSE NULL END,
+      CASE WHEN v_flag_fuera_horario THEN COALESCE(v_clasificacion_horaria->>'motivo', 'Fuera de horario') ELSE NULL END,
       v_id_carga_excel,
       v_nombre_archivo_final,
       v_fecha_carga_excel,
@@ -5351,6 +5572,80 @@ BEGIN
 END;
 $$;
 
+/*
+Funcion: f_patch_tb_operacion_proceso_fuera_horario
+Objetivo:
+  Cambiar la clasificacion informativa antes del cierre. Si la operacion
+  tenia un movimiento abierto creado antes de la reclasificacion, ese impacto
+  se revierte sin tocar movimientos historicos cerrados.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_fuera_horario(
+  p_id bigint,
+  p_flag_fuera_horario boolean,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_op record;
+  v_estado text;
+BEGIN
+  SELECT * INTO v_op
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id
+  FOR UPDATE;
+
+  IF v_op.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion no existe.');
+  END IF;
+
+  IF v_op.id_caja_cierre IS NOT NULL THEN
+    RETURN jsonb_build_object('error', 'La clasificacion no puede cambiarse despues del cierre de caja.');
+  END IF;
+
+  SELECT UPPER(nombre) INTO v_estado
+  FROM public.tb_estado
+  WHERE id = v_op.id_estado;
+
+  IF v_estado IN ('PAGADO', 'ELIMINADO') THEN
+    RETURN jsonb_build_object('error', 'La clasificacion no puede cambiarse en una operacion finalizada.');
+  END IF;
+
+  UPDATE public.tb_operacion_proceso
+  SET flag_fuera_horario = COALESCE(p_flag_fuera_horario, false),
+      flag_retenido = NOT COALESCE(p_flag_fuera_horario, false),
+      fecha_fuera_horario = CASE WHEN COALESCE(p_flag_fuera_horario, false) THEN now() ELSE NULL END,
+      id_usuario_fuera_horario = CASE WHEN COALESCE(p_flag_fuera_horario, false) THEN p_id_usuario_gestor ELSE NULL END,
+      motivo_fuera_horario = CASE WHEN COALESCE(p_flag_fuera_horario, false) THEN 'Clasificacion informativa manual' ELSE NULL END,
+      fecha_retencion = CASE WHEN COALESCE(p_flag_fuera_horario, false) THEN NULL ELSE COALESCE(fecha_retencion, now()) END,
+      id_usuario_retiene = CASE WHEN COALESCE(p_flag_fuera_horario, false) THEN NULL ELSE COALESCE(p_id_usuario_gestor, id_usuario_retiene) END,
+      nombre_usuario_retiene = CASE WHEN COALESCE(p_flag_fuera_horario, false) THEN NULL ELSE COALESCE(p_nombre_usuario_gestor, nombre_usuario_retiene) END,
+      motivo_retencion = CASE WHEN COALESCE(p_flag_fuera_horario, false) THEN NULL ELSE COALESCE(motivo_retencion, 'Clasificacion informativa manual') END
+  WHERE id = p_id;
+
+  IF COALESCE(p_flag_fuera_horario, false)
+     AND to_regprocedure('public.f_patch_tb_operacion_caja_revertir_informativa(bigint,bigint)') IS NOT NULL THEN
+    PERFORM public.f_patch_tb_operacion_caja_revertir_informativa(
+      p_id_operacion_proceso := p_id,
+      p_id_usuario := p_id_usuario_gestor
+    );
+  END IF;
+
+  IF to_regprocedure('public.f_sync_tb_ruta_operacion_kpi_caja(character varying,bigint)') IS NOT NULL THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(COALESCE(v_op.ruta_destino, v_op.ruta_origen), p_id_usuario_gestor);
+  END IF;
+
+  RETURN (
+    SELECT to_jsonb(x)
+    FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
+    LIMIT 1
+  );
+END;
+$$;
+
 SELECT 'DROP FUNCTION IF EXISTS ' ||
        n.nspname || '.' ||
        p.proname || '(' ||
@@ -5366,6 +5661,7 @@ WHERE p.proname IN (
   'f_get_tb_operacion_calculo_comision_servicio',
   'f_get_tb_operacion_calculo_comision_banco_ingreso',
   'f_get_tb_operacion_calculo_comision_banco_salida',
+  'f_get_tb_operacion_clasificacion_horaria',
   'f_get_tb_operacion_proceso_calculo',
   'f_patch_tb_operacion_proceso_base',
   'f_patch_tb_operacion_proceso_comision_extra',
@@ -5374,6 +5670,7 @@ WHERE p.proname IN (
   'f_patch_tb_operacion_proceso_pagado',
   'f_patch_tb_operacion_proceso_pagado_lote',
   'f_patch_tb_operacion_proceso_restaurar',
+  'f_patch_tb_operacion_proceso_fuera_horario',
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',
   'f_post_tb_operacion_proceso_excel_ganancia'

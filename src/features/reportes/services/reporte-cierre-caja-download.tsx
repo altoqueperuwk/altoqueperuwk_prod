@@ -126,7 +126,7 @@ export const buildCierreExcel = async (data: ReporteCierreCajaData) => {
     merge(5, 1, 13, `Cuenta: ${String(data.banco ?? "Cuenta").toUpperCase()}`, { bold: true, color: colors.white, bg: colors.navySoft });
 
     let nextRow = 7;
-    [["Caja Inicial", kpi.caja_inicial], ["Caja Actual", kpi.caja_actual], ["Caja Recaudacion", kpi.total_recaudado], ["Ingresos", kpi.ingresos], ["Salidas", kpi.salidas], ["Gastos Operacionales", kpi.gastos_operacionales], ["Ganancias", kpi.ganancias], ["Retencion Recaudacion", kpi.ingresos_retenidos]].forEach(([label, value], index) => {
+    [["Caja Inicial", kpi.caja_inicial], ["Caja Actual", kpi.caja_actual], ["Caja Recaudacion", kpi.total_recaudado], ["Ingresos", kpi.ingresos], ["Salidas", kpi.salidas], ["Gastos Operacionales", kpi.gastos_operacionales], ["Ganancias", kpi.ganancias], ["Retencion Recaudacion", kpi.ingresos_retenidos], ["Fuera de Horario", kpi.fuera_horario]].forEach(([label, value], index) => {
         const row = nextRow + Math.floor(index / 4) * 2;
         const column = (index % 4) * 3 + 1;
         merge(row, column, column + 2, String(label), { bold: true, color: colors.white, bg: colors.navySoft });

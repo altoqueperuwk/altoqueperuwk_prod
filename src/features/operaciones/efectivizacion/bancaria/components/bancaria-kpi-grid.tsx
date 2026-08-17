@@ -17,6 +17,7 @@ export const BancariaKpiGrid = ({ isLoading = false, kpi }: BancariaKpiGridProps
         { label: "Gastos Operacionales", value: formatMoney(kpi?.gastos_operacionales), valueClassName: "text-concept-gasto", badges: ["Efectivización", "Pago Deuda"] },
         { label: "Ganancias", value: formatMoney(kpi?.ganancias), valueClassName: "text-concept-ganancia", badges: ["Efectivización", "Pago Deuda"] },
         { label: "Retención Recaudación", value: formatMoney(kpi?.ingresos_retenidos), valueClassName: "text-concept-ingreso", badges: ["Efectivización", "Pago Deuda"] },
+        { label: "Fuera de Horario", value: formatMoney(kpi?.fuera_horario), valueClassName: "text-concept-ingreso", badges: ["Efectivización"] },
     ] as const;
 
     return (

@@ -1,6 +1,6 @@
 import type { BancariaTab } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
 
-export const procesoActionTabs: BancariaTab[] = ["Efectivizacion", "Pago Deuda", "Derivados", "POS", "Retenidos"];
+export const procesoActionTabs: BancariaTab[] = ["Efectivizacion", "Pago Deuda", "Derivados", "POS"];
 
 interface IsBancariaActionDisabledArgs {
     action: string;

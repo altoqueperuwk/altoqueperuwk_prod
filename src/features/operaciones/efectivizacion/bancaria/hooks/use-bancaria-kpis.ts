@@ -32,6 +32,10 @@ const buildHistoryKpi = (ruta: OperacionRutaBancaria, rows: CajaOperativaCierre[
 
     const maxSnapshot = (key: string) => Math.max(...filtered.map((row) => numberFromSnapshot(row.kpi_snapshot, key)));
     const sum = (key: keyof CajaOperativaCierre) => filtered.reduce((total, row) => total + Number(row[key] ?? 0), 0);
+    const fueraHorario = filtered.reduce(
+        (total, row) => total + Number(row.fuera_horario ?? numberFromSnapshot(row.kpi_snapshot, "fuera_horario")),
+        0,
+    );
     const latest = filtered[0];
 
     return {
@@ -45,6 +49,7 @@ const buildHistoryKpi = (ruta: OperacionRutaBancaria, rows: CajaOperativaCierre[
         gastos_operacionales: sum("gastos"),
         ganancias: sum("ganancia"),
         ingresos_retenidos: sum("ingresos_retenido"),
+        fuera_horario: fueraHorario,
         pendiente_depositar: maxSnapshot("pendiente_depositar"),
         total_efectivizacion: maxSnapshot("total_efectivizacion"),
         total_pago_deuda: maxSnapshot("total_pago_deuda"),
@@ -72,6 +77,7 @@ const mergeKpis = (ruta: OperacionRutaBancaria, rows: RutaOperacionKpi[]): RutaO
         gastos_operacionales: sum("gastos_operacionales"),
         ganancias: sum("ganancias"),
         ingresos_retenidos: sum("ingresos_retenidos"),
+        fuera_horario: sum("fuera_horario"),
         pendiente_depositar: sum("pendiente_depositar"),
         total_efectivizacion: sum("total_efectivizacion"),
         total_pago_deuda: sum("total_pago_deuda"),

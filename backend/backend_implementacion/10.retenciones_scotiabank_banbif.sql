@@ -56,6 +56,12 @@ AS $$
       AND (p_fecha_deposito_desde IS NULL OR op.fecha_deposito_cliente >= p_fecha_deposito_desde)
       AND (p_fecha_deposito_hasta IS NULL OR op.fecha_deposito_cliente <= p_fecha_deposito_hasta)
       AND (
+        (p_fecha_caja_cierre_desde IS NULL AND p_fecha_caja_cierre_hasta IS NULL)
+        OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN (
+          'PENDIENTE', 'RECHAZADO', 'SOLICITADO', 'PROCESADO'
+        )
+      )
+      AND (
         (
           p_fecha_caja_cierre_desde IS NULL
           AND p_fecha_caja_cierre_hasta IS NULL
@@ -64,6 +70,7 @@ AS $$
               a.tab = 'RETENIDOS'
               AND op.id_caja_cierre IS NULL
               AND COALESCE(op.flag_retenido, false) = true
+              AND COALESCE(op.flag_fuera_horario, false) = false
             )
             OR (
               a.tab <> 'RETENIDOS'
@@ -144,6 +151,7 @@ AS $$
           AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
           AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
           AND COALESCE(op.flag_retenido, false) = true
+          AND COALESCE(op.flag_fuera_horario, false) = false
         )
       )
   )
@@ -174,6 +182,7 @@ AS $$
     OR (
       a.tab = 'RETENIDOS'
       AND COALESCE(b.flag_retenido, false) = true
+      AND COALESCE(b.flag_fuera_horario, false) = false
       AND (
         (
           p_fecha_caja_cierre_desde IS NULL
@@ -261,6 +270,12 @@ AS $$
       AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
       AND COALESCE(op.id_estado, 0) <> 10
       AND (
+        (p_fecha_caja_cierre_desde IS NULL AND p_fecha_caja_cierre_hasta IS NULL)
+        OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN (
+          'PENDIENTE', 'RECHAZADO', 'SOLICITADO', 'PROCESADO'
+        )
+      )
+      AND (
         p_fecha_caja_cierre_desde IS NOT NULL
         OR p_fecha_caja_cierre_hasta IS NOT NULL
             OR COALESCE(op.flag_retenido, false) = true
@@ -285,6 +300,7 @@ AS $$
             )
             OR (
               COALESCE(op.flag_retenido, false) = true
+              AND COALESCE(op.flag_fuera_horario, false) = false
               AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
               AND EXISTS (
                 SELECT 1
@@ -345,6 +361,7 @@ AS $$
       )::integer AS pos,
       COUNT(*) FILTER (
         WHERE COALESCE(flag_retenido, false) = true
+          AND COALESCE(flag_fuera_horario, false) = false
           AND (
             (
               p_fecha_caja_cierre_desde IS NULL
@@ -405,6 +422,12 @@ AS $$
       AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
       AND COALESCE(op.id_estado, 0) <> 10
       AND (
+        (p_fecha_caja_cierre_desde IS NULL AND p_fecha_caja_cierre_hasta IS NULL)
+        OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN (
+          'PENDIENTE', 'RECHAZADO', 'SOLICITADO', 'PROCESADO'
+        )
+      )
+      AND (
         p_fecha_caja_cierre_desde IS NOT NULL
         OR p_fecha_caja_cierre_hasta IS NOT NULL
         OR COALESCE(op.flag_retenido, false) = true
@@ -429,6 +452,7 @@ AS $$
             )
             OR (
               COALESCE(op.flag_retenido, false) = true
+              AND COALESCE(op.flag_fuera_horario, false) = false
               AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
               AND EXISTS (
                 SELECT 1
@@ -497,6 +521,7 @@ AS $$
     SELECT 'Retenidos'::character varying AS tab, id_empresa_ingreso AS id_empresa
     FROM base
     WHERE COALESCE(flag_retenido, false) = true
+      AND COALESCE(flag_fuera_horario, false) = false
       AND (
         (
           p_fecha_caja_cierre_desde IS NULL

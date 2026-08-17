@@ -258,6 +258,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_retencion", params);
     },
 
+    patchOperacionFueraHorario(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_fuera_horario", params);
+    },
+
     patchOperacionTipoRecaudacionSafetyPay(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_tipo_recaudacion_sf", params);
     },

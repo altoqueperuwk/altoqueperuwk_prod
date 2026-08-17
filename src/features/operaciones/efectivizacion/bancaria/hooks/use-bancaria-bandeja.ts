@@ -354,7 +354,7 @@ export const useBancariaBandeja = ({
             }
 
             if (tab === "Retenidos") {
-                return row.ruta_destino === ruta && row.flag_retenido === true && (!activeAccountId || row.id_empresa_cuenta_ingreso === activeAccountId);
+                return row.ruta_destino === ruta && row.flag_retenido === true && row.flag_fuera_horario !== true && (!activeAccountId || row.id_empresa_cuenta_ingreso === activeAccountId);
             }
 
             if (tab === "Eliminados") {
