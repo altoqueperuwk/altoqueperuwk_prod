@@ -2920,11 +2920,16 @@ Objetivo:
   Mover la operacion BANCO de Pago Deuda a otra ruta bancaria durante el
   primer paso, resolviendo la cuenta principal activa por banco.
 */
+DROP FUNCTION IF EXISTS public.f_patch_tb_pago_deuda_derivar_banco(
+  bigint, bigint, bigint, character varying
+);
+
 CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_derivar_banco(
   p_id_operacion bigint,
   p_id_banco_destino bigint,
   p_id_usuario_gestor bigint DEFAULT NULL,
-  p_nombre_usuario_gestor character varying DEFAULT NULL
+  p_nombre_usuario_gestor character varying DEFAULT NULL,
+  p_id_ruta_operacion_caja_destino bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -2988,29 +2993,61 @@ BEGIN
 
   v_ruta_actual := LOWER(BTRIM(COALESCE(v_op.ruta_destino, v_op.ruta_origen, '')));
 
-  SELECT
-    rc.ruta,
-    rc.id_empresa,
-    e.nombre AS nombre_empresa,
-    rc.id_empresa_cuenta_bancaria,
-    ecb.id_banco,
-    b.nombre AS nombre_banco,
-    ecb.comision_transf_banco_salida,
-    ecb.comision_transf_inter_banco_salida,
-    ecb.comision_itf_ingreso_salida
-  INTO v_destino
-  FROM public.tb_ruta_operacion_caja rc
-  JOIN public.tb_empresa e ON e.id = rc.id_empresa
-  JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
-  JOIN public.tb_banco b ON b.id = ecb.id_banco
-  WHERE rc.id_estado = 1
-    AND ecb.id_estado = 1
-    AND rc.flag_caja_ingreso_principal = true
-    AND ecb.id_banco = p_id_banco_destino
-    AND LOWER(COALESCE(rc.ruta, '')) <> v_ruta_actual
-    AND LOWER(COALESCE(rc.ruta, '')) <> 'safetypay'
-  ORDER BY rc.id
-  LIMIT 1;
+  IF p_id_ruta_operacion_caja_destino IS NOT NULL THEN
+    SELECT
+      rc.ruta,
+      rc.id_empresa,
+      e.nombre AS nombre_empresa,
+      rc.id_empresa_cuenta_bancaria,
+      ecb.id_banco,
+      b.nombre AS nombre_banco,
+      ecb.comision_transf_banco_salida,
+      ecb.comision_transf_inter_banco_salida,
+      ecb.comision_itf_ingreso_salida
+    INTO v_destino
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_empresa e ON e.id = rc.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
+    WHERE rc.id = p_id_ruta_operacion_caja_destino
+      AND rc.id_estado = 1
+      AND e.id_estado = 1
+      AND ecb.id_estado = 1
+    LIMIT 1
+    FOR UPDATE OF rc;
+
+    IF v_destino.ruta IS NOT NULL
+       AND p_id_banco_destino IS NOT NULL
+       AND v_destino.id_banco IS DISTINCT FROM p_id_banco_destino THEN
+      RETURN jsonb_build_object('error', 'La empresa y cuenta destino no pertenecen al banco seleccionado.');
+    END IF;
+  ELSE
+    SELECT
+      rc.ruta,
+      rc.id_empresa,
+      e.nombre AS nombre_empresa,
+      rc.id_empresa_cuenta_bancaria,
+      ecb.id_banco,
+      b.nombre AS nombre_banco,
+      ecb.comision_transf_banco_salida,
+      ecb.comision_transf_inter_banco_salida,
+      ecb.comision_itf_ingreso_salida
+    INTO v_destino
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_empresa e ON e.id = rc.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
+    WHERE rc.id_estado = 1
+      AND e.id_estado = 1
+      AND ecb.id_estado = 1
+      AND rc.flag_caja_ingreso_principal = true
+      AND ecb.id_banco = p_id_banco_destino
+      AND LOWER(COALESCE(rc.ruta, '')) <> v_ruta_actual
+      AND LOWER(COALESCE(rc.ruta, '')) <> 'safetypay'
+    ORDER BY rc.id
+    LIMIT 1
+    FOR UPDATE OF rc;
+  END IF;
 
   IF v_destino.ruta IS NULL THEN
     RETURN jsonb_build_object('error', 'El banco destino no tiene una cuenta principal activa configurada.');
@@ -3072,7 +3109,8 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
        pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN (
+  WHERE p.proname IN (
+  'f_patch_tb_pago_deuda_derivar_banco',
   'f_get_tb_pago_deuda_bandeja',
   'f_get_tb_pago_deuda_match',
   'f_patch_tb_pago_deuda_match',

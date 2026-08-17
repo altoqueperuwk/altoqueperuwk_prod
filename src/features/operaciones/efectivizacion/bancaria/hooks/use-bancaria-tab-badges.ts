@@ -8,6 +8,7 @@ type CompanyBadgeMap = Record<number, number>;
 
 const emptyBadges: BadgeMap = {
     Efectivizacion: 0,
+    Unificado: 0,
     "Pago Deuda": 0,
     Derivados: 0,
     POS: 0,
@@ -82,6 +83,10 @@ export const useBancariaTabBadges = (
                 for (const row of rows ?? []) {
                     next[row.tab as BancariaTab] = Number(row.cantidad ?? 0);
                 }
+                next.Unificado = ["Efectivizacion", "Derivados", "POS"].reduce(
+                    (total, tab) => total + Number(next[tab as BancariaTab] ?? 0),
+                    0,
+                );
                 setData(next);
             })
             .catch((err) => {
@@ -167,8 +172,12 @@ export const useBancariaEmpresaBadges = (
 
                 const next: CompanyBadgeMap = {};
                 for (const row of rows ?? []) {
-                    if (row.tab === activeTab && row.id_empresa != null) {
-                        next[Number(row.id_empresa)] = Number(row.cantidad ?? 0);
+                    const matchesTab = activeTab === "Unificado"
+                        ? ["Efectivizacion", "Derivados", "POS"].includes(row.tab)
+                        : row.tab === activeTab;
+                    if (matchesTab && row.id_empresa != null) {
+                        const companyId = Number(row.id_empresa);
+                        next[companyId] = Number(next[companyId] ?? 0) + Number(row.cantidad ?? 0);
                     }
                 }
                 setData(next);

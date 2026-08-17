@@ -44,17 +44,22 @@ export const buildOperacionRetencionConfirmPayload = (id: number, user: UserCont
 export const buildOperacionDerivacionPayload = (
     id: number,
     rutaOrigen: OperacionRuta,
-    rutaDestino: string,
+    destino: string | Pick<RutaOperacionCaja, "id" | "ruta">,
     user: UserContext,
-) => ({
-    p_id: id,
-    p_ruta_origen: rutaOrigen,
-    p_ruta_destino: rutaDestino,
-    p_flag_derivado: true,
-    p_fecha_derivacion: expectDateString(),
-    p_id_usuario_deriva: user.userId,
-    p_nombre_usuario_deriva: user.userName,
-});
+) => {
+    const rutaDestino = typeof destino === "string" ? destino : destino.ruta;
+
+    return {
+        p_id: id,
+        p_ruta_origen: rutaOrigen,
+        p_ruta_destino: rutaDestino,
+        ...(typeof destino === "string" ? {} : { p_id_ruta_operacion_caja_destino: destino.id }),
+        p_flag_derivado: true,
+        p_fecha_derivacion: expectDateString(),
+        p_id_usuario_deriva: user.userId,
+        p_nombre_usuario_deriva: user.userName,
+    };
+};
 
 export const buildOperacionUsuarioPayload = (id: number, idUsuarioGestor: number, nombreUsuarioGestor: string) => ({
     p_id: id,

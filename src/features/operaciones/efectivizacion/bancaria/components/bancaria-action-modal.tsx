@@ -24,6 +24,7 @@ interface BancariaActionModalProps {
     companies: RutaOperacionCaja[];
     currentRuta: OperacionRuta;
     bankDestinations?: BancariaBankDestination[];
+    derivationDestinations?: RutaOperacionCaja[];
     deriveByBank?: boolean;
     isOpen: boolean;
     isSaving: boolean;
@@ -37,6 +38,7 @@ export const BancariaActionModal = ({
     companies,
     currentRuta,
     bankDestinations = [],
+    derivationDestinations = [],
     deriveByBank = false,
     isOpen,
     isSaving,
@@ -51,7 +53,9 @@ export const BancariaActionModal = ({
         if (!isOpen) return;
 
         if (action === "Derivar") {
-            if (deriveByBank) {
+            if (derivationDestinations.length) {
+                setValue(String(derivationDestinations[0].id));
+            } else if (deriveByBank) {
                 setValue(bankDestinations[0] ? String(bankDestinations[0].id) : "");
             } else {
                 const firstRoute = bancariaRouteKeys.find((route) => route !== currentRuta);
@@ -86,10 +90,15 @@ export const BancariaActionModal = ({
                 ignore = true;
             };
         }
-    }, [action, bankDestinations, companies, currentRuta, deriveByBank, isOpen]);
+    }, [action, bankDestinations, companies, currentRuta, derivationDestinations, deriveByBank, isOpen]);
 
     const options =
-        action === "Derivar" && deriveByBank
+        action === "Derivar" && derivationDestinations.length > 0
+            ? derivationDestinations.map((destination) => ({
+                  label: `${destination.nombre_empresa} - ${destination.nombre_banco} - ${getRutaLabel(destination.ruta as OperacionRuta)}`,
+                  value: String(destination.id),
+              }))
+        : action === "Derivar" && deriveByBank
             ? bankDestinations.map((bank) => ({ label: `${bank.nombre} - ${getRutaLabel(bank.ruta as OperacionRuta)}`, value: String(bank.id) }))
         : action === "Derivar"
             ? bancariaRouteKeys
@@ -124,7 +133,7 @@ export const BancariaActionModal = ({
                                 size="sm"
                                 label={
                                     action === "Derivar"
-                                        ? deriveByBank ? "Banco destino" : "Ruta destino"
+                                        ? derivationDestinations.length ? "Empresa y cuenta destino" : deriveByBank ? "Banco destino" : "Ruta destino"
                                         : action === "Emp. Ingreso" || action === "Emp. Salida" || action === "Transferencia"
                                           ? "Empresa y cuenta"
                                           : action === "Modalidad"

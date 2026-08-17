@@ -56,7 +56,7 @@ import {
 } from "@/features/operaciones/pago-deuda/components/pago-deuda-board";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 
-const tabs: BancariaTab[] = ["Efectivizacion", "Pago Deuda", "Derivados", "POS", "Movimientos", "Retenidos", "Eliminados"];
+const tabs: BancariaTab[] = ["Unificado", "Pago Deuda", "Movimientos", "Eliminados", "Efectivizacion", "Derivados", "POS", "Retenidos"];
 const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
 const softDeleteRoutes = new Set<OperacionRutaBancaria>(["bcp", "bbva", "scotiabank", "banbif", "interbank", "safetypay"]);
 const isPagado = (row: Pick<OperacionProceso, "nombre_estado">) =>
@@ -73,6 +73,7 @@ interface BancariaOperationalTabsProps {
     activeCompanyCaja: RutaOperacionCaja | null;
     activeCompanyId: number | null;
     companies: RutaOperacionCaja[];
+    hasRetentionRule?: boolean;
     downloadKey?: number;
     emptyText?: string;
     enabled?: boolean;
@@ -372,8 +373,13 @@ const isPosSolicitado = (row: OperacionProceso) => {
     const estado = row.nombre_estado?.trim().toUpperCase() ?? "";
     return estado === "PENDIENTE" || estado === "SOLICITADO";
 };
+const getUnifiedOperationFlow = (row: Pick<OperacionProceso, "flag_derivado" | "ruta_origen">) => {
+    if (row.flag_derivado) return "Derivado" as const;
+    if (String(row.ruta_origen ?? "").toLowerCase() === "pos") return "POS" as const;
+    return "Efectivizacion" as const;
+};
 const isPagoDeudaDerivable = (row: OperacionProceso) => getPagoDeudaEstadoVisual(row).action === "transferencia";
-const quickActionRuleTabs: BancariaTab[] = ["Efectivizacion", "Derivados", "POS"];
+const quickActionRuleTabs: BancariaTab[] = ["Efectivizacion", "Unificado", "Derivados", "POS"];
 const toNumber = (value: unknown) => Number(value ?? 0);
 
 const getCalculationPayload = (row: OperacionProceso) => ({
@@ -402,6 +408,7 @@ export const BancariaOperationalTabs = ({
     activeCompanyCaja,
     activeCompanyId,
     companies,
+    hasRetentionRule = false,
     downloadKey = 0,
     emptyText = "Sin operaciones para esta bandeja.",
     enabled = true,
@@ -431,6 +438,7 @@ export const BancariaOperationalTabs = ({
     const [dateTo, setDateTo] = useState("");
     const [pendingAction, setPendingAction] = useState<"Derivar" | "Emp. Ingreso" | "Emp. Salida" | "Reasignar" | "Transferencia" | "Match" | "Modalidad" | null>(null);
     const [bankDestinations, setBankDestinations] = useState<BancariaBankDestination[]>([]);
+    const [derivationDestinations, setDerivationDestinations] = useState<RutaOperacionCaja[]>([]);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [selectedOperationsById, setSelectedOperationsById] = useState<Record<number, { row: OperacionProceso; tab: BancariaTab }>>({});
     const [individualActionIds, setIndividualActionIds] = useState<number[]>([]);
@@ -466,7 +474,7 @@ export const BancariaOperationalTabs = ({
         () => {
             if (requestedTabs) return requestedTabs;
             if (isActiveDigitalWallet) return [] as BancariaTab[];
-            if (ruta === "safetypay") return ["Efectivizacion", "Movimientos", "Retenidos", "Eliminados"] as BancariaTab[];
+            if (ruta === "safetypay") return ["Movimientos", "Eliminados", "Efectivizacion", "Retenidos"] as BancariaTab[];
             const hasRetencion = retentionRoutes.has(ruta) ||
                 companies.some((c) => c.flag_retencion_cuenta);
             const available = hasRetencion ? tabs : tabs.filter((tab) => tab !== "Retenidos");
@@ -554,6 +562,40 @@ export const BancariaOperationalTabs = ({
     }, [currentTab, ruta]);
 
     useEffect(() => {
+        if (pendingAction !== "Derivar") {
+            setDerivationDestinations([]);
+            return;
+        }
+
+        let ignore = false;
+
+        Promise.all(bancariaRouteKeys.map((route) => operacionesRpcService.getRutaCajas(route)))
+            .then((groups) => {
+                if (ignore) return;
+
+                const destinations = new Map<number, RutaOperacionCaja>();
+                groups.flat().forEach((item) => {
+                    if (item.id_estado === 1 && !isDigitalWalletBank(item)) {
+                        destinations.set(item.id, item);
+                    }
+                });
+
+                setDerivationDestinations(
+                    [...destinations.values()].sort((a, b) =>
+                        `${a.nombre_empresa}-${a.nombre_banco}-${a.ruta}`.localeCompare(`${b.nombre_empresa}-${b.nombre_banco}-${b.ruta}`),
+                    ),
+                );
+            })
+            .catch(() => {
+                if (!ignore) setDerivationDestinations([]);
+            });
+
+        return () => {
+            ignore = true;
+        };
+    }, [pendingAction]);
+
+    useEffect(() => {
         let ignore = false;
 
         estadoService
@@ -574,18 +616,22 @@ export const BancariaOperationalTabs = ({
     const contract = useMemo(() => {
         const base = tabContracts[currentTab];
 
+        if (currentTab === "Unificado") {
+            return { ...base, actions: ["Pagar", "Derivar", "Reiniciar"] };
+        }
+
         if (currentTab === "POS") {
-            return { ...base, actions: ["Emp. Salida", "Pagar", "Derivar", "Reiniciar"] };
+            return { ...base, actions: ["Pagar", "Derivar", "Reiniciar"] };
         }
 
         if (currentTab === "Pago Deuda") {
-            return { ...base, actions: ["Emp. Salida", "Transferencia", "Derivar", "Reiniciar"] };
+            return { ...base, actions: ["Transferencia", "Derivar", "Reiniciar"] };
         }
 
         if (ruta === "safetypay" && currentTab === "Efectivizacion") {
             return {
                 ...base,
-                actions: ["Emp. Salida", "Pagar", "Derivar", "Reiniciar", "Eliminar Excel"],
+                actions: ["Pagar", "Derivar", "Reiniciar", "Eliminar Excel"],
             };
         }
 
@@ -697,6 +743,10 @@ export const BancariaOperationalTabs = ({
         Object.entries(secondaryTabBadges).forEach(([tab, count]) => {
             merged[tab as BancariaTab] = Number(merged[tab as BancariaTab] ?? 0) + Number(count ?? 0);
         });
+        merged.Unificado = ["Efectivizacion", "Derivados", "POS"].reduce(
+            (total, tab) => total + Number(merged[tab as BancariaTab] ?? 0),
+            0,
+        );
         return merged;
     }, [primaryTabBadges, secondaryTabBadges]);
     const tabBadgesError = primaryTabBadgesError ?? secondaryTabBadgesError;
@@ -1008,7 +1058,7 @@ export const BancariaOperationalTabs = ({
             },
         ],
     } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [codigoOperacionEdit, handleCodigoOperacionSave, handlePagoDeudaTransferenciaRow, handlePosEstadoRow, isHistoryMode, isSavingCodigoOperacion, presentation, readOnly, savingPagoDeudaEstadoIds, savingPosEstadoIds]);
-    const currentOperationColumns = currentTab === "Movimientos" ? baseOperationColumns : operationColumnsByTab[currentTab];
+    const currentOperationColumns = currentTab === "Movimientos" || currentTab === "Unificado" ? baseOperationColumns : operationColumnsByTab[currentTab];
     const currentMovementColumns = useMemo(
         () => getMovementColumns(ruta === "safetypay", isHistoryMode ? undefined : setMovementToDelete),
         [isHistoryMode, ruta],
@@ -1017,10 +1067,10 @@ export const BancariaOperationalTabs = ({
         .map((id) => selectedOperationsById[id])
         .filter((selection): selection is { row: OperacionProceso; tab: BancariaTab } => Boolean(selection));
     const selectedTransferSummary = useMemo(() => {
-        if (!["Efectivizacion", "Pago Deuda", "Derivados", "POS"].includes(currentTab)) return null;
+        if (!["Efectivizacion", "Unificado", "Pago Deuda", "Derivados", "POS"].includes(currentTab)) return null;
 
         const transferRows = selectedOperations.filter(({ row, tab }) => {
-            if (!["Efectivizacion", "Pago Deuda", "Derivados", "POS"].includes(tab)) return false;
+            if (!["Efectivizacion", "Unificado", "Pago Deuda", "Derivados", "POS"].includes(tab)) return false;
             if (tab === "Pago Deuda") {
                 return getPagoDeudaEstadoVisual(row).action === "transferencia";
             }
@@ -1040,21 +1090,39 @@ export const BancariaOperationalTabs = ({
     }, [currentTab, selectedOperations]);
 
     const actionIds = individualActionIds.length ? individualActionIds : selectedIds;
+    const selectedRowsForAction = useMemo(
+        () => operaciones.filter((row) => actionIds.includes(row.id)),
+        [actionIds, operaciones],
+    );
+    const unifiedDeriveByBank = currentTab === "Unificado" && selectedRowsForAction.length > 0 && selectedRowsForAction.every((row) => getUnifiedOperationFlow(row) === "POS");
 
     const getEligibleIdsForAction = (action: string) => {
         if (currentTab === "Pago Deuda") {
             const actionRows = operaciones.filter((row) => actionIds.includes(row.id));
             if (action === "Transferencia") return actionRows.filter(isPendingOperation).map((row) => row.id);
-            if (action === "Derivar") return actionRows.filter(isPagoDeudaDerivable).map((row) => row.id);
+            if (action === "Derivar") return actionRows.filter((row) => isPagoDeudaDerivable(row) || isPendingOperation(row)).map((row) => row.id);
             if (action === "Emp. Salida") return actionRows.filter(isPendingOperation).map((row) => row.id);
             if (action === "Reiniciar") return actionRows.filter(isPagoDeudaTransferido).map((row) => row.id);
             if (action === "Match" || action === "Pagar") return actionRows.filter(isProcessedOperation).map((row) => row.id);
             return actionIds;
         }
 
+        if (currentTab === "Unificado") {
+            const actionRows = operaciones.filter((row) => actionIds.includes(row.id));
+            if (["Pagar", "Derivar"].includes(action)) {
+                return actionRows
+                    .filter((row) => {
+                        const flow = getUnifiedOperationFlow(row);
+                        return flow === "POS" ? isPosSolicitado(row) : isPendingOperation(row);
+                    })
+                    .map((row) => row.id);
+            }
+            if (action === "Reiniciar") return actionRows.filter(isPaidOperation).map((row) => row.id);
+            return actionIds;
+        }
+
         if (currentTab === "POS") {
             const actionRows = operaciones.filter((row) => actionIds.includes(row.id));
-            if (action === "Emp. Salida") return actionRows.filter(isPosSolicitado).map((row) => row.id);
             if (action === "Derivar") return actionRows.filter(isPosSolicitado).map((row) => row.id);
             if (action === "Pagar") return actionRows.filter(isPosSolicitado).map((row) => row.id);
             if (action === "Reiniciar") return actionRows.filter(isPaidOperation).map((row) => row.id);
@@ -1273,6 +1341,10 @@ export const BancariaOperationalTabs = ({
                 addToast("error", "Selecciona una sola operacion para hacer match.");
                 return;
             }
+            if (action === "Derivar" && currentTab === "Unificado" && selectedRowsForAction.some((row) => getUnifiedOperationFlow(row) !== getUnifiedOperationFlow(selectedRowsForAction[0]))) {
+                addToast("error", "Selecciona operaciones del mismo flujo para derivarlas.");
+                return;
+            }
             setPendingAction(action);
             return;
         }
@@ -1473,8 +1545,10 @@ export const BancariaOperationalTabs = ({
                     const operation = operaciones.find((row) => row.id === id);
                     if (!operation) throw new Error("No se encontro la operacion seleccionada.");
 
+                    const operationFlow = currentTab === "Unificado" ? getUnifiedOperationFlow(operation) : currentTab;
                     let saved: OperacionProceso;
-                    if (currentTab === "POS") {
+                    if (operationFlow === "POS") {
+                        const destination = derivationDestinations.find((item) => String(item.id) === value);
                         const documento = String(operation.dni_cliente ?? "").replace(/\D/g, "");
                         saved = await operacionesRpcService.patchOperacionAsistida({
                             p_id: id,
@@ -1487,18 +1561,22 @@ export const BancariaOperationalTabs = ({
                             p_id_usuario: userId,
                             p_nombre_usuario: userName,
                             p_tipo_documento_cliente: documento.length === 9 ? 2 : 1,
-                            p_id_banco_destino: Number(value),
+                            p_id_banco_destino: destination?.id_banco ?? Number(value),
+                            ...(destination ? { p_id_ruta_operacion_caja_destino: destination.id } : {}),
                         });
                     } else if (currentTab === "Pago Deuda") {
+                        const destination = derivationDestinations.find((item) => String(item.id) === value);
                         saved = await operacionesRpcService.patchPagoDeudaDerivarBanco({
                             p_id_operacion: id,
-                            p_id_banco_destino: Number(value),
+                            p_id_banco_destino: destination?.id_banco ?? Number(value),
+                            ...(destination ? { p_id_ruta_operacion_caja_destino: destination.id } : {}),
                             p_id_usuario_gestor: userId,
                             p_nombre_usuario_gestor: userName,
                         });
                     } else {
+                        const destination = derivationDestinations.find((item) => String(item.id) === value);
                         saved = await operacionesRpcService.patchOperacionDerivacion(
-                            buildOperacionDerivacionPayload(id, getOperationRoute(operation, ruta), value, { userId, userName }),
+                            buildOperacionDerivacionPayload(id, getOperationRoute(operation, ruta), destination ?? value, { userId, userName }),
                         );
                     }
                     updatedRows.push(saved);
@@ -1566,7 +1644,8 @@ export const BancariaOperationalTabs = ({
                             nombre_banco_cliente_transferencia: company.nombre_banco,
                         };
 
-                        if (currentTab === "Derivados") {
+                        const isDerivedFlow = currentTab === "Derivados" || (currentTab === "Unificado" && getUnifiedOperationFlow(operation) === "Derivado");
+                        if (isDerivedFlow) {
                             const calc = await operacionesRpcService.calcularOperacion(getCalculationPayload(draft));
 
                             const saved = await operacionesRpcService.patchOperacionBase({
@@ -1749,7 +1828,7 @@ export const BancariaOperationalTabs = ({
 
             {currentTab === "Movimientos" ? (
                 <OperationTable columns={currentMovementColumns} data={movimientos} emptyText={emptyText} isLoading={isLoading} />
-            ) : currentTab === "Efectivizacion" || currentTab === "Derivados" || currentTab === "Eliminados" ? (
+            ) : currentTab === "Efectivizacion" || currentTab === "Unificado" || currentTab === "Derivados" || currentTab === "POS" || currentTab === "Eliminados" ? (
             <BancariaEfectivizacionTable
                     activeAccountId={activeAccountId}
                     activeCompanyId={activeCompanyId}
@@ -1759,7 +1838,8 @@ export const BancariaOperationalTabs = ({
                     estadoPagado={estadoPagado}
                     estadoPendiente={estadoPendiente}
                     isLoading={isLoading}
-                    mode={currentTab === "Derivados" ? "derivaciones" : currentTab === "Eliminados" ? "eliminados" : "efectivizacion"}
+                    mode={currentTab === "Derivados" ? "derivaciones" : currentTab === "POS" ? "pos" : currentTab === "Unificado" ? "unificado" : currentTab === "Eliminados" ? "eliminados" : "efectivizacion"}
+                    flow={currentTab === "Derivados" ? "Derivado" : currentTab === "POS" ? "POS" : "Efectivizacion"}
                     presentation={presentation}
                     readOnly={readOnly}
                     onMetricsChanged={refreshMetrics}
@@ -1773,8 +1853,11 @@ export const BancariaOperationalTabs = ({
                     setIndividualActionIds([row.id]);
                     setPendingAction("Derivar");
                 }}
+                    onPayRow={currentTab === "POS" || currentTab === "Unificado" ? handlePosEstadoRow : undefined}
+                    isPayingRow={currentTab === "POS" || currentTab === "Unificado" ? (row) => savingPosEstadoIds.includes(row.id) : undefined}
                     onRestoreOperation={setOperationToRestore}
                     onToggleFueraHorario={canUseProcesoActions ? handleToggleFueraHorario : undefined}
+                    hideFueraHorario={!hasRetentionRule && ["Efectivizacion", "Unificado", "Derivados", "POS"].includes(currentTab)}
                     ruta={ruta}
                     showBanca={scopedRoutes.length > 1 && currentTab === "Efectivizacion"}
                     selectedIds={selectedIds}
@@ -1790,9 +1873,9 @@ export const BancariaOperationalTabs = ({
                     selectedIds={selectedIds}
                     onToggleRow={canUseProcesoActions ? handleToggleRow : undefined}
                     renderActions={
-                        !readOnly && (currentTab === "POS" || currentTab === "Pago Deuda")
+                        !readOnly && currentTab === "Pago Deuda"
                             ? (row) => {
-                                  const canDerive = !isHistoryMode && (currentTab === "POS" ? isPosSolicitado(row) : isPagoDeudaDerivable(row));
+                                  const canDerive = !isHistoryMode && (isPagoDeudaDerivable(row) || isPendingOperation(row));
                                   return (
                                       <Button
                                           aria-label="Derivar operacion"
@@ -1866,7 +1949,8 @@ export const BancariaOperationalTabs = ({
                 bankDestinations={bankDestinations}
                 companies={actionCompanies}
                 currentRuta={ruta}
-                deriveByBank={currentTab === "POS" || currentTab === "Pago Deuda"}
+                derivationDestinations={derivationDestinations}
+                deriveByBank={currentTab === "POS" || currentTab === "Pago Deuda" || unifiedDeriveByBank}
                 isOpen={pendingAction !== null && pendingAction !== "Match"}
                 isSaving={isApplyingAction}
                 selectedCount={pendingActionEligibleCount}

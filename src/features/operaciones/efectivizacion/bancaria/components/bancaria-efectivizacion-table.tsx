@@ -69,7 +69,8 @@ interface BancariaEfectivizacionTableProps {
     estadoPagado: EstadoRef | null;
     estadoPendiente: EstadoRef | null;
     isLoading?: boolean;
-    mode?: "efectivizacion" | "derivaciones" | "eliminados";
+    mode?: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados";
+    flow?: "Efectivizacion" | "POS" | "Derivado";
     presentation?: "operational" | "plain";
     readOnly?: boolean;
     onMetricsChanged: () => void;
@@ -77,9 +78,12 @@ interface BancariaEfectivizacionTableProps {
     onRowUpdated: (row: OperacionProceso) => void;
     onDeleteOperation?: (row: OperacionProceso) => void;
     onDeriveRow?: (row: OperacionProceso) => void;
+    onPayRow?: (row: OperacionProceso) => void;
+    isPayingRow?: (row: OperacionProceso) => boolean;
     onRestoreOperation?: (row: OperacionProceso) => void;
     onToggleRow?: (id: number) => void;
     onToggleFueraHorario?: (row: OperacionProceso, value: boolean) => void;
+    hideFueraHorario?: boolean;
     ruta: OperacionRutaBancaria;
     showBanca?: boolean;
     selectedIds?: number[];
@@ -91,8 +95,8 @@ const isRecurringInputValue = (value: string) => {
     const trimmed = value.trim();
     return trimmed === "" || /^null$/i.test(trimmed) || /^(?:\d+(?:[.,]\d*)?|\d*[.,]\d+)$/.test(trimmed);
 };
-const isFrozenOriginOperation = (row: OperacionProceso, mode: "efectivizacion" | "derivaciones" | "eliminados", ruta: OperacionRutaBancaria) =>
-    mode === "efectivizacion" &&
+const isFrozenOriginOperation = (row: OperacionProceso, mode: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados", ruta: OperacionRutaBancaria) =>
+    (mode === "efectivizacion" || mode === "unificado") &&
     row.flag_derivado === true &&
     String(row.ruta_origen ?? "").toLowerCase() === ruta;
 const isDeletable = (row: OperacionProceso) => {
@@ -167,7 +171,8 @@ const formatTime = (value?: string | null) => {
     return new Date(value).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
 };
 
-const getColumnHeaders = (showBanca: boolean, showDerivo: boolean) => [
+const getColumnHeaders = (showFlow: boolean, showBanca: boolean, showDerivo: boolean, showFueraHorario: boolean) => [
+    ...(showFlow ? [{ label: "Flujo" }] : []),
     ...(showBanca ? [{ label: "Banca" }] : []),
     { label: "Facturacion" },
     ...(showDerivo ? [{ label: "Derivo" }] : []),
@@ -178,7 +183,7 @@ const getColumnHeaders = (showBanca: boolean, showDerivo: boolean) => [
     { label: "Monto" },
     { label: "Comision" },
     { label: "Transferencia" },
-    { label: "Fuera de Horario" },
+    ...(showFueraHorario ? [{ label: "Fuera de Horario" }] : []),
     { label: "Estado" },
     { label: "Hora", className: "w-24" },
     { label: "Acciones", className: "w-14 text-center" },
@@ -194,6 +199,7 @@ export const BancariaEfectivizacionTable = ({
     estadoPendiente,
     isLoading = false,
     mode = "efectivizacion",
+    flow,
     presentation = "operational",
     readOnly = false,
     onMetricsChanged,
@@ -201,9 +207,12 @@ export const BancariaEfectivizacionTable = ({
     onRowUpdated,
     onDeleteOperation,
     onDeriveRow,
+    onPayRow,
+    isPayingRow,
     onRestoreOperation,
     onToggleRow,
     onToggleFueraHorario,
+    hideFueraHorario = false,
     ruta,
     showBanca = false,
     selectedIds = [],
@@ -275,9 +284,20 @@ export const BancariaEfectivizacionTable = ({
     const visibleIds = paginatedRows.filter((row) => !isFrozenOriginOperation(row, mode, ruta)).map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
     const showTipoDeposito = tipoDepositoVisibleRoutes.includes(ruta);
+    const isUnificado = mode === "unificado";
+    const isDerivaciones = mode === "derivaciones";
+    const isEliminados = mode === "eliminados";
+    const getRowFlow = (row: OperacionProceso) => {
+        if (isUnificado) {
+            if (row.flag_derivado) return "Derivado";
+            if (String(row.ruta_origen ?? "").toLowerCase() === "pos") return "POS";
+            return "Efectivizacion";
+        }
+        return flow ?? (isDerivaciones ? "Derivado" : "Efectivizacion");
+    };
     const columnHeaders = useMemo(
-        () => getColumnHeaders(showBanca, mode === "derivaciones").filter((column) => !readOnly || column.label !== "Acciones"),
-        [mode, readOnly, showBanca],
+        () => getColumnHeaders(isUnificado, showBanca, isDerivaciones || isUnificado, !hideFueraHorario).filter((column) => !readOnly || column.label !== "Acciones"),
+        [hideFueraHorario, isDerivaciones, isUnificado, mode, readOnly, showBanca],
     );
     const tableColSpan = columnHeaders.length + (hasSelection ? 1 : 0);
     const activeCompanyAccounts = useMemo(
@@ -386,9 +406,9 @@ export const BancariaEfectivizacionTable = ({
         const hasOperationExtra = recurring && recurring.extra === null && toNumber(row.comision_monto_extra_servicio) > 0;
 
         return {
-            specialDisabled: recurring?.especial !== null || Boolean(hasOperationSpecial),
+            specialDisabled: Boolean(recurring && recurring.especial !== null) || Boolean(hasOperationSpecial),
             specialRecurringDisabled: Boolean(hasOperationSpecial),
-            extraDisabled: recurring?.extra !== null || Boolean(hasOperationExtra),
+            extraDisabled: Boolean(recurring && recurring.extra !== null) || Boolean(hasOperationExtra),
             extraRecurringDisabled: Boolean(hasOperationExtra),
         };
     };
@@ -495,8 +515,6 @@ export const BancariaEfectivizacionTable = ({
         }
     };
 
-    const isDerivaciones = mode === "derivaciones";
-    const isEliminados = mode === "eliminados";
     const readOnlyIngreso = (row: OperacionProceso) => isDerivaciones || isEliminados || isPagado(row) || isFrozenOriginOperation(row, mode, ruta) || savingIds.includes(row.id);
     const readOnlySalida = (row: OperacionProceso) => isEliminados || isPagado(row) || isFrozenOriginOperation(row, mode, ruta) || savingIds.includes(row.id);
 
@@ -970,10 +988,15 @@ export const BancariaEfectivizacionTable = ({
                         ) : paginatedRows.length ? (
                             paginatedRows.map((row) => {
                                 const frozenOrigin = isFrozenOriginOperation(row, mode, ruta);
-                                const disabledIngreso = readOnlyIngreso(row);
+                                const rowFlow = getRowFlow(row);
+                                const rowIsDerivaciones = isUnificado ? rowFlow === "Derivado" : isDerivaciones;
+                                const rowIsPos = isUnificado ? rowFlow === "POS" : mode === "pos";
+                                const rowIsEfectivizacion = !isUnificado || rowFlow === "Efectivizacion";
+                                const disabledIngreso = (isUnificado && rowIsDerivaciones) || readOnlyIngreso(row);
                                 const disabledSalida = readOnlySalida(row);
                                 const rowSaving = savingIds.includes(row.id);
                                 const tipoOptions = tipoDepositoOptions(row);
+                                const commissionState = commissionActionState(row);
                                 const pdDisabled = rowSaving || isPagado(row) || !(pagoDeudaMatches[row.id]?.length);
                                 const displayedTransferAmount = frozenOrigin ? 0 : row.monto_transferencia_cliente;
 
@@ -1002,6 +1025,13 @@ export const BancariaEfectivizacionTable = ({
                                                 )}
                                             </td>
                                         )}
+                                        {isUnificado && <td className="px-2 py-2 align-top">
+                                            {isPlain ? (
+                                                <span className="text-sm text-secondary">{rowFlow}</span>
+                                            ) : (
+                                                <CompactBadgeLine color="brand">{rowFlow}</CompactBadgeLine>
+                                            )}
+                                        </td>}
                                         {showBanca && (
                                             <td className="px-2 py-2 align-top">
                                                 {isPlain ? (
@@ -1027,12 +1057,12 @@ export const BancariaEfectivizacionTable = ({
                                             )}
                                         </td>
 
-                                        {isDerivaciones && (
+                                        {(isDerivaciones || isUnificado) && (
                                             <td className="px-2 py-2 align-top">
                                                 {isPlain ? (
-                                                    <span className="text-sm text-secondary">{row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "-"}</span>
+                                                    <span className="text-sm text-secondary">{rowIsDerivaciones && row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "-"}</span>
                                                 ) : <CompactBadgeLine color={row.ruta_origen ? "brand" : "gray"}>
-                                                    {row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "-"}
+                                                    {rowIsDerivaciones && row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "-"}
                                                 </CompactBadgeLine>}
                                             </td>
                                         )}
@@ -1183,7 +1213,7 @@ export const BancariaEfectivizacionTable = ({
                                                 />
                                                 </div>}
                                         </td>
-                                        <td className="px-2 py-2 align-top">
+                                        {!hideFueraHorario && <td className="px-2 py-2 align-top">
                                             {isPlain ? (
                                                 <span className="text-sm text-secondary">{row.flag_fuera_horario ? "Sí" : "No"}</span>
                                             ) : (
@@ -1195,15 +1225,22 @@ export const BancariaEfectivizacionTable = ({
                                                     onChange={(value) => onToggleFueraHorario?.(row, value)}
                                                 />
                                             )}
-                                        </td>
+                                        </td>}
                                         <td className="px-2 py-2 align-top">
                                             {isPlain ? (
                                                 <span className="text-sm text-secondary">{isPagado(row) ? "Pagado" : "Pendiente"}</span>
                                             ) : <Button
                                                 size="xs"
                                                 color={isPagado(row) ? "secondary" : "primary"}
-                                                isDisabled={rowSaving || frozenOrigin || isEliminados || isPagado(row) || !estadoPagado}
-                                                onClick={() => estadoPagado && void handleEstado(row, String(estadoPagado.id))}
+                                                isDisabled={rowSaving || frozenOrigin || isEliminados || isPagado(row) || ((!onPayRow || !rowIsPos) && !estadoPagado) || Boolean(isPayingRow?.(row))}
+                                                isLoading={Boolean(isPayingRow?.(row))}
+                                                onClick={() => {
+                                                    if (onPayRow && rowIsPos) {
+                                                        void onPayRow(row);
+                                                        return;
+                                                    }
+                                                    if (estadoPagado) void handleEstado(row, String(estadoPagado.id));
+                                                }}
                                             >
                                                 {isPagado(row) ? "Pagado" : "Pendiente"}
                                             </Button>}
@@ -1215,21 +1252,54 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
                                                 {!readOnly && <td className="px-2 py-2 text-center align-top">
                                             <div className="flex items-center justify-center gap-1">
-                                                {(mode === "efectivizacion" || mode === "derivaciones") && ruta !== "safetypay" && (
+                                                {(mode === "efectivizacion" || mode === "unificado" || mode === "derivaciones" || mode === "pos") && ruta !== "safetypay" && (
                                                     <ButtonUtility
                                                         size="xs"
-                                                        color="secondary"
+                                                        color="tertiary"
                                                         icon={Send01}
                                                         tooltip="Derivar Operacion"
                                                         className={cx(
-                                                            "rounded-lg bg-brand-solid text-white ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover",
+                                                            "rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid",
                                                             isPagado(row) && "bg-primary text-secondary ring-primary hover:bg-primary_hover",
                                                         )}
                                                         isDisabled={frozenOrigin || rowSaving || isPagado(row)}
                                                         onClick={() => !frozenOrigin && onDeriveRow?.(row)}
                                                     />
                                                 )}
-                                                {!frozenOrigin && mode === "efectivizacion" && ruta !== "safetypay" && Boolean(pagoDeudaMatches[row.id]?.length) && (
+                                                {mode === "unificado" && rowIsEfectivizacion && !isPagado(row) && (
+                                                    <>
+                                                        <ButtonUtility
+                                                            size="xs"
+                                                            color="tertiary"
+                                                            tooltip="% Comision Especial"
+                                                            icon={Percent01}
+                                                            className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
+                                                            isDisabled={frozenOrigin || rowSaving || commissionState.specialDisabled}
+                                                            onClick={() => void handleAction(row, "ComisionEspecial")}
+                                                        />
+                                                        <ButtonUtility
+                                                            size="xs"
+                                                            color="tertiary"
+                                                            tooltip="S/ Comision Extra"
+                                                            icon={<span className="text-xs font-bold leading-none">S/</span>}
+                                                            className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
+                                                            isDisabled={frozenOrigin || rowSaving || commissionState.extraDisabled}
+                                                            onClick={() => void handleAction(row, "ComisionExtra")}
+                                                        />
+                                                        {isDeletable(row) && (
+                                                            <ButtonUtility
+                                                                size="xs"
+                                                                color="tertiary"
+                                                                tooltip="Eliminar Operacion"
+                                                                icon={Trash01}
+                                                                className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
+                                                                isDisabled={frozenOrigin || rowSaving}
+                                                                onClick={() => void handleAction(row, "EliminarOperacion")}
+                                                            />
+                                                        )}
+                                                    </>
+                                                )}
+                                                {!frozenOrigin && rowIsEfectivizacion && mode === "efectivizacion" && ruta !== "safetypay" && Boolean(pagoDeudaMatches[row.id]?.length) && (
                                                     <ButtonUtility
                                                         size="xs"
                                                         color="secondary"
@@ -1243,7 +1313,7 @@ export const BancariaEfectivizacionTable = ({
                                                         }}
                                                     />
                                                 )}
-                                            {!frozenOrigin && <Dropdown.Root>
+                                            {!frozenOrigin && mode !== "pos" && <Dropdown.Root>
                                                 <Dropdown.DotsButton />
                                                 <Dropdown.Popover>
                                                     <Dropdown.Menu
@@ -1254,16 +1324,15 @@ export const BancariaEfectivizacionTable = ({
                                                         ) : (
                                                             <>
                                                                 {(() => {
-                                                                    const commissionState = commissionActionState(row);
                                                                     return (
                                                                         <>
                                                                 {isPagado(row) && <Dropdown.Item id="Reanudar" icon={RefreshCcw02}>Reanudar</Dropdown.Item>}
-                                                                {!isPagado(row) && <Dropdown.Item isDisabled={commissionState.specialDisabled} id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
-                                                                {!isPagado(row) && <Dropdown.Item isDisabled={commissionState.extraDisabled} id="ComisionExtra" icon={Coins01}>Com. Extra</Dropdown.Item>}
-                                                                {!isPagado(row) && !row.flag_retenido && mode === "efectivizacion" && <Dropdown.Item isDisabled={commissionState.specialRecurringDisabled} id="ComisionEspecialRecurrente" icon={Percent01}>Com. Especial Recurrente</Dropdown.Item>}
-                                                                {!isPagado(row) && !row.flag_retenido && mode === "efectivizacion" && <Dropdown.Item isDisabled={commissionState.extraRecurringDisabled} id="ComisionExtraRecurrente" icon={Coins01}>Com. Extra Recurrente</Dropdown.Item>}
-                                                                {!isPagado(row) && mode === "efectivizacion" && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo</Dropdown.Item>}
-                                                                {isDeletable(row) && mode === "efectivizacion" && <Dropdown.Item id="EliminarOperacion" icon={Trash01}>Eliminar Operacion</Dropdown.Item>}
+                                                                {rowIsEfectivizacion && !isPagado(row) && <Dropdown.Item isDisabled={commissionState.specialDisabled} id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
+                                                                {rowIsEfectivizacion && !isPagado(row) && <Dropdown.Item isDisabled={commissionState.extraDisabled} id="ComisionExtra" icon={Coins01}>Com. Extra</Dropdown.Item>}
+                                                                {!isUnificado && rowIsEfectivizacion && !isPagado(row) && !row.flag_retenido && <Dropdown.Item isDisabled={commissionState.specialRecurringDisabled} id="ComisionEspecialRecurrente" icon={Percent01}>Com. Especial Recurrente</Dropdown.Item>}
+                                                                {!isUnificado && rowIsEfectivizacion && !isPagado(row) && !row.flag_retenido && <Dropdown.Item isDisabled={commissionState.extraRecurringDisabled} id="ComisionExtraRecurrente" icon={Coins01}>Com. Extra Recurrente</Dropdown.Item>}
+                                                                {rowIsEfectivizacion && !isPagado(row) && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo</Dropdown.Item>}
+                                                                {rowIsEfectivizacion && isDeletable(row) && <Dropdown.Item id="EliminarOperacion" icon={Trash01}>Eliminar Operacion</Dropdown.Item>}
                                                                         </>
                                                                     );
                                                                 })()}

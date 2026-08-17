@@ -718,7 +718,8 @@ $$;
 -- ============================================================================
 DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
   bigint, bigint, character varying, character varying, bigint,
-  character varying, numeric, bigint, character varying, bigint, bigint
+  character varying, numeric, bigint, character varying, bigint, bigint,
+  character varying
 );
 
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
@@ -733,7 +734,8 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_nombre_usuario character varying DEFAULT NULL,
   p_tipo_documento_cliente bigint DEFAULT NULL,
   p_id_banco_destino bigint DEFAULT NULL,
-  p_email_cliente character varying DEFAULT NULL
+  p_email_cliente character varying DEFAULT NULL,
+  p_id_ruta_operacion_caja_destino bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -847,7 +849,40 @@ BEGIN
   v_id_banco_empresa_cuenta_salida := COALESCE(v_id_banco_empresa_cuenta_ingreso, v_actual.id_banco_empresa_cuenta_salida);
   v_nombre_banco_empresa_cuenta_salida := COALESCE(v_nombre_banco_empresa_cuenta_ingreso, v_actual.nombre_banco_empresa_cuenta_salida);
 
-  IF LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos' THEN
+  IF LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos' AND p_id_ruta_operacion_caja_destino IS NOT NULL THEN
+    SELECT
+      rc.ruta,
+      rc.id_empresa,
+      e.nombre,
+      rc.id_empresa_cuenta_bancaria,
+      ecb.id_banco,
+      b.nombre
+    INTO
+      v_ruta_destino_resolved,
+      v_id_empresa_salida,
+      v_nombre_empresa_salida,
+      v_id_empresa_cuenta_salida,
+      v_id_banco_empresa_cuenta_salida,
+      v_nombre_banco_empresa_cuenta_salida
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_empresa e ON e.id = rc.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
+    WHERE rc.id = p_id_ruta_operacion_caja_destino
+      AND rc.id_estado = 1
+      AND e.id_estado = 1
+      AND ecb.id_estado = 1
+    LIMIT 1
+    FOR UPDATE OF rc;
+
+    IF v_id_empresa_salida IS NULL THEN
+      RETURN jsonb_build_object('error', 'La empresa y cuenta destino no tienen una asociacion operativa activa.');
+    END IF;
+
+    IF p_id_banco_destino IS NOT NULL AND v_id_banco_empresa_cuenta_salida IS DISTINCT FROM p_id_banco_destino THEN
+      RETURN jsonb_build_object('error', 'La empresa y cuenta destino no pertenecen al banco seleccionado.');
+    END IF;
+  ELSIF LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos' THEN
     SELECT
       rc.ruta,
       rc.id_empresa,

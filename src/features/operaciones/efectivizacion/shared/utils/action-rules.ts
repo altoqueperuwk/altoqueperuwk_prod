@@ -1,6 +1,6 @@
 import type { BancariaTab } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
 
-export const procesoActionTabs: BancariaTab[] = ["Efectivizacion", "Pago Deuda", "Derivados", "POS"];
+export const procesoActionTabs: BancariaTab[] = ["Efectivizacion", "Unificado", "Pago Deuda", "Derivados", "POS"];
 
 interface IsBancariaActionDisabledArgs {
     action: string;
@@ -20,19 +20,19 @@ export const isBancariaActionDisabled = ({
     if (isApplyingAction) return true;
 
     if (action === "Pagar") {
-        return !["Efectivizacion", "Pago Deuda", "Derivados", "POS"].includes(activeTab) || !hasSelection;
+        return !["Efectivizacion", "Unificado", "Pago Deuda", "Derivados", "POS"].includes(activeTab) || !hasSelection;
     }
 
     if (action === "Derivar") {
-        return !["Efectivizacion", "Pago Deuda", "Derivados", "POS"].includes(activeTab) || !hasSelection;
+        return !["Efectivizacion", "Unificado", "Pago Deuda", "Derivados", "POS"].includes(activeTab) || !hasSelection;
     }
 
     if (action === "Directo") {
-        return activeTab !== "Efectivizacion" || !hasSelection;
+        return !["Efectivizacion", "Unificado"].includes(activeTab) || !hasSelection;
     }
 
     if (action === "Modalidad") {
-        return activeTab !== "Efectivizacion" || !hasSelection;
+        return !["Efectivizacion", "Unificado"].includes(activeTab) || !hasSelection;
     }
 
     if (action === "Reiniciar") {
@@ -48,7 +48,7 @@ export const isBancariaActionDisabled = ({
     }
 
     if (action === "Emp. Salida") {
-        return !["Efectivizacion", "Pago Deuda", "Derivados", "POS"].includes(activeTab) || !hasSelection || companyCount === 0;
+        return !["Efectivizacion", "Unificado", "Pago Deuda", "Derivados", "POS"].includes(activeTab) || !hasSelection || companyCount === 0;
     }
 
     if (action === "Transferencia") {

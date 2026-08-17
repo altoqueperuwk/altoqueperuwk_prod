@@ -11,7 +11,7 @@ import type { OperacionRutaBancaria } from "@/features/operaciones/efectivizacio
 import { BancariaOperationalTabs } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-operational-tabs";
 import { formatCierreDate, reporteCierreCajaService } from "./services/reporte-cierre-caja.service";
 
-const visibleTabs = ["Efectivizacion", "Derivados", "Pago Deuda"] as const;
+const visibleTabs = ["Pago Deuda", "Efectivizacion", "Derivados"] as const;
 const visibleTabNames = new Set<string>(visibleTabs);
 const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
 
@@ -215,6 +215,7 @@ export const ReporteCierreCajaOperationalPage = () => {
                     activeCompanyCaja={null}
                     activeCompanyId={activeCompanyId}
                     companies={companies}
+                    hasRetentionRule={companies.find((company) => company.id_empresa === activeCompanyId)?.flag_retencion_cuenta === true}
                     enabled={Boolean(selectedDate)}
                     embedded
                     emptyText={selectedDate ? "Sin operaciones para este cierre." : "Selecciona una fecha de cierre para consultar operaciones."}
@@ -225,7 +226,7 @@ export const ReporteCierreCajaOperationalPage = () => {
                     showCompanyTabs={false}
                     onCompanyChange={setActiveCompanyId}
                     ruta={selectedBank}
-                    visibleTabs={["Efectivizacion", "Derivados", "Pago Deuda"]}
+                    visibleTabs={["Pago Deuda", "Efectivizacion", "Derivados"]}
                 />
                 </div>
             </div>

@@ -900,31 +900,37 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     </div>
                 )}
 
-                <BancariaKpiGrid isLoading={isLoadingKpis} kpi={kpi} />
+                <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-6">
+                    <div className="xl:col-span-4">
+                        <BancariaKpiGrid
+                            hasRetentionRule={activeCompanyCaja?.flag_retencion_cuenta === true}
+                            isLoading={isLoadingKpis}
+                            kpi={kpi}
+                        />
+                    </div>
 
-                <BancariaInlineForms
-                    activeCajaId={activeCajaId}
-                    activeCompany={activeCompanyCaja ?? activeCompany}
-                    activeCompanyCajas={activeCompanyCaja ? [activeCompanyCaja] : activeCompanyCajas}
-                    historyDate={selectedHistoryDate}
-                    refreshKey={refreshKey + metricsRefreshKey}
-                    routeCajas={cajas}
-                    showMiniMovimientos={isActiveDigitalWallet}
-                    onSaved={() => setRefreshKey((value) => value + 1)}
-                    ruta={activeOperationRoute}
-                />
-
-                {!isActiveDigitalWallet && (
-                    <BancariaExcelUpload
+                    <BancariaInlineForms
+                        activeCajaId={activeCajaId}
                         activeCompany={activeCompanyCaja ?? activeCompany}
-                        activeCompanyId={activeCompanyId}
-                        companies={orderedCompanies}
-                        companyName={companyName}
-                        onCompanyChange={setActiveCompanyId}
-                        onProcessed={() => setRefreshKey((value) => value + 1)}
+                        activeCompanyCajas={activeCompanyCaja ? [activeCompanyCaja] : activeCompanyCajas}
+                        historyDate={selectedHistoryDate}
+                        refreshKey={refreshKey + metricsRefreshKey}
+                        routeCajas={cajas}
+                        showMiniMovimientos={isActiveDigitalWallet}
+                        onSaved={() => setRefreshKey((value) => value + 1)}
                         ruta={activeOperationRoute}
                     />
-                )}
+
+                    {!isActiveDigitalWallet && (
+                        <BancariaExcelUpload
+                            className="xl:col-span-4"
+                            activeCompany={activeCompanyCaja ?? activeCompany}
+                            companyName={companyName}
+                            onProcessed={() => setRefreshKey((value) => value + 1)}
+                            ruta={activeOperationRoute}
+                        />
+                    )}
+                </div>
 
                 {!isActiveDigitalWallet && (
                     <BancariaOperationalTabs
@@ -933,6 +939,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                         activeCompanyId={activeCompanyId}
                         activeCompanyCaja={activeCompanyCaja}
                         companies={orderedCompanies}
+                        hasRetentionRule={activeCompanyCaja?.flag_retencion_cuenta === true}
                         downloadKey={downloadKey}
                         historyDate={selectedHistoryDate}
                         onChanged={() => setRefreshKey((value) => value + 1)}

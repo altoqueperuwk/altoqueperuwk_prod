@@ -2532,6 +2532,12 @@ Regla:
   - la derivacion mueve la responsabilidad operativa de la misma fila
   - no crea una segunda operacion
 */
+DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_proceso_derivacion(
+  bigint, character varying, character varying, boolean,
+  timestamp with time zone, bigint, character varying, bigint,
+  character varying
+);
+
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_derivacion(
   p_id bigint,
   p_ruta_origen character varying DEFAULT NULL,
@@ -2541,7 +2547,8 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_derivacion(
   p_id_usuario_deriva bigint DEFAULT NULL,
   p_nombre_usuario_deriva character varying DEFAULT NULL,
   p_id_usuario_gestor bigint DEFAULT NULL,
-  p_nombre_usuario_gestor character varying DEFAULT NULL
+  p_nombre_usuario_gestor character varying DEFAULT NULL,
+  p_id_ruta_operacion_caja_destino bigint DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -2556,12 +2563,14 @@ DECLARE
   v_ruta_actual character varying;
   v_ruta_final character varying;
   v_es_primera_derivacion boolean := false;
+  v_es_misma_ruta boolean := false;
 BEGIN
   SELECT *
   INTO v_actual
   FROM public.tb_operacion_proceso
   WHERE id = p_id
-  LIMIT 1;
+  LIMIT 1
+  FOR UPDATE;
 
   IF v_actual.id IS NULL THEN
     RETURN jsonb_build_object('error', 'La operacion no existe.');
@@ -2578,11 +2587,38 @@ BEGIN
   v_es_primera_derivacion := NOT COALESCE(v_actual.flag_derivado, false)
     AND v_actual.id_empresa_salida_origen IS NULL;
 
-  v_ruta_actual := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
-  v_ruta_final := COALESCE(p_ruta_destino, p_ruta_origen, v_actual.ruta_destino, v_actual.ruta_origen);
+  v_ruta_actual := LOWER(BTRIM(COALESCE(v_actual.ruta_destino, v_actual.ruta_origen, '')));
 
-  IF COALESCE(p_ruta_destino, '') <> '' THEN
+  IF p_id_ruta_operacion_caja_destino IS NOT NULL THEN
     SELECT
+      rc.ruta,
+      rc.id_empresa,
+      e.nombre AS nombre_empresa,
+      rc.id_empresa_cuenta_bancaria,
+      ecb.id_banco,
+      b.nombre AS nombre_banco
+    INTO v_destino_cuenta
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_empresa e ON e.id = rc.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
+    WHERE rc.id = p_id_ruta_operacion_caja_destino
+      AND rc.id_estado = 1
+      AND e.id_estado = 1
+      AND ecb.id_estado = 1
+    LIMIT 1
+    FOR UPDATE OF rc;
+
+    v_tiene_cuenta_destino := FOUND;
+
+    IF v_tiene_cuenta_destino
+       AND COALESCE(BTRIM(p_ruta_destino), '') <> ''
+       AND LOWER(BTRIM(v_destino_cuenta.ruta)) <> LOWER(BTRIM(p_ruta_destino)) THEN
+      RETURN jsonb_build_object('error', 'La empresa y cuenta destino no pertenecen a la ruta seleccionada.');
+    END IF;
+  ELSIF COALESCE(p_ruta_destino, '') <> '' THEN
+    SELECT
+      rc.ruta,
       rc.id_empresa,
       e.nombre AS nombre_empresa,
       rc.id_empresa_cuenta_bancaria,
@@ -2595,16 +2631,25 @@ BEGIN
     JOIN public.tb_banco b ON b.id = ecb.id_banco
     WHERE rc.ruta = p_ruta_destino
       AND rc.id_estado = 1
+      AND e.id_estado = 1
       AND ecb.id_estado = 1
     ORDER BY rc.flag_caja_ingreso_principal DESC, rc.id ASC
-    LIMIT 1;
+    LIMIT 1
+    FOR UPDATE OF rc;
 
     v_tiene_cuenta_destino := FOUND;
   END IF;
 
   IF COALESCE(p_ruta_destino, '') <> '' AND NOT v_tiene_cuenta_destino THEN
-    RETURN jsonb_build_object('error', 'La ruta destino no tiene una caja operativa activa.');
+    RETURN jsonb_build_object('error', 'La ruta o empresa/cuenta destino no tiene una asociacion operativa activa.');
   END IF;
+
+  IF p_id_ruta_operacion_caja_destino IS NOT NULL AND NOT v_tiene_cuenta_destino THEN
+    RETURN jsonb_build_object('error', 'La empresa y cuenta destino no tienen una asociacion operativa activa.');
+  END IF;
+
+  v_ruta_final := LOWER(BTRIM(COALESCE(v_destino_cuenta.ruta, p_ruta_destino, p_ruta_origen, v_actual.ruta_destino, v_actual.ruta_origen, '')));
+  v_es_misma_ruta := v_ruta_final = v_ruta_actual;
 
   IF v_tiene_cuenta_destino THEN
     v_calc_salida := public.f_get_tb_operacion_calculo_comision_banco_salida(
@@ -2626,7 +2671,7 @@ BEGIN
         WHEN v_es_primera_derivacion THEN COALESCE(p_ruta_origen, ruta_origen)
         ELSE ruta_origen
       END,
-      ruta_destino = COALESCE(p_ruta_destino, ruta_destino),
+      ruta_destino = v_ruta_final,
       id_empresa_salida_origen = CASE WHEN v_es_primera_derivacion THEN id_empresa_salida ELSE id_empresa_salida_origen END,
       nombre_empresa_salida_origen = CASE WHEN v_es_primera_derivacion THEN nombre_empresa_salida ELSE nombre_empresa_salida_origen END,
       id_empresa_cuenta_salida_origen = CASE WHEN v_es_primera_derivacion THEN id_empresa_cuenta_salida ELSE id_empresa_cuenta_salida_origen END,
@@ -2649,7 +2694,7 @@ BEGIN
   WHERE id = p_id;
 
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_actual, COALESCE(p_id_usuario_gestor, p_id_usuario_deriva, v_actual.id_usuario_gestor, v_actual.id_usuario));
-  IF v_ruta_final IS DISTINCT FROM v_ruta_actual THEN
+  IF NOT v_es_misma_ruta THEN
     PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_final, COALESCE(p_id_usuario_gestor, p_id_usuario_deriva, v_actual.id_usuario_gestor, v_actual.id_usuario));
   END IF;
 
@@ -5671,6 +5716,7 @@ WHERE p.proname IN (
   'f_patch_tb_operacion_proceso_pagado_lote',
   'f_patch_tb_operacion_proceso_restaurar',
   'f_patch_tb_operacion_proceso_fuera_horario',
+  'f_patch_tb_operacion_proceso_derivacion',
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',
   'f_post_tb_operacion_proceso_excel_ganancia'

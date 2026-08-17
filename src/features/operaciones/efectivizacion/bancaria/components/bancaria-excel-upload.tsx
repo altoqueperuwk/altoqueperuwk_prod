@@ -15,16 +15,13 @@ import {
 import { buildExcelPayload } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
 import { findCodigoServicioForRuta } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import type { OperacionRutaBancaria } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
-import { EmpresaTabs } from "@/features/operaciones/efectivizacion/shared/components/empresa-tabs";
 import { cx } from "@/utils/cx";
 
 interface BancariaExcelUploadProps {
     activeCompany: RutaOperacionCaja | null;
-    activeCompanyId: number | null;
-    companies: RutaOperacionCaja[];
+    className?: string;
     companyName: string;
     onProcessed: () => void;
-    onCompanyChange: (id: number) => void;
     ruta: OperacionRutaBancaria;
 }
 
@@ -43,10 +40,8 @@ const formatFileSize = (bytes: number) => {
 const getCounterValue = (result: Record<string, unknown> | null, key: string) => Number(result?.[key] ?? 0);
 export const BancariaExcelUpload = ({
     activeCompany,
-    activeCompanyId,
-    companies,
+    className,
     companyName,
-    onCompanyChange,
     onProcessed,
     ruta,
 }: BancariaExcelUploadProps) => {
@@ -211,17 +206,7 @@ export const BancariaExcelUpload = ({
     };
 
     return (
-        <section className="rounded-lg border border-secondary bg-primary p-5 shadow-xs" aria-label={`Carga de archivo ${companyName}`}>
-            <div className="mb-4 min-w-0">
-                <div className="overflow-x-auto overflow-y-hidden pb-1">
-                    <div className="inline-block min-w-max">
-                        <div className="flex items-center gap-3">
-                            <EmpresaTabs companies={companies} activeCompanyId={activeCompanyId} onChange={onCompanyChange} />
-                        </div>
-                    </div>
-                </div>
-            </div>
-
+        <section className={cx("h-full rounded-lg border border-secondary bg-primary p-5 shadow-xs", className)} aria-label={`Carga de archivo ${companyName}`}>
             <div className="grid min-w-0 items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_fit-content(680px)]">
                 <div className="grid min-w-0">
                     <label

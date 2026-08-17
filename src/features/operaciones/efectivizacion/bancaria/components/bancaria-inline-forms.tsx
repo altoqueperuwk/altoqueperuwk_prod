@@ -61,6 +61,8 @@ interface EmpresaCuentaActiva {
 
 const getCajaSelectionKey = (caja: RutaOperacionCaja) => String(caja.id_caja ?? caja.id_empresa_cuenta_bancaria);
 const excludedTransferCompanyIds = new Set([10, 14, 15, 16]);
+const OTHER_COMPANY_VALUE = "__OTRA_EMPRESA__";
+const OTHER_ACCOUNT_VALUE = "__OTRA_CUENTA__";
 
 const Field = ({ children, className, label }: { children: ReactNode; className?: string; label: string }) => (
     <label className={cx("flex min-w-0 flex-col gap-1", className)}>
@@ -338,6 +340,8 @@ export const BancariaInlineForms = ({
     const [transferAmount, setTransferAmount] = useState("");
     const [isSavingTransfer, setIsSavingTransfer] = useState(false);
     const [movementType, setMovementType] = useState<"Ingreso" | "Salida">("Ingreso");
+    const [movementDestinationCompanyId, setMovementDestinationCompanyId] = useState(OTHER_COMPANY_VALUE);
+    const [movementDestinationKey, setMovementDestinationKey] = useState(OTHER_ACCOUNT_VALUE);
     const [movementAccountKey, setMovementAccountKey] = useState("");
     const [movementAmount, setMovementAmount] = useState("");
     const [movementConcept, setMovementConcept] = useState("");
@@ -372,12 +376,13 @@ export const BancariaInlineForms = ({
         () =>
             cuentasActivas.filter((cuenta) => {
                 if (excludedTransferCompanyIds.has(cuenta.id_empresa)) return false;
+                if (activeCompany?.id_empresa && cuenta.id_empresa === activeCompany.id_empresa) return false;
                 const caja = cajaMap.get(`${cuenta.id_empresa}-${cuenta.id}`);
                 if (!caja) return false;
                 if (transferOrigin?.id_caja && caja.id === transferOrigin.id_caja) return false;
                 return true;
             }),
-        [cajaMap, cuentasActivas, transferOrigin?.id_caja],
+        [activeCompany?.id_empresa, cajaMap, cuentasActivas, transferOrigin?.id_caja],
     );
     const transferCompanies = useMemo(() => {
         const byId = new Map<number, { label: string; value: string }>();
@@ -407,6 +412,37 @@ export const BancariaInlineForms = ({
         label: cuenta.banco_nombre,
         value: String(cuenta.id),
     }));
+    const movementDestinationAccounts = useMemo(
+        () =>
+            transferDestinationAccountsWithCaja
+                .filter((cuenta) => String(cuenta.id_empresa) === movementDestinationCompanyId)
+                .sort((a, b) => a.banco_nombre.localeCompare(b.banco_nombre)),
+        [movementDestinationCompanyId, transferDestinationAccountsWithCaja],
+    );
+    const movementDestinationAccount =
+        movementDestinationAccounts.find((cuenta) => String(cuenta.id) === movementDestinationKey) ?? null;
+    const movementMappedAccountOptions = movementDestinationAccounts.map((cuenta) => ({
+        label: cuenta.banco_nombre,
+        value: String(cuenta.id),
+    }));
+    const isOtherDestination = movementDestinationCompanyId === OTHER_COMPANY_VALUE;
+    const movementDestinationAccountOptions = isOtherDestination
+        ? [{ label: "Otra Cuenta", value: OTHER_ACCOUNT_VALUE }]
+        : [{ label: "Seleccionar", value: "" }, ...movementMappedAccountOptions];
+    const movementCompanyOptions = useMemo(() => {
+        const byId = new Map<number, { label: string; value: string }>();
+        cuentasActivas.forEach((cuenta) => {
+            if (excludedTransferCompanyIds.has(cuenta.id_empresa)) return;
+            if (!byId.has(cuenta.id_empresa)) {
+                byId.set(cuenta.id_empresa, { label: cuenta.empresa_nombre, value: String(cuenta.id_empresa) });
+            }
+        });
+
+        return [
+            { label: "Otra Empresa", value: OTHER_COMPANY_VALUE },
+            ...Array.from(byId.values()).sort((a, b) => a.label.localeCompare(b.label)),
+        ];
+    }, [cuentasActivas]);
     const movementAccount = activeCompanyCajas.find((caja) => getCajaSelectionKey(caja) === movementAccountKey) ?? firstCuenta ?? null;
     const selectedCommunity = useMemo(
         () => comunidades.find((item) => String(item.id) === manualCommunityId) ?? null,
@@ -440,6 +476,8 @@ export const BancariaInlineForms = ({
     useEffect(() => {
         setTransferDestinationCompanyId("");
         setTransferDestinationKey("");
+        setMovementDestinationCompanyId(OTHER_COMPANY_VALUE);
+        setMovementDestinationKey(OTHER_ACCOUNT_VALUE);
     }, [activeCompany?.id_empresa]);
 
     useEffect(() => {
@@ -453,6 +491,24 @@ export const BancariaInlineForms = ({
             current && transferDestinationAccounts.some((cuenta) => String(cuenta.id) === current) ? current : "",
         );
     }, [transferDestinationAccounts]);
+
+    useEffect(() => {
+        setMovementDestinationCompanyId((current) =>
+            current === OTHER_COMPANY_VALUE || movementCompanyOptions.some((company) => company.value === current)
+                ? current
+                : OTHER_COMPANY_VALUE,
+        );
+    }, [movementCompanyOptions]);
+
+    useEffect(() => {
+        setMovementDestinationKey((current) =>
+            isOtherDestination
+                ? OTHER_ACCOUNT_VALUE
+                : movementDestinationAccounts.some((cuenta) => String(cuenta.id) === current)
+                  ? current
+                  : "",
+        );
+    }, [isOtherDestination, movementDestinationAccounts]);
 
     useEffect(() => {
         let ignore = false;
@@ -579,11 +635,15 @@ export const BancariaInlineForms = ({
         setIsSavingMovement(true);
 
         try {
+            const destinationCompany = movementCompanyOptions.find((option) => option.value === movementDestinationCompanyId)?.label ?? "Otra Empresa";
+            const destinationReference = `Destino: ${destinationCompany}`;
             await operacionesRpcService.postMovimientoCaja({
                 p_id_caja: movementAccount.id_caja,
                 p_tipo_origen: "OTROS",
                 p_tipo_movimiento: movementType.toUpperCase(),
-                p_detalle: movementConcept.trim(),
+                p_detalle: `${movementConcept.trim()} | ${destinationReference}`,
+                p_id_banco_tercero: null,
+                p_nombre_banco_tercero: null,
                 p_monto_ingreso: movementType === "Ingreso" ? amount : 0,
                 p_monto_salida: movementType === "Salida" ? amount : 0,
                 p_flag_contabiliza_operacion: false,
@@ -591,6 +651,8 @@ export const BancariaInlineForms = ({
                 p_nombre_usuario: userName,
             });
             await operacionesRpcService.syncRutaKpiCaja(ruta, userId);
+            setMovementDestinationCompanyId(OTHER_COMPANY_VALUE);
+            setMovementDestinationKey(OTHER_ACCOUNT_VALUE);
             setMovementAmount("");
             setMovementConcept("");
             onSaved();
@@ -703,8 +765,8 @@ export const BancariaInlineForms = ({
     );
 
     return (
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <InlineFormCard title="Mover Saldo" actions={activeCajaBadges}>
+        <>
+            {false && <InlineFormCard title="Mover Saldo" actions={activeCajaBadges}>
                 <div className="flex flex-col gap-2">
                     <div className="grid grid-cols-2 gap-4">
                         <Field label="Empresa Destino">
@@ -715,7 +777,7 @@ export const BancariaInlineForms = ({
                                 onChange={setTransferDestinationCompanyId}
                             />
                         </Field>
-                        <Field label="Cuenta Destino">
+                        <Field label="Cuenta">
                             <CompactSelect
                                 disabled={!transferDestinationCompanyId}
                                 options={[placeholderOption, ...transferDestinationAccountOptions]}
@@ -734,10 +796,11 @@ export const BancariaInlineForms = ({
                     </div>
                     <FormActions isSaving={isSavingTransfer} onCancel={() => setTransferAmount("")} onSave={handleSaveTransfer} />
                 </div>
-            </InlineFormCard>
+            </InlineFormCard>}
 
-            <InlineFormCard title="Ingreso y Salidas" actions={activeCajaBadges}>
-                <div className="flex flex-col gap-2">
+            <div className="h-full xl:col-span-2">
+                <InlineFormCard className="h-full" title="Ingreso y Salidas" actions={activeCajaBadges}>
+                    <div className="flex flex-col gap-2">
                     <div className="grid grid-cols-2 gap-4">
                         <Field label="Movimiento">
                             <SegmentedControl
@@ -750,6 +813,14 @@ export const BancariaInlineForms = ({
                                 onChange={(key) => setMovementType(key as "Ingreso" | "Salida")}
                             />
                         </Field>
+                        <Field label="Empresa">
+                            <CompactSelect
+                                options={movementCompanyOptions}
+                                selectClassName={movementDestinationCompanyId ? "text-center font-semibold" : "text-center"}
+                                value={movementDestinationCompanyId}
+                                onChange={setMovementDestinationCompanyId}
+                            />
+                        </Field>
                         <Field label="Monto">
                             <CompactInput
                                 placeholder="S/ 0.00"
@@ -757,28 +828,32 @@ export const BancariaInlineForms = ({
                                 onChange={(value) => setMovementAmount(sanitizeAmountInput(value))}
                             />
                         </Field>
-                        <Field className="col-span-2" label="Concepto">
+                        <Field label="Concepto">
                             <CompactInput value={movementConcept} onChange={setMovementConcept} />
                         </Field>
                     </div>
                     <FormActions
                         isSaving={isSavingMovement}
                         onCancel={() => {
+                            setMovementDestinationCompanyId(OTHER_COMPANY_VALUE);
+                            setMovementDestinationKey(OTHER_ACCOUNT_VALUE);
                             setMovementAmount("");
                             setMovementConcept("");
                         }}
                         onSave={handleSaveMovement}
                     />
-                </div>
-            </InlineFormCard>
-
-            {showMiniMovimientos ? (
-                <InlineFormCard title="Movimientos" actions={activeCajaBadges}>
-                    <MiniMovimientosTable activeCajaId={activeCajaId} historyDate={historyDate} refreshKey={refreshKey} />
+                    </div>
                 </InlineFormCard>
-            ) : (
-                <InlineFormCard title="Operacion Efectivizacion" actions={activeCajaBadges}>
-                    <div className="flex flex-col gap-2">
+            </div>
+
+            <div className="h-full xl:col-span-2">
+                {showMiniMovimientos ? (
+                    <InlineFormCard title="Movimientos" actions={activeCajaBadges}>
+                        <MiniMovimientosTable activeCajaId={activeCajaId} historyDate={historyDate} refreshKey={refreshKey} />
+                    </InlineFormCard>
+                ) : (
+                    <InlineFormCard title="Operacion Efectivizacion" actions={activeCajaBadges}>
+                        <div className="flex flex-col gap-2">
                         <div className="grid grid-cols-2 gap-4">
                             <Field label="Codigo Operacion">
                                 <CompactInput value={manualCode} onChange={setManualCode} />
@@ -824,9 +899,10 @@ export const BancariaInlineForms = ({
                             }}
                             onSave={handleSaveManualOperation}
                         />
-                    </div>
-                </InlineFormCard>
-            )}
-        </section>
+                        </div>
+                    </InlineFormCard>
+                )}
+            </div>
+        </>
     );
 };
