@@ -3433,7 +3433,8 @@ Objetivo:
   bancaria y regla aplicada.
 
 Regla de ITF:
-  El ITF solo aplica cuando el monto de deposito es mayor o igual a 1000.
+  El ITF se cobra por cada bloque completo de S/ 1,000.
+  Cada bloque tiene un costo fijo de S/ 0.05; el excedente no se prorratea.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_calculo_comision_banco_ingreso(
   p_flag_por_sol_comision_banco_ingreso boolean,
@@ -3452,11 +3453,7 @@ DECLARE
   v_comision numeric;
   v_resultado numeric;
 BEGIN
-  IF COALESCE(p_monto_deposito_cliente, 0) >= 1000 THEN
-    v_itf := (COALESCE(p_monto_itf_ingreso, 0) / 100) * COALESCE(p_monto_deposito_cliente, 0);
-  ELSE
-    v_itf := 0;
-  END IF;
+  v_itf := FLOOR(GREATEST(COALESCE(p_monto_deposito_cliente, 0), 0) / 1000) * 0.05;
 
   IF COALESCE(p_flag_por_sol_comision_banco_ingreso, false) THEN
     v_resultado := v_itf + COALESCE(p_comision_banco_ingreso, 0);
@@ -3488,7 +3485,8 @@ Objetivo:
   transferencia elegido por el cliente.
 
 Regla de ITF:
-  El ITF solo aplica cuando el monto de transferencia es mayor o igual a 1000.
+  El ITF se cobra por cada bloque completo de S/ 1,000.
+  Cada bloque tiene un costo fijo de S/ 0.05; el excedente no se prorratea.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_calculo_comision_banco_salida(
   p_monto_transferencia_cliente numeric,
@@ -3511,11 +3509,7 @@ DECLARE
   v_comision_inter numeric;
   v_cuenta record;
 BEGIN
-  IF COALESCE(p_monto_transferencia_cliente, 0) >= 1000 THEN
-    v_itf := (COALESCE(p_monto_itf_salida, 0) / 100) * COALESCE(p_monto_transferencia_cliente, 0);
-  ELSE
-    v_itf := 0;
-  END IF;
+  v_itf := FLOOR(GREATEST(COALESCE(p_monto_transferencia_cliente, 0), 0) / 1000) * 0.05;
 
   v_comision_transf := COALESCE(p_comision_transf_banco_salida, 0);
   v_comision_inter := COALESCE(p_comision_transf_inter_banco_salida, 0);
@@ -5371,6 +5365,7 @@ WHERE p.proname IN (
   'f_get_tb_operacion_comision_efectivizacion_cliente',
   'f_get_tb_operacion_calculo_comision_servicio',
   'f_get_tb_operacion_calculo_comision_banco_ingreso',
+  'f_get_tb_operacion_calculo_comision_banco_salida',
   'f_get_tb_operacion_proceso_calculo',
   'f_patch_tb_operacion_proceso_base',
   'f_patch_tb_operacion_proceso_comision_extra',

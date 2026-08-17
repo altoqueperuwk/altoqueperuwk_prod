@@ -144,7 +144,7 @@ const renderSection = (title: string, section?: SeccionData, showGanancia?: bool
             )}
             {Boolean(retenidos?.length) && (
                 <>
-                    <SubHeader title="Retenidos (Pendientes siguiente día)" count={retenidos!.length} total={formatMoney(sumMonto(retenidos, "monto_ingreso"))} />
+                    <SubHeader title="Retenidos del cierre" count={retenidos!.length} total={formatMoney(sumMonto(retenidos, "monto_ingreso"))} />
                     <Table
                         headers={["Código", "DNI", "Fecha", "Monto Retenido", "Gasto"]}
                         rows={renderRetenidoRows(retenidos)}

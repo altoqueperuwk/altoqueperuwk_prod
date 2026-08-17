@@ -247,12 +247,23 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         const reportFileName = getReportFileName(data).replace(/\.pdf$/i, ".xlsx");
         const kpi = (data.kpi ?? {}) as Record<string, number>;
         const efectivizacion = ((data.efectivizacion as Record<string, unknown>[]) ?? []);
+        const efectivizacionPendientes = ((data.efectivizacion_pendientes as Record<string, unknown>[]) ?? []);
         const derivados = ((data.derivados as Record<string, unknown>[]) ?? []);
+        const derivadosPendientes = ((data.derivados_pendientes as Record<string, unknown>[]) ?? []);
         const pagoDeuda = ((data.pago_deuda as Record<string, unknown>[]) ?? []);
+        const pagoDeudaPendientes = ((data.pago_deuda_pendientes as Record<string, unknown>[]) ?? []);
         const pos = ((data.pos as Record<string, unknown>[]) ?? []);
+        const posPendientes = ((data.pos_pendientes as Record<string, unknown>[]) ?? []);
         const movimientos = ((data.movimientos as Record<string, unknown>[]) ?? []);
         const retenciones = ((data.retenciones as Record<string, unknown>[]) ?? []);
-        const totalRows = efectivizacion.length + derivados.length + pagoDeuda.length + pos.length + movimientos.length + retenciones.length;
+        const hasRetentionSplit = data.retenciones_pagadas !== undefined || data.retenciones_pendientes !== undefined;
+        const retencionesPagadas = hasRetentionSplit
+            ? ((data.retenciones_pagadas as Record<string, unknown>[]) ?? [])
+            : retenciones.filter((row) => String(row.estado ?? row.nombre_estado ?? "").trim().toLowerCase() === "pagado");
+        const retencionesPendientes = hasRetentionSplit
+            ? ((data.retenciones_pendientes as Record<string, unknown>[]) ?? [])
+            : retenciones.filter((row) => String(row.estado ?? row.nombre_estado ?? "").trim().toLowerCase() !== "pagado");
+        const totalRows = efectivizacion.length + efectivizacionPendientes.length + derivados.length + derivadosPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length + movimientos.length + retencionesPagadas.length + retencionesPendientes.length;
 
         worksheet.columns = [
             { width: 13 }, { width: 12 }, { width: 12 }, { width: 13 },
@@ -404,9 +415,49 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         );
 
         addSection(
+            "Efectivizacion - Pendientes",
+            ["Facturacion", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"],
+            efectivizacionPendientes.map((row) => [
+                text(row.facturacion ?? row.tipo_facturacion),
+                `${text(row.operacion ?? row.codigo_operacion_deposito_cliente)}${row.derivada_congelada ? "\nDerivada" : ""}`,
+                text(row.dni ?? row.dni_cliente),
+                text(row.comunidad ?? row.nombre_comunidad),
+                money(row.deposito ?? row.monto),
+                percent(row.porcentaje_comision ?? row.comision_servicio),
+                money(row.soles_comision ?? row.comision),
+                money(row.gastos),
+                money(row.ganancia),
+                money(row.transferencia),
+                text(row.estado ?? row.nombre_estado),
+                date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro),
+            ]),
+            [4, 6, 7, 8, 9],
+        );
+
+        addSection(
             "Derivados",
             ["Facturacion", "Derivo", "Cod. Op.", "DNI", "Comunidad", "Cuenta Cliente", "Monto", "% Comision", "S/ Comision", "Transferencia", "Estado", "Fecha"],
             derivados.map((row) => [
+                text(row.facturacion ?? row.tipo_facturacion),
+                row.derivo ? getRutaLabel(String(row.derivo) as never) : "-",
+                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
+                text(row.dni ?? row.dni_cliente),
+                text(row.comunidad),
+                text(row.cuenta_cliente),
+                money(row.monto),
+                percent(row.porcentaje_comision),
+                money(row.soles_comision),
+                money(row.transferencia),
+                text(row.estado ?? row.nombre_estado),
+                date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro),
+            ]),
+            [9],
+        );
+
+        addSection(
+            "Derivados - Pendientes",
+            ["Facturacion", "Derivo", "Cod. Op.", "DNI", "Comunidad", "Cuenta Cliente", "Monto", "% Comision", "S/ Comision", "Transferencia", "Estado", "Fecha"],
+            derivadosPendientes.map((row) => [
                 text(row.facturacion ?? row.tipo_facturacion),
                 row.derivo ? getRutaLabel(String(row.derivo) as never) : "-",
                 text(row.operacion ?? row.codigo_operacion_deposito_cliente),
@@ -444,9 +495,47 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         );
 
         addSection(
+            "Pago de Deuda - Pendientes",
+            ["Operacion", "DNI", "Empresa", "Cuenta", "Transferencia", "Empresa", "Cuenta", "Deposito", "% Comision", "S/ Comision", "Estado", "Fecha"],
+            pagoDeudaPendientes.map((row) => [
+                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
+                text(row.dni ?? row.dni_cliente),
+                text(row.empresa_salida ?? row.nombre_empresa_salida),
+                text(row.cuenta_salida ?? row.cuenta),
+                money(row.transferencia ?? row.monto_transferencia),
+                text(row.empresa_ingreso ?? row.nombre_empresa_ingreso),
+                text(row.cuenta_ingreso),
+                money(row.deposito ?? row.monto_devolucion),
+                percent(row.porcentaje_comision ?? row.comision_servicio),
+                money(row.soles_comision),
+                text(row.estado ?? row.nombre_estado),
+                date(row.fecha ?? row.fecha_registro),
+            ]),
+            [4, 7],
+        );
+
+        addSection(
             "POS",
             ["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"],
             pos.map((row) => [
+                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
+                text(row.dni ?? row.dni_cliente),
+                money(row.deposito),
+                percent(row.porcentaje_comision),
+                money(row.soles_comision),
+                text(row.empresa),
+                text(row.cuenta),
+                money(row.transferencia),
+                text(row.estado ?? row.nombre_estado),
+                date(row.fecha ?? row.fecha_registro),
+            ]),
+            [7],
+        );
+
+        addSection(
+            "POS - Pendientes",
+            ["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"],
+            posPendientes.map((row) => [
                 text(row.operacion ?? row.codigo_operacion_deposito_cliente),
                 text(row.dni ?? row.dni_cliente),
                 money(row.deposito),
@@ -499,21 +588,19 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             [5, 6],
         );
 
-        addSection(
-            "Recaudacion Retenida",
-            ["Codigo", "DNI", "Monto", "Fecha Deposito", "Fecha Corte", "Fecha Abono", "Motivo", "Liberable"],
-            retenciones.map((row) => [
-                text(row.codigo_operacion_deposito_cliente),
-                text(row.dni_cliente),
-                money(row.monto),
-                date(row.fecha_deposito_cliente),
-                date(row.fecha_corte_recaudacion),
-                date(row.fecha_liberacion_abono),
-                text(row.motivo_retencion),
-                row.flag_liberable_abono ? "Si" : "No",
-            ]),
-            [2],
-        );
+        const retentionRows = (rows: Record<string, unknown>[]) => rows.map((row) => [
+            text(row.codigo_operacion_deposito_cliente),
+            text(row.dni_cliente),
+            money(row.monto),
+            text(row.estado ?? row.nombre_estado),
+            date(row.fecha_deposito_cliente),
+            date(row.fecha_corte_recaudacion),
+            date(row.fecha_liberacion_abono),
+            text(row.motivo_retencion),
+            "Si",
+        ]);
+        addSection("Recaudacion Retenida - Pagadas", ["Codigo", "DNI", "Monto", "Estado", "Fecha Deposito", "Fecha Corte", "Fecha Abono", "Motivo", "Informativo"], retentionRows(retencionesPagadas), [2]);
+        addSection("Recaudacion Retenida - Pendientes", ["Codigo", "DNI", "Monto", "Estado", "Fecha Deposito", "Fecha Corte", "Fecha Abono", "Motivo", "Informativo"], retentionRows(retencionesPendientes), [2]);
 
         if (!totalRows) {
             worksheet.mergeCells(nextRow, 1, nextRow, 12);

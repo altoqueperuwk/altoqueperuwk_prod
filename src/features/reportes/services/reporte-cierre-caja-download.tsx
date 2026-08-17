@@ -12,7 +12,6 @@ const date = (value: unknown) => value ? new Date(String(value)).toLocaleDateStr
 const onlyRequiredSections = (data: ReporteCierreCajaData): ReporteCierreCajaData => ({
     ...data,
     movimientos: [],
-    retenciones: [],
 });
 
 const normalizePart = (value: unknown, fallback: string) => String(value || fallback)
@@ -89,9 +88,21 @@ export const buildCierreExcel = async (data: ReporteCierreCajaData) => {
     const colors = { navySoft: "2D3F52", paper: "F4F6F9", line: "E5E7EB", row: "F8FAFC", white: "FFFFFF", green: "10B981", coral: "F0654B" };
     const kpi = (data.kpi ?? {}) as Record<string, number>;
     const efectivizacion = (data.efectivizacion as Record<string, unknown>[] ?? []);
+    const efectivizacionPendientes = (data.efectivizacion_pendientes as Record<string, unknown>[] ?? []);
     const derivados = (data.derivados as Record<string, unknown>[] ?? []);
+    const derivadosPendientes = (data.derivados_pendientes as Record<string, unknown>[] ?? []);
     const pagoDeuda = (data.pago_deuda as Record<string, unknown>[] ?? []);
+    const pagoDeudaPendientes = (data.pago_deuda_pendientes as Record<string, unknown>[] ?? []);
     const pos = (data.pos as Record<string, unknown>[] ?? []);
+    const posPendientes = (data.pos_pendientes as Record<string, unknown>[] ?? []);
+    const retenciones = (data.retenciones as Record<string, unknown>[] ?? []);
+    const hasRetentionSplit = data.retenciones_pagadas !== undefined || data.retenciones_pendientes !== undefined;
+    const retencionesPagadas = hasRetentionSplit
+        ? (data.retenciones_pagadas as Record<string, unknown>[] ?? [])
+        : retenciones.filter((row) => String(row.estado ?? row.nombre_estado ?? "").trim().toLowerCase() === "pagado");
+    const retencionesPendientes = hasRetentionSplit
+        ? (data.retenciones_pendientes as Record<string, unknown>[] ?? [])
+        : retenciones.filter((row) => String(row.estado ?? row.nombre_estado ?? "").trim().toLowerCase() !== "pagado");
     worksheet.columns = Array.from({ length: 13 }, () => ({ width: 14 }));
     worksheet.views = [{ showGridLines: false }];
 
@@ -142,9 +153,26 @@ export const buildCierreExcel = async (data: ReporteCierreCajaData) => {
     };
 
     addSection("Efectivizacion", ["Facturacion", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"], efectivizacion.map((row) => [text(row.facturacion ?? row.tipo_facturacion), `${text(row.operacion ?? row.codigo_operacion_deposito_cliente)}${row.derivada_congelada ? "\nDerivada" : ""}`, text(row.dni ?? row.dni_cliente), text(row.comunidad ?? row.nombre_comunidad), money(row.deposito ?? row.monto), percent(row.porcentaje_comision ?? row.comision_servicio), money(row.soles_comision ?? row.comision), money(row.gastos), money(row.ganancia), money(row.transferencia), text(row.estado ?? row.nombre_estado), date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro)]), [4, 6, 7, 8, 9]);
+    addSection("Efectivizacion - Pendientes", ["Facturacion", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"], efectivizacionPendientes.map((row) => [text(row.facturacion ?? row.tipo_facturacion), `${text(row.operacion ?? row.codigo_operacion_deposito_cliente)}${row.derivada_congelada ? "\nDerivada" : ""}`, text(row.dni ?? row.dni_cliente), text(row.comunidad ?? row.nombre_comunidad), money(row.deposito ?? row.monto), percent(row.porcentaje_comision ?? row.comision_servicio), money(row.soles_comision ?? row.comision), money(row.gastos), money(row.ganancia), money(row.transferencia), text(row.estado ?? row.nombre_estado), date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro)]), [4, 6, 7, 8, 9]);
     addSection("Derivados", ["Facturacion", "Derivo", "Cod. Op.", "DNI", "Comunidad", "Cuenta Cliente", "Monto", "% Comision", "S/ Comision", "Transferencia", "Estado", "Fecha"], derivados.map((row) => [text(row.facturacion ?? row.tipo_facturacion), text(row.derivo), text(row.operacion ?? row.codigo_operacion_deposito_cliente), text(row.dni ?? row.dni_cliente), text(row.comunidad), text(row.cuenta_cliente), money(row.monto), percent(row.porcentaje_comision), money(row.soles_comision), money(row.transferencia), text(row.estado ?? row.nombre_estado), date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro)]), [9]);
+    addSection("Derivados - Pendientes", ["Facturacion", "Derivo", "Cod. Op.", "DNI", "Comunidad", "Cuenta Cliente", "Monto", "% Comision", "S/ Comision", "Transferencia", "Estado", "Fecha"], derivadosPendientes.map((row) => [text(row.facturacion ?? row.tipo_facturacion), text(row.derivo), text(row.operacion ?? row.codigo_operacion_deposito_cliente), text(row.dni ?? row.dni_cliente), text(row.comunidad), text(row.cuenta_cliente), money(row.monto), percent(row.porcentaje_comision), money(row.soles_comision), money(row.transferencia), text(row.estado ?? row.nombre_estado), date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro)]), [9]);
     addSection("Pago Deuda", ["Operacion", "DNI", "Empresa", "Cuenta", "Transferencia", "Empresa", "Cuenta", "Deposito", "% Comision", "S/ Comision", "Estado", "Fecha"], pagoDeuda.map((row) => [text(row.operacion ?? row.codigo_operacion_deposito_cliente), text(row.dni ?? row.dni_cliente), text(row.empresa_salida ?? row.nombre_empresa_salida), text(row.cuenta_salida ?? row.cuenta), money(row.transferencia ?? row.monto_transferencia), text(row.empresa_ingreso ?? row.nombre_empresa_ingreso), text(row.cuenta_ingreso), money(row.deposito ?? row.monto_devolucion), percent(row.porcentaje_comision ?? row.comision_servicio), money(row.soles_comision), text(row.estado ?? row.nombre_estado), date(row.fecha ?? row.fecha_registro)]), [4, 7]);
+    addSection("Pago Deuda - Pendientes", ["Operacion", "DNI", "Empresa", "Cuenta", "Transferencia", "Empresa", "Cuenta", "Deposito", "% Comision", "S/ Comision", "Estado", "Fecha"], pagoDeudaPendientes.map((row) => [text(row.operacion ?? row.codigo_operacion_deposito_cliente), text(row.dni ?? row.dni_cliente), text(row.empresa_salida ?? row.nombre_empresa_salida), text(row.cuenta_salida ?? row.cuenta), money(row.transferencia ?? row.monto_transferencia), text(row.empresa_ingreso ?? row.nombre_empresa_ingreso), text(row.cuenta_ingreso), money(row.deposito ?? row.monto_devolucion), percent(row.porcentaje_comision ?? row.comision_servicio), money(row.soles_comision), text(row.estado ?? row.nombre_estado), date(row.fecha ?? row.fecha_registro)]), [4, 7]);
     addSection("POS", ["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"], pos.map((row) => [text(row.operacion ?? row.codigo_operacion_deposito_cliente), text(row.dni ?? row.dni_cliente), money(row.deposito), percent(row.porcentaje_comision), money(row.soles_comision), text(row.empresa), text(row.cuenta), money(row.transferencia), text(row.estado ?? row.nombre_estado), date(row.fecha ?? row.fecha_registro)]), [7]);
+    addSection("POS - Pendientes", ["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"], posPendientes.map((row) => [text(row.operacion ?? row.codigo_operacion_deposito_cliente), text(row.dni ?? row.dni_cliente), money(row.deposito), percent(row.porcentaje_comision), money(row.soles_comision), text(row.empresa), text(row.cuenta), money(row.transferencia), text(row.estado ?? row.nombre_estado), date(row.fecha ?? row.fecha_registro)]), [7]);
+    const retentionRows = (rows: Record<string, unknown>[]) => rows.map((row) => [
+        text(row.codigo_operacion_deposito_cliente),
+        text(row.dni_cliente),
+        money(row.monto),
+        text(row.estado ?? row.nombre_estado),
+        date(row.fecha_deposito_cliente),
+        date(row.fecha_corte_recaudacion),
+        date(row.fecha_liberacion_abono),
+        text(row.motivo_retencion),
+        "Si",
+    ]);
+    addSection("Recaudacion Retenida - Pagadas", ["Codigo", "DNI", "Monto", "Estado", "Fecha Deposito", "Fecha Corte", "Fecha Abono", "Motivo", "Informativo"], retentionRows(retencionesPagadas), [2]);
+    addSection("Recaudacion Retenida - Pendientes", ["Codigo", "DNI", "Monto", "Estado", "Fecha Deposito", "Fecha Corte", "Fecha Abono", "Motivo", "Informativo"], retentionRows(retencionesPendientes), [2]);
     merge(nextRow, 1, 13, `${data.empresa ?? "Empresa"} - Altoque Peru WK - Reporte de Cierre de Caja`, { size: 8, color: "64748B", bg: colors.paper });
     const buffer = await workbook.xlsx.writeBuffer();
     return new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });

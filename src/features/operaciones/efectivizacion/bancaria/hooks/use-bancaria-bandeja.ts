@@ -132,7 +132,7 @@ export const tabContracts: Record<BancariaTab, { filters: string[]; actions: str
     },
     Retenidos: {
         filters: [],
-        actions: ["Forzar Abono"],
+        actions: [],
     },
     Eliminados: {
         filters: [],
