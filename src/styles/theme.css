@@ -139,6 +139,8 @@
     --color-concept-ganancia: #63C985;
     --color-concept-salida: #D08070;
     --color-concept-transferencia: #687A3A;
+    --color-transfer-summary-amount: #E5E7EB;
+    --color-transfer-summary-amount-fg: #000000;
     --color-concept-zero: #4A4A52;
 
     /* LIGHT MODE VARIABLES */
@@ -509,6 +511,8 @@
         --color-alpha-white: rgb(12 14 18);
         --color-alpha-black: rgb(255 255 255);
         --color-concept-transferencia: #B8C96A;
+        --color-transfer-summary-amount: #E5E7EB;
+        --color-transfer-summary-amount-fg: #000000;
 
         /* UTILITY COLORS */
 
