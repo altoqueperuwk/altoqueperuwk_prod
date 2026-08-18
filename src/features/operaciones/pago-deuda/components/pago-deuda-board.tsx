@@ -90,7 +90,7 @@ interface ManualCommissionState {
 }
 
 const filters = ["Todos", "Pendiente Transferencia", "Pendiente Devolución", "Pendiente Comisión"];
-const actions = ["Confirmar Comision"];
+const actions = ["Confirmar Comision", "Eliminar Solicitud"];
 const allowedBankNames = new Set(["BCP", "BBVA", "INTERBANK", "BANBIF", "SCOTIABANK"]);
 
 const sanitizeWhatsapp = (value: string) => value.replace(/\D/g, "").slice(0, 9);
@@ -277,7 +277,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     const [selectedCuentaComisionIds, setSelectedCuentaComisionIds] = useState<Record<number, number>>({});
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [savingCuentaIds, setSavingCuentaIds] = useState<number[]>([]);
-    const [deletingSolicitud, setDeletingSolicitud] = useState<OperacionProceso | null>(null);
+    const [deletingSolicitudes, setDeletingSolicitudes] = useState<OperacionProceso[]>([]);
     const [isDeletingSolicitud, setIsDeletingSolicitud] = useState(false);
     const [isInitialLoading, setIsInitialLoading] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -576,22 +576,39 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
         void persistComisionCuenta(row, cuenta);
     };
 
-    const handleDeleteSolicitud = async () => {
-        if (!deletingSolicitud) return;
+    const handleDeleteSolicitudes = async () => {
+        if (!deletingSolicitudes.length) return;
 
         setIsDeletingSolicitud(true);
+        const deletedIds: number[] = [];
         try {
-            await pagoDeudaService.deleteSolicitud({
-                p_id_operacion: deletingSolicitud.id,
-                p_id_usuario: userId,
-            });
-            setSolicitudes((current) => current.filter((row) => row.id !== deletingSolicitud.id));
-            setSelectedIds((current) => current.filter((id) => id !== deletingSolicitud.id));
-            setDeletingSolicitud(null);
-            addToast("success", "Solicitud eliminada.");
+            for (const row of deletingSolicitudes) {
+                await pagoDeudaService.deleteSolicitud({
+                    p_id_operacion: row.id,
+                    p_id_usuario: userId,
+                });
+                deletedIds.push(row.id);
+                setSolicitudes((current) => current.filter((item) => item.id !== row.id));
+                setSelectedIds((current) => current.filter((id) => id !== row.id));
+            }
+
+            setDeletingSolicitudes([]);
+            addToast(
+                "success",
+                deletedIds.length === 1
+                    ? "Solicitud eliminada."
+                    : `Solicitudes eliminadas: ${deletedIds.length}`,
+            );
             onChanged?.();
         } catch (err) {
-            addToast("error", err instanceof Error ? err.message : "No se pudo eliminar la solicitud.");
+            setDeletingSolicitudes((current) => current.filter((row) => !deletedIds.includes(row.id)));
+            if (deletedIds.length) onChanged?.();
+            addToast(
+                "error",
+                deletedIds.length
+                    ? `Se eliminaron ${deletedIds.length} solicitud(es). ${err instanceof Error ? err.message : "No se pudo eliminar el resto."}`
+                    : err instanceof Error ? err.message : "No se pudo eliminar la solicitud.",
+            );
         } finally {
             setIsDeletingSolicitud(false);
         }
@@ -644,6 +661,22 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
 
     const handleAction = (action: string) => {
         if (action === "Confirmar Comision") void handleConfirmarComision();
+        if (action === "Eliminar Solicitud") {
+            const selectedRows = solicitudes.filter((row) => selectedIds.includes(row.id));
+            const eligibleRows = selectedRows.filter(canEditSolicitud);
+
+            if (!selectedRows.length) {
+                addToast("error", "Selecciona al menos una solicitud.");
+                return;
+            }
+
+            if (eligibleRows.length !== selectedRows.length) {
+                addToast("error", "Solo se pueden eliminar solicitudes que estén en el paso 1.");
+                return;
+            }
+
+            setDeletingSolicitudes(eligibleRows);
+        }
     };
 
     const canEditSolicitud = (row: OperacionProceso) => getPagoDeudaEstadoVisual(row).action === "transferencia";
@@ -873,6 +906,12 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                 (row) => selectedIds.includes(row.id) && hasDevolucionConfirmada(row) && !Boolean(row.flag_comision_registrada),
             );
         }
+        if (action === "Eliminar Solicitud") {
+            const selectedRows = solicitudes.filter((row) => selectedIds.includes(row.id));
+            return selectedRows.length !== selectedIds.length
+                || !selectedRows.length
+                || selectedRows.some((row) => !canEditSolicitud(row));
+        }
         return false;
     };
 
@@ -1017,7 +1056,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
                             tooltip={canEdit ? "Eliminar Solicitud" : "La solicitud no puede eliminarse en su estado actual"}
                             icon={Trash01}
                             isDisabled={!canEdit}
-                            onClick={() => setDeletingSolicitud(row)}
+                            onClick={() => setDeletingSolicitudes([row])}
                         />
                         {canEditExtra && (
                             <Dropdown.Root>
@@ -1230,12 +1269,16 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             )}
             <OperacionConfirmModal
                 confirmLabel="Eliminar"
-                description="Se eliminara la solicitud y su operacion bancaria. Esta accion solo es valida en paso 1."
+                description={
+                    deletingSolicitudes.length === 1
+                        ? "Se eliminara la solicitud y su operacion bancaria. Esta accion solo es valida en paso 1."
+                        : `Se eliminaran ${deletingSolicitudes.length} solicitudes y sus operaciones bancarias. Esta accion solo es valida en paso 1.`
+                }
                 intent="destructive"
                 isLoading={isDeletingSolicitud}
-                isOpen={Boolean(deletingSolicitud)}
-                onClose={() => setDeletingSolicitud(null)}
-                onConfirm={() => void handleDeleteSolicitud()}
+                isOpen={deletingSolicitudes.length > 0}
+                onClose={() => setDeletingSolicitudes([])}
+                onConfirm={() => void handleDeleteSolicitudes()}
                 title="Eliminar Solicitud"
             />
         </motion.section>

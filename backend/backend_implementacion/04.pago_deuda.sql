@@ -1840,11 +1840,14 @@ BEGIN
   LIMIT 1
   FOR UPDATE;
 
+  -- La solicitud puede quedar huerfana si su operacion BANCO fue eliminada
+  -- previamente. En ese caso se permite eliminar la raiz mientras siga
+  -- pendiente; si la hija existe, se conserva la validacion original.
   IF v_child.id IS NULL THEN
-    RETURN jsonb_build_object('error', 'Operacion bancaria de Pago Deuda no encontrada.');
-  END IF;
-
-  IF UPPER(COALESCE(v_child.nombre_estado, '')) <> 'PENDIENTE' THEN
+    IF UPPER(COALESCE(v_root.nombre_estado, '')) <> 'PENDIENTE' THEN
+      RETURN jsonb_build_object('error', 'Solo se puede eliminar una solicitud en paso 1.');
+    END IF;
+  ELSIF UPPER(COALESCE(v_child.nombre_estado, '')) <> 'PENDIENTE' THEN
     RETURN jsonb_build_object('error', 'Solo se puede eliminar una solicitud en paso 1.');
   END IF;
 
@@ -1875,11 +1878,13 @@ BEGIN
     RETURN jsonb_build_object('error', 'No se puede eliminar una solicitud con movimientos de caja.');
   END IF;
 
-  v_ruta_destino := v_child.ruta_destino;
+  v_ruta_destino := COALESCE(v_child.ruta_destino, v_root.ruta_destino);
 
-  DELETE FROM public.tb_operacion_proceso
-  WHERE id = v_child.id;
-  GET DIAGNOSTICS v_deleted_child = ROW_COUNT;
+  IF v_child.id IS NOT NULL THEN
+    DELETE FROM public.tb_operacion_proceso
+    WHERE id = v_child.id;
+    GET DIAGNOSTICS v_deleted_child = ROW_COUNT;
+  END IF;
 
   DELETE FROM public.tb_operacion_proceso
   WHERE id = v_root.id;
@@ -3227,6 +3232,7 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE p.proname IN (
   'f_get_tb_pago_deuda',
+  'f_delete_tb_pago_deuda_solicitud',
   'f_patch_tb_pago_deuda_derivar_banco',
   'f_get_tb_pago_deuda_bandeja',
   'f_get_tb_pago_deuda_match',

@@ -316,9 +316,20 @@ export const useBancariaBandeja = ({
                 const isDerived = row.flag_derivado === true && String(row.ruta_destino ?? "").toLowerCase() === currentRoute;
                 const isPos = row.ruta_origen === "pos" && String(row.ruta_destino ?? "").toLowerCase() === currentRoute;
                 const isFrozenOrigin = row.flag_derivado === true && String(row.ruta_origen ?? "").toLowerCase() === currentRoute;
-                const companyId = isFrozenOrigin ? (row.id_empresa_salida_origen ?? row.id_empresa_salida) : row.id_empresa_salida;
-                const accountId = isFrozenOrigin ? (row.id_empresa_cuenta_salida_origen ?? row.id_empresa_cuenta_salida) : row.id_empresa_cuenta_salida;
-                return (isEffect || isDerived || isPos || isFrozenOrigin) && row.id_estado !== 10 && (!activeCompanyId || companyId === activeCompanyId) && (!activeAccountId || accountId === activeAccountId);
+                const matchesDestination =
+                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
+                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId);
+                const matchesFrozenOrigin =
+                    (!activeCompanyId || (row.id_empresa_salida_origen ?? row.id_empresa_salida) === activeCompanyId) &&
+                    (!activeAccountId || (row.id_empresa_cuenta_salida_origen ?? row.id_empresa_cuenta_salida) === activeAccountId);
+
+                return (
+                    row.id_estado !== 10 &&
+                    ((isEffect && matchesDestination) ||
+                        (isDerived && (matchesDestination || (isFrozenOrigin && matchesFrozenOrigin))) ||
+                        (isPos && matchesDestination) ||
+                        (isFrozenOrigin && matchesFrozenOrigin))
+                );
             }
 
             if (tab === "Efectivizacion") {

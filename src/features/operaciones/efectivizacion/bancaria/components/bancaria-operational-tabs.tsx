@@ -483,7 +483,7 @@ export const BancariaOperationalTabs = ({
         () => {
             if (requestedTabs) return requestedTabs;
             if (isActiveDigitalWallet) return [] as BancariaTab[];
-            if (ruta === "safetypay") return ["Movimientos", "Eliminados", "Efectivizacion", "Retenidos"] as BancariaTab[];
+            if (ruta === "safetypay") return ["Unificado", "Movimientos", "Eliminados", "Efectivizacion", "Retenidos"] as BancariaTab[];
             const hasRetencion = retentionRoutes.has(ruta) ||
                 companies.some((c) => c.flag_retencion_cuenta);
             const available = hasRetencion ? tabs : tabs.filter((tab) => tab !== "Retenidos");
