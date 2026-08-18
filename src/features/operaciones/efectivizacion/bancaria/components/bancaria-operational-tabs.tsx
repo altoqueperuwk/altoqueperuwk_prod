@@ -44,6 +44,7 @@ import { BancariaActionModal, type BancariaBankDestination } from "@/features/op
 import { BancariaEfectivizacionTable } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-efectivizacion-table";
 import { BancariaExcelRollbackModal } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-excel-rollback-modal";
 import { type BancariaTab, type MovimientoMerged, tabContracts, useBancariaBandeja } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
+import { useWindowFocusRefresh } from "@/features/operaciones/efectivizacion/shared/hooks/use-window-focus-refresh";
 import {
     useBancariaEmpresaBadges,
     useBancariaTabBadges,
@@ -435,6 +436,7 @@ export const BancariaOperationalTabs = ({
 }: BancariaOperationalTabsProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
+    const focusRefreshKey = useWindowFocusRefresh();
     const [activeTab, setActiveTab] = useState<BancariaTab>(() => requestedTabs?.[0] ?? "Unificado");
     const [activeFilter, setActiveFilter] = useState("Todos");
     const [actionRefreshKey, setActionRefreshKey] = useState(0);
@@ -674,7 +676,7 @@ export const BancariaOperationalTabs = ({
         dni,
         historyDate,
         enabled,
-        refreshKey: refreshKey + actionRefreshKey,
+        refreshKey: refreshKey + actionRefreshKey + focusRefreshKey,
         ruta,
         tab: currentTab,
     });
@@ -689,7 +691,7 @@ export const BancariaOperationalTabs = ({
         dni,
         enabled: enabled && Boolean(secondaryRuta),
         historyDate,
-        refreshKey: refreshKey + actionRefreshKey,
+        refreshKey: refreshKey + actionRefreshKey + focusRefreshKey,
         ruta: secondaryRuta ?? ruta,
         tab: currentTab,
     });
@@ -704,7 +706,8 @@ export const BancariaOperationalTabs = ({
         return Array.from(byId.values());
     }, [primaryBandeja.movimientos, secondaryBandeja.movimientos]);
     const error = primaryBandeja.error ?? secondaryBandeja.error;
-    const isLoading = primaryBandeja.isLoading || secondaryBandeja.isLoading;
+    const isInitialLoading = primaryBandeja.isInitialLoading || secondaryBandeja.isInitialLoading;
+    const isRefreshing = primaryBandeja.isRefreshing || secondaryBandeja.isRefreshing;
     const refreshBandeja = useCallback(() => {
         primaryBandeja.refreshBandeja();
         secondaryBandeja.refreshBandeja();
@@ -1431,7 +1434,17 @@ export const BancariaOperationalTabs = ({
 
             const updatedRows: OperacionProceso[] = [];
 
-            if (action === "Pagar" && currentTab === "Efectivizacion" && estadoPagado) {
+            const canPayEfectivizacionBatch =
+                action === "Pagar" &&
+                estadoPagado &&
+                (currentTab === "Efectivizacion" ||
+                    (currentTab === "Unificado" &&
+                        eligibleIds.every((id) => {
+                            const row = operaciones.find((item) => item.id === id);
+                            return row ? getUnifiedOperationFlow(row) === "Efectivizacion" : false;
+                        })));
+
+            if (canPayEfectivizacionBatch) {
                 const result = await operacionesRpcService.patchOperacionPagadoLote({
                     p_ids_operaciones: eligibleIds,
                     p_id_estado: estadoPagado.id,
@@ -1896,7 +1909,7 @@ export const BancariaOperationalTabs = ({
             )}
 
             {currentTab === "Movimientos" ? (
-                <OperationTable columns={currentMovementColumns} data={movimientos} emptyText={emptyText} isLoading={isLoading} />
+                <OperationTable columns={currentMovementColumns} data={movimientos} emptyText={emptyText} isLoading={isInitialLoading} isRefreshing={isRefreshing} />
             ) : currentTab === "Efectivizacion" || currentTab === "Unificado" || currentTab === "Derivados" || currentTab === "POS" || currentTab === "Eliminados" ? (
             <BancariaEfectivizacionTable
                     activeAccountId={activeAccountId}
@@ -1906,7 +1919,8 @@ export const BancariaOperationalTabs = ({
                     emptyText={emptyText}
                     estadoPagado={estadoPagado}
                     estadoPendiente={estadoPendiente}
-                    isLoading={isLoading}
+                    isLoading={isInitialLoading}
+                    isRefreshing={isRefreshing}
                     mode={currentTab === "Derivados" ? "derivaciones" : currentTab === "POS" ? "pos" : currentTab === "Unificado" ? "unificado" : currentTab === "Eliminados" ? "eliminados" : "efectivizacion"}
                     flow={currentTab === "Derivados" ? "Derivado" : currentTab === "POS" ? "POS" : "Efectivizacion"}
                     presentation={presentation}
@@ -1938,7 +1952,8 @@ export const BancariaOperationalTabs = ({
                     columns={currentOperationColumns}
                     data={operaciones}
                     emptyText={emptyText}
-                    isLoading={isLoading}
+                    isLoading={isInitialLoading}
+                    isRefreshing={isRefreshing}
                     selectedIds={selectedIds}
                     onToggleRow={canUseProcesoActions ? handleToggleRow : undefined}
                     renderActions={

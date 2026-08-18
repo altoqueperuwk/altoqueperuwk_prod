@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { ChevronLeft, ChevronRight, Coins01, Copy01, CreditCardCheck, Edit03, Percent01, RefreshCcw02, Send01, Trash01 } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
@@ -69,6 +69,7 @@ interface BancariaEfectivizacionTableProps {
     estadoPagado: EstadoRef | null;
     estadoPendiente: EstadoRef | null;
     isLoading?: boolean;
+    isRefreshing?: boolean;
     mode?: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados";
     flow?: "Efectivizacion" | "POS" | "Derivado";
     presentation?: "operational" | "plain";
@@ -198,6 +199,7 @@ export const BancariaEfectivizacionTable = ({
     estadoPagado,
     estadoPendiente,
     isLoading = false,
+    isRefreshing = false,
     mode = "efectivizacion",
     flow,
     presentation = "operational",
@@ -319,13 +321,13 @@ export const BancariaEfectivizacionTable = ({
     );
 
     useEffect(() => {
-        if ((mode !== "efectivizacion" && mode !== "unificado") || ruta === "safetypay" || !paginatedRows.length) {
+        if ((mode !== "efectivizacion" && mode !== "unificado") || ruta === "safetypay" || !rows.length) {
             setPagoDeudaMatches({});
             return;
         }
 
         let ignore = false;
-        const matchRows = paginatedRows.filter((row) =>
+        const matchRows = rows.filter((row) =>
             mode !== "unificado" || (!row.flag_derivado && String(row.ruta_origen ?? "").toLowerCase() !== "pos"),
         );
 
@@ -334,16 +336,27 @@ export const BancariaEfectivizacionTable = ({
             return;
         }
 
-        Promise.all(
-            matchRows.map(async (row) => {
-                if (isPagado(row) || row.tipo_flujo_pago_deuda) return [row.id, []] as const;
-                const matches = await pagoDeudaService.getMatches({ p_id_operacion_efectivizacion: row.id });
-                return [row.id, matches ?? []] as const;
-            }),
-        )
+        const matchesById: Record<number, OperacionProceso[]> = Object.fromEntries(
+            matchRows.map((row) => [row.id, [] as OperacionProceso[]]),
+        );
+        const candidateRows = matchRows.filter((row) => !isPagado(row) && !row.tipo_flujo_pago_deuda);
+
+        if (!candidateRows.length) {
+            setPagoDeudaMatches(matchesById);
+            return;
+        }
+
+        pagoDeudaService.getMatchesBatch({
+            p_ids_operaciones: candidateRows.map((row) => row.id),
+        })
             .then((entries) => {
                 if (ignore) return;
-                setPagoDeudaMatches(Object.fromEntries(entries));
+                for (const entry of entries ?? []) {
+                    const operationId = Number(entry.id_operacion_efectivizacion);
+                    if (!Number.isFinite(operationId)) continue;
+                    matchesById[operationId] = Array.isArray(entry.matches) ? entry.matches : [];
+                }
+                setPagoDeudaMatches(matchesById);
             })
             .catch(() => {
                 if (!ignore) setPagoDeudaMatches({});
@@ -352,7 +365,7 @@ export const BancariaEfectivizacionTable = ({
         return () => {
             ignore = true;
         };
-    }, [mode, paginatedRows, ruta]);
+    }, [mode, rows, ruta]);
 
     const tipoDepositoOptions = (row: OperacionProceso) => uniqueOptions([
         ...(row.nombre_tipo_deposito ? [toOption(row.nombre_tipo_deposito, row.nombre_tipo_deposito)] : []),
@@ -964,7 +977,7 @@ export const BancariaEfectivizacionTable = ({
     }));
 
     return (
-        <div className="overflow-hidden border-t border-secondary" aria-busy={isLoading}>
+        <div className="overflow-hidden border-t border-secondary" aria-busy={isLoading || isRefreshing}>
             <div className="overflow-x-auto">
                 <table className="w-full min-w-max table-auto divide-y divide-secondary">
                     <thead className="bg-secondary">
@@ -994,7 +1007,8 @@ export const BancariaEfectivizacionTable = ({
                                 </tr>
                             ))
                         ) : paginatedRows.length ? (
-                            paginatedRows.map((row) => {
+                            <AnimatePresence initial={false}>
+                            {paginatedRows.map((row) => {
                                 const frozenOrigin = isFrozenOriginOperation(row, mode, ruta);
                                 const rowFlow = getRowFlow(row);
                                 const rowIsDerivaciones = isUnificado ? rowFlow === "Derivado" : isDerivaciones;
@@ -1011,12 +1025,14 @@ export const BancariaEfectivizacionTable = ({
                                 return (
                                     <motion.tr
                                         key={row.id}
+                                        layout
                                         className={cx(
                                             hasSelection && !rowSaving && !frozenOrigin && "cursor-pointer transition-colors hover:bg-primary_hover",
                                             selectedIds.includes(row.id) && "bg-warning-primary/20 hover:bg-warning-primary/30",
                                         )}
                                         initial={{ opacity: 0, y: 4 }}
                                         animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, height: 0 }}
                                         transition={{ duration: 0.2 }}
                                         onClick={(event) => !frozenOrigin && handleRowClick(event, row, rowSaving)}
                                     >
@@ -1354,7 +1370,8 @@ export const BancariaEfectivizacionTable = ({
                                                 </td>}
                                     </motion.tr>
                                 );
-                            })
+                            })}
+                            </AnimatePresence>
                         ) : (
                             <tr>
                                 <td colSpan={tableColSpan} className="px-4 py-10 text-center text-sm text-tertiary">{emptyText}</td>

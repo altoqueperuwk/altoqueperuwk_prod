@@ -1,6 +1,11 @@
 import { supabase } from "@/lib/supabase";
 import type { OperacionProceso } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
+export type PagoDeudaMatchBatchItem = {
+    id_operacion_efectivizacion: number;
+    matches: OperacionProceso[];
+};
+
 const rpc = async <T>(fn: string, params: Record<string, unknown>): Promise<T> => {
     const { data, error } = await supabase.rpc(fn, params);
 
@@ -23,6 +28,10 @@ export const pagoDeudaService = {
 
     getMatches(params: Record<string, unknown>) {
         return rpc<OperacionProceso[]>("f_get_tb_pago_deuda_match", params);
+    },
+
+    getMatchesBatch(params: Record<string, unknown>) {
+        return rpc<PagoDeudaMatchBatchItem[]>("f_get_tb_pago_deuda_match_lote", params);
     },
 
     postSolicitud(params: Record<string, unknown>) {

@@ -169,7 +169,7 @@ Regla de fecha:
 */
 DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda(
   bigint, character varying, bigint, character varying,
-  timestamp with time zone, timestamp with time zone, bigint, bigint
+  timestamp with time zone, timestamp with time zone, bigint, bigint, bigint
 );
 
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda(
@@ -440,6 +440,7 @@ Reglas:
   - excluye operaciones que ya son Pago Deuda
   - busca por DNI y monto
   - usa fecha_deposito_cliente como fecha operacional del Excel
+  - limita el match a una ventana de 24 horas reales
 */
 DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_match(
   bigint, character varying, bigint, bigint
@@ -461,7 +462,7 @@ DECLARE
   v_dni_cliente character varying;
   v_monto_deposito_cliente numeric;
   v_banco_cliente bigint;
-  v_fecha_operacion date;
+  v_fecha_operacion timestamp with time zone;
 BEGIN
   SELECT cs.id
   INTO v_id_codigo_servicio_pago_deuda
@@ -471,7 +472,7 @@ BEGIN
   LIMIT 1;
 
   IF p_id_operacion_efectivizacion IS NOT NULL THEN
-    SELECT op.dni_cliente, op.monto_deposito_cliente, op.id_banco_empresa_cuenta_ingreso, op.fecha_deposito_cliente::date
+    SELECT op.dni_cliente, op.monto_deposito_cliente, op.id_banco_empresa_cuenta_ingreso, op.fecha_deposito_cliente
     INTO v_dni_cliente, v_monto_deposito_cliente, v_banco_cliente, v_fecha_operacion
     FROM public.tb_operacion_proceso op
     WHERE op.id = p_id_operacion_efectivizacion
@@ -559,6 +560,121 @@ BEGIN
   ORDER BY op.fecha_deposito_cliente DESC NULLS LAST, op.fecha_registro DESC
   LIMIT 20;
 END;
+$$;
+
+/*
+Funcion: f_get_tb_pago_deuda_match_lote
+Objetivo:
+  Buscar candidatos de Pago Deuda para varias operaciones de efectivizacion
+  en una sola consulta. La respuesta conserva la relacion entre cada
+  operacion origen y sus candidatos para que el frontend no tenga que
+  ejecutar una RPC por cada fila.
+
+Reglas:
+  - conserva los mismos criterios de f_get_tb_pago_deuda_match
+  - excluye operaciones que ya son Pago Deuda
+  - busca por DNI
+  - limita el match a una ventana de 24 horas reales
+  - devuelve como maximo 20 candidatos por operacion origen
+*/
+DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_match_lote(jsonb);
+
+CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_match_lote(
+  p_ids_operaciones jsonb
+)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH ids AS (
+    SELECT DISTINCT item.value::bigint AS id
+    FROM jsonb_array_elements_text(
+      CASE
+        WHEN jsonb_typeof(COALESCE(p_ids_operaciones, '[]'::jsonb)) = 'array'
+          THEN p_ids_operaciones
+        ELSE '[]'::jsonb
+      END
+    ) AS item(value)
+    WHERE item.value ~ '^[0-9]+$'
+  ),
+  operaciones_efectivizacion AS (
+    SELECT
+      op.id,
+      op.dni_cliente,
+      op.fecha_deposito_cliente
+    FROM public.tb_operacion_proceso op
+    INNER JOIN ids ON ids.id = op.id
+  ),
+  candidatos_ranked AS (
+    SELECT
+      origen.id AS id_operacion_efectivizacion,
+      candidato.id AS id_candidato,
+      candidato.codigo_operacion_deposito_cliente,
+      candidato.dni_cliente,
+      candidato.nombre_cliente,
+      candidato.monto_deposito_cliente,
+      candidato.nombre_banco_cliente,
+      candidato.nombre_codigo_servicio,
+      candidato.id_estado,
+      candidato.nombre_estado,
+      candidato.fecha_registro,
+      candidato.fecha_pendiente,
+      candidato.tipo_flujo_pago_deuda,
+      candidato.monto_devuelto,
+      ROW_NUMBER() OVER (
+        PARTITION BY origen.id
+        ORDER BY candidato.id DESC
+      ) AS numero_candidato
+    FROM operaciones_efectivizacion origen
+    INNER JOIN public.tb_operacion_proceso candidato
+      ON candidato.dni_cliente = origen.dni_cliente
+    WHERE UPPER(COALESCE(candidato.tipo_servicio, '')) LIKE '%PAGO%DEUDA%'
+      AND UPPER(COALESCE(candidato.tipo_flujo_pago_deuda, '')) = 'BANCO'
+      AND UPPER(COALESCE(candidato.nombre_estado, '')) = 'PROCESADO'
+      AND candidato.id_caja_cierre IS NULL
+      AND origen.fecha_deposito_cliente IS NOT NULL
+      AND candidato.monto_devuelto < candidato.monto_deposito_cliente
+      AND ABS(
+        EXTRACT(epoch FROM (
+          COALESCE(candidato.fecha_pendiente, candidato.fecha_registro)
+          - origen.fecha_deposito_cliente
+        ))
+      ) <= 86400
+  ),
+  candidatos_agrupados AS (
+    SELECT
+      id_operacion_efectivizacion,
+      jsonb_agg(
+        jsonb_build_object(
+          'id', id_candidato,
+          'codigo_operacion_deposito_cliente', codigo_operacion_deposito_cliente,
+          'dni_cliente', dni_cliente,
+          'nombre_cliente', nombre_cliente,
+          'monto_deposito_cliente', monto_deposito_cliente,
+          'nombre_banco_cliente', nombre_banco_cliente,
+          'nombre_codigo_servicio', nombre_codigo_servicio,
+          'id_estado', id_estado,
+          'nombre_estado', nombre_estado,
+          'fecha_registro', fecha_registro,
+          'fecha_pendiente', fecha_pendiente,
+          'tipo_flujo_pago_deuda', tipo_flujo_pago_deuda,
+          'monto_devuelto', monto_devuelto
+        )
+        ORDER BY id_candidato DESC
+      ) AS matches
+    FROM candidatos_ranked
+    WHERE numero_candidato <= 20
+    GROUP BY id_operacion_efectivizacion
+  )
+  SELECT jsonb_build_object(
+    'id_operacion_efectivizacion', origen.id,
+    'matches', COALESCE(agrupados.matches, '[]'::jsonb)
+  )
+  FROM operaciones_efectivizacion origen
+  LEFT JOIN candidatos_agrupados agrupados
+    ON agrupados.id_operacion_efectivizacion = origen.id
+  ORDER BY origen.id;
 $$;
 
 /*
@@ -3110,9 +3226,11 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE p.proname IN (
+  'f_get_tb_pago_deuda',
   'f_patch_tb_pago_deuda_derivar_banco',
   'f_get_tb_pago_deuda_bandeja',
   'f_get_tb_pago_deuda_match',
+  'f_get_tb_pago_deuda_match_lote',
   'f_patch_tb_pago_deuda_match',
   'f_patch_tb_pago_deuda_salida',
   'f_patch_tb_pago_deuda_pagado',

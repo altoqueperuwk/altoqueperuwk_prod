@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type {
     OperacionCajaMovimiento,
     OperacionProceso,
     OperacionRutaBancaria,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import { reconcileRows } from "@/features/operaciones/efectivizacion/shared/utils/reconcile-rows";
 import { getPagoDeudaEstadoVisual } from "@/features/operaciones/pago-deuda/components/pago-deuda-board";
 
 export type BancariaTab = "Efectivizacion" | "Unificado" | "Pago Deuda" | "Derivados" | "POS" | "Movimientos" | "Retenidos" | "Eliminados";
@@ -216,8 +217,11 @@ export const useBancariaBandeja = ({
     const [operaciones, setOperaciones] = useState<OperacionProceso[]>([]);
     const [movimientos, setMovimientos] = useState<MovimientoMerged[]>([]);
     const [error, setError] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isInitialLoading, setIsInitialLoading] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [localRefreshKey, setLocalRefreshKey] = useState(0);
+    const hasLoadedRows = useRef(false);
+    const lastQuerySignature = useRef<string | null>(null);
 
     const params = useMemo(() => {
         const base: Record<string, unknown> = {};
@@ -425,13 +429,21 @@ export const useBancariaBandeja = ({
             setOperaciones([]);
             setMovimientos([]);
             setError(null);
-            setIsLoading(false);
+            setIsInitialLoading(false);
+            setIsRefreshing(false);
+            hasLoadedRows.current = false;
+            lastQuerySignature.current = null;
             return () => {
                 ignore = true;
             };
         }
 
-        setIsLoading(true);
+        const querySignature = JSON.stringify({ params, retentionParams, ruta, tab });
+        const isBackgroundRefresh = hasLoadedRows.current && lastQuerySignature.current === querySignature;
+        lastQuerySignature.current = querySignature;
+
+        setIsInitialLoading(!isBackgroundRefresh);
+        setIsRefreshing(isBackgroundRefresh);
         setError(null);
 
         const request = tab === "Unificado"
@@ -505,13 +517,13 @@ export const useBancariaBandeja = ({
                         .flatMap((part) => (part ?? []) as OperacionProceso[])
                         .filter((row, index, all) => all.findIndex((item) => item.id === row.id) === index)
                         .filter((row) => matchesCurrentOperacionView(row));
-                    setOperaciones(rows);
+                    setOperaciones((current) => reconcileRows(current, rows));
                     setMovimientos([]);
                 } else if (tab === "Movimientos") {
                     const raw = (result ?? []) as OperacionCajaMovimiento[];
                     const visible = raw.filter((row) => (row.nombre_estado ?? "").trim().toUpperCase() !== "RETENIDO");
                     const merged = mergeMovimientos(visible);
-                    setMovimientos(filterMovimientos(merged, activeFilter));
+                    setMovimientos((current) => reconcileRows(current, filterMovimientos(merged, activeFilter)));
                     setOperaciones([]);
                 } else {
                     const rows = (originRequest ? (result as [unknown, unknown]).flatMap((part) => (part ?? []) as OperacionProceso[]) : (result ?? []) as OperacionProceso[])
@@ -531,18 +543,23 @@ export const useBancariaBandeja = ({
                         });
                         if (ignore) return;
                         const infoById = new Map(infoRows.map((item) => [Number(item.id_operacion), item]));
-                        setOperaciones(rows.map((row) => ({ ...row, ...(infoById.get(row.id) ?? {}) })));
+                        setOperaciones((current) => reconcileRows(current, rows.map((row) => ({ ...row, ...(infoById.get(row.id) ?? {}) }))));
                     } else {
-                        setOperaciones(tab === "Pago Deuda" ? filterPagoDeudaByVisualState(rows, activeFilter) : rows);
+                        const nextRows = tab === "Pago Deuda" ? filterPagoDeudaByVisualState(rows, activeFilter) : rows;
+                        setOperaciones((current) => reconcileRows(current, nextRows));
                     }
                     setMovimientos([]);
                 }
+                hasLoadedRows.current = true;
             })
             .catch((err) => {
                 if (!ignore) setError(err instanceof Error ? err.message : "No se pudo cargar la bandeja.");
             })
             .finally(() => {
-                if (!ignore) setIsLoading(false);
+                if (!ignore) {
+                    setIsInitialLoading(false);
+                    setIsRefreshing(false);
+                }
             });
 
         return () => {
@@ -552,7 +569,9 @@ export const useBancariaBandeja = ({
 
     return {
         error,
-        isLoading,
+        isInitialLoading,
+        isLoading: isInitialLoading,
+        isRefreshing,
         movimientos,
         operaciones,
         refreshBandeja,

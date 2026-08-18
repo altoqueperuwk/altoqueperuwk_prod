@@ -328,8 +328,8 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
 
     const params = useMemo(() => {
         const values: Record<string, unknown> = {
-            p_fecha_desde: `${selectedDate}T00:00:00`,
-            p_fecha_hasta: `${selectedDate}T23:59:59`,
+            p_fecha_desde: `${selectedDate}T00:00:00-05:00`,
+            p_fecha_hasta: `${selectedDate}T23:59:59.999-05:00`,
         };
         if (canViewAllPagoDeuda) values.p_id_usuario_consulta = userId;
         else if (canViewSucursalPagoDeuda) values.p_id_usuario_consulta = userId;
