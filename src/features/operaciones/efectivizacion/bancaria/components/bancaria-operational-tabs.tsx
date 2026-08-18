@@ -747,7 +747,7 @@ export const BancariaOperationalTabs = ({
 
     const { data: primaryTabBadges, error: primaryTabBadgesError } = useBancariaTabBadges(
         ruta,
-        null,
+        activeCompanyId,
         scopedAccountId,
         historyDate,
         refreshKey + actionRefreshKey + metricsRefreshKey,
@@ -755,7 +755,7 @@ export const BancariaOperationalTabs = ({
     );
     const { data: secondaryTabBadges, error: secondaryTabBadgesError } = useBancariaTabBadges(
         secondaryRuta ?? ruta,
-        null,
+        activeCompanyId,
         secondaryRuta ? null : activeAccountId,
         historyDate,
         refreshKey + actionRefreshKey + metricsRefreshKey,

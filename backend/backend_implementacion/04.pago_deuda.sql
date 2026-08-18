@@ -1330,6 +1330,8 @@ BEGIN
     AND ecb.id_estado = 1
     AND ecb.id_banco = p_id_banco_cliente
     AND e.id_estado = 1
+    -- SafetyPay es una ruta de recaudacion y no atiende solicitudes de Pago Deuda.
+    AND LOWER(COALESCE(rc.ruta, '')) <> 'safetypay'
     AND (p_id_empresa_destino IS NULL OR rc.id_empresa = p_id_empresa_destino)
   ORDER BY rc.flag_caja_ingreso_principal DESC, e.nombre ASC, rc.id ASC
   LIMIT 1;
@@ -1365,6 +1367,8 @@ BEGIN
     AND rc.id_estado = 1
     AND ecb.id_estado = 1
     AND e.id_estado = 1
+    -- Mantener Pago Deuda fuera de la asociacion interna de SafetyPay.
+    AND LOWER(COALESCE(rc.ruta, '')) <> 'safetypay'
     AND (p_id_empresa_destino IS NULL OR rc.id_empresa = p_id_empresa_destino)
   ORDER BY (ecb.id_banco = p_id_banco_cliente) DESC, rc.flag_caja_ingreso_principal DESC, e.nombre ASC, rc.id ASC
   LIMIT 1;
