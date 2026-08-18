@@ -355,14 +355,15 @@ export const useBancariaBandeja = ({
             }
 
             if (tab === "Pago Deuda") {
+                const currentRoute = String(ruta ?? "").trim().toLowerCase();
+                const rowRoute = String(row.ruta_destino ?? "").trim().toLowerCase();
+
                 return (
-                    (row.tipo_servicio ?? "").toUpperCase() === "PAGO DEUDA" &&
-                    row.ruta_destino === ruta &&
-                    row.flag_retenido === false &&
+                    (row.tipo_servicio ?? "").trim().toUpperCase() === "PAGO DEUDA" &&
+                    rowRoute === currentRoute &&
+                    row.flag_retenido !== true &&
                     (row.tipo_flujo_pago_deuda ?? "").toUpperCase() !== "RETORNO" &&
-                    (activeFilter === "Todos" || getPagoDeudaEstadoVisual(row).label === activeFilter) &&
-                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
-                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)
+                    (activeFilter === "Todos" || getPagoDeudaEstadoVisual(row).label === activeFilter)
                 );
             }
 
