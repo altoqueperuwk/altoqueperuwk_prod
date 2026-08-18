@@ -242,6 +242,7 @@ export const BancariaEfectivizacionTable = ({
     const [pdMatchRow, setPdMatchRow] = useState<OperacionProceso | null>(null);
     const [pdSelectedMatchId, setPdSelectedMatchId] = useState<number | null>(null);
     const [dniEdit, setDniEdit] = useState<{ row: OperacionProceso; value: string } | null>(null);
+    const [dniDrafts, setDniDrafts] = useState<Record<number, string>>({});
     const [confirmAction, setConfirmAction] = useState<{ row: OperacionProceso; type: ConfirmActionType } | null>(null);
     const hasSelection = Boolean(onToggleRow) && !readOnly;
     const isPlain = presentation === "plain";
@@ -1138,12 +1139,13 @@ export const BancariaEfectivizacionTable = ({
                                                 <Input
                                                     size="sm"
                                                     aria-label="DNI cliente"
-                                                    value=""
+                                                    value={dniDrafts[row.id] ?? ""}
                                                     placeholder="DNI"
                                                     className="w-28"
                                                     isDisabled={disabledIngreso}
                                                     onChange={(value) => {
                                                         const dni = value.replace(/\D/g, "").slice(0, 8);
+                                                        setDniDrafts((current) => ({ ...current, [row.id]: dni }));
                                                         if (dni.length === 8) void persistRow({ ...row, dni_cliente: dni }, { p_dni_cliente: dni });
                                                     }}
                                                 />
