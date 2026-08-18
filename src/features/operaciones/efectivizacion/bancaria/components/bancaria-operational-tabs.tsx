@@ -1112,6 +1112,19 @@ export const BancariaOperationalTabs = ({
         };
     }, [currentTab, selectedOperations]);
 
+    const selectedTransferSummaryView = selectedTransferSummary ? (
+        <div className="flex h-11 shrink-0 items-center gap-2 rounded-lg border border-secondary bg-secondary px-3 text-sm font-semibold text-primary shadow-xs">
+            <span>Seleccionado</span>
+            <span className="-my-px size-max rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-primary ring-inset shadow-xs">
+                {selectedTransferSummary.count}
+            </span>
+            <span>Transferir</span>
+            <span className="-my-px size-max rounded-md bg-transfer-summary-amount px-1.5 py-0.5 text-sm font-semibold text-transfer-summary-amount-fg ring-1 ring-transfer-summary-amount ring-inset shadow-xs tabular-nums">
+                {formatMoney(selectedTransferSummary.amount)}
+            </span>
+        </div>
+    ) : null;
+
     const actionIds = individualActionIds.length ? individualActionIds : selectedIds;
     const selectedRowsForAction = useMemo(
         () => operaciones.filter((row) => actionIds.includes(row.id)),
@@ -1758,77 +1771,103 @@ export const BancariaOperationalTabs = ({
             className={embedded ? "overflow-hidden bg-primary" : "overflow-hidden rounded-lg border border-secondary bg-primary shadow-xs"}
         >
             <div className="flex flex-col gap-3 p-4">
-                {(showCompanyTabs || selectedTransferSummary) && (
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        {showCompanyTabs ? (
-                            <div className="flex flex-wrap items-center gap-3">
-                                <EmpresaTabs
-                                    companies={companies}
-                                    activeCompanyId={activeCompanyId}
-                                    badges={empresaBadges}
-                                    onChange={onCompanyChange}
-                                />
-                            </div>
-                        ) : null}
-                        {selectedTransferSummary ? (
-                            <div className="flex h-11 items-center gap-2 rounded-lg border border-secondary bg-secondary px-3 text-sm font-semibold text-primary shadow-xs">
-                                <span>Seleccionado</span>
-                                <span className="-my-px size-max rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-primary ring-inset shadow-xs">
-                                    {selectedTransferSummary.count}
-                                </span>
-                                <span>Transferir</span>
-                                <span className="-my-px size-max rounded-md bg-concept-transferencia px-1.5 py-0.5 text-xs font-medium text-primary_on-brand ring-1 ring-concept-transferencia ring-inset shadow-xs tabular-nums">
-                                    {formatMoney(selectedTransferSummary.amount)}
-                                </span>
-                            </div>
-                        ) : null}
+                {showCompanyTabs ? (
+                    <div className="flex flex-wrap items-center gap-3">
+                        <EmpresaTabs
+                            companies={companies}
+                            activeCompanyId={activeCompanyId}
+                            badges={empresaBadges}
+                            onChange={onCompanyChange}
+                        />
                     </div>
-                )}
+                ) : null}
                 {flowTabsAsButtons ? (
                     <div className="flex flex-col gap-2">
                         <p className="text-xs font-semibold uppercase text-tertiary">Bandeja</p>
-                        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Bandejas operativas">
-                            {(compactTabMenu ? primaryVisibleTabs : visibleTabs).map((tab) => (
-                                <Button
-                                    key={tab}
-                                    size="sm"
-                                    color={currentTab === tab ? "primary" : "secondary"}
-                                    className="justify-center"
-                                    role="tab"
-                                    aria-selected={currentTab === tab}
-                                    onClick={() => setActiveTab(tab)}
-                                >
-                                    <span>{compactTabMenu ? getTabLabel(tab) : tab}</span>
-                                    {tabBadges[tab] ? (
-                                        <span className="rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-primary ring-inset">
-                                            {tabBadges[tab]}
-                                        </span>
-                                    ) : null}
-                                </Button>
-                            ))}
-                            {compactTabMenu && secondaryVisibleTabs.length > 0 ? (
-                                <NativeSelect
-                                    aria-label="Seleccionar bandeja"
-                                    className="w-auto min-w-44"
-                                    selectClassName="h-9 min-w-44 rounded-lg bg-primary pr-8 text-sm font-semibold text-primary ring-secondary"
-                                    options={secondaryTabOptions}
-                                    size="sm"
-                                    value={selectedSecondaryTab}
-                                    onChange={(event) => handleSecondaryTabChange(event.target.value)}
-                                />
-                            ) : null}
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2" role="tablist" aria-label="Bandejas operativas">
+                                {(compactTabMenu ? primaryVisibleTabs : visibleTabs).map((tab) => (
+                                    <Button
+                                        key={tab}
+                                        size="sm"
+                                        color={currentTab === tab ? "primary" : "secondary"}
+                                        className="justify-center"
+                                        role="tab"
+                                        aria-selected={currentTab === tab}
+                                        onClick={() => setActiveTab(tab)}
+                                    >
+                                        <span>{compactTabMenu ? getTabLabel(tab) : tab}</span>
+                                        {tabBadges[tab] ? (
+                                            <span className="rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-primary ring-inset">
+                                                {tabBadges[tab]}
+                                            </span>
+                                        ) : null}
+                                    </Button>
+                                ))}
+                                {compactTabMenu && secondaryVisibleTabs.length > 0 ? (
+                                    <NativeSelect
+                                        aria-label="Seleccionar bandeja"
+                                        className="w-auto min-w-44"
+                                        selectClassName="h-9 min-w-44 rounded-lg bg-primary pr-8 text-sm font-semibold text-primary ring-secondary"
+                                        options={secondaryTabOptions}
+                                        size="sm"
+                                        value={selectedSecondaryTab}
+                                        onChange={(event) => handleSecondaryTabChange(event.target.value)}
+                                    />
+                                ) : null}
+                            </div>
+                            {selectedTransferSummaryView}
                         </div>
                     </div>
                 ) : (
                     compactTabMenu ? (
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                                <Tabs
+                                    className="w-fit max-w-full overflow-x-auto"
+                                    selectedKey={currentTab}
+                                    onSelectionChange={(key) => setActiveTab(key as BancariaTab)}
+                                >
+                                    <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
+                                        {primaryVisibleTabs.map((tab) => (
+                                            <Tabs.Item
+                                                id={tab}
+                                                key={tab}
+                                                badge={tabBadges[tab] || undefined}
+                                                className={({ isSelected }) =>
+                                                    isSelected
+                                                        ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
+                                                        : ""
+                                                }
+                                            >
+                                                {getTabLabel(tab)}
+                                            </Tabs.Item>
+                                        ))}
+                                    </Tabs.List>
+                                </Tabs>
+                                {secondaryVisibleTabs.length > 0 ? (
+                                    <NativeSelect
+                                        aria-label="Seleccionar bandeja"
+                                        className="w-auto min-w-44"
+                                        selectClassName="h-9 min-w-44 rounded-lg bg-primary pr-8 text-sm font-semibold text-primary ring-secondary"
+                                        options={secondaryTabOptions}
+                                        size="sm"
+                                        value={selectedSecondaryTab}
+                                        onChange={(event) => handleSecondaryTabChange(event.target.value)}
+                                    />
+                                ) : null}
+                            </div>
+                            {selectedTransferSummaryView}
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap items-center justify-between gap-3">
                             <Tabs
                                 className="w-fit max-w-full overflow-x-auto"
                                 selectedKey={currentTab}
                                 onSelectionChange={(key) => setActiveTab(key as BancariaTab)}
                             >
                                 <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
-                                    {primaryVisibleTabs.map((tab) => (
+                                    {visibleTabs.map((tab) => (
                                         <Tabs.Item
                                             id={tab}
                                             key={tab}
@@ -1839,46 +1878,13 @@ export const BancariaOperationalTabs = ({
                                                     : ""
                                             }
                                         >
-                                            {getTabLabel(tab)}
+                                            {tab}
                                         </Tabs.Item>
                                     ))}
                                 </Tabs.List>
                             </Tabs>
-                            {secondaryVisibleTabs.length > 0 ? (
-                                <NativeSelect
-                                    aria-label="Seleccionar bandeja"
-                                    className="w-auto min-w-44"
-                                    selectClassName="h-9 min-w-44 rounded-lg bg-primary pr-8 text-sm font-semibold text-primary ring-secondary"
-                                    options={secondaryTabOptions}
-                                    size="sm"
-                                    value={selectedSecondaryTab}
-                                    onChange={(event) => handleSecondaryTabChange(event.target.value)}
-                                />
-                            ) : null}
+                            {selectedTransferSummaryView}
                         </div>
-                    ) : (
-                        <Tabs
-                            className="w-fit max-w-full overflow-x-auto"
-                            selectedKey={currentTab}
-                            onSelectionChange={(key) => setActiveTab(key as BancariaTab)}
-                        >
-                            <Tabs.List type="button-border" size="sm" aria-label="Bandejas operativas">
-                                {visibleTabs.map((tab) => (
-                                    <Tabs.Item
-                                        id={tab}
-                                        key={tab}
-                                        badge={tabBadges[tab] || undefined}
-                                        className={({ isSelected }) =>
-                                            isSelected
-                                                ? "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover hover:text-primary_on-brand"
-                                                : ""
-                                        }
-                                    >
-                                        {tab}
-                                    </Tabs.Item>
-                                ))}
-                            </Tabs.List>
-                        </Tabs>
                     )
                 )}
             </div>
