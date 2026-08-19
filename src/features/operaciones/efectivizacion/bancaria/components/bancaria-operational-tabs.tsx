@@ -44,7 +44,6 @@ import { BancariaActionModal, type BancariaBankDestination } from "@/features/op
 import { BancariaEfectivizacionTable } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-efectivizacion-table";
 import { BancariaExcelRollbackModal } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-excel-rollback-modal";
 import { type BancariaTab, type MovimientoMerged, tabContracts, useBancariaBandeja } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
-import { useWindowFocusRefresh } from "@/features/operaciones/efectivizacion/shared/hooks/use-window-focus-refresh";
 import {
     useBancariaEmpresaBadges,
     useBancariaTabBadges,
@@ -436,7 +435,6 @@ export const BancariaOperationalTabs = ({
 }: BancariaOperationalTabsProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
-    const focusRefreshKey = useWindowFocusRefresh();
     const [activeTab, setActiveTab] = useState<BancariaTab>(() => requestedTabs?.[0] ?? "Unificado");
     const [activeFilter, setActiveFilter] = useState("Todos");
     const [actionRefreshKey, setActionRefreshKey] = useState(0);
@@ -676,7 +674,7 @@ export const BancariaOperationalTabs = ({
         dni,
         historyDate,
         enabled,
-        refreshKey: refreshKey + actionRefreshKey + focusRefreshKey,
+        refreshKey: refreshKey + actionRefreshKey,
         ruta,
         tab: currentTab,
     });
@@ -691,7 +689,7 @@ export const BancariaOperationalTabs = ({
         dni,
         enabled: enabled && Boolean(secondaryRuta),
         historyDate,
-        refreshKey: refreshKey + actionRefreshKey + focusRefreshKey,
+        refreshKey: refreshKey + actionRefreshKey,
         ruta: secondaryRuta ?? ruta,
         tab: currentTab,
     });

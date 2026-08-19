@@ -96,10 +96,43 @@ const isRecurringInputValue = (value: string) => {
     const trimmed = value.trim();
     return trimmed === "" || /^null$/i.test(trimmed) || /^(?:\d+(?:[.,]\d*)?|\d*[.,]\d+)$/.test(trimmed);
 };
-const isFrozenOriginOperation = (row: OperacionProceso, mode: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados", ruta: OperacionRutaBancaria) =>
-    (mode === "efectivizacion" || mode === "unificado") &&
-    row.flag_derivado === true &&
-    String(row.ruta_origen ?? "").toLowerCase() === ruta;
+const isFrozenOriginOperation = (
+    row: OperacionProceso,
+    mode: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados",
+    activeCompanyId: number | null,
+    activeAccountId: number | null,
+) => {
+    if (
+        (mode !== "efectivizacion" && mode !== "unificado") ||
+        row.flag_derivado !== true ||
+        activeCompanyId == null ||
+        row.id_empresa_salida_origen == null
+    ) {
+        return false;
+    }
+
+    if (Number(row.id_empresa_salida_origen) !== Number(activeCompanyId)) {
+        return false;
+    }
+
+    return (
+        activeAccountId == null ||
+        row.id_empresa_cuenta_salida_origen == null ||
+        Number(row.id_empresa_cuenta_salida_origen) === Number(activeAccountId)
+    );
+};
+const isFrozenPaidOperation = (
+    row: OperacionProceso,
+    mode: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados",
+) => (mode === "efectivizacion" || mode === "unificado") && isPagado(row);
+const isFrozenTableOperation = (
+    row: OperacionProceso,
+    mode: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados",
+    activeCompanyId: number | null,
+    activeAccountId: number | null,
+) =>
+    isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId) ||
+    isFrozenPaidOperation(row, mode);
 const isDeletable = (row: OperacionProceso) => {
     const estado = (row.nombre_estado ?? "").toUpperCase();
     return estado === "PENDIENTE" || estado === "RETENIDO" || Boolean(row.flag_retenido);
@@ -284,7 +317,9 @@ export const BancariaEfectivizacionTable = ({
     }, [addToast]);
 
     const paginatedRows = useMemo(() => rows.slice((page - 1) * pageSize, page * pageSize), [page, pageSize, rows]);
-    const visibleIds = paginatedRows.filter((row) => !isFrozenOriginOperation(row, mode, ruta)).map((row) => row.id);
+    const visibleIds = paginatedRows
+        .filter((row) => !isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId))
+        .map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
     const showTipoDeposito = tipoDepositoVisibleRoutes.includes(ruta);
     const isUnificado = mode === "unificado";
@@ -537,8 +572,8 @@ export const BancariaEfectivizacionTable = ({
         }
     };
 
-    const readOnlyIngreso = (row: OperacionProceso) => isDerivaciones || isEliminados || isPagado(row) || isFrozenOriginOperation(row, mode, ruta) || savingIds.includes(row.id);
-    const readOnlySalida = (row: OperacionProceso) => isEliminados || isPagado(row) || isFrozenOriginOperation(row, mode, ruta) || savingIds.includes(row.id);
+    const readOnlyIngreso = (row: OperacionProceso) => isDerivaciones || isEliminados || isFrozenTableOperation(row, mode, activeCompanyId, activeAccountId) || savingIds.includes(row.id);
+    const readOnlySalida = (row: OperacionProceso) => isEliminados || isFrozenTableOperation(row, mode, activeCompanyId, activeAccountId) || savingIds.includes(row.id);
 
     const handleDniEditSave = async () => {
         if (!dniEdit) return;
@@ -674,7 +709,7 @@ export const BancariaEfectivizacionTable = ({
     };
 
     const openRecurringCommission = async (row: OperacionProceso, type: RecurringCommissionType) => {
-        if (mode !== "efectivizacion" || isPagado(row) || row.flag_retenido || isFrozenOriginOperation(row, mode, ruta) || savingIds.includes(row.id)) return;
+        if (mode !== "efectivizacion" || isPagado(row) || row.flag_retenido || isFrozenTableOperation(row, mode, activeCompanyId, activeAccountId) || savingIds.includes(row.id)) return;
         try {
             const clientId = await resolveClienteId(row);
             if (!clientId) {
@@ -917,7 +952,7 @@ export const BancariaEfectivizacionTable = ({
             return;
         }
 
-        if (action === "Reanudar" && estadoPendiente) {
+        if ((action === "Reanudar" || action === "Reiniciar") && estadoPendiente) {
             const saved = await operacionesRpcService.patchOperacionReanudar(buildOperacionReanudarPayload(row.id, estadoPendiente, user));
             setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
             onRowUpdated(saved);
@@ -1010,7 +1045,9 @@ export const BancariaEfectivizacionTable = ({
                         ) : paginatedRows.length ? (
                             <AnimatePresence initial={false}>
                             {paginatedRows.map((row) => {
-                                const frozenOrigin = isFrozenOriginOperation(row, mode, ruta);
+                                const frozenOrigin = isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId);
+                                const frozenPaid = isFrozenPaidOperation(row, mode);
+                                const frozenRow = frozenOrigin || frozenPaid;
                                 const rowFlow = getRowFlow(row);
                                 const rowIsDerivaciones = isUnificado ? rowFlow === "Derivado" : isDerivaciones;
                                 const rowIsPos = isUnificado ? rowFlow === "POS" : mode === "pos";
@@ -1028,14 +1065,15 @@ export const BancariaEfectivizacionTable = ({
                                         key={row.id}
                                         layout
                                         className={cx(
-                                            hasSelection && !rowSaving && !frozenOrigin && "cursor-pointer transition-colors hover:bg-primary_hover",
-                                            selectedIds.includes(row.id) && "bg-warning-primary/20 hover:bg-warning-primary/30",
+                                            frozenPaid && "bg-secondary grayscale opacity-75",
+                                            hasSelection && !rowSaving && !frozenRow && "cursor-pointer transition-colors hover:bg-primary_hover",
+                                            selectedIds.includes(row.id) && !frozenRow && "bg-warning-primary/20 hover:bg-warning-primary/30",
                                         )}
                                         initial={{ opacity: 0, y: 4 }}
                                         animate={{ opacity: 1, y: 0 }}
                                         exit={{ opacity: 0, height: 0 }}
                                         transition={{ duration: 0.2 }}
-                                        onClick={(event) => !frozenOrigin && handleRowClick(event, row, rowSaving)}
+                                        onClick={(event) => !frozenRow && handleRowClick(event, row, rowSaving)}
                                     >
                                         {hasSelection && (
                                             <td className="w-10 px-2 py-2 align-top">
@@ -1234,7 +1272,7 @@ export const BancariaEfectivizacionTable = ({
                                                     size="xs"
                                                     color="tertiary"
                                                     iconLeading={Copy01}
-                                                    isDisabled={frozenOrigin}
+                                                    isDisabled={frozenRow}
                                                     onClick={() => void handleAction({ ...row, monto_transferencia_cliente: displayedTransferAmount }, "Copiar")}
                                                 />
                                                 </div>}
@@ -1258,7 +1296,7 @@ export const BancariaEfectivizacionTable = ({
                                             ) : <Button
                                                 size="xs"
                                                 color={isPagado(row) ? "secondary" : "primary"}
-                                                isDisabled={rowSaving || frozenOrigin || isEliminados || isPagado(row) || ((!onPayRow || !rowIsPos) && !estadoPagado) || Boolean(isPayingRow?.(row))}
+                                                isDisabled={rowSaving || frozenRow || isEliminados || ((!onPayRow || !rowIsPos) && !estadoPagado) || Boolean(isPayingRow?.(row))}
                                                 isLoading={Boolean(isPayingRow?.(row))}
                                                 onClick={() => {
                                                     if (onPayRow && rowIsPos) {
@@ -1277,8 +1315,8 @@ export const BancariaEfectivizacionTable = ({
                                             ) : <CompactCellText primary={formatTime(row.fecha_deposito_cliente) || "-"} secondary={formatDate(row.fecha_deposito_cliente)} />}
                                         </td>
                                                 {!readOnly && <td className="px-2 py-2 text-center align-top">
-                                            <div className="flex items-center justify-center gap-1">
-                                                {(mode === "efectivizacion" || mode === "unificado" || mode === "derivaciones" || mode === "pos") && ruta !== "safetypay" && (
+                                            {!frozenOrigin && <div className="flex items-center justify-center gap-1">
+                                                {!frozenPaid && (mode === "efectivizacion" || mode === "unificado" || mode === "derivaciones" || mode === "pos") && ruta !== "safetypay" && (
                                                     <ButtonUtility
                                                         size="xs"
                                                         color="tertiary"
@@ -1288,8 +1326,8 @@ export const BancariaEfectivizacionTable = ({
                                                             "rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid",
                                                             isPagado(row) && "bg-primary text-secondary ring-primary hover:bg-primary_hover",
                                                         )}
-                                                        isDisabled={frozenOrigin || rowSaving || isPagado(row)}
-                                                        onClick={() => !frozenOrigin && onDeriveRow?.(row)}
+                                                        isDisabled={frozenRow || rowSaving}
+                                                        onClick={() => !frozenRow && onDeriveRow?.(row)}
                                                     />
                                                 )}
                                                 {mode === "unificado" && rowIsEfectivizacion && !isPagado(row) && (
@@ -1300,7 +1338,7 @@ export const BancariaEfectivizacionTable = ({
                                                             tooltip="% Comision Especial"
                                                             icon={Percent01}
                                                             className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
-                                                            isDisabled={frozenOrigin || rowSaving || commissionState.specialDisabled}
+                                                            isDisabled={frozenRow || rowSaving || commissionState.specialDisabled}
                                                             onClick={() => void handleAction(row, "ComisionEspecial")}
                                                         />
                                                         <ButtonUtility
@@ -1309,7 +1347,7 @@ export const BancariaEfectivizacionTable = ({
                                                             tooltip="S/ Comision Extra"
                                                             icon={<span className="text-xs font-bold leading-none">S/</span>}
                                                             className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
-                                                            isDisabled={frozenOrigin || rowSaving || commissionState.extraDisabled}
+                                                            isDisabled={frozenRow || rowSaving || commissionState.extraDisabled}
                                                             onClick={() => void handleAction(row, "ComisionExtra")}
                                                         />
                                                         {isDeletable(row) && (
@@ -1319,13 +1357,13 @@ export const BancariaEfectivizacionTable = ({
                                                                 tooltip="Eliminar Operacion"
                                                                 icon={Trash01}
                                                                 className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
-                                                                isDisabled={frozenOrigin || rowSaving}
+                                                                isDisabled={frozenRow || rowSaving}
                                                                 onClick={() => void handleAction(row, "EliminarOperacion")}
                                                             />
                                                         )}
                                                     </>
                                                 )}
-                                                {!frozenOrigin && rowIsEfectivizacion && (mode === "efectivizacion" || mode === "unificado") && ruta !== "safetypay" && Boolean(pagoDeudaMatches[row.id]?.length) && (
+                                                {!frozenRow && rowIsEfectivizacion && (mode === "efectivizacion" || mode === "unificado") && ruta !== "safetypay" && Boolean(pagoDeudaMatches[row.id]?.length) && (
                                                     <ButtonUtility
                                                         size="xs"
                                                         color="secondary"
@@ -1352,7 +1390,7 @@ export const BancariaEfectivizacionTable = ({
                                                                 {(() => {
                                                                     return (
                                                                         <>
-                                                                {isPagado(row) && <Dropdown.Item id="Reanudar" icon={RefreshCcw02}>Reanudar</Dropdown.Item>}
+                                                                {isPagado(row) && <Dropdown.Item id="Reiniciar" icon={RefreshCcw02}>Reiniciar</Dropdown.Item>}
                                                                 {rowIsEfectivizacion && !isPagado(row) && <Dropdown.Item isDisabled={commissionState.specialDisabled} id="ComisionEspecial" icon={Percent01}>Com. Especial</Dropdown.Item>}
                                                                 {rowIsEfectivizacion && !isPagado(row) && <Dropdown.Item isDisabled={commissionState.extraDisabled} id="ComisionExtra" icon={Coins01}>Com. Extra</Dropdown.Item>}
                                                                 {!isUnificado && rowIsEfectivizacion && !isPagado(row) && !row.flag_retenido && <Dropdown.Item isDisabled={commissionState.specialRecurringDisabled} id="ComisionEspecialRecurrente" icon={Percent01}>Com. Especial Recurrente</Dropdown.Item>}
@@ -1367,7 +1405,7 @@ export const BancariaEfectivizacionTable = ({
                                                     </Dropdown.Menu>
                                                 </Dropdown.Popover>
                                             </Dropdown.Root>}
-                                            </div>
+                                            </div>}
                                             {rowSaving && <p className="mt-1 text-xs text-tertiary">Guardando...</p>}
                                                 </td>}
                                     </motion.tr>

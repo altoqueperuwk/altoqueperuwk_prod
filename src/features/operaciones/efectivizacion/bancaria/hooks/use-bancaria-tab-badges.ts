@@ -26,7 +26,6 @@ export const useBancariaTabBadges = (
 ) => {
     const [data, setData] = useState<BadgeMap>(emptyBadges);
     const [error, setError] = useState<string | null>(null);
-    const [focusRefreshKey, setFocusRefreshKey] = useState(0);
 
     const params = useMemo(() => {
         const payload: Record<string, unknown> = {
@@ -42,21 +41,6 @@ export const useBancariaTabBadges = (
 
         return payload;
     }, [activeAccountId, activeCompanyId, historyDate, ruta]);
-
-    useEffect(() => {
-        const handleFocus = () => setFocusRefreshKey((value) => value + 1);
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === "visible") handleFocus();
-        };
-
-        window.addEventListener("focus", handleFocus);
-        document.addEventListener("visibilitychange", handleVisibilityChange);
-
-        return () => {
-            window.removeEventListener("focus", handleFocus);
-            document.removeEventListener("visibilitychange", handleVisibilityChange);
-        };
-    }, []);
 
     useEffect(() => {
         let ignore = false;
@@ -96,7 +80,7 @@ export const useBancariaTabBadges = (
         return () => {
             ignore = true;
         };
-    }, [enabled, focusRefreshKey, params, refreshKey, ruta]);
+    }, [enabled, params, refreshKey, ruta]);
 
     return { data, error };
 };
@@ -111,7 +95,6 @@ export const useBancariaEmpresaBadges = (
 ) => {
     const [data, setData] = useState<CompanyBadgeMap>({});
     const [error, setError] = useState<string | null>(null);
-    const [focusRefreshKey, setFocusRefreshKey] = useState(0);
 
     const params = useMemo(() => {
         const payload: Record<string, unknown> = {
@@ -126,21 +109,6 @@ export const useBancariaEmpresaBadges = (
 
         return payload;
     }, [activeAccountId, historyDate, ruta]);
-
-    useEffect(() => {
-        const handleFocus = () => setFocusRefreshKey((value) => value + 1);
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === "visible") handleFocus();
-        };
-
-        window.addEventListener("focus", handleFocus);
-        document.addEventListener("visibilitychange", handleVisibilityChange);
-
-        return () => {
-            window.removeEventListener("focus", handleFocus);
-            document.removeEventListener("visibilitychange", handleVisibilityChange);
-        };
-    }, []);
 
     useEffect(() => {
         let ignore = false;
@@ -189,7 +157,7 @@ export const useBancariaEmpresaBadges = (
         return () => {
             ignore = true;
         };
-    }, [activeTab, enabled, focusRefreshKey, params, refreshKey, ruta]);
+    }, [activeTab, enabled, params, refreshKey, ruta]);
 
     return { data, error };
 };

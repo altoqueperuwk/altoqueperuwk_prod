@@ -530,6 +530,14 @@ BEGIN
 END;
 $$;
 
+CREATE INDEX IF NOT EXISTS idx_tb_operacion_proceso_excel_duplicidad
+ON public.tb_operacion_proceso (
+  id_codigo_servicio,
+  (UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, '')))),
+  (ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2)),
+  fecha_deposito_cliente
+);
+
 /*
 Funcion: f_get_tb_documento_tipo_codigo
 Objetivo:
@@ -1255,6 +1263,73 @@ END;
 $$;
 
 /*
+Funcion: f_get_tb_operacion_clasificacion_horaria_ruta
+Objetivo:
+  Resolver la clasificacion horaria respetando la regla vigente de cada ruta.
+  Scotiabank y BanBif utilizan un corte operativo fijo de 21:00 y una ventana
+  estricta de 24 horas. La existencia de una regla activa por cuenta continua
+  siendo validada por la funcion llamadora.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_clasificacion_horaria_ruta(
+  p_fecha_deposito timestamp with time zone,
+  p_fecha_referencia timestamp with time zone DEFAULT now(),
+  p_ruta character varying DEFAULT NULL,
+  p_hora_corte time DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  v_deposito_local timestamp without time zone;
+  v_referencia_local timestamp without time zone;
+  v_inicio_ventana timestamp without time zone;
+  v_fin_ventana timestamp without time zone;
+  v_fuera_horario boolean := false;
+  v_retenido boolean := false;
+BEGIN
+  IF LOWER(BTRIM(COALESCE(p_ruta, ''))) NOT IN ('scotiabank', 'banbif') THEN
+    RETURN public.f_get_tb_operacion_clasificacion_horaria(
+      p_fecha_deposito,
+      p_fecha_referencia,
+      p_hora_corte
+    );
+  END IF;
+
+  IF p_fecha_deposito IS NULL THEN
+    RETURN jsonb_build_object('flag_fuera_horario', false, 'flag_retenido', false);
+  END IF;
+
+  IF p_hora_corte IS NULL THEN
+    RETURN jsonb_build_object('flag_fuera_horario', false, 'flag_retenido', false);
+  END IF;
+
+  v_deposito_local := p_fecha_deposito AT TIME ZONE 'America/Lima';
+  v_referencia_local := COALESCE(p_fecha_referencia, now()) AT TIME ZONE 'America/Lima';
+  v_inicio_ventana := (v_referencia_local::date - 1) + '21:00:00'::time;
+  v_fin_ventana := v_referencia_local::date + '21:00:00'::time;
+
+  v_retenido := v_deposito_local >= v_inicio_ventana
+    AND v_deposito_local < v_fin_ventana
+    AND v_deposito_local <= v_referencia_local;
+
+  v_fuera_horario := v_deposito_local::date = v_referencia_local::date - 1
+    AND v_deposito_local::time < '21:00:00'::time;
+
+  RETURN jsonb_build_object(
+    'flag_fuera_horario', v_fuera_horario,
+    'flag_retenido', v_retenido,
+    'motivo', CASE
+      WHEN v_fuera_horario THEN 'Deposito de ayer anterior a la hora de corte fija'
+      WHEN v_retenido THEN 'Deposito dentro de la ventana fija de retencion'
+      ELSE NULL
+    END,
+    'hora_corte_efectiva', '21:00'
+  );
+END;
+$$;
+
+/*
 Funcion: f_post_tb_operacion_proceso
 Objetivo:
   Crear una operacion manual ya resuelta y con resultados congelados.
@@ -1651,9 +1726,10 @@ BEGIN
   ORDER BY r.id DESC
   LIMIT 1;
 
-  v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria(
+  v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria_ruta(
     p_fecha_deposito_cliente,
     now(),
+    v_ruta_kpi,
     v_hora_corte
   );
   v_flag_fuera_horario_val := COALESCE((v_clasificacion_horaria->>'flag_fuera_horario')::boolean, false);
@@ -3865,7 +3941,6 @@ DECLARE
   v_calc_sal jsonb;
   v_error_motivo character varying;
   v_new_id bigint;
-  v_reglas_candidatas_count integer := 0;
   v_filas_procesadas integer := 0;
   v_filas_omitidas integer := 0;
   v_filas_error integer := 0;
@@ -4150,6 +4225,9 @@ BEGIN
   )
   RETURNING id, fecha_carga INTO v_id_carga_excel, v_fecha_carga_excel;
 
+  -- Los movimientos y saldos siguen aplicandose por fila; el KPI de caja se sincroniza al final.
+  PERFORM set_config('app.defer_kpi_sync', 'on', true);
+
   FOR v_fila IN
     SELECT *
     FROM jsonb_to_recordset(p_datos_excel_json) AS x(
@@ -4261,6 +4339,57 @@ BEGIN
     END IF;
 
     IF v_error_motivo IS NULL THEN
+      v_codigo_duplicidad := NULLIF(BTRIM(COALESCE(v_fila.codigo_operacion, '')), '');
+      IF v_codigo_duplicidad IS NOT NULL THEN
+        -- Fast path: duplicated rows do not need to wait for an advisory lock.
+        SELECT id
+        INTO v_dup_id
+        FROM public.tb_operacion_proceso
+        WHERE id_codigo_servicio = p_id_codigo_servicio
+          AND ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2) = ROUND(COALESCE(v_monto, 0)::numeric, 2)
+          AND UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, ''))) = UPPER(v_codigo_duplicidad)
+          AND fecha_deposito_cliente >= (v_fecha_deposito::date - 7)
+          AND fecha_deposito_cliente < (v_fecha_deposito::date + 8)
+        LIMIT 1;
+
+        IF v_dup_id IS NULL THEN
+          -- The second lookup after the transaction lock preserves idempotency
+          -- when two Excel loads insert the same deposit concurrently.
+          PERFORM pg_advisory_xact_lock(
+            hashtextextended(
+              CONCAT_WS('|', p_id_codigo_servicio::text, UPPER(v_codigo_duplicidad), ROUND(COALESCE(v_monto, 0)::numeric, 2)::text),
+              0
+            )
+          );
+
+          SELECT id
+          INTO v_dup_id
+          FROM public.tb_operacion_proceso
+          WHERE id_codigo_servicio = p_id_codigo_servicio
+            AND ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2) = ROUND(COALESCE(v_monto, 0)::numeric, 2)
+            AND UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, ''))) = UPPER(v_codigo_duplicidad)
+            AND fecha_deposito_cliente >= (v_fecha_deposito::date - 7)
+            AND fecha_deposito_cliente < (v_fecha_deposito::date + 8)
+          LIMIT 1;
+        END IF;
+      ELSE
+        v_dup_id := NULL;
+      END IF;
+
+      IF v_dup_id IS NOT NULL THEN
+        v_detalle := v_detalle || jsonb_build_object(
+          'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
+          'codigo_operacion', v_fila.codigo_operacion,
+          'estado', 'OMITIDO',
+          'motivo', 'Duplicado por monto, codigo de operacion, servicio y ventana de deposito de 7 dias',
+          'id_operacion', v_dup_id
+        );
+        v_filas_omitidas := v_filas_omitidas + 1;
+        CONTINUE;
+      END IF;
+    END IF;
+
+    IF v_error_motivo IS NULL THEN
       IF v_hora_corte IS NULL THEN
         SELECT r.hora_corte
         INTO v_hora_corte
@@ -4272,9 +4401,10 @@ BEGIN
         LIMIT 1;
       END IF;
 
-      v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria(
+      v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria_ruta(
         v_fecha_deposito,
         v_fecha_carga_excel,
+        p_ruta_actual,
         v_hora_corte
       );
       v_flag_fuera_horario := COALESCE((v_clasificacion_horaria->>'flag_fuera_horario')::boolean, false);
@@ -4325,42 +4455,6 @@ BEGIN
       END IF;
     END IF;
 
-    v_codigo_duplicidad := NULLIF(BTRIM(COALESCE(v_fila.codigo_operacion, '')), '');
-    IF v_codigo_duplicidad IS NOT NULL THEN
-      -- Serialize identical deposits across simultaneous Excel loads.
-      PERFORM pg_advisory_xact_lock(
-        hashtextextended(
-          CONCAT_WS('|', p_id_codigo_servicio::text, UPPER(v_codigo_duplicidad), ROUND(COALESCE(v_monto, 0)::numeric, 2)::text),
-          0
-        )
-      );
-
-      SELECT id
-      INTO v_dup_id
-      FROM public.tb_operacion_proceso
-      WHERE 1 = 1
-        -- AND dni_cliente = v_dni_parseado
-        AND ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2) = ROUND(COALESCE(v_monto, 0)::numeric, 2)
-        AND UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, ''))) = UPPER(v_codigo_duplicidad)
-        AND id_codigo_servicio = p_id_codigo_servicio
-        AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
-      LIMIT 1;
-    ELSE
-      v_dup_id := NULL;
-    END IF;
-
-    IF v_dup_id IS NOT NULL THEN
-      v_detalle := v_detalle || jsonb_build_object(
-        'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
-        'codigo_operacion', v_fila.codigo_operacion,
-        'estado', 'OMITIDO',
-        'motivo', 'Duplicado por monto, codigo de operacion, servicio y ventana de deposito de 7 dias',
-        'id_operacion', v_dup_id
-      );
-      v_filas_omitidas := v_filas_omitidas + 1;
-      CONTINUE;
-    END IF;
-
     SELECT b.id, b.nombre
     INTO v_banco_cliente_id, v_banco_cliente_nombre
     FROM public.tb_banco b
@@ -4381,14 +4475,6 @@ BEGIN
       FROM public.tb_banco
       WHERE id = v_id_banco_ingreso_final;
     END IF;
-
-    SELECT COUNT(*) INTO v_reglas_candidatas_count
-    FROM public.tb_reglas_efectivizacion r
-    WHERE r.id_codigo_servicio = p_id_codigo_servicio
-      AND r.id_banco = v_id_banco_ingreso_final
-      AND r.id_comunidad = COALESCE(v_cliente_comunidad, p_id_comunidad)
-      AND (p_nombre_tipo_deposito IS NULL OR r.tipo_deposito = p_nombre_tipo_deposito)
-      AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1);
 
     SELECT r.*
     INTO v_regla
@@ -4618,10 +4704,6 @@ BEGIN
       CONTINUE;
     END IF;
 
-    IF to_regprocedure('public.f_patch_tb_recaudacion_confirmar_si_vencida(bigint,bigint,character varying)') IS NOT NULL THEN
-      PERFORM public.f_patch_tb_recaudacion_confirmar_si_vencida(v_new_id, p_id_usuario, v_username);
-    END IF;
-
     v_detalle := v_detalle || jsonb_build_object(
       'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
       'codigo_operacion', v_fila.codigo_operacion,
@@ -4647,6 +4729,12 @@ BEGIN
           filas_error = v_filas_error
       WHERE id = v_id_carga_excel;
     END IF;
+  END IF;
+
+  PERFORM set_config('app.defer_kpi_sync', 'off', true);
+
+  IF v_filas_procesadas > 0 THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(p_ruta_actual, p_id_usuario);
   END IF;
 
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(p_ruta_actual, p_id_usuario);
@@ -4932,6 +5020,9 @@ BEGIN
   )
   RETURNING id, fecha_carga INTO v_id_carga_excel, v_fecha_carga_excel;
 
+  -- Los movimientos y saldos siguen aplicandose por fila; el KPI de caja se sincroniza al final.
+  PERFORM set_config('app.defer_kpi_sync', 'on', true);
+
   FOR v_fila IN
     SELECT *
     FROM jsonb_to_recordset(p_datos_excel_json) AS x(
@@ -5025,9 +5116,10 @@ BEGIN
       LIMIT 1;
     END IF;
 
-    v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria(
+    v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria_ruta(
       v_fecha_deposito,
       v_fecha_carga_excel,
+      p_ruta_actual,
       v_hora_corte
     );
     v_flag_fuera_horario := COALESCE((v_clasificacion_horaria->>'flag_fuera_horario')::boolean, false);
@@ -5298,6 +5390,12 @@ BEGIN
           filas_error = v_filas_error
       WHERE id = v_id_carga_excel;
     END IF;
+  END IF;
+
+  PERFORM set_config('app.defer_kpi_sync', 'off', true);
+
+  IF v_filas_procesadas > 0 THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(p_ruta_actual, p_id_usuario);
   END IF;
 
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(p_ruta_actual, p_id_usuario);
@@ -5698,25 +5796,7 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_delete_tb_operacion_carga_excel_rollback',
-  'f_get_tb_operacion_carga_excel_rollback',
-  'f_get_tb_operacion_proceso',
-  'f_get_tb_parse_documento',
-  'f_get_tb_operacion_comision_efectivizacion_cliente',
-  'f_get_tb_operacion_calculo_comision_servicio',
-  'f_get_tb_operacion_calculo_comision_banco_ingreso',
-  'f_get_tb_operacion_calculo_comision_banco_salida',
-  'f_get_tb_operacion_clasificacion_horaria',
-  'f_get_tb_operacion_proceso_calculo',
-  'f_patch_tb_operacion_proceso_base',
-  'f_patch_tb_operacion_proceso_comision_extra',
-  'f_patch_tb_operacion_proceso_comision_recurrente',
-  'f_patch_tb_operacion_proceso_eliminar',
-  'f_patch_tb_operacion_proceso_pagado',
-  'f_patch_tb_operacion_proceso_pagado_lote',
-  'f_patch_tb_operacion_proceso_restaurar',
-  'f_patch_tb_operacion_proceso_fuera_horario',
-  'f_patch_tb_operacion_proceso_derivacion',
+  'f_get_tb_operacion_clasificacion_horaria_ruta',
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',
   'f_post_tb_operacion_proceso_excel_ganancia'

@@ -344,6 +344,10 @@ BEGIN
 
   v_ruta := LOWER(COALESCE(p_ruta, v_regla.ruta));
 
+  IF v_ruta IN ('scotiabank', 'banbif') THEN
+    v_regla.hora_corte := '21:00:00'::time;
+  END IF;
+
   v_deposito_local := p_fecha_deposito AT TIME ZONE 'America/Lima';
 
   IF v_deposito_local::time < v_regla.hora_corte THEN
@@ -956,6 +960,7 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
+  'f_get_tb_recaudacion_fecha_liberacion',
   'f_run_tb_recaudacion_liberar_retenciones',
   'f_patch_tb_recaudacion_confirmar_si_vencida',
   'f_get_tb_recaudacion_operacion_info'

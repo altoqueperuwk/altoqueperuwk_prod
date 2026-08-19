@@ -720,6 +720,62 @@ BEGIN
            FROM operaciones_arrastre oa
            WHERE oa.id_operacion_proceso = op.id
          )
+     GROUP BY
+         COALESCE(op.ruta_destino, op.ruta_origen),
+         op.id_empresa_ingreso,
+         op.id_empresa_cuenta_ingreso
+     ),
+     ganancias_modalidad AS (
+       SELECT
+         COALESCE(op.ruta_destino, op.ruta_origen) AS ruta,
+         op.id_empresa_ingreso,
+         op.id_empresa_cuenta_ingreso,
+         COALESCE(SUM(
+           CASE
+             WHEN UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) IN (
+               'RETORNO', 'RETORNO_DIRECTO', 'DIRECTO_CAJA'
+             ) THEN 0
+             ELSE GREATEST(
+               COALESCE(op.monto_deposito_cliente, 0)
+               - COALESCE(
+                   op.monto_transferencia_cliente,
+                   GREATEST(
+                     COALESCE(op.monto_deposito_cliente, 0)
+                     - COALESCE(op.resultado_comision_servicio, 0),
+                     0
+                   )
+                 )
+               - COALESCE(op.resultado_comision_banco_ingreso, 0)
+               - COALESCE(op.resultado_comision_banco_salida, 0),
+               0
+             )
+           END
+         ), 0) AS ganancias
+       FROM public.tb_operacion_proceso op
+       WHERE LOWER(BTRIM(COALESCE(op.ruta_destino, op.ruta_origen, ''))) IN (
+         'scotiabank', 'banbif'
+       )
+         AND op.id_caja_cierre IS NULL
+         AND op.fecha_pagado IS NOT NULL
+         AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+         AND (
+           (
+             UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN ('MISMO DÍA', 'MISMO DIA')
+             AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
+                 (op.fecha_pagado AT TIME ZONE 'America/Lima')::date
+           )
+           OR (
+             UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN ('DÍA SIGUIENTE', 'DIA SIGUIENTE')
+             AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
+                 ((op.fecha_pagado AT TIME ZONE 'America/Lima')::date - 1)
+           )
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM public.tb_operacion_caja oc_hist
+           WHERE oc_hist.id_operacion_proceso = op.id
+             AND oc_hist.id_caja_cierre IS NOT NULL
+         )
        GROUP BY
          COALESCE(op.ruta_destino, op.ruta_origen),
          op.id_empresa_ingreso,
@@ -752,11 +808,15 @@ BEGIN
          COALESCE(SUM(c.gastos + COALESCE(fh.gastos_operacionales, 0)), 0) AS gastos_operacionales,
         -- La retencion separa la ganancia en ganancia_retenido, pero no la elimina
         -- del resultado economico de la ruta.
-         COALESCE(SUM(
-           COALESCE(c.ganancia, 0)
-           + COALESCE(c.ganancia_retenido, 0)
-           + COALESCE(fh.ganancias, 0)
-         ), 0) AS ganancias,
+        COALESCE(SUM(
+          CASE
+            WHEN LOWER(BTRIM(COALESCE(rc.ruta, ''))) IN ('scotiabank', 'banbif')
+              THEN COALESCE(gm.ganancias, 0)
+            ELSE COALESCE(c.ganancia, 0)
+              + COALESCE(c.ganancia_retenido, 0)
+              + COALESCE(fh.ganancias, 0)
+          END
+        ), 0) AS ganancias,
         COALESCE(SUM((
           SELECT COALESCE(SUM(op.monto_deposito_cliente), 0)
           FROM public.tb_operacion_proceso op
@@ -796,10 +856,14 @@ BEGIN
         ON c.id_empresa = rc.id_empresa
        AND c.id_empresa_cuenta_bancaria = rc.id_empresa_cuenta_bancaria
        AND c.id_estado = b.id_estado
-       LEFT JOIN fuera_horario_financieros fh
+      LEFT JOIN fuera_horario_financieros fh
          ON fh.ruta = rc.ruta
         AND fh.id_empresa_ingreso = c.id_empresa
         AND fh.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
+      LEFT JOIN ganancias_modalidad gm
+        ON gm.ruta = rc.ruta
+       AND gm.id_empresa_ingreso = c.id_empresa
+       AND gm.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
       WHERE (p_id_empresa IS NULL OR rc.id_empresa = p_id_empresa)
         AND (p_id_empresa_cuenta_bancaria IS NULL OR rc.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria)
       GROUP BY rc.ruta
@@ -912,6 +976,57 @@ BEGIN
   END IF;
 
   RETURN QUERY
+  WITH ganancias_modalidad AS (
+    SELECT
+      COALESCE(op.ruta_destino, op.ruta_origen) AS ruta,
+      COALESCE(SUM(
+        CASE
+          WHEN UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) IN (
+            'RETORNO', 'RETORNO_DIRECTO', 'DIRECTO_CAJA'
+          ) THEN 0
+          ELSE GREATEST(
+            COALESCE(op.monto_deposito_cliente, 0)
+            - COALESCE(
+                op.monto_transferencia_cliente,
+                GREATEST(
+                  COALESCE(op.monto_deposito_cliente, 0)
+                  - COALESCE(op.resultado_comision_servicio, 0),
+                  0
+                )
+              )
+            - COALESCE(op.resultado_comision_banco_ingreso, 0)
+            - COALESCE(op.resultado_comision_banco_salida, 0),
+            0
+          )
+        END
+      ), 0) AS ganancias
+    FROM public.tb_operacion_proceso op
+    WHERE LOWER(BTRIM(COALESCE(op.ruta_destino, op.ruta_origen, ''))) IN (
+      'scotiabank', 'banbif'
+    )
+      AND op.id_caja_cierre IS NULL
+      AND op.fecha_pagado IS NOT NULL
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+      AND (
+        (
+          UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN ('MISMO DÍA', 'MISMO DIA')
+          AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
+              (op.fecha_pagado AT TIME ZONE 'America/Lima')::date
+        )
+        OR (
+          UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN ('DÍA SIGUIENTE', 'DIA SIGUIENTE')
+          AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
+              ((op.fecha_pagado AT TIME ZONE 'America/Lima')::date - 1)
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.tb_operacion_caja oc_hist
+        WHERE oc_hist.id_operacion_proceso = op.id
+          AND oc_hist.id_caja_cierre IS NOT NULL
+      )
+    GROUP BY COALESCE(op.ruta_destino, op.ruta_origen)
+  )
   SELECT
     k.id,
     k.ruta,
@@ -943,7 +1058,11 @@ BEGIN
     k.ingresos,
     k.salidas,
     k.gastos_operacionales,
-    k.ganancias,
+    CASE
+      WHEN LOWER(BTRIM(COALESCE(k.ruta, ''))) IN ('scotiabank', 'banbif')
+        THEN COALESCE(gm.ganancias, 0)
+      ELSE k.ganancias
+    END AS ganancias,
     COALESCE((
       SELECT SUM(op.monto_deposito_cliente)
       FROM public.tb_operacion_proceso op
@@ -1043,6 +1162,7 @@ BEGIN
   FROM public.tb_ruta_operacion_kpi k
   JOIN public.tb_estado est ON est.id = k.id_estado
   LEFT JOIN public.tb_usuario u ON u.id = k.id_usuario
+  LEFT JOIN ganancias_modalidad gm ON gm.ruta = k.ruta
   WHERE (p_id IS NULL OR k.id = p_id)
     AND (p_ruta IS NULL OR k.ruta = p_ruta)
     AND (p_id_estado IS NULL OR k.id_estado = p_id_estado)
@@ -1625,6 +1745,57 @@ BEGIN
        )
      GROUP BY op.id_empresa_ingreso, op.id_empresa_cuenta_ingreso
    ),
+   ganancias_modalidad AS (
+     SELECT
+       op.id_empresa_ingreso,
+       op.id_empresa_cuenta_ingreso,
+       COALESCE(SUM(
+         CASE
+           WHEN UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) IN (
+             'RETORNO', 'RETORNO_DIRECTO', 'DIRECTO_CAJA'
+           ) THEN 0
+           ELSE GREATEST(
+             COALESCE(op.monto_deposito_cliente, 0)
+             - COALESCE(
+                 op.monto_transferencia_cliente,
+                 GREATEST(
+                   COALESCE(op.monto_deposito_cliente, 0)
+                   - COALESCE(op.resultado_comision_servicio, 0),
+                   0
+                 )
+               )
+             - COALESCE(op.resultado_comision_banco_ingreso, 0)
+             - COALESCE(op.resultado_comision_banco_salida, 0),
+             0
+           )
+         END
+       ), 0) AS ganancias
+     FROM public.tb_operacion_proceso op
+     WHERE LOWER(BTRIM(COALESCE(op.ruta_destino, op.ruta_origen, ''))) = LOWER(BTRIM(p_ruta))
+       AND LOWER(BTRIM(p_ruta)) IN ('scotiabank', 'banbif')
+       AND op.id_caja_cierre IS NULL
+       AND op.fecha_pagado IS NOT NULL
+       AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+       AND (
+         (
+           UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN ('MISMO DÍA', 'MISMO DIA')
+           AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
+               (op.fecha_pagado AT TIME ZONE 'America/Lima')::date
+         )
+         OR (
+           UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN ('DÍA SIGUIENTE', 'DIA SIGUIENTE')
+           AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
+               ((op.fecha_pagado AT TIME ZONE 'America/Lima')::date - 1)
+         )
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM public.tb_operacion_caja oc_hist
+         WHERE oc_hist.id_operacion_proceso = op.id
+           AND oc_hist.id_caja_cierre IS NOT NULL
+       )
+     GROUP BY op.id_empresa_ingreso, op.id_empresa_cuenta_ingreso
+   ),
    cajas_ruta AS (
     SELECT DISTINCT
       c.id,
@@ -1665,8 +1836,15 @@ BEGIN
           )
       ), 0) AS fuera_horario,
        c.gastos + COALESCE(fh.gastos_operacionales, 0) AS gastos,
-       c.ganancia + COALESCE(fh.ganancias, 0) AS ganancia,
-      c.ganancia_retenido,
+       CASE
+         WHEN LOWER(BTRIM(p_ruta)) IN ('scotiabank', 'banbif')
+           THEN COALESCE(gm.ganancias, 0)
+         ELSE c.ganancia + COALESCE(fh.ganancias, 0)
+       END AS ganancia,
+       CASE
+         WHEN LOWER(BTRIM(p_ruta)) IN ('scotiabank', 'banbif') THEN 0
+         ELSE c.ganancia_retenido
+       END AS ganancia_retenido,
       c.salida
     FROM public.tb_ruta_operacion_caja rc
     JOIN public.tb_caja_operativa c
@@ -1675,6 +1853,9 @@ BEGIN
     LEFT JOIN fuera_horario_financieros fh
       ON fh.id_empresa_ingreso = c.id_empresa
      AND fh.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
+    LEFT JOIN ganancias_modalidad gm
+      ON gm.id_empresa_ingreso = c.id_empresa
+     AND gm.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
     WHERE rc.ruta = p_ruta
       AND rc.id_estado = v_estado_activo_id
       AND c.id_estado = v_estado_activo_id
@@ -2318,6 +2499,100 @@ BEGIN
     'caja', v_result,
     'movimiento', v_movimiento,
     'diferencia', v_diferencia
+  );
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_caja_operativa_reconciliar_saldo_bancario
+Objetivo:
+  Conciliar el saldo de una caja viva con el saldo mostrado por la banca.
+  La diferencia se registra como movimiento administrativo para conservar la
+  trazabilidad, sin alterar los KPI comerciales del ciclo.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_caja_operativa_reconciliar_saldo_bancario(
+  p_id_caja bigint,
+  p_saldo_banco numeric,
+  p_id_usuario bigint DEFAULT NULL,
+  p_nombre_usuario character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_caja record;
+  v_saldo_actual numeric;
+  v_saldo_banco numeric;
+  v_diferencia numeric;
+  v_movimiento jsonb;
+  v_caja_result jsonb;
+BEGIN
+  IF p_saldo_banco IS NULL OR p_saldo_banco < 0 THEN
+    RETURN jsonb_build_object(
+      'error', 'El saldo según banco debe ser mayor o igual a cero.'
+    );
+  END IF;
+
+  SELECT c.*
+  INTO v_caja
+  FROM public.tb_caja_operativa c
+  WHERE c.id = p_id_caja
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_caja.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La caja no existe.');
+  END IF;
+
+  v_saldo_actual := ROUND(COALESCE(v_caja.saldo_actual, 0), 2);
+  v_saldo_banco := ROUND(p_saldo_banco, 2);
+  v_diferencia := ROUND(v_saldo_banco - v_saldo_actual, 2);
+
+  IF v_diferencia > 0 THEN
+    v_movimiento := public.f_post_tb_operacion_caja(
+      p_id_caja := p_id_caja,
+      p_tipo_origen := 'EDICION SALDO INICIAL CAJA',
+      p_tipo_movimiento := 'INGRESO',
+      p_detalle := format('Conciliacion saldo bancario: %s -> %s', v_saldo_actual, v_saldo_banco),
+      p_monto_ingreso := v_diferencia,
+      p_flag_contabiliza_operacion := false,
+      p_id_usuario := p_id_usuario,
+      p_nombre_usuario := p_nombre_usuario
+    );
+  ELSIF v_diferencia < 0 THEN
+    v_movimiento := public.f_post_tb_operacion_caja(
+      p_id_caja := p_id_caja,
+      p_tipo_origen := 'EDICION SALDO INICIAL CAJA',
+      p_tipo_movimiento := 'SALIDA',
+      p_detalle := format('Conciliacion saldo bancario: %s -> %s', v_saldo_actual, v_saldo_banco),
+      p_monto_salida := ABS(v_diferencia),
+      p_flag_contabiliza_operacion := false,
+      p_id_usuario := p_id_usuario,
+      p_nombre_usuario := p_nombre_usuario
+    );
+  END IF;
+
+  IF v_movimiento ? 'error' THEN
+    RETURN v_movimiento;
+  END IF;
+
+  UPDATE public.tb_caja_operativa
+  SET saldo_inicial = v_saldo_banco,
+      id_usuario = COALESCE(p_id_usuario, id_usuario)
+  WHERE id = p_id_caja;
+
+  SELECT to_jsonb(x)
+  INTO v_caja_result
+  FROM public.f_get_tb_caja_operativa(p_id := p_id_caja) AS x
+  LIMIT 1;
+
+  RETURN jsonb_build_object(
+    'caja', v_caja_result,
+    'saldo_banco', v_saldo_banco,
+    'saldo_anterior', v_saldo_actual,
+    'diferencia', v_diferencia,
+    'movimiento', v_movimiento
   );
 END;
 $$;
@@ -3850,6 +4125,16 @@ BEGIN
 END;
 $$;
 
+-- Indices de acceso para las comprobaciones de idempotencia y cierre.
+-- No cambian las filas afectadas; evitan recorridos completos repetidos.
+CREATE INDEX IF NOT EXISTS idx_tb_operacion_caja_operacion_proceso
+ON public.tb_operacion_caja (id_operacion_proceso)
+WHERE id_operacion_proceso IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tb_operacion_caja_caja_cierre
+ON public.tb_operacion_caja (id_caja, id_caja_cierre)
+WHERE id_caja_cierre IS NOT NULL;
+
 /*
 Funcion: f_get_tb_operacion_caja
 Objetivo:
@@ -4238,11 +4523,14 @@ BEGIN
       id_usuario = COALESCE(p_id_usuario, id_usuario)
   WHERE id = p_id_caja;
 
-  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario)
-  FROM public.tb_ruta_operacion_caja rc
-  WHERE rc.id_empresa = v_caja.id_empresa
-    AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
-    AND rc.id_estado = 1;
+  -- Las cargas Excel difieren esta sincronizacion y la ejecutan una vez al final.
+  IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario)
+    FROM public.tb_ruta_operacion_caja rc
+    WHERE rc.id_empresa = v_caja.id_empresa
+      AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
+      AND rc.id_estado = 1;
+  END IF;
 
   RETURN (
     SELECT x
@@ -4484,11 +4772,14 @@ DECLARE
   v_detalle character varying;
   v_result jsonb;
 BEGIN
+  -- Serializa la comprobacion y la creacion del movimiento para una misma
+  -- operacion sin alterar la semantica del movimiento ni del saldo.
   SELECT *
   INTO v_op
   FROM public.tb_operacion_proceso
   WHERE id = p_id_operacion_proceso
-  LIMIT 1;
+  LIMIT 1
+  FOR UPDATE;
 
   IF v_op.id IS NULL THEN
     RETURN jsonb_build_object('error', 'La operacion comercial no existe.');
@@ -5806,6 +6097,7 @@ WHERE p.proname IN (
   'f_get_tb_operacion_empresa_badges',
   'f_get_tb_ruta_operacion_kpi',
   'f_patch_tb_caja_operativa_saldo_inicial',
+  'f_patch_tb_caja_operativa_reconciliar_saldo_bancario',
   'f_post_tb_caja_operativa_cierre',
   'f_delete_tb_caja_operativa_cierre_ultimo_dia',
   'f_post_tb_operacion_caja',

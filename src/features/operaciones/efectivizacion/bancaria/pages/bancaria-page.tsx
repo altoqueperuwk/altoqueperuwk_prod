@@ -983,6 +983,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 {isCajasOpen && (
                     <OperacionCajasRutaModal
                         activeCompanyId={activeCompanyId}
+                        activeCajaId={activeCajaId}
                         isOpen={isCajasOpen}
                         onClose={() => setIsCajasOpen(false)}
                         onSaved={() => setRefreshKey((value) => value + 1)}
