@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Edit03, Plus, Save01, XClose } from "@untitledui/icons";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Edit03, Plus, RefreshCcw02, Save01, XClose } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
@@ -22,6 +22,7 @@ interface OperacionCajasRutaModalProps {
     onSaved?: () => void;
     ruta: OperacionRutaBancaria;
     activeCompanyId?: number | null;
+    activeCajaId?: number | null;
 }
 
 interface CuentaRow {
@@ -63,9 +64,30 @@ const normalize = (value: unknown) =>
         .toUpperCase();
 
 const parseMoney = (value: string) => {
-    const parsed = Number(value);
+    const raw = String(value ?? "").trim().replace(/\s/g, "").replace(/^S\/?/i, "");
+    if (!raw) return null;
+
+    const lastComma = raw.lastIndexOf(",");
+    const lastDot = raw.lastIndexOf(".");
+    let normalized = raw;
+
+    if (lastComma >= 0 && lastDot >= 0) {
+        normalized = lastComma > lastDot
+            ? raw.replace(/\./g, "").replace(",", ".")
+            : raw.replace(/,/g, "");
+    } else if (lastComma >= 0) {
+        const decimalPart = raw.slice(lastComma + 1);
+        normalized = decimalPart.length === 2
+            ? `${raw.slice(0, lastComma).replace(/,/g, "")}.${decimalPart}`
+            : raw.replace(/,/g, "");
+    }
+
+    const parsed = Number(normalized);
     return Number.isFinite(parsed) ? parsed : null;
 };
+
+const formatMoney = (value: number) =>
+    new Intl.NumberFormat("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 
 const buildCuenta = (row: Record<string, unknown>): CuentaRow => ({
     id: Number(row.id),
@@ -95,7 +117,7 @@ const toCajaComparable = (row: CajaDraft) => ({
     id_estado: row.id_estado,
 });
 
-export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, activeCompanyId }: OperacionCajasRutaModalProps) => {
+export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, activeCompanyId, activeCajaId }: OperacionCajasRutaModalProps) => {
     const { businessUser } = useAuth();
     const { estados } = useSessionCache();
     const { addToast } = useToast();
@@ -107,6 +129,13 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
     const [isLoadingCajas, setIsLoadingCajas] = useState(false);
     const [savingCajaKey, setSavingCajaKey] = useState<string | null>(null);
     const [isConfirmCloseOpen, setIsConfirmCloseOpen] = useState(false);
+    const [reconciliationCaja, setReconciliationCaja] = useState<CajaDraft | null>(null);
+    const [saldoBancarioDraft, setSaldoBancarioDraft] = useState("");
+    const [isReconciling, setIsReconciling] = useState(false);
+    const [isManagingCajas, setIsManagingCajas] = useState(false);
+    const [returnToCajaList, setReturnToCajaList] = useState(false);
+    const [isResolvingCaja, setIsResolvingCaja] = useState(true);
+    const autoOpenedReconciliation = useRef(false);
 
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const rutaLabel = getRutaLabel(ruta);
@@ -166,18 +195,33 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
             setCuentas(cuentaRows);
             setCajas(cajaRows);
             setCajaSnapshots(Object.fromEntries(cajaRows.map((caja) => [caja.key, { ...caja }])));
+
+            const activeCaja = activeCajaId ? cajaRows.find((caja) => caja.id === activeCajaId) : null;
+            if (activeCaja && !autoOpenedReconciliation.current) {
+                autoOpenedReconciliation.current = true;
+                setIsManagingCajas(false);
+                setReturnToCajaList(false);
+                setReconciliationCaja(activeCaja);
+                setSaldoBancarioDraft("");
+            }
         } catch (err) {
             addToast("error", err instanceof Error ? err.message : "Error al cargar cajas operativas.");
         } finally {
             setIsLoadingCajas(false);
         }
-    }, [activeCompanyId, addToast, isCompatibleBank]);
+    }, [activeCajaId, activeCompanyId, addToast, isCompatibleBank]);
 
     useEffect(() => {
         if (!isOpen) return;
         setSelectedCajaId(null);
         setEditingCajaKey(null);
-        void loadCajas();
+        setReconciliationCaja(null);
+        setSaldoBancarioDraft("");
+        setIsManagingCajas(false);
+        setReturnToCajaList(false);
+        autoOpenedReconciliation.current = false;
+        setIsResolvingCaja(true);
+        void loadCajas().finally(() => setIsResolvingCaja(false));
     }, [isOpen, loadCajas]);
 
     const updateCaja = (key: string, field: keyof CajaDraft, value: string) => {
@@ -243,7 +287,7 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
         return JSON.stringify(toCajaComparable(row)) !== JSON.stringify(toCajaComparable(snapshot));
     };
 
-    const canEditCajaSaldo = (_row: CajaDraft, field: "saldo_inicial" | "saldo_actual") => field === "saldo_inicial";
+    const canEditCajaSaldo = (row: CajaDraft, field: "saldo_inicial" | "saldo_actual") => row.isNew && field === "saldo_inicial";
 
     const hasPendingChanges = cajas.some(isCajaChanged);
 
@@ -262,6 +306,11 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
         setIsConfirmCloseOpen(false);
         setSelectedCajaId(null);
         setEditingCajaKey(null);
+        setReconciliationCaja(null);
+        setSaldoBancarioDraft("");
+        setIsManagingCajas(false);
+        setReturnToCajaList(false);
+        autoOpenedReconciliation.current = false;
         setCuentas([]);
         setCajas([]);
         setCajaSnapshots({});
@@ -271,6 +320,66 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
         resetModalState();
         onClose();
     };
+
+    const openReconciliation = (row: CajaDraft) => {
+        if (!row.id) return;
+        setReturnToCajaList(true);
+        setIsManagingCajas(false);
+        setReconciliationCaja(row);
+        setSaldoBancarioDraft("");
+    };
+
+    const closeReconciliation = () => {
+        const shouldReturnToCajaList = returnToCajaList;
+        setReconciliationCaja(null);
+        setSaldoBancarioDraft("");
+        setReturnToCajaList(false);
+        if (shouldReturnToCajaList) {
+            setIsManagingCajas(true);
+        } else {
+            resetModalState();
+            onClose();
+        }
+    };
+
+    const manageCajas = () => {
+        setReconciliationCaja(null);
+        setSaldoBancarioDraft("");
+        setReturnToCajaList(true);
+        setIsManagingCajas(true);
+    };
+
+    const reconcileCaja = async () => {
+        if (!reconciliationCaja?.id) return;
+        const saldoBanco = parseMoney(saldoBancarioDraft);
+        if (saldoBanco === null || saldoBanco < 0) {
+            addToast("error", "Ingresa un saldo bancario mayor o igual a cero.");
+            return;
+        }
+
+        setIsReconciling(true);
+        try {
+            await cajaOperativaService.reconcileSaldoBancario({
+                p_id_caja: reconciliationCaja.id,
+                p_saldo_banco: saldoBanco,
+                p_id_usuario: userId,
+            });
+            addToast("success", "Saldo bancario conciliado correctamente.");
+            closeReconciliation();
+            await loadCajas();
+            setSelectedCajaId(reconciliationCaja.id);
+            onSaved?.();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "Error al conciliar el saldo bancario.");
+        } finally {
+            setIsReconciling(false);
+        }
+    };
+
+    const reconciliationSaldoActual = reconciliationCaja ? parseMoney(reconciliationCaja.saldo_actual) ?? 0 : 0;
+    const reconciliationSaldoBanco = parseMoney(saldoBancarioDraft);
+    const reconciliationDifference = reconciliationSaldoBanco === null ? null : reconciliationSaldoBanco - reconciliationSaldoActual;
+    const canReconcile = reconciliationSaldoBanco !== null && reconciliationSaldoBanco >= 0;
 
     const requestClose = () => {
         if (hasPendingChanges) {
@@ -343,6 +452,7 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
 
     return (
         <>
+        {(isManagingCajas || (!reconciliationCaja && !isResolvingCaja)) && (
         <ModalOverlay isOpen={isOpen} onOpenChange={(open) => !open && requestClose()}>
             <Modal className="max-w-7xl">
                 <Dialog>
@@ -351,6 +461,7 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
                             <div>
                                 <h2 className="text-lg font-semibold text-primary">Cajas</h2>
                                 <p className="mt-1 text-sm text-tertiary">Crea cajas operativas y asocialas a {rutaLabel}.</p>
+                                <p className="mt-1 text-xs text-tertiary">Para conciliar después de cargar operaciones, usa Conciliar e ingresa el saldo que muestra la banca.</p>
                             </div>
                             <Button size="xs" color="tertiary" iconLeading={XClose} onClick={requestClose} />
                         </div>
@@ -460,6 +571,19 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
                                                         </td>
                                                         <td className="px-3 py-3">
                                                             <div className="flex items-center gap-2">
+                                                                {row.id ? (
+                                                                    <Button
+                                                                        size="xs"
+                                                                        color="secondary"
+                                                                        iconLeading={RefreshCcw02}
+                                                                        isDisabled={savingCajaKey === row.key}
+                                                                        aria-label="Conciliar saldo con banca"
+                                                                        title="Conciliar saldo con banca"
+                                                                        onClick={() => openReconciliation(row)}
+                                                                    >
+                                                                        Conciliar
+                                                                    </Button>
+                                                                ) : null}
                                                                 <Button
                                                                     size="xs"
                                                                     color="tertiary"
@@ -505,6 +629,62 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
 
                         <div className="mt-5 flex justify-end">
                             <Button size="sm" color="secondary" onClick={requestClose}>Cerrar</Button>
+                        </div>
+                    </div>
+                </Dialog>
+            </Modal>
+        </ModalOverlay>
+        )}
+        <ModalOverlay isOpen={Boolean(reconciliationCaja)} onOpenChange={(open) => !open && !isReconciling && closeReconciliation()}>
+            <Modal className="max-w-md">
+                <Dialog>
+                    <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <h2 className="text-lg font-semibold text-primary">Conciliar saldo con banca</h2>
+                                <p className="mt-1 text-sm text-tertiary">
+                                    {reconciliationCaja?.nombre_empresa} - {reconciliationCaja?.nombre_banco}
+                                </p>
+                            </div>
+                            <Button size="xs" color="tertiary" iconLeading={XClose} isDisabled={isReconciling} onClick={closeReconciliation} />
+                        </div>
+
+                        <div className="mt-5 grid gap-4">
+                            <div className="rounded-lg border border-secondary bg-secondary p-3">
+                                <p className="text-xs font-medium uppercase text-tertiary">Saldo actual del sistema</p>
+                                <p className="mt-1 text-lg font-semibold tabular-nums text-primary">S/ {formatMoney(reconciliationSaldoActual)}</p>
+                            </div>
+                            <label className="grid gap-1.5">
+                                <span className="text-sm font-medium text-primary">Saldo según banca</span>
+                                <Input
+                                    autoFocus
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={saldoBancarioDraft}
+                                    onChange={setSaldoBancarioDraft}
+                                    placeholder="S/ 0.00"
+                                />
+                            </label>
+                            <div className="rounded-lg border border-secondary p-3">
+                                <p className="text-xs font-medium uppercase text-tertiary">Resultado</p>
+                                <p className="mt-1 text-sm font-semibold tabular-nums text-primary">
+                                    {reconciliationDifference === null
+                                        ? "Ingresa el saldo de la banca."
+                                        : reconciliationDifference === 0
+                                            ? "La caja ya coincide con la banca."
+                                            : `${reconciliationDifference > 0 ? "Ingreso" : "Salida"} administrativo: S/ ${formatMoney(Math.abs(reconciliationDifference))}`}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-5 flex justify-between gap-3">
+                            <Button size="sm" color="tertiary" isDisabled={isReconciling} onClick={manageCajas}>Administrar cajas</Button>
+                            <div className="flex gap-3">
+                            <Button size="sm" color="secondary" isDisabled={isReconciling} onClick={closeReconciliation}>Cancelar</Button>
+                            <Button size="sm" color="primary" isDisabled={!canReconcile} isLoading={isReconciling} onClick={() => void reconcileCaja()}>
+                                Aplicar conciliación
+                            </Button>
+                            </div>
                         </div>
                     </div>
                 </Dialog>

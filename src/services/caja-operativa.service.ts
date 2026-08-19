@@ -28,6 +28,10 @@ export const cajaOperativaService = {
         return rpc<Record<string, unknown>>("f_patch_tb_caja_operativa_saldo_inicial", params);
     },
 
+    reconcileSaldoBancario(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_patch_tb_caja_operativa_reconciliar_saldo_bancario", params);
+    },
+
     getRutas(filters: Record<string, unknown> = {}) {
         return rpc<Record<string, unknown>[]>("f_get_tb_ruta_operacion_caja", filters);
     },
