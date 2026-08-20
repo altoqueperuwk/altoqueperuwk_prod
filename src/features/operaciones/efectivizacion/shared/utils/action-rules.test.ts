@@ -23,6 +23,7 @@ describe("action-rules", () => {
 
     it("enables Eliminar Excel only for Efectivizacion without requiring selected rows", () => {
         expect(isBancariaActionDisabled({ ...base, action: "Eliminar Excel", hasSelection: false })).toBe(false);
+        expect(isBancariaActionDisabled({ ...base, action: "Eliminar Excel", activeTab: "Unificado", hasSelection: false })).toBe(false);
         expect(isBancariaActionDisabled({ ...base, action: "Eliminar Excel", activeTab: "Derivados" })).toBe(true);
     });
 

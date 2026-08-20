@@ -705,6 +705,265 @@ BEGIN
 END;
 $$;
 
+/*
+Funcion: f_post_tb_operacion_asistida_pos_sin_envio
+Objetivo:
+  Registrar un POS directamente como Pagado cuando no se enviara una
+  solicitud bancaria.
+
+Reglas:
+  - no resuelve empresa/cuenta de destino;
+  - no calcula comisiones ni transferencia;
+  - no crea movimientos de caja;
+  - conserva el banco seleccionado como entidad bancaria del cliente;
+  - reutiliza la misma logica de cliente del flujo POS asistido.
+*/
+DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida_pos_sin_envio(
+  bigint, character varying, character varying, bigint, character varying,
+  character varying, numeric, bigint, character varying, bigint,
+  character varying, character varying, character varying, bigint,
+  character varying, bigint, character varying, bigint, character varying,
+  timestamp with time zone
+);
+
+CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida_pos_sin_envio(
+  p_id_codigo_servicio bigint,
+  p_nombre_codigo_servicio character varying,
+  p_tipo_servicio character varying,
+  p_id_comunidad bigint,
+  p_nombre_comunidad character varying,
+  p_dni_cliente character varying,
+  p_monto_deposito_cliente numeric,
+  p_id_banco_cliente bigint,
+  p_codigo_operacion_deposito_cliente character varying DEFAULT NULL,
+  p_tipo_documento_cliente bigint DEFAULT NULL,
+  p_nombre_cliente character varying DEFAULT NULL,
+  p_celular_cliente character varying DEFAULT NULL,
+  p_email_cliente character varying DEFAULT NULL,
+  p_id_usuario bigint DEFAULT NULL,
+  p_nombre_usuario character varying DEFAULT NULL,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL,
+  p_id_usuario_solicitud bigint DEFAULT NULL,
+  p_nombre_usuario_solicitud character varying DEFAULT NULL,
+  p_fecha_registro timestamp with time zone DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_id bigint;
+  v_cliente_id bigint;
+  v_cliente_nombre character varying;
+  v_tipo_documento bigint;
+  v_celular_cliente bigint;
+  v_nombre_banco_cliente character varying;
+  v_id_estado bigint;
+  v_nombre_estado character varying;
+  v_fecha_registro timestamp with time zone := COALESCE(p_fecha_registro, now());
+  v_monto numeric := ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2);
+BEGIN
+  IF v_monto <= 0 THEN
+    RETURN jsonb_build_object('error', 'El monto debe ser mayor a cero.');
+  END IF;
+
+  p_codigo_operacion_deposito_cliente := NULLIF(BTRIM(COALESCE(p_codigo_operacion_deposito_cliente, '')), '');
+
+  IF p_codigo_operacion_deposito_cliente IS NOT NULL
+     AND LENGTH(p_codigo_operacion_deposito_cliente) > 15 THEN
+    RETURN jsonb_build_object('error', 'El codigo de operacion POS no puede superar los 15 caracteres.');
+  END IF;
+
+  SELECT b.nombre
+  INTO v_nombre_banco_cliente
+  FROM public.tb_banco b
+  WHERE b.id = p_id_banco_cliente
+    AND b.id_estado = 1;
+
+  IF v_nombre_banco_cliente IS NULL THEN
+    RETURN jsonb_build_object('error', 'La entidad tarjeta seleccionada no esta activa.');
+  END IF;
+
+  SELECT id, nombre
+  INTO v_id_estado, v_nombre_estado
+  FROM public.tb_estado
+  WHERE UPPER(BTRIM(COALESCE(nombre, ''))) = 'PAGADO'
+  LIMIT 1;
+
+  IF v_id_estado IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro el estado Pagado.');
+  END IF;
+
+  p_dni_cliente := REGEXP_REPLACE(COALESCE(p_dni_cliente, ''), '[^0-9]', '', 'g');
+  v_celular_cliente := NULLIF(REGEXP_REPLACE(COALESCE(p_celular_cliente, ''), '[^0-9]', '', 'g'), '')::bigint;
+
+  IF p_tipo_documento_cliente IS NOT NULL THEN
+    IF p_tipo_documento_cliente NOT IN (1, 2) THEN
+      RETURN jsonb_build_object('error', 'Tipo de documento invalido.');
+    END IF;
+
+    v_tipo_documento := p_tipo_documento_cliente;
+
+    IF v_tipo_documento = 1 AND LENGTH(p_dni_cliente) <> 8 THEN
+      RETURN jsonb_build_object('error', 'El DNI debe tener exactamente 8 digitos.');
+    END IF;
+
+    IF v_tipo_documento = 2 AND LENGTH(p_dni_cliente) <> 9 THEN
+      RETURN jsonb_build_object('error', 'El CE debe tener exactamente 9 digitos.');
+    END IF;
+  ELSE
+    v_tipo_documento := public.f_get_tb_documento_tipo_codigo('DNI');
+
+    IF LENGTH(p_dni_cliente) = 11 THEN
+      v_tipo_documento := public.f_get_tb_documento_tipo_codigo('RUC');
+    END IF;
+  END IF;
+
+  SELECT id, nombre
+  INTO v_cliente_id, v_cliente_nombre
+  FROM public.tb_cliente
+  WHERE tipo_documento = v_tipo_documento
+    AND numero_documento = p_dni_cliente
+  LIMIT 1;
+
+  IF v_cliente_id IS NULL AND COALESCE(p_dni_cliente, '') <> '' THEN
+    INSERT INTO public.tb_cliente (
+      tipo_documento,
+      numero_documento,
+      nombre,
+      celular,
+      id_comunidad,
+      id_estado,
+      id_usuario
+    )
+    VALUES (
+      v_tipo_documento,
+      p_dni_cliente,
+      NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''),
+      v_celular_cliente,
+      p_id_comunidad,
+      (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1),
+      p_id_usuario
+    )
+    RETURNING id, nombre INTO v_cliente_id, v_cliente_nombre;
+  ELSIF v_cliente_id IS NOT NULL
+     AND (
+       NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), '') IS NOT NULL
+       OR NULLIF(BTRIM(COALESCE(p_celular_cliente, '')), '') IS NOT NULL
+     ) THEN
+    PERFORM public.f_patch_tb_cliente(
+      p_id := v_cliente_id,
+      p_nombre := NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''),
+      p_celular := v_celular_cliente,
+      p_id_comunidad := p_id_comunidad,
+      p_id_usuario := p_id_usuario
+    );
+    v_cliente_nombre := COALESCE(NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''), v_cliente_nombre);
+  END IF;
+
+  INSERT INTO public.tb_operacion_proceso (
+    id_codigo_servicio,
+    nombre_codigo_servicio,
+    tipo_servicio,
+    id_comunidad,
+    nombre_comunidad,
+    id_cliente,
+    dni_cliente,
+    nombre_cliente,
+    email_cliente,
+    monto_deposito_cliente,
+    codigo_operacion_deposito_cliente,
+    id_banco_cliente,
+    nombre_banco_cliente,
+    flag_por_sol_comision_banco_ingreso,
+    comision_banco_ingreso,
+    comision_minimo_banco_ingreso,
+    comision_igv_banco_ingreso,
+    resultado_comision_banco_ingreso,
+    monto_itf_ingreso,
+    comision_servicio,
+    monto_minimo_deposito_servicio,
+    comision_minima_servicio,
+    comision_monto_extra_servicio,
+    resultado_comision_servicio,
+    comision_transf_banco_salida,
+    comision_transf_inter_banco_salida,
+    resultado_comision_banco_salida,
+    monto_transferencia_cliente,
+    monto_itf_salida,
+    id_estado,
+    nombre_estado,
+    id_usuario,
+    nombre_usuario,
+    id_usuario_gestor,
+    nombre_usuario_gestor,
+    id_usuario_solicitud,
+    nombre_usuario_solicitud,
+    ruta_origen,
+    ruta_destino,
+    flag_derivado,
+    fecha_pagado,
+    tipo_facturacion,
+    tipo_recaudacion_sf,
+    fecha_registro
+  )
+  VALUES (
+    p_id_codigo_servicio,
+    p_nombre_codigo_servicio,
+    COALESCE(NULLIF(BTRIM(COALESCE(p_tipo_servicio, '')), ''), 'POS'),
+    p_id_comunidad,
+    p_nombre_comunidad,
+    v_cliente_id,
+    p_dni_cliente,
+    COALESCE(NULLIF(BTRIM(COALESCE(v_cliente_nombre, '')), ''), NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''), ''),
+    NULLIF(BTRIM(COALESCE(p_email_cliente, '')), ''),
+    v_monto,
+    p_codigo_operacion_deposito_cliente,
+    p_id_banco_cliente,
+    v_nombre_banco_cliente,
+    false,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    v_id_estado,
+    v_nombre_estado,
+    p_id_usuario,
+    p_nombre_usuario,
+    COALESCE(p_id_usuario_gestor, p_id_usuario),
+    COALESCE(p_nombre_usuario_gestor, p_nombre_usuario),
+    COALESCE(p_id_usuario_solicitud, p_id_usuario),
+    COALESCE(p_nombre_usuario_solicitud, p_nombre_usuario),
+    'pos',
+    'pos',
+    false,
+    v_fecha_registro,
+    'Boleta',
+    NULL,
+    v_fecha_registro
+  )
+  RETURNING id INTO v_id;
+
+  RETURN (
+    SELECT x
+    FROM public.f_get_tb_operacion_proceso(p_id := v_id) AS x
+    LIMIT 1
+  );
+END;
+$$;
+
 -- ============================================================================
 -- Funcion: f_patch_tb_operacion_asistida
 -- Objetivo:
@@ -1047,6 +1306,7 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_post_tb_operacion_asistida',
+  'f_post_tb_operacion_asistida_pos_sin_envio',
   'f_patch_tb_operacion_asistida'
 )
 ORDER BY n.nspname, p.proname;

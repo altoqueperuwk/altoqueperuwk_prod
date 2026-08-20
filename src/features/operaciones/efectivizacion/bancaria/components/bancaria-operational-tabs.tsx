@@ -477,6 +477,17 @@ export const BancariaOperationalTabs = ({
         setSelectedIds([]);
         setSelectedOperationsById({});
     }, []);
+    const removeSelectedIds = useCallback((ids: number[]) => {
+        if (!ids.length) return;
+
+        const idsToRemove = new Set(ids);
+        setSelectedIds((current) => current.filter((id) => !idsToRemove.has(id)));
+        setSelectedOperationsById((current) => {
+            const next = { ...current };
+            ids.forEach((id) => delete next[id]);
+            return next;
+        });
+    }, []);
     const visibleTabs = useMemo(
         () => {
             if (requestedTabs) return requestedTabs;
@@ -503,7 +514,7 @@ export const BancariaOperationalTabs = ({
         setIndividualActionIds([]);
         setPendingAction(null);
         setConfirmQuickAction(null);
-    }, [activeAccountId, activeCompanyId, clearSelection, code, dateFrom, dateTo, dni, historyDate, refreshKey]);
+    }, [activeAccountId, activeCompanyId, clearSelection, dateFrom, dateTo, historyDate]);
 
     useEffect(() => {
         if (isActiveDigitalWallet) {
@@ -637,7 +648,7 @@ export const BancariaOperationalTabs = ({
         const base = tabContracts[currentTab];
 
         if (currentTab === "Unificado") {
-            return { ...base, actions: ["Pagar", "Derivar", "Reiniciar"] };
+            return { ...base, actions: ["Pagar", "Derivar", "Reiniciar", "Directo", "Eliminar Excel"] };
         }
 
         if (currentTab === "POS") {
@@ -733,8 +744,8 @@ export const BancariaOperationalTabs = ({
 
             operaciones.forEach((row) => {
                 const existing = next[row.id];
-                if (selectedIds.includes(row.id) && (!existing || existing.tab === currentTab) && existing?.row !== row) {
-                    next[row.id] = { row, tab: currentTab };
+                if (selectedIds.includes(row.id) && existing?.row !== row) {
+                    next[row.id] = { row, tab: existing?.tab ?? currentTab };
                     changed = true;
                 }
             });
@@ -806,11 +817,6 @@ export const BancariaOperationalTabs = ({
         [activeCompanyId, commercialCompanies],
     );
     const handlePagoDeudaTransferenciaRow = useCallback(async (row: OperacionProceso) => {
-        if (!String(row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente ?? "").trim()) {
-            addToast("error", "Registra el codigo de operacion de la transferencia antes de continuar.");
-            return;
-        }
-
         setSavingPagoDeudaEstadoIds((current) => [...current, row.id]);
         try {
             const saved = await operacionesRpcService.patchPagoDeudaSalida({
@@ -862,6 +868,7 @@ export const BancariaOperationalTabs = ({
             const payload = buildOperacionPagadoPayload(row.id, estadoPagado, { userId, userName });
             const saved = await operacionesRpcService.patchOperacionPagado(payload);
             replaceOperacion(saved);
+            removeSelectedIds([row.id]);
             setMetricsRefreshKey((value) => value + 1);
             onMetricsChanged?.();
             addToast("success", "Solicitud POS atendida correctamente.");
@@ -870,7 +877,7 @@ export const BancariaOperationalTabs = ({
         } finally {
             setSavingPosEstadoIds((current) => current.filter((id) => id !== row.id));
         }
-    }, [addToast, estadoPagado, onMetricsChanged, replaceOperacion, userId, userName]);
+    }, [addToast, estadoPagado, onMetricsChanged, removeSelectedIds, replaceOperacion, userId, userName]);
 
     const handleDeleteMovement = useCallback(async () => {
         if (!movementToDelete) return;
@@ -883,7 +890,6 @@ export const BancariaOperationalTabs = ({
             });
             addToast("success", "Movimiento eliminado y caja revertida correctamente.");
             setMovementToDelete(null);
-            setSelectedIds([]);
             setActionRefreshKey((value) => value + 1);
             setMetricsRefreshKey((value) => value + 1);
             onChanged?.();
@@ -902,7 +908,7 @@ export const BancariaOperationalTabs = ({
             await operacionesRpcService.deleteOperacionProceso({ p_id: operationToDelete.id, p_id_usuario: userId });
             addToast("success", "Operacion eliminada correctamente.");
             setOperationToDelete(null);
-            setSelectedIds([]);
+            removeSelectedIds([operationToDelete.id]);
             setActionRefreshKey((value) => value + 1);
             setMetricsRefreshKey((value) => value + 1);
             onChanged?.();
@@ -912,7 +918,7 @@ export const BancariaOperationalTabs = ({
         } finally {
             setIsProcessingOperationDelete(false);
         }
-    }, [addToast, onChanged, onMetricsChanged, operationToDelete, userId]);
+    }, [addToast, onChanged, onMetricsChanged, operationToDelete, removeSelectedIds, userId]);
 
     const handleRestoreOperation = useCallback(async () => {
         if (!operationToRestore) return;
@@ -921,7 +927,7 @@ export const BancariaOperationalTabs = ({
             await operacionesRpcService.restoreOperacionProceso({ p_id: operationToRestore.id, p_id_usuario: userId });
             addToast("success", "Operacion restaurada correctamente.");
             setOperationToRestore(null);
-            setSelectedIds([]);
+            removeSelectedIds([operationToRestore.id]);
             setActionRefreshKey((value) => value + 1);
             setMetricsRefreshKey((value) => value + 1);
             onChanged?.();
@@ -931,7 +937,7 @@ export const BancariaOperationalTabs = ({
         } finally {
             setIsProcessingOperationRestore(false);
         }
-    }, [addToast, onChanged, onMetricsChanged, operationToRestore, userId]);
+    }, [addToast, onChanged, onMetricsChanged, operationToRestore, removeSelectedIds, userId]);
 
     const operationColumnsByTab = useMemo(() => ({
         Efectivizacion: baseOperationColumns,
@@ -944,32 +950,6 @@ export const BancariaOperationalTabs = ({
                     <Button size="xs" color="tertiary" iconLeading={Edit03} aria-label="Editar DNI" isDisabled={readOnly || hasDevolucionConfirmada(row)} onClick={() => setDniEdit({ row, value: row.dni_cliente ?? "" })} />
                 </div>
             ) },
-            {
-                key: "codigo_operacion_transferencia",
-                label: "Cod. Op.\nTransferencia",
-                headerClassName: "min-w-32 whitespace-pre-line",
-                render: (row: OperacionProceso) => {
-                    const isEditing = codigoOperacionEdit?.row.id === row.id && codigoOperacionEdit.type === "transferencia";
-                    const editable = !readOnly && !isHistoryMode && isPendingOperation(row) && !row.flag_retenido;
-
-                    if (presentation === "plain") {
-                        return <span className="text-sm text-secondary">{row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente ?? "-"}</span>;
-                    }
-
-                    return (
-                        <PagoDeudaCodigoCell
-                            code={row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente}
-                            editable={editable}
-                            isEditing={isEditing}
-                            isSaving={isSavingCodigoOperacion}
-                            value={isEditing ? codigoOperacionEdit.value : (row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente ?? "")}
-                            onChange={(value) => setCodigoOperacionEdit((current) => current ? { ...current, value } : current)}
-                            onEdit={() => setCodigoOperacionEdit({ row, type: "transferencia", value: row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente ?? "" })}
-                            onBlur={() => void handleCodigoOperacionSave()}
-                        />
-                    );
-                },
-            },
             {
                 key: "empresa_cuenta_salida",
                 label: "Empresa Cuenta",
@@ -1151,6 +1131,11 @@ export const BancariaOperationalTabs = ({
                     })
                     .map((row) => row.id);
             }
+            if (action === "Directo") {
+                return actionRows
+                    .filter((row) => getUnifiedOperationFlow(row) === "Efectivizacion" && isPendingOperation(row))
+                    .map((row) => row.id);
+            }
             if (action === "Reiniciar") return actionRows.filter(isPaidOperation).map((row) => row.id);
             return actionIds;
         }
@@ -1293,7 +1278,6 @@ export const BancariaOperationalTabs = ({
     }, [addToast, isHistoryMode, readOnly, refreshMetrics, replaceOperacion, userId, userName]);
 
     const handleFilterChange = (value: string) => {
-        if (value !== activeFilter) clearSelection();
         setActiveFilter(value);
     };
 
@@ -1330,16 +1314,6 @@ export const BancariaOperationalTabs = ({
                 const eligibleIds = getEligibleIdsOrNotify(action);
                 if (!eligibleIds.length) return;
 
-                if (currentTab === "Pago Deuda") {
-                    const missingTransferCode = operaciones
-                        .filter((row) => eligibleIds.includes(row.id))
-                        .some((row) => !String(row.pd_codigo_operacion_transferencia ?? row.codigo_operacion_deposito_cliente ?? "").trim());
-
-                    if (missingTransferCode) {
-                        throw new Error("Registra el codigo de operacion de la transferencia antes de continuar.");
-                    }
-                }
-
                 const updatedRows: OperacionProceso[] = [];
 
                 for (const id of eligibleIds) {
@@ -1353,7 +1327,7 @@ export const BancariaOperationalTabs = ({
                     updatedRows.push(saved);
                 }
 
-                setSelectedIds([]);
+                removeSelectedIds(eligibleIds);
                 applyUpdatedRows(updatedRows);
                 addToast("success", `Transferencias confirmadas: ${eligibleIds.length}`);
             } catch (err) {
@@ -1398,14 +1372,17 @@ export const BancariaOperationalTabs = ({
 
             try {
                 const updatedRows: OperacionProceso[] = [];
-                for (const id of selectedIds) {
+                const eligibleIds = getEligibleIdsOrNotify(action);
+                if (!eligibleIds.length) return;
+
+                for (const id of eligibleIds) {
                     const saved = await operacionesRpcService.confirmarOperacionRetencion(buildOperacionRetencionConfirmPayload(id, { userId, userName }));
                     updatedRows.push(saved);
                 }
 
-                setSelectedIds([]);
+                removeSelectedIds(eligibleIds);
                 applyUpdatedRows(updatedRows);
-                addToast("success", `Abonos forzados: ${selectedIds.length}`);
+                addToast("success", `Abonos forzados: ${eligibleIds.length}`);
             } catch (err) {
                 const message = err instanceof Error ? err.message : "Error al forzar abonos.";
                 addToast("error", message);
@@ -1506,7 +1483,7 @@ export const BancariaOperationalTabs = ({
                 }
             }
 
-            setSelectedIds([]);
+            removeSelectedIds(eligibleIds);
             applyUpdatedRows(updatedRows);
             addToast("success", `Operaciones actualizadas: ${eligibleIds.length}`);
         } catch (err) {
@@ -1528,7 +1505,10 @@ export const BancariaOperationalTabs = ({
             });
             const operacionesEliminadas = Number(result.operaciones_eliminadas ?? 0);
 
-            setSelectedIds([]);
+            const rollbackSelectedIds = Object.values(selectedOperationsById)
+                .filter(({ row }) => row.id_carga_excel === idCargaExcel)
+                .map(({ row }) => row.id);
+            removeSelectedIds(rollbackSelectedIds);
             setIsRollbackModalOpen(false);
             refreshBandeja();
             setActionRefreshKey((value) => value + 1);
@@ -1552,20 +1532,27 @@ export const BancariaOperationalTabs = ({
         try {
             const eligibleIds = getEligibleIdsOrNotify(action);
             if (!eligibleIds.length) return;
-            const updatedRows: OperacionProceso[] = [];
+            const result = await operacionesRpcService.patchOperacionDirectoCajaLote({
+                p_ids_operaciones: eligibleIds,
+                p_id_usuario_gestor: userId,
+                p_nombre_usuario_gestor: userName,
+            });
+            const updatedRows = result.operaciones_actualizadas ?? [];
+            const processedIds = updatedRows.map((row) => row.id);
 
-            for (const id of eligibleIds) {
-                const saved = await operacionesRpcService.patchOperacionDirectoCaja({
-                    p_id: id,
-                    p_id_usuario_gestor: userId,
-                    p_nombre_usuario_gestor: userName,
-                });
-                updatedRows.push(saved);
-            }
-
-            setSelectedIds([]);
+            removeSelectedIds(processedIds);
             applyUpdatedRows(updatedRows);
-            addToast("success", `Operaciones actualizadas: ${eligibleIds.length}`);
+
+            const errors = result.errores ?? [];
+            if (errors.length) {
+                const firstError = errors[0]?.error ? ` ${errors[0].error}` : "";
+                addToast(
+                    "error",
+                    `Se procesaron ${processedIds.length} de ${eligibleIds.length} operaciones. No procesadas: ${errors.length}.${firstError}`,
+                );
+            } else {
+                addToast("success", `Operaciones actualizadas: ${processedIds.length}`);
+            }
         } catch (err) {
             const message = err instanceof Error ? err.message : "Error al actualizar operaciones.";
             addToast("error", message);
@@ -1749,7 +1736,7 @@ export const BancariaOperationalTabs = ({
             }
 
             setPendingAction(null);
-            setSelectedIds([]);
+            removeSelectedIds(eligibleIds);
             setIndividualActionIds([]);
             applyUpdatedRows(updatedRows);
             addToast("success", `Operaciones actualizadas: ${eligibleIds.length}`);
@@ -2059,7 +2046,7 @@ export const BancariaOperationalTabs = ({
             />
             <OperacionConfirmModal
                 confirmLabel="Confirmar"
-                description={`Se clasificaran ${selectedIds.length} operacion(es) como Directo. Esto las pasara a Pagado sin generar salida normal al cliente.`}
+                description={`Se clasificaran ${pendingActionEligibleCount} operacion(es) como Directo. Esto las pasara a Pagado sin generar salida normal al cliente.`}
                 isLoading={isApplyingAction}
                 isOpen={confirmQuickAction === "Directo"}
                 onClose={() => setConfirmQuickAction(null)}

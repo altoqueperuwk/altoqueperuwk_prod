@@ -4,6 +4,7 @@ import { Button } from "@/components/base/buttons/button";
 import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
+import { Toggle } from "@/components/base/toggle/toggle";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { bancoService } from "@/services/banco.service";
@@ -52,6 +53,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [codigoOperacion, setCodigoOperacion] = useState("");
+    const [sinEnvioSolicitud, setSinEnvioSolicitud] = useState(false);
     const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
     const [nombre, setNombre] = useState("");
@@ -75,6 +77,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
 
     useEffect(() => {
         setCodigoOperacion("");
+        setSinEnvioSolicitud(false);
         setTipoDocumento(1);
         setDni("");
         setNombre("");
@@ -101,9 +104,14 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             if (ruta === "linkpago") {
                 return bancosDestino.filter((item) => item.id === 11 || item.id === 17);
             }
+            if (sinEnvioSolicitud) {
+                return bancosDestino.filter(
+                    (item) => item.tipo.startsWith("Tarjeta Cr") && allowedBankNames.has(item.nombre.trim().toUpperCase()),
+                );
+            }
             return bancosDestino.filter((item) => item.tipo === "Tarjeta Comercial");
         },
-        [bancosDestino, ruta],
+        [bancosDestino, ruta, sinEnvioSolicitud],
     );
     const bancoTransferirList = useMemo(
         () => bancosDestino.filter((item) => item.tipo === "Tarjeta Crédito" && allowedBankNames.has(item.nombre.trim().toUpperCase())),
@@ -120,6 +128,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
     const routeLabel = getRutaLabel(ruta);
+    const isPosSinEnvio = ruta === "pos" && sinEnvioSolicitud;
 
     useEffect(() => {
         if (!dni.trim()) {
@@ -265,7 +274,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             return;
         }
 
-        const estadoRequerido = ruta === "linkpago" ? estadoPagado : estadoSolicitado;
+        const estadoRequerido = isPosSinEnvio ? estadoPagado : ruta === "linkpago" ? estadoPagado : estadoSolicitado;
 
         if (!estadoRequerido) {
             addToast("error", `No se encontro el estado ${ruta === "linkpago" ? "Pagado" : "Solicitado"}.`);
@@ -282,7 +291,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             return;
         }
 
-        if (ruta === "pos" && !selectedBancoTransferir) {
+        if (ruta === "pos" && !isPosSinEnvio && !selectedBancoTransferir) {
             addToast("error", "Selecciona el banco al que transferir.");
             return;
         }
@@ -306,38 +315,62 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             await handleSaveCliente();
 
             const now = new Date().toISOString();
-            const result = await operacionesRpcService.postOperacionAsistida({
-                p_ruta: ruta,
-                p_id_codigo_servicio: servicio.id,
-                p_nombre_codigo_servicio: servicio.nombre,
-                p_tipo_servicio: routeLabel.toUpperCase(),
-                p_id_comunidad: effectiveCommunityId,
-                p_nombre_comunidad: effectiveCommunityName,
-                p_tipo_documento_cliente: tipoDocumento,
-                p_dni_cliente: cleanDni,
-                p_nombre_cliente: nombre.trim() || null,
-                p_email_cliente: ruta === "pos" ? email.trim() || null : null,
-                p_celular_cliente: whatsapp || null,
-                p_monto_deposito_cliente: amount,
-                p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null,
-                p_id_estado: estadoRequerido.id,
-                p_nombre_estado: estadoRequerido.nombre,
-                p_id_usuario: userId,
-                p_nombre_usuario: userName,
-                p_id_usuario_gestor: userId,
-                p_nombre_usuario_gestor: userName,
-                p_id_usuario_solicitud: userId,
-                p_nombre_usuario_solicitud: userName,
-                p_id_banco_destino: ruta === "pos" ? selectedBancoTransferir?.id : null,
-                p_id_banco_cliente: (ruta === "pos" || ruta === "linkpago") ? selectedEntidadTarjeta?.id : null,
-                p_fecha_registro: now,
-            });
+            const result = isPosSinEnvio
+                ? await operacionesRpcService.postOperacionAsistidaPosSinEnvio({
+                      p_id_codigo_servicio: servicio.id,
+                      p_nombre_codigo_servicio: servicio.nombre,
+                      p_tipo_servicio: routeLabel.toUpperCase(),
+                      p_id_comunidad: effectiveCommunityId,
+                      p_nombre_comunidad: effectiveCommunityName,
+                      p_tipo_documento_cliente: tipoDocumento,
+                      p_dni_cliente: cleanDni,
+                      p_nombre_cliente: nombre.trim() || null,
+                      p_email_cliente: email.trim() || null,
+                      p_celular_cliente: whatsapp || null,
+                      p_monto_deposito_cliente: amount,
+                      p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null,
+                      p_id_banco_cliente: selectedEntidadTarjeta?.id,
+                      p_id_usuario: userId,
+                      p_nombre_usuario: userName,
+                      p_id_usuario_gestor: userId,
+                      p_nombre_usuario_gestor: userName,
+                      p_id_usuario_solicitud: userId,
+                      p_nombre_usuario_solicitud: userName,
+                      p_fecha_registro: now,
+                  })
+                : await operacionesRpcService.postOperacionAsistida({
+                      p_ruta: ruta,
+                      p_id_codigo_servicio: servicio.id,
+                      p_nombre_codigo_servicio: servicio.nombre,
+                      p_tipo_servicio: routeLabel.toUpperCase(),
+                      p_id_comunidad: effectiveCommunityId,
+                      p_nombre_comunidad: effectiveCommunityName,
+                      p_tipo_documento_cliente: tipoDocumento,
+                      p_dni_cliente: cleanDni,
+                      p_nombre_cliente: nombre.trim() || null,
+                      p_email_cliente: ruta === "pos" ? email.trim() || null : null,
+                      p_celular_cliente: whatsapp || null,
+                      p_monto_deposito_cliente: amount,
+                      p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null,
+                      p_id_estado: estadoRequerido.id,
+                      p_nombre_estado: estadoRequerido.nombre,
+                      p_id_usuario: userId,
+                      p_nombre_usuario: userName,
+                      p_id_usuario_gestor: userId,
+                      p_nombre_usuario_gestor: userName,
+                      p_id_usuario_solicitud: userId,
+                      p_nombre_usuario_solicitud: userName,
+                      p_id_banco_destino: ruta === "pos" ? selectedBancoTransferir?.id : null,
+                      p_id_banco_cliente: (ruta === "pos" || ruta === "linkpago") ? selectedEntidadTarjeta?.id : null,
+                      p_fecha_registro: now,
+                  });
 
             if (result && "error" in result) {
                 throw new Error(String((result as Record<string, unknown>).error));
             }
 
             setCodigoOperacion("");
+            setSinEnvioSolicitud(false);
             setDni("");
             setTipoDocumento(1);
             setNombre("");
@@ -350,7 +383,14 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             setOriginalWhatsapp("");
             setOriginalComunidadId("");
             onSaved();
-            addToast("success", ruta === "linkpago" ? "Operacion registrada correctamente." : "Solicitud registrada correctamente.");
+            addToast(
+                "success",
+                isPosSinEnvio
+                    ? "POS registrado como pagado correctamente."
+                    : ruta === "linkpago"
+                      ? "Operacion registrada correctamente."
+                      : "Solicitud registrada correctamente.",
+            );
         } catch (err) {
             const message = err instanceof Error ? err.message : `Error al registrar ${ruta === "linkpago" ? "la operacion" : "la solicitud"}.`;
             addToast("error", message);
@@ -361,6 +401,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
 
     const handleClear = () => {
         setCodigoOperacion("");
+        setSinEnvioSolicitud(false);
         setDni("");
         setTipoDocumento(1);
         setNombre("");
@@ -385,15 +426,27 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                     }
                 >
                     {ruta === "pos" && (
-                        <Input
-                            size="sm"
-                            label="Cod. Operacion"
-                            placeholder="Código de operación"
-                            value={codigoOperacion}
-                            maxLength={15}
-                            onChange={(value) => setCodigoOperacion(value.slice(0, 15))}
-                            className="w-full min-w-0 sm:w-[15ch] xl:w-[16ch] xl:shrink-0"
-                        />
+                        <div className="flex w-full min-w-0 flex-col gap-2 sm:w-[15ch] xl:w-[16ch] xl:shrink-0">
+                            <Input
+                                size="sm"
+                                label="Cod. Operacion"
+                                placeholder="Código de operación"
+                                value={codigoOperacion}
+                                maxLength={15}
+                                onChange={(value) => setCodigoOperacion(value.slice(0, 15))}
+                                className="w-full min-w-0"
+                            />
+                            <Toggle
+                                size="sm"
+                                label="Sin Envío Solicitud"
+                                isSelected={sinEnvioSolicitud}
+                                onChange={(isSelected) => {
+                                    setSinEnvioSolicitud(isSelected);
+                                    setEntidadTarjetaId("");
+                                    setBancoDestinoId("");
+                                }}
+                            />
+                        </div>
                     )}
                     {(ruta === "pos" || ruta === "linkpago") && (
                         <NativeSelect
@@ -462,7 +515,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         isDisabled
                         className="w-full max-w-[10ch] shrink-0"
                     />
-                    {ruta === "pos" && (
+                    {ruta === "pos" && !isPosSinEnvio && (
                         <NativeSelect
                             size="sm"
                             label="Banco Transferir"

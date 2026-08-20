@@ -15,6 +15,8 @@ const emptyBadges: BadgeMap = {
     Retenidos: 0,
 };
 const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
+const toLimaDayStart = (date: string) => `${date}T00:00:00-05:00`;
+const toLimaDayEnd = (date: string) => `${date}T23:59:59-05:00`;
 
 export const useBancariaTabBadges = (
     ruta: OperacionRutaBancaria,
@@ -35,8 +37,8 @@ export const useBancariaTabBadges = (
         };
 
         if (historyDate) {
-            payload.p_fecha_caja_cierre_desde = `${historyDate}T00:00:00`;
-            payload.p_fecha_caja_cierre_hasta = `${historyDate}T23:59:59`;
+            payload.p_fecha_caja_cierre_desde = toLimaDayStart(historyDate);
+            payload.p_fecha_caja_cierre_hasta = toLimaDayEnd(historyDate);
         }
 
         return payload;
@@ -103,8 +105,8 @@ export const useBancariaEmpresaBadges = (
         };
 
         if (historyDate) {
-            payload.p_fecha_caja_cierre_desde = `${historyDate}T00:00:00`;
-            payload.p_fecha_caja_cierre_hasta = `${historyDate}T23:59:59`;
+            payload.p_fecha_caja_cierre_desde = toLimaDayStart(historyDate);
+            payload.p_fecha_caja_cierre_hasta = toLimaDayEnd(historyDate);
         }
 
         return payload;
