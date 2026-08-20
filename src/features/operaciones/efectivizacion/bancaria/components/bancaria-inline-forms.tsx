@@ -28,6 +28,7 @@ import type {
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
+import { getPeruDateValue } from "@/features/operaciones/efectivizacion/shared/utils/date";
 import { findCodigoServicioForRuta } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { formatMovimientoOrigen, formatMovimientoTipo } from "@/features/operaciones/efectivizacion/shared/utils/movement-labels";
 import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
@@ -63,6 +64,22 @@ const getCajaSelectionKey = (caja: RutaOperacionCaja) => String(caja.id_caja ?? 
 const excludedTransferCompanyIds = new Set([10, 14, 15, 16]);
 const OTHER_COMPANY_VALUE = "__OTRA_EMPRESA__";
 const OTHER_ACCOUNT_VALUE = "__OTRA_CUENTA__";
+const manualDateRoutes = new Set<OperacionRutaBancaria>(["banbif", "scotiabank"]);
+
+const getLimaTime = (date = new Date()) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+        hour: "2-digit",
+        hourCycle: "h23",
+        minute: "2-digit",
+        second: "2-digit",
+        timeZone: "America/Lima",
+    }).formatToParts(date);
+    const getPart = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "00";
+
+    return `${getPart("hour")}:${getPart("minute")}:${getPart("second")}`;
+};
+
+const getManualDepositTimestamp = (dateValue: string) => `${dateValue}T${getLimaTime()}-05:00`;
 
 const Field = ({ children, className, label }: { children: ReactNode; className?: string; label: string }) => (
     <label className={cx("flex min-w-0 flex-col gap-1", className)}>
@@ -351,6 +368,7 @@ export const BancariaInlineForms = ({
     const [manualDni, setManualDni] = useState("");
     const [manualAmount, setManualAmount] = useState("");
     const [manualCommunityId, setManualCommunityId] = useState("");
+    const [manualDepositDate, setManualDepositDate] = useState(() => getPeruDateValue());
     const [isSavingManual, setIsSavingManual] = useState(false);
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
     const [codigoItems, setCodigoItems] = useState<CatalogItem[]>([]);
@@ -449,7 +467,12 @@ export const BancariaInlineForms = ({
         [comunidades, manualCommunityId],
     );
     const codigoEfectivizacion = useMemo(() => findCodigoServicioForRuta(codigoItems, ruta), [codigoItems, ruta]);
+    const allowsManualDepositDate = manualDateRoutes.has(ruta);
     const placeholderOption = { label: "Seleccionar", value: "" };
+
+    useEffect(() => {
+        setManualDepositDate(getPeruDateValue());
+    }, [ruta]);
 
     useEffect(() => {
         const documentoKey = `${manualTipoDocumento}:${manualDni}`;
@@ -706,10 +729,16 @@ export const BancariaInlineForms = ({
             return;
         }
 
+        if (allowsManualDepositDate && !manualDepositDate) {
+            addToast("error", "La fecha de depósito es obligatoria.");
+            return;
+        }
+
         setIsSavingManual(true);
 
         try {
             const now = new Date().toISOString();
+            const fechaDeposito = allowsManualDepositDate ? getManualDepositTimestamp(manualDepositDate) : now;
             const result = await operacionesRpcService.postOperacionProceso({
                 p_id_codigo_servicio: codigoEfectivizacion.id,
                 p_nombre_codigo_servicio: codigoEfectivizacion.nombre,
@@ -720,7 +749,7 @@ export const BancariaInlineForms = ({
                 p_dni_cliente: cleanManualDni,
                 p_monto_deposito_cliente: amount,
                 p_codigo_operacion_deposito_cliente: manualCode.trim(),
-                p_fecha_deposito_cliente: now,
+                p_fecha_deposito_cliente: fechaDeposito,
                 p_id_empresa_ingreso: activeCompany.id_empresa,
                 p_nombre_empresa_ingreso: activeCompany.nombre_empresa,
                 p_id_estado: estadoPendiente.id,
@@ -741,6 +770,7 @@ export const BancariaInlineForms = ({
             setManualTipoDocumento(1);
             setManualDni("");
             setManualAmount("");
+            setManualDepositDate(getPeruDateValue());
             onSaved();
             addToast("success", "Operación registrada correctamente.");
         } catch (err) {
@@ -888,6 +918,15 @@ export const BancariaInlineForms = ({
                                     onChange={setManualCommunityId}
                                 />
                             </Field>
+                            {allowsManualDepositDate ? (
+                                <Field label="Fecha depósito">
+                                    <CompactInput
+                                        type="date"
+                                        value={manualDepositDate}
+                                        onChange={setManualDepositDate}
+                                    />
+                                </Field>
+                            ) : null}
                         </div>
                         <FormActions
                             isSaving={isSavingManual}
@@ -896,6 +935,7 @@ export const BancariaInlineForms = ({
                                 setManualTipoDocumento(1);
                                 setManualDni("");
                                 setManualAmount("");
+                                setManualDepositDate(getPeruDateValue());
                             }}
                             onSave={handleSaveManualOperation}
                         />
