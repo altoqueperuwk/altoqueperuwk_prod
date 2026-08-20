@@ -125,8 +125,8 @@ $$;
 /*
 Funcion: f_get_tb_recaudacion_cuenta_flag_retenida
 Objetivo:
-  Indicar si una cuenta/ruta tiene contrato activo de retencion por regla de
-  abono. Reemplaza a flag_retencion y flag_retencion_parcial de cuenta.
+  Indicar si la cuenta pertenece a una de las combinaciones hardcodeadas de
+  retencion. La firma se conserva para compatibilidad con los consumidores.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_recaudacion_cuenta_flag_retenida(
   p_ruta character varying,
@@ -138,16 +138,22 @@ STABLE
 SECURITY DEFINER
 AS $$
 BEGIN
-  IF p_ruta IS NULL OR p_id_empresa_cuenta_bancaria IS NULL THEN
+  IF p_id_empresa_cuenta_bancaria IS NULL THEN
     RETURN false;
   END IF;
 
   RETURN EXISTS (
     SELECT 1
-    FROM public.tb_recaudacion_regla_abono r
-    WHERE LOWER(r.ruta) = LOWER(p_ruta)
-      AND r.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria
-      AND COALESCE(r.id_estado, 1) = 1
+    FROM public.tb_empresa_cuenta_bancaria ecb
+    WHERE ecb.id = p_id_empresa_cuenta_bancaria
+      AND ecb.id_estado = 1
+      AND (
+        (ecb.id_empresa = 5 AND ecb.id = 33 AND ecb.id_banco = 3)
+        OR (ecb.id_empresa = 7 AND ecb.id = 16 AND ecb.id_banco = 4)
+        OR (ecb.id_empresa = 8 AND ecb.id = 7 AND ecb.id_banco = 3)
+        OR (ecb.id_empresa = 5 AND ecb.id = 4 AND ecb.id_banco = 2)
+        OR (ecb.id_empresa = 6 AND ecb.id = 5 AND ecb.id_banco = 2)
+      )
   );
 END;
 $$;
@@ -295,16 +301,15 @@ $$;
 /*
 Funcion: f_get_tb_recaudacion_fecha_liberacion
 Objetivo:
-  Calcular corte, fecha estimada de abono y fecha/hora liberable por cuenta.
+  Calcular informacion compatible de corte para las cuentas hardcodeadas.
 
-Reglas de negocio (base_calculo_abono):
-  - BCP usa CORTE y 0 dias adicionales: la fecha de corte se desplaza al
-    siguiente dia disponible de abono, incluyendo sabados y excluyendo
-    domingos/feriados.
-  - DEPOSITO (SafetyPay): la base del abono es el dia del deposito.
-  - CORTE (Scotiabank, BanBif): la base del abono es la fecha del corte.
-  La fecha original del deposito determina el calculo; la fecha de carga no
-  inicia un nuevo conteo.
+Regla:
+  - Solo se atienden las combinaciones de empresa, cuenta y banco definidas
+    para retencion.
+  - El corte informativo es fijo a las 21:00 hora Lima.
+  - No se aplican dias habiles ni liberacion automatica.
+  - La fecha original del deposito determina el ciclo; la fecha de carga no
+    inicia un nuevo conteo.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_recaudacion_fecha_liberacion(
   p_id_empresa_cuenta_bancaria bigint,
@@ -317,77 +322,75 @@ STABLE
 SECURITY DEFINER
 AS $$
 DECLARE
-  v_regla public.tb_recaudacion_regla_abono%ROWTYPE;
+  v_id_empresa bigint;
+  v_id_banco bigint;
   v_deposito_local timestamp without time zone;
   v_fecha_corte_local timestamp without time zone;
   v_base_abono date;
   v_fecha_estimada date;
   v_fecha_liberacion timestamp with time zone;
   v_ruta character varying;
+  v_hora_corte time := '21:00:00'::time;
 BEGIN
   IF p_id_empresa_cuenta_bancaria IS NULL OR p_fecha_deposito IS NULL THEN
     RETURN jsonb_build_object('error', 'Cuenta y fecha de deposito son requeridas.');
   END IF;
 
-  SELECT r.*
-  INTO v_regla
-  FROM public.tb_recaudacion_regla_abono r
-  WHERE r.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria
-    AND (p_ruta IS NULL OR LOWER(r.ruta) = LOWER(p_ruta))
-    AND COALESCE(r.id_estado, 1) = 1
-  ORDER BY CASE WHEN p_ruta IS NOT NULL AND LOWER(r.ruta) = LOWER(p_ruta) THEN 0 ELSE 1 END, r.id
+  SELECT ecb.id_empresa, ecb.id_banco
+  INTO v_id_empresa, v_id_banco
+  FROM public.tb_empresa_cuenta_bancaria ecb
+  WHERE ecb.id = p_id_empresa_cuenta_bancaria
+    AND ecb.id_estado = 1
   LIMIT 1;
 
-  IF v_regla.id IS NULL THEN
-    RETURN jsonb_build_object('error', 'No existe regla activa de abono para la cuenta.');
+  IF NOT (
+    (v_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 33 AND v_id_banco = 3)
+    OR (v_id_empresa = 7 AND p_id_empresa_cuenta_bancaria = 16 AND v_id_banco = 4)
+    OR (v_id_empresa = 8 AND p_id_empresa_cuenta_bancaria = 7 AND v_id_banco = 3)
+    OR (v_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 4 AND v_id_banco = 2)
+    OR (v_id_empresa = 6 AND p_id_empresa_cuenta_bancaria = 5 AND v_id_banco = 2)
+  ) THEN
+    RETURN jsonb_build_object('error', 'La cuenta no pertenece a una retencion hardcodeada.');
   END IF;
 
-  v_ruta := LOWER(COALESCE(p_ruta, v_regla.ruta));
-
-  IF v_ruta IN ('scotiabank', 'banbif') THEN
-    v_regla.hora_corte := '21:00:00'::time;
+  IF (v_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 4 AND v_id_banco = 2)
+     OR (v_id_empresa = 6 AND p_id_empresa_cuenta_bancaria = 5 AND v_id_banco = 2) THEN
+    v_hora_corte := '00:00:00'::time;
   END IF;
+
+  v_ruta := LOWER(COALESCE(p_ruta, CASE v_id_banco
+    WHEN 2 THEN 'bcp'
+    WHEN 3 THEN 'scotiabank'
+    WHEN 4 THEN 'banbif'
+  END));
 
   v_deposito_local := p_fecha_deposito AT TIME ZONE 'America/Lima';
 
-  IF v_deposito_local::time < v_regla.hora_corte THEN
-    v_fecha_corte_local := v_deposito_local::date + v_regla.hora_corte;
+  IF v_deposito_local::time < v_hora_corte THEN
+    v_fecha_corte_local := v_deposito_local::date + v_hora_corte;
   ELSE
-    v_fecha_corte_local := (v_deposito_local::date + 1) + v_regla.hora_corte;
+    v_fecha_corte_local := (v_deposito_local::date + 1) + v_hora_corte;
   END IF;
 
-  IF UPPER(COALESCE(v_regla.base_calculo_abono, 'DEPOSITO')) = 'CORTE' THEN
-    v_base_abono := v_fecha_corte_local::date;
-  ELSE
-    v_base_abono := v_deposito_local::date;
-  END IF;
-
-  WHILE NOT public.f_get_tb_calendario_es_habil(v_base_abono, v_ruta) LOOP
-    v_base_abono := v_base_abono + 1;
-  END LOOP;
-
-  IF UPPER(COALESCE(v_regla.base_calculo_abono, 'DEPOSITO')) = 'CORTE' THEN
-    v_fecha_corte_local := (v_base_abono + v_regla.hora_corte)::timestamp without time zone;
-  END IF;
-
-  v_fecha_estimada := public.f_get_tb_calendario_habil_sumar(v_base_abono, v_regla.dias_habiles_abono, v_ruta);
-  v_fecha_liberacion := ((v_fecha_estimada + v_regla.hora_liberacion)::timestamp AT TIME ZONE 'America/Lima');
+  v_base_abono := v_fecha_corte_local::date;
+  v_fecha_estimada := v_base_abono;
+  v_fecha_liberacion := (v_fecha_corte_local AT TIME ZONE 'America/Lima');
 
   RETURN jsonb_build_object(
-    'id_regla_abono', v_regla.id,
-    'ruta', v_regla.ruta,
-    'id_empresa', v_regla.id_empresa,
-    'id_empresa_cuenta_bancaria', v_regla.id_empresa_cuenta_bancaria,
-    'hora_corte', to_char(v_regla.hora_corte, 'HH24:MI'),
-    'dias_habiles_abono', v_regla.dias_habiles_abono,
-    'hora_liberacion', to_char(v_regla.hora_liberacion, 'HH24:MI'),
-    'base_calculo_abono', UPPER(COALESCE(v_regla.base_calculo_abono, 'DEPOSITO')),
-    'flag_liberacion_automatica', v_regla.flag_liberacion_automatica,
+    'id_regla_abono', NULL,
+    'ruta', v_ruta,
+    'id_empresa', v_id_empresa,
+    'id_empresa_cuenta_bancaria', p_id_empresa_cuenta_bancaria,
+    'hora_corte', to_char(v_hora_corte, 'HH24:MI'),
+    'dias_habiles_abono', 0,
+    'hora_liberacion', to_char(v_hora_corte, 'HH24:MI'),
+    'base_calculo_abono', 'CORTE',
+    'flag_liberacion_automatica', false,
     'fecha_corte', (v_fecha_corte_local AT TIME ZONE 'America/Lima'),
     'fecha_base_abono', v_base_abono,
     'fecha_estimada_abono', v_fecha_estimada,
     'fecha_liberacion', v_fecha_liberacion,
-    'liberable', now() >= v_fecha_liberacion
+    'liberable', false
   );
 END;
 $$;
@@ -539,15 +542,15 @@ BEGIN
     AND (p_ruta IS NULL OR LOWER(l.ruta) = LOWER(p_ruta))
     AND (p_id_empresa_cuenta_bancaria IS NULL OR l.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria);
 
-  -- Re-sincronizacion de fechas de lotes pendientes:
-  -- si la regla de abono cambia (hora, dias o base), los lotes ya creados
-  -- recalculan fecha_estimada_abono y fecha_liberacion con la regla vigente.
+  -- Re-sincronizacion informativa de fechas de lotes pendientes.
+  -- Las cuentas hardcodeadas usan la hora fija de 21:00; si una cuenta
+  -- historica ya no pertenece a ese grupo, se conserva su fecha anterior.
   -- Solo aplica a lotes sin abono real confirmado.
   -- Nota: el recalculo usa subconsultas correlacionadas en el SET, porque
   -- PostgreSQL no permite referenciar la tabla destino en subconsultas del
   -- FROM del UPDATE (error 42P10 con LATERAL).
   UPDATE public.tb_recaudacion_lote l
-  SET fecha_estimada_abono = (
+  SET fecha_estimada_abono = COALESCE((
         SELECT (cal.info->>'fecha_estimada_abono')::date
         FROM public.tb_recaudacion_regla_abono r
         CROSS JOIN LATERAL (
@@ -562,8 +565,8 @@ BEGIN
           AND COALESCE(r.id_estado, 1) = 1
           AND NOT (cal.info ? 'error')
         LIMIT 1
-      ),
-      fecha_liberacion = (
+      ), l.fecha_estimada_abono),
+      fecha_liberacion = COALESCE((
         SELECT (cal.info->>'fecha_liberacion')::timestamp with time zone
         FROM public.tb_recaudacion_regla_abono r
         CROSS JOIN LATERAL (
@@ -578,7 +581,7 @@ BEGIN
           AND COALESCE(r.id_estado, 1) = 1
           AND NOT (cal.info ? 'error')
         LIMIT 1
-      ),
+      ), l.fecha_liberacion),
       estado = CASE
         WHEN now() < l.fecha_corte THEN 'PENDIENTE_CORTE'
         ELSE 'PENDIENTE_ABONO'
@@ -960,10 +963,9 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
+  'f_get_tb_recaudacion_cuenta_flag_retenida',
   'f_get_tb_recaudacion_fecha_liberacion',
-  'f_run_tb_recaudacion_liberar_retenciones',
-  'f_patch_tb_recaudacion_confirmar_si_vencida',
-  'f_get_tb_recaudacion_operacion_info'
+  'f_sync_tb_recaudacion_lotes'
 )
 ORDER BY n.nspname, p.proname;
 

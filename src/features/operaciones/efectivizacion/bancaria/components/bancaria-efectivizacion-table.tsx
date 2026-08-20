@@ -205,7 +205,7 @@ const formatTime = (value?: string | null) => {
     return new Date(value).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
 };
 
-const getColumnHeaders = (showFlow: boolean, showBanca: boolean, showDerivo: boolean, showFueraHorario: boolean) => [
+const getColumnHeaders = (showFlow: boolean, showBanca: boolean, showDerivo: boolean, showFueraHorario: boolean, showCuentaCliente: boolean) => [
     ...(showFlow ? [{ label: "Flujo" }] : []),
     ...(showBanca ? [{ label: "Banca" }] : []),
     { label: "Facturacion" },
@@ -213,7 +213,7 @@ const getColumnHeaders = (showFlow: boolean, showBanca: boolean, showDerivo: boo
     { label: "Cod. Op." },
     { label: "DNI" },
     { label: "Comunidad" },
-    { label: "Cuenta Cliente", className: "w-32" },
+    ...(showCuentaCliente ? [{ label: "Cuenta Cliente", className: "w-32" }] : []),
     { label: "Monto" },
     { label: "Comision" },
     { label: "Transferencia" },
@@ -222,6 +222,12 @@ const getColumnHeaders = (showFlow: boolean, showBanca: boolean, showDerivo: boo
     { label: "Hora", className: "w-24" },
     { label: "Acciones", className: "w-14 text-center" },
 ];
+
+const flowBadgeColors: Record<string, "brand" | "blue" | "orange" | "gray"> = {
+    Efectivizacion: "brand",
+    POS: "blue",
+    Derivado: "orange",
+};
 
 export const BancariaEfectivizacionTable = ({
     activeAccountId = null,
@@ -274,6 +280,7 @@ export const BancariaEfectivizacionTable = ({
     const [pagoDeudaMatches, setPagoDeudaMatches] = useState<Record<number, OperacionProceso[]>>({});
     const [pdMatchRow, setPdMatchRow] = useState<OperacionProceso | null>(null);
     const [pdSelectedMatchId, setPdSelectedMatchId] = useState<number | null>(null);
+    const [interbankTransfer, setInterbankTransfer] = useState<{ row: OperacionProceso; value: string } | null>(null);
     const [dniEdit, setDniEdit] = useState<{ row: OperacionProceso; value: string } | null>(null);
     const [dniDrafts, setDniDrafts] = useState<Record<number, string>>({});
     const [confirmAction, setConfirmAction] = useState<{ row: OperacionProceso; type: ConfirmActionType } | null>(null);
@@ -325,6 +332,8 @@ export const BancariaEfectivizacionTable = ({
     const isUnificado = mode === "unificado";
     const isDerivaciones = mode === "derivaciones";
     const isEliminados = mode === "eliminados";
+    const showCuentaCliente = !isUnificado;
+    const showFueraHorario = false;
     const getRowFlow = (row: OperacionProceso) => {
         if (isUnificado) {
             if (row.flag_derivado) return "Derivado";
@@ -334,8 +343,8 @@ export const BancariaEfectivizacionTable = ({
         return flow ?? (isDerivaciones ? "Derivado" : "Efectivizacion");
     };
     const columnHeaders = useMemo(
-        () => getColumnHeaders(isUnificado, showBanca, isDerivaciones || isUnificado, !hideFueraHorario).filter((column) => !readOnly || column.label !== "Acciones"),
-        [hideFueraHorario, isDerivaciones, isUnificado, mode, readOnly, showBanca],
+        () => getColumnHeaders(isUnificado, showBanca, isDerivaciones || isUnificado, showFueraHorario, showCuentaCliente).filter((column) => !readOnly || column.label !== "Acciones"),
+        [isDerivaciones, isUnificado, mode, readOnly, showBanca, showCuentaCliente, showFueraHorario],
     );
     const tableColSpan = columnHeaders.length + (hasSelection ? 1 : 0);
     const activeCompanyAccounts = useMemo(
@@ -477,7 +486,7 @@ export const BancariaEfectivizacionTable = ({
         (!regla.tipo_deposito || regla.tipo_deposito === row.nombre_tipo_deposito),
     ) ?? null;
 
-    const persistRow = async (draft: OperacionProceso, patch: Record<string, unknown>, recalculate = false) => {
+    const persistRow = async (draft: OperacionProceso, patch: Record<string, unknown>, recalculate = false): Promise<OperacionProceso | null> => {
         setSavingIds((current) => [...current, draft.id]);
         try {
             let payload: Record<string, unknown> = { p_id: draft.id, ...patch };
@@ -505,8 +514,10 @@ export const BancariaEfectivizacionTable = ({
             onRowUpdated(saved);
             if (recalculate) onMetricsChanged();
             addToast("success", "Operacion actualizada.");
+            return saved;
         } catch (err) {
             addToast("error", err instanceof Error ? err.message : "No se pudo guardar la operacion.");
+            return null;
         } finally {
             setSavingIds((current) => current.filter((id) => id !== draft.id));
         }
@@ -989,6 +1000,14 @@ export const BancariaEfectivizacionTable = ({
             await handleDirectoCaja(row);
         }
 
+        if (action === "TransferenciaInterbancaria") {
+            if (isPagado(row) || isFrozenTableOperation(row, mode, activeCompanyId, activeAccountId)) return;
+            setInterbankTransfer({
+                row,
+                value: String(row.id_banco_cliente_transferencia ?? ""),
+            });
+        }
+
         if (action === "EliminarOperacion") {
             onDeleteOperation?.(row);
         }
@@ -1011,6 +1030,32 @@ export const BancariaEfectivizacionTable = ({
         value: String(item.id),
         label: item.nombre_banco,
     }));
+
+    const handleInterbankTransferSave = async () => {
+        if (!interbankTransfer) return;
+
+        const banco = bancos?.find((item) => String(item.id) === interbankTransfer.value);
+        if (!banco) {
+            addToast("error", "Selecciona el banco de transferencia.");
+            return;
+        }
+
+        const row = rows.find((item) => item.id === interbankTransfer.row.id) ?? interbankTransfer.row;
+        const saved = await persistRow(
+            {
+                ...row,
+                id_banco_cliente_transferencia: Number(banco.id),
+                nombre_banco_cliente_transferencia: String(banco.nombre ?? ""),
+            },
+            {
+                p_id_banco_cliente_transferencia: Number(banco.id),
+                p_nombre_banco_cliente_transferencia: String(banco.nombre ?? ""),
+            },
+            true,
+        );
+
+        if (saved) setInterbankTransfer(null);
+    };
 
     return (
         <div className="overflow-hidden border-t border-secondary" aria-busy={isLoading || isRefreshing}>
@@ -1089,11 +1134,7 @@ export const BancariaEfectivizacionTable = ({
                                             </td>
                                         )}
                                         {isUnificado && <td className="px-2 py-2 align-top">
-                                            {isPlain ? (
-                                                <span className="text-sm text-secondary">{rowFlow}</span>
-                                            ) : (
-                                                <CompactBadgeLine color="brand">{rowFlow}</CompactBadgeLine>
-                                            )}
+                                            <CompactBadgeLine color={flowBadgeColors[rowFlow] ?? "gray"}>{rowFlow}</CompactBadgeLine>
                                         </td>}
                                         {showBanca && (
                                             <td className="px-2 py-2 align-top">
@@ -1123,9 +1164,9 @@ export const BancariaEfectivizacionTable = ({
                                         {(isDerivaciones || isUnificado) && (
                                             <td className="px-2 py-2 align-top">
                                                 {isPlain ? (
-                                                    <span className="text-sm text-secondary">{rowIsDerivaciones && row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "-"}</span>
+                                                    <span className="text-sm text-secondary">{rowIsDerivaciones && row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : ""}</span>
                                                 ) : <CompactBadgeLine color={row.ruta_origen ? "brand" : "gray"}>
-                                                    {rowIsDerivaciones && row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : "-"}
+                                                    {rowIsDerivaciones && row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : ""}
                                                 </CompactBadgeLine>}
                                             </td>
                                         )}
@@ -1201,7 +1242,7 @@ export const BancariaEfectivizacionTable = ({
                                                 options={(comunidades ?? []).map((item) => toOption(item.id, item.nombre))}
                                             />}
                                         </td>
-                                        <td className="px-2 py-2 align-top">
+                                        {showCuentaCliente && <td className="px-2 py-2 align-top">
                                             {isPlain ? (
                                                 <span className="text-sm text-secondary">{row.nombre_banco_cliente_transferencia || row.nombre_banco_cliente || "-"}</span>
                                             ) : <CompactInlineSelect
@@ -1224,7 +1265,7 @@ export const BancariaEfectivizacionTable = ({
                                                 }}
                                                 options={cuentaClienteOptions}
                                             />}
-                                        </td>
+                                        </td>}
                                         <td className="px-2 py-2 align-top">
                                             <span className="text-sm tabular-nums text-secondary">{formatMoney(row.monto_deposito_cliente)}</span>
                                         </td>
@@ -1277,7 +1318,7 @@ export const BancariaEfectivizacionTable = ({
                                                 />
                                                 </div>}
                                         </td>
-                                        {!hideFueraHorario && <td className="px-2 py-2 align-top">
+                                        {showFueraHorario && <td className="px-2 py-2 align-top">
                                             {isPlain ? (
                                                 <span className="text-sm text-secondary">{row.flag_fuera_horario ? "Sí" : "No"}</span>
                                             ) : (
@@ -1396,6 +1437,7 @@ export const BancariaEfectivizacionTable = ({
                                                                 {!isUnificado && rowIsEfectivizacion && !isPagado(row) && !row.flag_retenido && <Dropdown.Item isDisabled={commissionState.specialRecurringDisabled} id="ComisionEspecialRecurrente" icon={Percent01}>Com. Especial Recurrente</Dropdown.Item>}
                                                                 {!isUnificado && rowIsEfectivizacion && !isPagado(row) && !row.flag_retenido && <Dropdown.Item isDisabled={commissionState.extraRecurringDisabled} id="ComisionExtraRecurrente" icon={Coins01}>Com. Extra Recurrente</Dropdown.Item>}
                                                                 {rowIsEfectivizacion && !isPagado(row) && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo</Dropdown.Item>}
+                                                                {isUnificado && rowIsEfectivizacion && !isPagado(row) && <Dropdown.Item id="TransferenciaInterbancaria" icon={CreditCardCheck}>Transferencia Interbancaria</Dropdown.Item>}
                                                                 {rowIsEfectivizacion && isDeletable(row) && <Dropdown.Item id="EliminarOperacion" icon={Trash01}>Eliminar Operacion</Dropdown.Item>}
                                                                         </>
                                                                     );
@@ -1623,6 +1665,42 @@ export const BancariaEfectivizacionTable = ({
                             <div className="mt-6 flex justify-end gap-2">
                                 <Button color="secondary" onClick={() => setDniEdit(null)}>Cancelar</Button>
                                 <Button onClick={() => void handleDniEditSave()}>Guardar</Button>
+                            </div>
+                        </div>
+                    </Dialog>
+                </Modal>
+            </ModalOverlay>
+            <ModalOverlay isOpen={interbankTransfer !== null} onOpenChange={(open) => !open && setInterbankTransfer(null)}>
+                <Modal className="max-w-sm">
+                    <Dialog>
+                        <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
+                            <div>
+                                <h2 className="text-lg font-semibold text-primary">Transferencia Interbancaria</h2>
+                                <p className="mt-1 text-sm text-tertiary">
+                                    Selecciona el banco de transferencia para recalcular la operacion.
+                                </p>
+                            </div>
+                            <div className="mt-5">
+                                <NativeSelect
+                                    label="Banco de transferencia"
+                                    size="sm"
+                                    value={interbankTransfer?.value ?? ""}
+                                    onChange={(event) => setInterbankTransfer((current) => current ? { ...current, value: event.currentTarget.value } : current)}
+                                    options={[
+                                        { label: "Seleccionar banco", value: "", disabled: true },
+                                        ...cuentaClienteOptions,
+                                    ]}
+                                />
+                            </div>
+                            <div className="mt-6 flex justify-end gap-2">
+                                <Button color="secondary" onClick={() => setInterbankTransfer(null)}>Cancelar</Button>
+                                <Button
+                                    isDisabled={!interbankTransfer?.value || (interbankTransfer ? savingIds.includes(interbankTransfer.row.id) : false)}
+                                    isLoading={interbankTransfer ? savingIds.includes(interbankTransfer.row.id) : false}
+                                    onClick={() => void handleInterbankTransferSave()}
+                                >
+                                    Guardar
+                                </Button>
                             </div>
                         </div>
                     </Dialog>

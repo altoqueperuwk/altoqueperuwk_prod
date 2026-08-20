@@ -176,6 +176,7 @@ export interface OperacionProceso {
     id_operacion_padre?: number | null;
     id_operacion_match?: number | null;
     id_operacion_banco?: number | null;
+    id_carga_excel?: number | null;
     flag_comision_registrada?: boolean | null;
     pd_codigo_operacion_transferencia?: string | null;
     pd_codigo_operacion_comision?: string | null;

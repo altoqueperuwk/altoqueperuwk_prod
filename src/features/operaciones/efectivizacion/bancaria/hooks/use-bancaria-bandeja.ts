@@ -230,8 +230,8 @@ export const useBancariaBandeja = ({
         if (code.trim()) base.p_codigo_operacion_deposito_cliente = code.trim();
         if (activeFilter !== "Todos" && estadoByFilter[activeFilter]) base.p_nombre_estado = estadoByFilter[activeFilter];
         if (historyDate) {
-            base.p_fecha_caja_cierre_desde = `${historyDate}T00:00:00`;
-            base.p_fecha_caja_cierre_hasta = `${historyDate}T23:59:59`;
+            base.p_fecha_caja_cierre_desde = toLimaDayStart(historyDate);
+            base.p_fecha_caja_cierre_hasta = toLimaDayEnd(historyDate);
         }
 
         const queryTab = tab === "Unificado" ? "Efectivizacion" : tab;
@@ -297,8 +297,8 @@ export const useBancariaBandeja = ({
         if (dateFrom) payload.p_fecha_deposito_desde = toLimaDayStart(dateFrom);
         if (dateTo) payload.p_fecha_deposito_hasta = toLimaDayEnd(dateTo);
         if (historyDate) {
-            payload.p_fecha_caja_cierre_desde = `${historyDate}T00:00:00`;
-            payload.p_fecha_caja_cierre_hasta = `${historyDate}T23:59:59`;
+            payload.p_fecha_caja_cierre_desde = toLimaDayStart(historyDate);
+            payload.p_fecha_caja_cierre_hasta = toLimaDayEnd(historyDate);
         }
 
         return payload;
@@ -492,8 +492,8 @@ export const useBancariaBandeja = ({
                   p_id_caja: activeCajaId || undefined,
                   p_id_empresa: activeCajaId ? undefined : activeCompanyId,
                   p_dni_cliente: dni.trim() || undefined,
-                  p_fecha_caja_cierre_desde: historyDate ? `${historyDate}T00:00:00` : undefined,
-                  p_fecha_caja_cierre_hasta: historyDate ? `${historyDate}T23:59:59` : undefined,
+                  p_fecha_caja_cierre_desde: historyDate ? toLimaDayStart(historyDate) : undefined,
+                  p_fecha_caja_cierre_hasta: historyDate ? toLimaDayEnd(historyDate) : undefined,
               })
             : tab === "Pago Deuda"
               ? operacionesRpcService.getPagoDeudaBandeja({
@@ -502,8 +502,8 @@ export const useBancariaBandeja = ({
                     p_id_empresa_cuenta_salida: activeAccountId || undefined,
                     p_dni_cliente: dni.trim() || undefined,
                     p_codigo_operacion: code.trim() || undefined,
-                    p_fecha_caja_cierre_desde: historyDate ? `${historyDate}T00:00:00` : null,
-                    p_fecha_caja_cierre_hasta: historyDate ? `${historyDate}T23:59:59` : null,
+                    p_fecha_caja_cierre_desde: historyDate ? toLimaDayStart(historyDate) : null,
+                    p_fecha_caja_cierre_hasta: historyDate ? toLimaDayEnd(historyDate) : null,
                 })
               : retentionRoutes.has(ruta)
                 ? operacionesRpcService.getOperacionesRetencionBandeja(retentionParams)

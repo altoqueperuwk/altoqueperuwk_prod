@@ -3100,6 +3100,44 @@ BEGIN
 
   GET DIAGNOSTICS v_operaciones_congeladas = ROW_COUNT;
 
+  -- Pago Deuda BANCO: el paso 2 permanece abierto para la caja viva siguiente.
+  -- Los pasos 3 y 4 ya no requieren atencion del area de pagos y se congelan
+  -- en el cierre correspondiente, aunque su estado tecnico siga PROCESADO.
+  UPDATE public.tb_operacion_proceso op
+  SET id_caja_cierre = v_historial_id,
+      fecha_caja_cierre = v_fecha_cierre
+  WHERE op.id_caja_cierre IS NULL
+    AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) = 'BANCO'
+    AND (
+      UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'DEVUELTO'
+      OR (
+        UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PROCESADO'
+        AND (
+          op.id_operacion_match IS NOT NULL
+          OR COALESCE(op.monto_devuelto, 0) >= COALESCE(op.monto_deposito_cliente, 0)
+          OR EXISTS (
+            SELECT 1
+            FROM public.tb_operacion_caja c
+            WHERE c.id_operacion_proceso = op.id_operacion_padre
+              AND UPPER(BTRIM(COALESCE(c.tipo_origen, ''))) = 'PAGO_DEUDA_COMISION'
+          )
+        )
+      )
+    )
+    AND (
+      (
+        op.id_empresa_ingreso = v_caja.id_empresa
+        AND op.id_empresa_cuenta_ingreso = v_caja.id_empresa_cuenta_bancaria
+      )
+      OR (
+        op.id_empresa_salida = v_caja.id_empresa
+        AND op.id_empresa_cuenta_salida = v_caja.id_empresa_cuenta_bancaria
+      )
+    );
+
+  GET DIAGNOSTICS v_operaciones_retenidas_congeladas = ROW_COUNT;
+  v_operaciones_congeladas := v_operaciones_congeladas + v_operaciones_retenidas_congeladas;
+
   -- Las retenciones finalizadas pertenecen al cierre. Las operaciones que
   -- aun requieren atencion permanecen abiertas para la caja viva siguiente.
   UPDATE public.tb_operacion_proceso op
@@ -4646,11 +4684,14 @@ BEGIN
       id_usuario = COALESCE(p_id_usuario, id_usuario)
   WHERE id = p_id_caja;
 
-  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario)
-  FROM public.tb_ruta_operacion_caja rc
-  WHERE rc.id_empresa = v_caja.id_empresa
-    AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
-    AND rc.id_estado = 1;
+  -- Los lotes de pago sincronizan el KPI una sola vez al finalizar.
+  IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario)
+    FROM public.tb_ruta_operacion_caja rc
+    WHERE rc.id_empresa = v_caja.id_empresa
+      AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
+      AND rc.id_estado = 1;
+  END IF;
 
   RETURN v_saldo_nuevo;
 END;
@@ -5967,6 +6008,20 @@ BEGIN
     AND COALESCE(op.id_estado, 0) <> 10
     AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN (
       'PENDIENTE', 'RECHAZADO', 'SOLICITADO', 'PROCESADO'
+    )
+    AND NOT (
+      UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) = 'BANCO'
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PROCESADO'
+      AND (
+        op.id_operacion_match IS NOT NULL
+        OR COALESCE(op.monto_devuelto, 0) >= COALESCE(op.monto_deposito_cliente, 0)
+        OR EXISTS (
+          SELECT 1
+          FROM public.tb_operacion_caja c
+          WHERE c.id_operacion_proceso = op.id_operacion_padre
+            AND UPPER(BTRIM(COALESCE(c.tipo_origen, ''))) = 'PAGO_DEUDA_COMISION'
+        )
+      )
     );
 END;
 $$;

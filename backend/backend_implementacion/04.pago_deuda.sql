@@ -777,7 +777,22 @@ AS $$
       OR (
         (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
         AND op.id_caja_cierre IS NOT NULL
-        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN ('SOLICITADO', 'PROCESADO')
+        AND (
+          UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN ('SOLICITADO', 'PROCESADO')
+          OR (
+            UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PROCESADO'
+            AND (
+              op.id_operacion_match IS NOT NULL
+              OR COALESCE(op.monto_devuelto, 0) >= COALESCE(op.monto_deposito_cliente, 0)
+              OR EXISTS (
+                SELECT 1
+                FROM public.tb_operacion_caja c
+                WHERE c.id_operacion_proceso = op.id_operacion_padre
+                  AND UPPER(BTRIM(COALESCE(c.tipo_origen, ''))) = 'PAGO_DEUDA_COMISION'
+              )
+            )
+          )
+        )
         AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
         AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
       )
@@ -1970,10 +1985,6 @@ BEGIN
     RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de Pago Deuda.');
   END IF;
 
-  IF NULLIF(BTRIM(COALESCE(v_op.codigo_operacion_deposito_cliente, '')), '') IS NULL THEN
-    RETURN jsonb_build_object('error', 'Registra el codigo de operacion de la transferencia antes de continuar.');
-  END IF;
-
   v_ruta_kpi_actual := COALESCE(v_op.ruta_destino, v_op.ruta_origen);
   v_id_empresa_salida_final := COALESCE(p_id_empresa_salida, v_op.id_empresa_salida);
   v_id_empresa_cuenta_salida_final := COALESCE(p_id_empresa_cuenta_salida, v_op.id_empresa_cuenta_salida);
@@ -3097,7 +3108,6 @@ BEGIN
   END IF;
 
   IF UPPER(COALESCE(v_op.nombre_estado, '')) NOT IN ('SOLICITADO', 'PENDIENTE')
-     OR COALESCE(v_op.flag_retenido, false)
      OR COALESCE(v_op.id_estado, 0) = 10
      OR EXISTS (
           SELECT 1

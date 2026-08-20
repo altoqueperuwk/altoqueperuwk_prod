@@ -44,7 +44,7 @@ export const isBancariaActionDisabled = ({
     }
 
     if (action === "Eliminar Excel") {
-        return activeTab !== "Efectivizacion";
+        return !["Efectivizacion", "Unificado"].includes(activeTab);
     }
 
     if (action === "Emp. Salida") {

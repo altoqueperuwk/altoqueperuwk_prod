@@ -1330,6 +1330,80 @@ END;
 $$;
 
 /*
+Funcion: f_get_tb_operacion_retencion_hardcodeada
+Objetivo:
+  Clasificar la retencion exclusivamente por empresa, cuenta bancaria y banco.
+
+Regla:
+  - Solo las cinco combinaciones declaradas pueden retener.
+  - La hora se interpreta en America/Lima usando la fecha real del deposito.
+  - Scotiabank y BanBif usan una ventana desde ayer a las 21:00 hasta hoy a las 20:59.
+  - BCP usa una ventana diaria desde hoy a las 00:00 hasta mañana a las 00:00.
+  - No se consulta fecha de carga, reglas de abono ni flags de la operacion.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_retencion_hardcodeada(
+  p_id_empresa bigint,
+  p_id_empresa_cuenta_bancaria bigint,
+  p_id_banco bigint,
+  p_fecha_deposito timestamp with time zone
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  v_deposito_local timestamp without time zone;
+  v_referencia_local timestamp without time zone;
+  v_inicio_ventana timestamp without time zone;
+  v_fin_ventana timestamp without time zone;
+  v_hora_corte time := '21:00:00'::time;
+  v_aplica_retencion boolean := false;
+  v_retenido boolean := false;
+BEGIN
+  v_aplica_retencion := (
+    (p_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 33 AND p_id_banco = 3)
+    OR (p_id_empresa = 7 AND p_id_empresa_cuenta_bancaria = 16 AND p_id_banco = 4)
+    OR (p_id_empresa = 8 AND p_id_empresa_cuenta_bancaria = 7 AND p_id_banco = 3)
+    OR (p_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 4 AND p_id_banco = 2)
+    OR (p_id_empresa = 6 AND p_id_empresa_cuenta_bancaria = 5 AND p_id_banco = 2)
+  );
+
+  IF (p_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 4 AND p_id_banco = 2)
+     OR (p_id_empresa = 6 AND p_id_empresa_cuenta_bancaria = 5 AND p_id_banco = 2) THEN
+    v_hora_corte := '00:00:00'::time;
+  END IF;
+
+  IF v_aplica_retencion AND p_fecha_deposito IS NOT NULL THEN
+    v_deposito_local := p_fecha_deposito AT TIME ZONE 'America/Lima';
+    v_referencia_local := CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima';
+    IF v_hora_corte = '00:00:00'::time THEN
+      v_inicio_ventana := v_referencia_local::date;
+      v_fin_ventana := v_referencia_local::date + 1;
+    ELSE
+      v_inicio_ventana := (v_referencia_local::date - 1) + v_hora_corte;
+      v_fin_ventana := v_referencia_local::date + v_hora_corte;
+    END IF;
+    v_retenido := v_deposito_local >= v_inicio_ventana
+      AND v_deposito_local < v_fin_ventana
+      AND v_deposito_local <= v_referencia_local;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'aplica_retencion', v_aplica_retencion,
+    'flag_retenido', v_retenido,
+    'flag_fuera_horario', false,
+    'hora_corte_efectiva', to_char(v_hora_corte, 'HH24:MI'),
+    'motivo', CASE
+      WHEN NOT v_aplica_retencion THEN NULL
+      WHEN v_retenido AND v_hora_corte = '00:00:00'::time THEN 'Deposito del dia actual dentro de la ventana de retencion: 00:00 a 23:59 hora Lima'
+      WHEN v_retenido THEN 'Deposito dentro de la ventana de retencion: ayer 21:00 a hoy 20:59 hora Lima'
+      ELSE NULL
+    END
+  );
+END;
+$$;
+
+/*
 Funcion: f_post_tb_operacion_proceso
 Objetivo:
   Crear una operacion manual ya resuelta y con resultados congelados.
@@ -1708,36 +1782,14 @@ BEGIN
     );
   END IF;
 
-  IF to_regprocedure('public.f_get_tb_recaudacion_cuenta_flag_retenida(character varying,bigint)') IS NOT NULL THEN
-    v_flag_retencion_cuenta_val := public.f_get_tb_recaudacion_cuenta_flag_retenida(
-      v_ruta_kpi,
-      v_id_ecb_ingreso
-    );
-  ELSE
-    v_flag_retencion_cuenta_val := false;
-  END IF;
-
-  SELECT r.hora_corte
-  INTO v_hora_corte
-  FROM public.tb_recaudacion_regla_abono r
-  WHERE LOWER(r.ruta) = LOWER(v_ruta_kpi)
-    AND r.id_empresa_cuenta_bancaria = v_id_ecb_ingreso
-    AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
-  ORDER BY r.id DESC
-  LIMIT 1;
-
-  v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria_ruta(
-    p_fecha_deposito_cliente,
-    now(),
-    v_ruta_kpi,
-    v_hora_corte
+  v_clasificacion_horaria := public.f_get_tb_operacion_retencion_hardcodeada(
+    v_id_empresa_ingreso_final,
+    v_id_ecb_ingreso,
+    v_id_banco_empresa_cuenta_ingreso_final,
+    p_fecha_deposito_cliente
   );
   v_flag_fuera_horario_val := COALESCE((v_clasificacion_horaria->>'flag_fuera_horario')::boolean, false);
-  v_flag_retenido_final := CASE
-    WHEN v_flag_fuera_horario_val THEN false
-    ELSE COALESCE((v_clasificacion_horaria->>'flag_retenido')::boolean, false)
-      AND (COALESCE(v_flag_retencion_cuenta_val, false) OR COALESCE(p_flag_retenido, false))
-  END;
+  v_flag_retenido_final := COALESCE((v_clasificacion_horaria->>'flag_retenido')::boolean, false);
 
   v_codigo_duplicidad := NULLIF(BTRIM(COALESCE(p_codigo_operacion_deposito_cliente, '')), '');
 
@@ -2656,10 +2708,6 @@ BEGIN
     RETURN jsonb_build_object('error', 'Solo se pueden derivar operaciones en estado Pendiente.');
   END IF;
 
-  IF COALESCE(v_actual.flag_retenido, false) THEN
-    RETURN jsonb_build_object('error', 'No se puede derivar una operacion retenida.');
-  END IF;
-
   v_es_primera_derivacion := NOT COALESCE(v_actual.flag_derivado, false)
     AND v_actual.id_empresa_salida_origen IS NULL;
 
@@ -2808,6 +2856,8 @@ AS $$
 DECLARE
   v_actual record;
   v_ruta_kpi character varying;
+  v_clasificacion_hardcodeada jsonb;
+  v_flag_retenido_deseado boolean;
 BEGIN
   SELECT *
   INTO v_actual
@@ -2815,22 +2865,42 @@ BEGIN
   WHERE id = p_id
   LIMIT 1;
 
+  IF v_actual.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion no existe.');
+  END IF;
+
+  v_flag_retenido_deseado := COALESCE(p_flag_retenido, v_actual.flag_retenido, false);
+  IF v_flag_retenido_deseado THEN
+    v_clasificacion_hardcodeada := public.f_get_tb_operacion_retencion_hardcodeada(
+      v_actual.id_empresa_ingreso,
+      v_actual.id_empresa_cuenta_ingreso,
+      v_actual.id_banco_empresa_cuenta_ingreso,
+      v_actual.fecha_deposito_cliente
+    );
+
+    IF COALESCE((v_clasificacion_hardcodeada->>'flag_retenido')::boolean, false) = false THEN
+      RETURN jsonb_build_object(
+        'error', 'La operacion no cumple la regla de retencion hardcodeada: cuenta no habilitada o deposito anterior a las 21:00 hora Lima.'
+      );
+    END IF;
+  END IF;
+
   UPDATE public.tb_operacion_proceso
-  SET flag_retenido = COALESCE(p_flag_retenido, flag_retenido),
+  SET flag_retenido = v_flag_retenido_deseado,
       fecha_retencion = CASE
-        WHEN COALESCE(p_flag_retenido, flag_retenido) THEN COALESCE(p_fecha_retencion, fecha_retencion, now())
+        WHEN v_flag_retenido_deseado THEN COALESCE(p_fecha_retencion, fecha_retencion, now())
         ELSE NULL
       END,
       id_usuario_retiene = CASE
-        WHEN COALESCE(p_flag_retenido, flag_retenido) THEN COALESCE(p_id_usuario_retiene, id_usuario_retiene)
+        WHEN v_flag_retenido_deseado THEN COALESCE(p_id_usuario_retiene, id_usuario_retiene)
         ELSE NULL
       END,
       nombre_usuario_retiene = CASE
-        WHEN COALESCE(p_flag_retenido, flag_retenido) THEN COALESCE(p_nombre_usuario_retiene, nombre_usuario_retiene)
+        WHEN v_flag_retenido_deseado THEN COALESCE(p_nombre_usuario_retiene, nombre_usuario_retiene)
         ELSE NULL
       END,
       motivo_retencion = CASE
-        WHEN COALESCE(p_flag_retenido, flag_retenido) THEN COALESCE(p_motivo_retencion, motivo_retencion)
+        WHEN v_flag_retenido_deseado THEN COALESCE(p_motivo_retencion, motivo_retencion)
         ELSE NULL
       END,
       id_estado = COALESCE(p_id_estado, id_estado),
@@ -3116,7 +3186,10 @@ BEGIN
   END IF;
 
   v_ruta_kpi := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
-  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario));
+  -- Los lotes de pago sincronizan el KPI una sola vez al finalizar.
+  IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario));
+  END IF;
 
   RETURN (
     SELECT x
@@ -3163,6 +3236,8 @@ DECLARE
   v_cantidad_bloque bigint := 0;
   v_bloqueos_saldo jsonb := '[]'::jsonb;
   v_bloqueo_saldo jsonb;
+  v_rutas character varying[];
+  v_ruta_sync character varying;
 BEGIN
   IF p_ids_operaciones IS NULL OR jsonb_typeof(p_ids_operaciones) <> 'array' THEN
     RETURN jsonb_build_object(
@@ -3324,6 +3399,19 @@ BEGIN
     );
   END IF;
 
+  SELECT array_agg(ruta ORDER BY ruta)
+  INTO v_rutas
+  FROM (
+    SELECT DISTINCT LOWER(BTRIM(COALESCE(op.ruta_destino, op.ruta_origen, ''))) AS ruta
+    FROM public.tb_operacion_proceso op
+    WHERE op.id = ANY(v_ids)
+      AND NULLIF(BTRIM(COALESCE(op.ruta_destino, op.ruta_origen, '')), '') IS NOT NULL
+  ) rutas;
+
+  -- El lote ya valido todas las operaciones y cajas. Desde aqui se conservan
+  -- los movimientos y saldos, pero se difiere el recalculo de KPI.
+  PERFORM set_config('app.defer_kpi_sync', 'on', true);
+
   FOREACH v_id IN ARRAY v_ids LOOP
     v_result := public.f_patch_tb_operacion_proceso_pagado(
       p_id := v_id,
@@ -3338,6 +3426,13 @@ BEGIN
     END IF;
 
     v_actualizadas := v_actualizadas || jsonb_build_array(v_result);
+  END LOOP;
+
+  PERFORM set_config('app.defer_kpi_sync', 'off', true);
+
+  FOREACH v_ruta_sync IN ARRAY COALESCE(v_rutas, ARRAY[]::character varying[]) LOOP
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta_sync, p_id_usuario_gestor);
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_sync, p_id_usuario_gestor);
   END LOOP;
 
   RETURN jsonb_build_object(
@@ -3428,6 +3523,68 @@ BEGIN
     SELECT x
     FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
     LIMIT 1
+  );
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_operacion_proceso_directo_caja_lote
+Objetivo:
+  Procesar en una sola llamada las operaciones seleccionadas como Directo.
+
+Regla:
+  - reutiliza la misma funcion individual para conservar la logica actual
+  - devuelve los resultados exitosos y los errores por operacion
+  - no cambia estados, montos ni movimientos de la funcion individual
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_directo_caja_lote(
+  p_ids_operaciones bigint[],
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_id bigint;
+  v_result jsonb;
+  v_actualizadas jsonb := '[]'::jsonb;
+  v_errores jsonb := '[]'::jsonb;
+  v_cantidad integer := 0;
+BEGIN
+  IF COALESCE(array_length(p_ids_operaciones, 1), 0) = 0 THEN
+    RETURN jsonb_build_object(
+      'cantidad_procesada', 0,
+      'operaciones_actualizadas', '[]'::jsonb,
+      'errores', '[]'::jsonb
+    );
+  END IF;
+
+  FOREACH v_id IN ARRAY p_ids_operaciones LOOP
+    v_result := public.f_patch_tb_operacion_proceso_directo_caja(
+      p_id := v_id,
+      p_id_usuario_gestor := p_id_usuario_gestor,
+      p_nombre_usuario_gestor := p_nombre_usuario_gestor
+    );
+
+    IF v_result IS NULL OR v_result ? 'error' THEN
+      v_errores := v_errores || jsonb_build_array(
+        jsonb_build_object(
+          'id', v_id,
+          'error', COALESCE(v_result ->> 'error', 'No se pudo procesar la operacion.')
+        )
+      );
+    ELSE
+      v_cantidad := v_cantidad + 1;
+      v_actualizadas := v_actualizadas || jsonb_build_array(v_result);
+    END IF;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'cantidad_procesada', v_cantidad,
+    'operaciones_actualizadas', v_actualizadas,
+    'errores', v_errores
   );
 END;
 $$;
@@ -4181,24 +4338,6 @@ BEGIN
     );
   END IF;
 
-  IF to_regprocedure('public.f_get_tb_recaudacion_cuenta_flag_retenida(character varying,bigint)') IS NOT NULL THEN
-    v_flag_retencion_cuenta := public.f_get_tb_recaudacion_cuenta_flag_retenida(
-      p_ruta_actual,
-      v_id_empresa_cuenta_ingreso
-    );
-  ELSE
-    v_flag_retencion_cuenta := false;
-  END IF;
-
-  SELECT r.hora_corte
-  INTO v_hora_corte
-  FROM public.tb_recaudacion_regla_abono r
-  WHERE LOWER(r.ruta) = LOWER(p_ruta_actual)
-    AND r.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_ingreso
-    AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
-  ORDER BY r.id DESC
-  LIMIT 1;
-
   v_nombre_archivo_final := COALESCE(NULLIF(BTRIM(p_nombre_archivo), ''), 'Archivo sin nombre');
 
   INSERT INTO public.tb_operacion_carga_excel (
@@ -4390,26 +4529,14 @@ BEGIN
     END IF;
 
     IF v_error_motivo IS NULL THEN
-      IF v_hora_corte IS NULL THEN
-        SELECT r.hora_corte
-        INTO v_hora_corte
-        FROM public.tb_recaudacion_regla_abono r
-        WHERE LOWER(r.ruta) = LOWER(p_ruta_actual)
-          AND r.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_ingreso
-          AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
-        ORDER BY r.id DESC
-        LIMIT 1;
-      END IF;
-
-      v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria_ruta(
-        v_fecha_deposito,
-        v_fecha_carga_excel,
-        p_ruta_actual,
-        v_hora_corte
+      v_clasificacion_horaria := public.f_get_tb_operacion_retencion_hardcodeada(
+        v_id_empresa_ingreso_final,
+        v_id_empresa_cuenta_ingreso,
+        v_id_banco_ingreso_final,
+        v_fecha_deposito
       );
       v_flag_fuera_horario := COALESCE((v_clasificacion_horaria->>'flag_fuera_horario')::boolean, false);
-      v_flag_retenido_fila := NOT v_flag_fuera_horario AND COALESCE(v_flag_retencion_cuenta, false)
-        AND COALESCE((v_clasificacion_horaria->>'flag_retenido')::boolean, false);
+      v_flag_retenido_fila := COALESCE((v_clasificacion_horaria->>'flag_retenido')::boolean, false);
     END IF;
 
     IF v_error_motivo IS NOT NULL THEN
@@ -5105,26 +5232,14 @@ BEGIN
       v_fecha_deposito := NOW();
     END;
 
-    IF v_hora_corte IS NULL THEN
-      SELECT r.hora_corte
-      INTO v_hora_corte
-      FROM public.tb_recaudacion_regla_abono r
-      WHERE LOWER(r.ruta) = LOWER(p_ruta_actual)
-        AND r.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_ingreso
-        AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
-      ORDER BY r.id DESC
-      LIMIT 1;
-    END IF;
-
-    v_clasificacion_horaria := public.f_get_tb_operacion_clasificacion_horaria_ruta(
-      v_fecha_deposito,
-      v_fecha_carga_excel,
-      p_ruta_actual,
-      v_hora_corte
+    v_clasificacion_horaria := public.f_get_tb_operacion_retencion_hardcodeada(
+      v_id_empresa_ingreso_final,
+      v_id_empresa_cuenta_ingreso,
+      v_id_banco_ingreso_final,
+      v_fecha_deposito
     );
     v_flag_fuera_horario := COALESCE((v_clasificacion_horaria->>'flag_fuera_horario')::boolean, false);
-    v_flag_retenido_fila := NOT v_flag_fuera_horario
-      AND COALESCE((v_clasificacion_horaria->>'flag_retenido')::boolean, false);
+    v_flag_retenido_fila := COALESCE((v_clasificacion_horaria->>'flag_retenido')::boolean, false);
 
     v_cliente_id := NULL;
     v_cliente_nombre := '';
@@ -5796,9 +5911,14 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_operacion_clasificacion_horaria_ruta',
+  'f_get_tb_operacion_retencion_hardcodeada',
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',
-  'f_post_tb_operacion_proceso_excel_ganancia'
+  'f_post_tb_operacion_proceso_excel_ganancia',
+  'f_patch_tb_operacion_proceso_derivacion',
+  'f_patch_tb_operacion_proceso_retencion',
+  'f_patch_tb_operacion_proceso_pagado',
+  'f_patch_tb_operacion_proceso_pagado_lote',
+  'f_patch_tb_operacion_proceso_directo_caja_lote'
 )
 ORDER BY n.nspname, p.proname;

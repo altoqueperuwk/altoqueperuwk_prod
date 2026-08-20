@@ -71,6 +71,12 @@ interface OperacionPagadoLoteResult {
     detalle?: unknown[];
 }
 
+interface OperacionDirectoLoteResult {
+    cantidad_procesada: number;
+    operaciones_actualizadas: OperacionProceso[];
+    errores?: Array<{ id: number; error: string }>;
+}
+
 const rpc = async <T>(fn: string, params: Record<string, unknown>): Promise<T> => {
     const { data, error } = await supabase.rpc(fn, params);
 
@@ -171,6 +177,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_post_tb_operacion_asistida", params);
     },
 
+    postOperacionAsistidaPosSinEnvio(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_post_tb_operacion_asistida_pos_sin_envio", params);
+    },
+
     patchOperacionAsistida(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_asistida", params);
     },
@@ -240,6 +250,10 @@ export const operacionesRpcService = {
 
     patchOperacionDirectoCaja(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_directo_caja", params);
+    },
+
+    patchOperacionDirectoCajaLote(params: Record<string, unknown>) {
+        return rpc<OperacionDirectoLoteResult>("f_patch_tb_operacion_proceso_directo_caja_lote", params);
     },
 
     patchOperacionDerivacion(params: Record<string, unknown>) {
