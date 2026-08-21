@@ -109,6 +109,10 @@ export const operacionesRpcService = {
         });
     },
 
+    getRutaGananciasEfectivizacion(params: Record<string, unknown>) {
+        return rpc<number>("f_get_tb_ruta_operacion_ganancias_efectivizacion", params);
+    },
+
     getOperacionBandejaBadges(params: Record<string, unknown>) {
         return rpc<OperacionBandejaBadge[]>("f_get_tb_operacion_bandeja_badges", params);
     },
@@ -238,6 +242,10 @@ export const operacionesRpcService = {
 
     patchOperacionReanudar(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_reanudar", params);
+    },
+
+    patchOperacionReanudarPostCierre(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_reanudar_post_cierre", params);
     },
 
     deleteOperacionProceso(params: Record<string, unknown>) {

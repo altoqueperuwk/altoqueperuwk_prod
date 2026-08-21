@@ -84,6 +84,8 @@ const mergeKpis = (ruta: OperacionRutaBancaria, rows: RutaOperacionKpi[]): RutaO
     };
 };
 
+const usesModalidadGanancia = (ruta: OperacionRutaBancaria) => ruta === "scotiabank" || ruta === "banbif";
+
 export const useBancariaKpis = (
     ruta: OperacionRutaBancaria,
     activeCompanyId: number | null,
@@ -117,7 +119,21 @@ export const useBancariaKpis = (
                             ? { p_id_caja: activeCajaId }
                             : { p_id_empresa: activeCompanyId },
                     )
-                    .then((rows) => buildHistoryKpi(ruta, rows, historyDate));
+                    .then(async (rows) => {
+                        const base = buildHistoryKpi(ruta, rows, historyDate);
+                        if (!base || !usesModalidadGanancia(ruta)) return base;
+
+                        const ganancias = await operacionesRpcService.getRutaGananciasEfectivizacion({
+                            p_ruta: ruta,
+                            p_id_empresa: activeCompanyId,
+                            p_id_empresa_cuenta_bancaria: routes.length === 1 ? activeAccountId : null,
+                            p_fecha_operativa: historyDate,
+                            p_id_caja: activeCajaId,
+                            p_historico: true,
+                        });
+
+                        return { ...base, ganancias: Number(ganancias ?? 0) };
+                    });
             }
 
             return Promise.all(
@@ -126,7 +142,21 @@ export const useBancariaKpis = (
                     activeCompanyId,
                     routes.length === 1 ? activeAccountId : null,
                 )),
-            ).then((groups) => mergeKpis(ruta, groups.flatMap((group) => group?.[0] ? [group[0]] : [])));
+            ).then(async (groups) => {
+                const base = mergeKpis(ruta, groups.flatMap((group) => group?.[0] ? [group[0]] : []));
+                if (!base || !usesModalidadGanancia(ruta)) return base;
+
+                const ganancias = await operacionesRpcService.getRutaGananciasEfectivizacion({
+                    p_ruta: ruta,
+                    p_id_empresa: activeCompanyId,
+                    p_id_empresa_cuenta_bancaria: routes.length === 1 ? activeAccountId : null,
+                    p_fecha_operativa: null,
+                    p_id_caja: activeCajaId,
+                    p_historico: false,
+                });
+
+                return { ...base, ganancias: Number(ganancias ?? 0) };
+            });
         })();
 
         request

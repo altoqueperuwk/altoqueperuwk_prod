@@ -755,21 +755,15 @@ BEGIN
        WHERE LOWER(BTRIM(COALESCE(op.ruta_destino, op.ruta_origen, ''))) IN (
          'scotiabank', 'banbif'
        )
+         AND UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'EFECTIVIZACION'
          AND op.id_caja_cierre IS NULL
          AND op.fecha_pagado IS NOT NULL
          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
-         AND (
-           (
-             UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN ('MISMO DÍA', 'MISMO DIA')
-             AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
-                 (op.fecha_pagado AT TIME ZONE 'America/Lima')::date
-           )
-           OR (
-             UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN ('DÍA SIGUIENTE', 'DIA SIGUIENTE')
-             AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
-                 ((op.fecha_pagado AT TIME ZONE 'America/Lima')::date - 1)
-           )
+         AND UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN (
+           'MISMO DÍA', 'MISMO DIA', 'DÍA SIGUIENTE', 'DIA SIGUIENTE'
          )
+         AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
+             (now() AT TIME ZONE 'America/Lima')::date
          AND NOT EXISTS (
            SELECT 1
            FROM public.tb_operacion_caja oc_hist
@@ -1004,21 +998,15 @@ BEGIN
     WHERE LOWER(BTRIM(COALESCE(op.ruta_destino, op.ruta_origen, ''))) IN (
       'scotiabank', 'banbif'
     )
+      AND UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'EFECTIVIZACION'
       AND op.id_caja_cierre IS NULL
       AND op.fecha_pagado IS NOT NULL
       AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
-      AND (
-        (
-          UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN ('MISMO DÍA', 'MISMO DIA')
-          AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
-              (op.fecha_pagado AT TIME ZONE 'America/Lima')::date
-        )
-        OR (
-          UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN ('DÍA SIGUIENTE', 'DIA SIGUIENTE')
-          AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
-              ((op.fecha_pagado AT TIME ZONE 'America/Lima')::date - 1)
-        )
+      AND UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN (
+        'MISMO DÍA', 'MISMO DIA', 'DÍA SIGUIENTE', 'DIA SIGUIENTE'
       )
+      AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
+          (now() AT TIME ZONE 'America/Lima')::date
       AND NOT EXISTS (
         SELECT 1
         FROM public.tb_operacion_caja oc_hist
@@ -1168,6 +1156,97 @@ BEGIN
     AND (p_id_estado IS NULL OR k.id_estado = p_id_estado)
   ORDER BY k.ruta, k.id;
 END;
+$$;
+
+/*
+Funcion: f_get_tb_ruta_operacion_ganancias_efectivizacion
+Objetivo:
+  Calcular solo la ganancia informativa de Efectivizacion para Scotiabank y
+  BanBif, usando la fecha operativa de Lima. No modifica cajas, movimientos ni
+  KPI materializados.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_ganancias_efectivizacion(
+  p_ruta character varying,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_fecha_operativa date DEFAULT NULL,
+  p_id_caja bigint DEFAULT NULL,
+  p_historico boolean DEFAULT false
+)
+RETURNS numeric
+LANGUAGE sql
+SECURITY DEFINER
+AS $$
+WITH parametros AS (
+  SELECT
+    LOWER(BTRIM(COALESCE(p_ruta, ''))) AS ruta,
+    COALESCE(p_fecha_operativa, (now() AT TIME ZONE 'America/Lima')::date) AS fecha_operativa
+),
+operaciones AS (
+  SELECT op.*
+  FROM public.tb_operacion_proceso op
+  CROSS JOIN parametros p
+  WHERE p.ruta IN ('scotiabank', 'banbif')
+    AND LOWER(BTRIM(COALESCE(op.ruta_destino, op.ruta_origen, ''))) = p.ruta
+    AND UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'EFECTIVIZACION'
+    AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+    AND op.fecha_deposito_cliente IS NOT NULL
+    AND op.fecha_pagado IS NOT NULL
+    AND (p_id_empresa IS NULL OR op.id_empresa_ingreso = p_id_empresa)
+    AND (p_id_empresa_cuenta_bancaria IS NULL OR op.id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria)
+    AND (
+      (
+        COALESCE(p_historico, false) = false
+        AND op.id_caja_cierre IS NULL
+      )
+      OR (
+        COALESCE(p_historico, false) = true
+        AND op.id_caja_cierre IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM public.tb_caja_operativa_cierre ch
+          CROSS JOIN parametros hp
+          WHERE ch.id = op.id_caja_cierre
+            AND (p_id_caja IS NULL OR ch.id_caja = p_id_caja)
+            AND (ch.fecha_cierre AT TIME ZONE 'America/Lima')::date = hp.fecha_operativa
+            AND (p_id_empresa IS NULL OR ch.id_empresa = p_id_empresa)
+            AND (
+              p_id_empresa_cuenta_bancaria IS NULL
+              OR ch.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria
+            )
+        )
+      )
+    )
+    AND UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN (
+      'MISMO DÍA', 'MISMO DIA', 'DÍA SIGUIENTE', 'DIA SIGUIENTE'
+    )
+    AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date = p.fecha_operativa
+)
+SELECT COALESCE(
+  SUM(
+    CASE
+      WHEN UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) IN (
+        'RETORNO', 'RETORNO_DIRECTO', 'DIRECTO_CAJA'
+      ) THEN 0
+      ELSE GREATEST(
+        COALESCE(o.monto_deposito_cliente, 0)
+        - COALESCE(
+            o.monto_transferencia_cliente,
+            GREATEST(
+              COALESCE(o.monto_deposito_cliente, 0)
+              - COALESCE(o.resultado_comision_servicio, 0),
+              0
+            )
+          )
+        - COALESCE(o.resultado_comision_banco_ingreso, 0)
+        - COALESCE(o.resultado_comision_banco_salida, 0),
+        0
+      )
+    END
+  ),
+  0
+)
+FROM operaciones o;
 $$;
 
 /*
@@ -4209,6 +4288,7 @@ AS $$
     'nombre_empresa_relacionada', related.nombre_empresa,
     'nombre_banco_relacionada', related.nombre_banco,
     'id_operacion_proceso', t.id_operacion_proceso,
+    'fecha_deposito_cliente', op.fecha_deposito_cliente,
     'tipo_origen', t.tipo_origen,
     'tipo_movimiento', t.tipo_movimiento,
     'tipo_servicio', op.tipo_servicio,
@@ -4286,7 +4366,10 @@ AS $$
         AND (COALESCE(p_incluir_cerradas, false) OR t.id_caja_cierre IS NULL)
       )
     )
-  ORDER BY t.fecha_registro DESC, t.id DESC;
+  ORDER BY
+    COALESCE(op.fecha_deposito_cliente, t.fecha_registro) ASC,
+    t.fecha_registro ASC,
+    t.id ASC;
 $$;
 
 /*
@@ -4810,6 +4893,7 @@ DECLARE
   v_flag_retencion boolean := false;
   v_flag_fuera_horario boolean := false;
   v_es_pagado boolean := false;
+  v_reactivada_post_cierre boolean := false;
   v_detalle character varying;
   v_result jsonb;
 BEGIN
@@ -4865,12 +4949,30 @@ BEGIN
     )
   );
 
+  v_reactivada_post_cierre :=
+    v_op.id_caja_cierre IS NULL
+    AND LOWER(BTRIM(COALESCE(v_op.ruta_destino, v_op.ruta_origen, ''))) IN ('banbif', 'scotiabank', 'interbank')
+    AND v_tipo_servicio = 'EFECTIVIZACION'
+    AND EXISTS (
+      SELECT 1
+      FROM public.tb_operacion_caja c
+      WHERE c.id_operacion_proceso = p_id_operacion_proceso
+        AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
+        AND c.id_caja_cierre IS NOT NULL
+        AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+    );
+
   SELECT to_jsonb(c)
   INTO v_existente
   FROM public.tb_operacion_caja c
   WHERE c.id_operacion_proceso = p_id_operacion_proceso
     AND c.tipo_movimiento = v_tipo_movimiento
     AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+    AND NOT (
+      v_reactivada_post_cierre
+      AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
+      AND c.id_caja_cierre IS NOT NULL
+    )
   ORDER BY c.id
   LIMIT 1;
 
@@ -6148,6 +6250,8 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_reporte_cierre',
+  'f_get_tb_operacion_caja',
+  'f_get_tb_ruta_operacion_ganancias_efectivizacion',
   'f_get_tb_operacion_bandeja_badges',
   'f_get_tb_operacion_empresa_badges',
   'f_get_tb_ruta_operacion_kpi',
