@@ -747,7 +747,23 @@ AS $$
         )
       )
     )
-  ORDER BY t.id DESC;
+  ORDER BY
+    CASE
+      WHEN LOWER(BTRIM(COALESCE(p_ruta_destino, p_ruta_origen, ''))) IN (
+        'bcp', 'bbva', 'banbif', 'scotiabank', 'interbank', 'safetypay'
+      ) THEN COALESCE(t.fecha_deposito_cliente, t.fecha_registro)
+    END ASC NULLS LAST,
+    CASE
+      WHEN LOWER(BTRIM(COALESCE(p_ruta_destino, p_ruta_origen, ''))) IN (
+        'bcp', 'bbva', 'banbif', 'scotiabank', 'interbank', 'safetypay'
+      ) THEN t.fecha_registro
+    END ASC NULLS LAST,
+    CASE
+      WHEN LOWER(BTRIM(COALESCE(p_ruta_destino, p_ruta_origen, ''))) IN (
+        'bcp', 'bbva', 'banbif', 'scotiabank', 'interbank', 'safetypay'
+      ) THEN t.id
+    END ASC NULLS LAST,
+    t.id DESC;
 $$;
 
 -- ============================================================================
@@ -1337,7 +1353,8 @@ Objetivo:
 Regla:
   - Solo las cinco combinaciones declaradas pueden retener.
   - La hora se interpreta en America/Lima usando la fecha real del deposito.
-  - Scotiabank y BanBif usan una ventana desde ayer a las 21:00 hasta hoy a las 20:59.
+  - Scotiabank y BanBif usan la ventana vigente de 24 horas alrededor del corte:
+    antes de las 21:00, ayer 21:00 a hoy 20:59; desde las 21:00, hoy 21:00 a manana 20:59.
   - BCP usa una ventana diaria desde hoy a las 00:00 hasta mañana a las 00:00.
   - No se consulta fecha de carga, reglas de abono ni flags de la operacion.
 */
@@ -1379,6 +1396,9 @@ BEGIN
     IF v_hora_corte = '00:00:00'::time THEN
       v_inicio_ventana := v_referencia_local::date;
       v_fin_ventana := v_referencia_local::date + 1;
+    ELSIF v_referencia_local::time >= v_hora_corte THEN
+      v_inicio_ventana := v_referencia_local::date + v_hora_corte;
+      v_fin_ventana := (v_referencia_local::date + 1) + v_hora_corte;
     ELSE
       v_inicio_ventana := (v_referencia_local::date - 1) + v_hora_corte;
       v_fin_ventana := v_referencia_local::date + v_hora_corte;
@@ -3596,8 +3616,9 @@ Objetivo:
   caja que se genero al pagar.
 
 Regla:
-  - no permite reiniciar operaciones con movimientos cerrados por caja
-  - revierte y elimina SALIDAS abiertas asociadas a la operacion
+  - conserva los movimientos historicos cerrados por caja;
+  - si existe una SALIDA abierta de la caja viva, revierte y elimina solo esa salida;
+  - bloquea el reinicio cuando no existe un movimiento actual que revertir;
   - conserva el INGRESO original de la carga y lo vuelve a estado pendiente
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_reanudar(
@@ -3622,10 +3643,39 @@ BEGIN
   INTO v_actual
   FROM public.tb_operacion_proceso
   WHERE id = p_id
-  LIMIT 1;
+  FOR UPDATE;
 
   IF v_actual.id IS NULL THEN
     RETURN jsonb_build_object('error', 'La operacion no existe.');
+  END IF;
+
+  IF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) = 'PAGADO'
+     AND UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) = 'EFECTIVIZACION'
+     AND LOWER(BTRIM(COALESCE(v_actual.ruta_destino, v_actual.ruta_origen, ''))) IN ('banbif', 'scotiabank', 'interbank')
+     AND EXISTS (
+       SELECT 1
+       FROM public.tb_operacion_caja c
+       WHERE c.id_operacion_proceso = p_id
+         AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
+       AND c.id_caja_cierre IS NOT NULL
+       AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM public.tb_operacion_caja c
+       WHERE c.id_operacion_proceso = p_id
+         AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
+         AND c.id_caja_cierre IS NULL
+         AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+     ) THEN
+    RETURN public.f_patch_tb_operacion_proceso_reanudar_post_cierre(
+      p_id := p_id,
+      p_id_estado := p_id_estado,
+      p_nombre_estado := p_nombre_estado,
+      p_fecha_pendiente := p_fecha_pendiente,
+      p_id_usuario_gestor := p_id_usuario_gestor,
+      p_nombre_usuario_gestor := p_nombre_usuario_gestor
+    );
   END IF;
 
   IF EXISTS (
@@ -3633,6 +3683,14 @@ BEGIN
     FROM public.tb_operacion_caja c
     WHERE c.id_operacion_proceso = p_id
       AND c.id_caja_cierre IS NOT NULL
+      AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja c
+    WHERE c.id_operacion_proceso = p_id
+      AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
+      AND c.id_caja_cierre IS NULL
       AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
   ) THEN
     RETURN jsonb_build_object('error', 'No se puede reiniciar una operacion con movimientos cerrados por caja.');
@@ -3692,6 +3750,108 @@ BEGIN
   v_ruta_kpi := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
   PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, v_id_usuario_final);
   PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta_kpi, v_id_usuario_final);
+
+  RETURN (
+    SELECT x
+    FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
+    LIMIT 1
+  );
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_operacion_proceso_reanudar_post_cierre
+Objetivo:
+  Reabrir una operacion de Efectivizacion de BanBif, Scotiabank o Interbank que ya fue
+  pagada y cuyo movimiento de salida pertenece a un cierre historico.
+
+Reglas:
+  - conserva intactos el movimiento cerrado y el snapshot del cierre;
+  - no aplica ningun delta sobre la caja al reabrir;
+  - la siguiente atencion creara la SALIDA en la caja viva;
+  - no aplica a operaciones enlazadas a un match de Pago Deuda.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_reanudar_post_cierre(
+  p_id bigint,
+  p_id_estado bigint,
+  p_nombre_estado character varying,
+  p_fecha_pendiente timestamp with time zone DEFAULT now(),
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actual record;
+  v_ruta text;
+  v_id_usuario_final bigint;
+BEGIN
+  SELECT *
+  INTO v_actual
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('error', 'La operacion no existe.');
+  END IF;
+
+  v_ruta := LOWER(BTRIM(COALESCE(v_actual.ruta_destino, v_actual.ruta_origen, '')));
+
+  IF v_ruta NOT IN ('banbif', 'scotiabank', 'interbank')
+     OR UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) <> 'EFECTIVIZACION' THEN
+    RETURN jsonb_build_object(
+      'error', 'El reinicio post cierre solo aplica a Efectivizacion de BanBif, Scotiabank o Interbank.'
+    );
+  END IF;
+
+  IF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) <> 'PAGADO' THEN
+    RETURN jsonb_build_object('error', 'La operacion no se encuentra en estado Pagado.');
+  END IF;
+
+  IF v_actual.id_operacion_match IS NOT NULL THEN
+    RETURN jsonb_build_object('error', 'No se puede reiniciar una operacion enlazada a un match de Pago Deuda.');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja c
+    WHERE c.id_operacion_proceso = p_id
+      AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
+      AND c.id_caja_cierre IS NOT NULL
+      AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+  ) THEN
+    RETURN jsonb_build_object('error', 'La operacion no tiene una salida cerrada para reabrir.');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja c
+    WHERE c.id_operacion_proceso = p_id
+      AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
+      AND c.id_caja_cierre IS NULL
+      AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+  ) THEN
+    RETURN jsonb_build_object('error', 'La operacion ya tiene una salida abierta en la caja actual.');
+  END IF;
+
+  v_id_usuario_final := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario);
+
+  UPDATE public.tb_operacion_proceso
+  SET id_estado = p_id_estado,
+      nombre_estado = p_nombre_estado,
+      fecha_pendiente = COALESCE(p_fecha_pendiente, now()),
+      fecha_pagado = NULL,
+      id_caja_cierre = NULL,
+      fecha_caja_cierre = NULL,
+      id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+      nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+  WHERE id = p_id;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta, v_id_usuario_final);
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta, v_id_usuario_final);
 
   RETURN (
     SELECT x
@@ -5912,13 +6072,16 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_tb_operacion_retencion_hardcodeada',
+  'f_get_tb_operacion_proceso',
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',
   'f_post_tb_operacion_proceso_excel_ganancia',
   'f_patch_tb_operacion_proceso_derivacion',
   'f_patch_tb_operacion_proceso_retencion',
+  'f_patch_tb_operacion_proceso_reanudar',
   'f_patch_tb_operacion_proceso_pagado',
   'f_patch_tb_operacion_proceso_pagado_lote',
-  'f_patch_tb_operacion_proceso_directo_caja_lote'
+  'f_patch_tb_operacion_proceso_directo_caja_lote',
+  'f_patch_tb_operacion_proceso_reanudar_post_cierre'
 )
 ORDER BY n.nspname, p.proname;

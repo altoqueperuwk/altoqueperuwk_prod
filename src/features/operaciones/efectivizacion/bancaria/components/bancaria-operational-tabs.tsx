@@ -43,7 +43,14 @@ import {
 import { BancariaActionModal, type BancariaBankDestination } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-action-modal";
 import { BancariaEfectivizacionTable } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-efectivizacion-table";
 import { BancariaExcelRollbackModal } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-excel-rollback-modal";
-import { type BancariaTab, type MovimientoMerged, tabContracts, useBancariaBandeja } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
+import {
+    sortMovimientosChronologically,
+    sortOperacionesChronologically,
+    type BancariaTab,
+    type MovimientoMerged,
+    tabContracts,
+    useBancariaBandeja,
+} from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
 import {
     useBancariaEmpresaBadges,
     useBancariaTabBadges,
@@ -72,6 +79,16 @@ const isPagado = (row: Pick<OperacionProceso, "nombre_estado">) =>
 const getOperationRoute = (row: Pick<OperacionProceso, "ruta_destino" | "ruta_origen">, fallback: OperacionRutaBancaria) => {
     const candidate = String(row.ruta_destino ?? row.ruta_origen ?? "").toLowerCase() as OperacionRutaBancaria;
     return bancariaRouteKeys.includes(candidate) ? candidate : fallback;
+};
+
+const isPostCloseReopenableOperation = (row: OperacionProceso, fallback: OperacionRutaBancaria) => {
+    const operationRoute = getOperationRoute(row, fallback);
+    return (
+        isPagado(row) &&
+        row.id_caja_cierre != null &&
+        (operationRoute === "banbif" || operationRoute === "scotiabank" || operationRoute === "interbank") &&
+        (row.tipo_servicio ?? "").trim().toUpperCase() === "EFECTIVIZACION"
+    );
 };
 
 interface BancariaOperationalTabsProps {
@@ -707,12 +724,12 @@ export const BancariaOperationalTabs = ({
     const operaciones = useMemo(() => {
         const byId = new Map<number, OperacionProceso>();
         [...primaryBandeja.operaciones, ...secondaryBandeja.operaciones].forEach((row) => byId.set(row.id, row));
-        return Array.from(byId.values());
+        return sortOperacionesChronologically(Array.from(byId.values()));
     }, [primaryBandeja.operaciones, secondaryBandeja.operaciones]);
     const movimientos = useMemo(() => {
         const byId = new Map<number, MovimientoMerged>();
         [...primaryBandeja.movimientos, ...secondaryBandeja.movimientos].forEach((row) => byId.set(row.id, row));
-        return Array.from(byId.values());
+        return sortMovimientosChronologically(Array.from(byId.values()));
     }, [primaryBandeja.movimientos, secondaryBandeja.movimientos]);
     const error = primaryBandeja.error ?? secondaryBandeja.error;
     const isInitialLoading = primaryBandeja.isInitialLoading || secondaryBandeja.isInitialLoading;
@@ -1460,12 +1477,17 @@ export const BancariaOperationalTabs = ({
                     }
 
                     if (action === "Reiniciar" && estadoPendiente) {
+                        const operation = operaciones.find((item) => item.id === id);
                         const saved = currentTab === "Pago Deuda"
                             ? await pagoDeudaService.patchReiniciarTransferencia({
                                 p_id_operacion: id,
                                 p_id_usuario_gestor: userId,
                                 p_nombre_usuario_gestor: userName,
                             })
+                            : operation && isPostCloseReopenableOperation(operation, ruta)
+                                ? await operacionesRpcService.patchOperacionReanudarPostCierre(
+                                    buildOperacionReanudarPayload(id, estadoPendiente, { userId, userName }),
+                                )
                             : await operacionesRpcService.patchOperacionReanudar(
                                 buildOperacionReanudarPayload(id, estadoPendiente, { userId, userName }),
                             );

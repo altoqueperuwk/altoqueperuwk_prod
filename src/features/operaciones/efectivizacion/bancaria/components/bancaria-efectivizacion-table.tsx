@@ -125,6 +125,15 @@ const isFrozenPaidOperation = (
     row: OperacionProceso,
     mode: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados",
 ) => (mode === "efectivizacion" || mode === "unificado") && isPagado(row);
+const isPostCloseReopenableOperation = (row: OperacionProceso, ruta: OperacionRutaBancaria) => {
+    const operationRoute = String(row.ruta_destino ?? row.ruta_origen ?? ruta).trim().toLowerCase();
+    return (
+        isPagado(row) &&
+        row.id_caja_cierre != null &&
+        (operationRoute === "banbif" || operationRoute === "scotiabank" || operationRoute === "interbank") &&
+        (row.tipo_servicio ?? "").trim().toUpperCase() === "EFECTIVIZACION"
+    );
+};
 const isFrozenTableOperation = (
     row: OperacionProceso,
     mode: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados",
@@ -964,7 +973,9 @@ export const BancariaEfectivizacionTable = ({
         }
 
         if ((action === "Reanudar" || action === "Reiniciar") && estadoPendiente) {
-            const saved = await operacionesRpcService.patchOperacionReanudar(buildOperacionReanudarPayload(row.id, estadoPendiente, user));
+            const saved = isPostCloseReopenableOperation(row, ruta)
+                ? await operacionesRpcService.patchOperacionReanudarPostCierre(buildOperacionReanudarPayload(row.id, estadoPendiente, user))
+                : await operacionesRpcService.patchOperacionReanudar(buildOperacionReanudarPayload(row.id, estadoPendiente, user));
             setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
             onRowUpdated(saved);
             addToast("success", "Operacion reanudada.");

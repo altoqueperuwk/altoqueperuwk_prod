@@ -235,7 +235,10 @@ AS $$
       AND (p_id_empresa IS NULL OR b.id_empresa_salida = p_id_empresa)
       AND (p_id_empresa_cuenta_bancaria IS NULL OR b.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
     )
-  ORDER BY b.id DESC;
+  ORDER BY
+    COALESCE(b.fecha_deposito_cliente, b.fecha_registro) ASC,
+    b.fecha_registro ASC,
+    b.id ASC;
 $$;
 
 /*

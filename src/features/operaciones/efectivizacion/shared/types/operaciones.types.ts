@@ -241,6 +241,7 @@ export interface OperacionCajaMovimiento {
     monto_salida: number;
     nombre_estado: string;
     tipo_facturacion: string | null;
+    fecha_deposito_cliente?: string | null;
     fecha_registro: string;
     flag_paso_retencion?: boolean | null;
 }

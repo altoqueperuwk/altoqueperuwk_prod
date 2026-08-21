@@ -33,9 +33,29 @@ export interface MovimientoMerged {
     monto_gasto: number;
     monto_ganancia: number;
     tipo_facturacion: string;
+    fecha_orden: string;
     fecha_registro: string;
     flag_paso_retencion?: boolean | null;
 }
+
+const toChronologicalTime = (value: string | null | undefined, fallback?: string | null) => {
+    const time = Date.parse(value ?? fallback ?? "");
+    return Number.isFinite(time) ? time : Number.MAX_SAFE_INTEGER;
+};
+
+export const sortOperacionesChronologically = (rows: OperacionProceso[]) =>
+    [...rows].sort((a, b) =>
+        toChronologicalTime(a.fecha_deposito_cliente, a.fecha_registro) - toChronologicalTime(b.fecha_deposito_cliente, b.fecha_registro) ||
+        toChronologicalTime(a.fecha_registro) - toChronologicalTime(b.fecha_registro) ||
+        a.id - b.id,
+    );
+
+export const sortMovimientosChronologically = (rows: MovimientoMerged[]) =>
+    [...rows].sort((a, b) =>
+        toChronologicalTime(a.fecha_orden, a.fecha_registro) - toChronologicalTime(b.fecha_orden, b.fecha_registro) ||
+        toChronologicalTime(a.fecha_registro) - toChronologicalTime(b.fecha_registro) ||
+        a.id - b.id,
+    );
 
 const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] => {
     const byProceso = new Map<number, OperacionCajaMovimiento[]>();
@@ -77,6 +97,7 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
             monto_gasto: (ingreso?.monto_gasto ?? 0) + (salida?.monto_gasto ?? 0),
             monto_ganancia: ingreso?.monto_ganancia ?? 0,
             tipo_facturacion: primary.tipo_facturacion ?? "Boleta",
+            fecha_orden: ingreso?.fecha_deposito_cliente ?? primary.fecha_deposito_cliente ?? primary.fecha_registro,
             fecha_registro: primary.fecha_registro,
             flag_paso_retencion: ingreso?.flag_paso_retencion ?? primary.flag_paso_retencion ?? false,
         });
@@ -102,12 +123,13 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
             monto_gasto: row.monto_gasto,
             monto_ganancia: row.monto_ganancia,
             tipo_facturacion: row.tipo_facturacion ?? "Boleta",
+            fecha_orden: row.fecha_deposito_cliente ?? row.fecha_registro,
             fecha_registro: row.fecha_registro,
             flag_paso_retencion: row.flag_paso_retencion ?? false,
         });
     }
 
-    return merged.sort((a, b) => b.fecha_registro.localeCompare(a.fecha_registro));
+    return sortMovimientosChronologically(merged);
 };
 
 export const tabContracts: Record<BancariaTab, { filters: string[]; actions: string[] }> = {
@@ -525,10 +547,10 @@ export const useBancariaBandeja = ({
                 if (ignore) return;
                 if (tab === "Unificado") {
                     const parts = result as [unknown, unknown, unknown, unknown];
-                    const rows = parts
+                    const rows = sortOperacionesChronologically(parts
                         .flatMap((part) => (part ?? []) as OperacionProceso[])
                         .filter((row, index, all) => all.findIndex((item) => item.id === row.id) === index)
-                        .filter((row) => matchesCurrentOperacionView(row));
+                        .filter((row) => matchesCurrentOperacionView(row)));
                     setOperaciones((current) => reconcileRows(current, rows));
                     setMovimientos([]);
                 } else if (tab === "Movimientos") {
@@ -538,7 +560,7 @@ export const useBancariaBandeja = ({
                     setMovimientos((current) => reconcileRows(current, filterMovimientos(merged, activeFilter)));
                     setOperaciones([]);
                 } else {
-                    const rows = (originRequest ? (result as [unknown, unknown]).flatMap((part) => (part ?? []) as OperacionProceso[]) : (result ?? []) as OperacionProceso[])
+                    const rows = sortOperacionesChronologically((originRequest ? (result as [unknown, unknown]).flatMap((part) => (part ?? []) as OperacionProceso[]) : (result ?? []) as OperacionProceso[])
                         .filter((row, index, all) => all.findIndex((item) => item.id === row.id) === index)
                         .filter((row) => {
                             if (!originRequest || row.flag_derivado !== true) return true;
@@ -546,7 +568,7 @@ export const useBancariaBandeja = ({
                                 (!activeCompanyId || (row.id_empresa_salida_origen ?? row.id_empresa_salida) === activeCompanyId) &&
                                 (!activeAccountId || (row.id_empresa_cuenta_salida_origen ?? row.id_empresa_cuenta_salida) === activeAccountId)
                             );
-                        });
+                        }));
                     if (tab === "Retenidos" && activeAccountId && rows.length) {
                         const infoRows = await operacionesRpcService.getRecaudacionOperacionInfo({
                             p_ids_operacion: rows.map((row) => row.id),
