@@ -1,5 +1,26 @@
 # Cajas Operativas: Opciones De Funcionamiento
 
+> **Estado vigente 22/08/2026:** El sistema usa la opcion de nueva caja en cero
+> despues del cierre. El modal permite conciliar el saldo del sistema con el saldo
+> que muestra la banca; el saldo ingresado puede usar `1,000.00`, `1000` o `1,000`.
+> La conciliacion registra un ajuste administrativo y deja la Caja Inicial y Caja
+> Actual iguales al saldo bancario, sin convertir el ajuste en Ingreso KPI. Las
+> secciones antiguas de opciones quedan como contexto; este bloque es el contrato
+> vigente.
+
+### Flujo vigente de caja
+
+- Cerrar caja conserva intacto el snapshot historico de saldo, salidas, gastos,
+  ganancias y clasificaciones informativas.
+- La nueva caja comienza en cero en todos los KPI; el usuario registra despues el
+  saldo real de la banca.
+- Si ya hubo operaciones en el nuevo ciclo, no se permite editar libremente el
+  saldo inicial.
+- Las operaciones pendientes no se congelan como historico: permanecen en Hoy para
+  ser atendidas. Las operaciones finalizadas si quedan en el cierre.
+- Pagar una pendiente heredada afecta la caja viva con Salida, Gasto Operacional y
+  Caja Actual; no modifica la ganancia ni el cierre anterior.
+
 ## ¿Qué es el modal Cajas?
 
 En las rutas bancarias, dentro de **Configuración > Cajas**, se puede asociar una empresa con una cuenta bancaria.

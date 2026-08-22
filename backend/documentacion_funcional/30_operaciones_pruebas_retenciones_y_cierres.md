@@ -1,5 +1,23 @@
 # 30. Operaciones: Pruebas de Retenciones, Fechas y Cierres
 
+> **Estado vigente 22/08/2026:** Los casos de prueba de este documento deben
+> ejecutarse con retencion hardcodeada por empresa + cuenta + banco. No se debe
+> preparar una prueba cambiando `flag_retencion` ni suponiendo liberacion automatica.
+> Scotiabank/BanBif usan 21:00 y BCP usa 00:00, siempre con
+> `fecha_deposito_cliente` en hora de Lima. Ver
+> [`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md).
+
+### Matriz minima vigente
+
+| Caso | Resultado |
+|---|---|
+| Cuenta hardcodeada, deposito antes del corte | No retenido; puede impactar caja |
+| Cuenta hardcodeada, deposito desde el corte | Retenido; no impacta Caja Actual |
+| Cuenta no hardcodeada aunque tenga regla antigua | No retenido por esta regla |
+| Job de liberacion | No libera operaciones |
+| Cierre con pendiente | Pendiente queda en Hoy; finalizada queda en historico |
+| Pago de pendiente heredada | Solo Salida, Gasto Operacional y Caja Actual viva |
+
 ## Objetivo
 
 Definir como probar escenarios reales entre ayer y hoy para Scotiabank/Banbif, especialmente retenciones, cierres, salidas y confirmaciones manuales.

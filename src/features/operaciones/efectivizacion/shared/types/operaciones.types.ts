@@ -125,6 +125,7 @@ export interface OperacionProceso {
     dni_cliente: string | null;
     nombre_cliente: string | null;
     email_cliente?: string | null;
+    numero_tarjeta?: string | null;
     nombre_codigo_servicio: string | null;
     id_estado?: number | null;
     nombre_estado: string | null;

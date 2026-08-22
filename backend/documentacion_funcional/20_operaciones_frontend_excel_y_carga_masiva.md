@@ -1,5 +1,31 @@
 # 20. Operaciones Frontend: Excel y Carga Masiva
 
+> **Estado vigente 22/08/2026:** La carga se ejecuta con el contrato descrito en
+> [`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md). Las reglas
+> antiguas de `flag_retencion` y de `tb_recaudacion_regla_abono` no determinan la
+> retencion de las cuentas hardcodeadas. Si el texto historico de esta guia
+> contradice este bloque, prevalece este bloque y el codigo vigente.
+
+### Estado operativo actual
+
+- Se aceptan `.xlsx`, `.xls`, `.html`, `.htm` y `.txt` BCP.
+- El TXT BCP conserva la hora real informada por el archivo y se guarda en UTC con
+  visualizacion en hora de Lima; el codigo corto se extrae del campo bancario, por
+  ejemplo `0218526500391250` produce `00391250`.
+- La validacion de duplicados se realiza antes de cliente, reglas y comisiones:
+  servicio + codigo + monto a 2 decimales + ventana de 7 dias, incluyendo historicas
+  y eliminadas. La primera fila repetida se procesa y las siguientes se omiten.
+- La consulta de duplicidad usa el indice especializado y el bloqueo advisory para
+  cargas concurrentes.
+- La carga mantiene movimientos de trazabilidad, pero evita recalculos innecesarios
+  por fila; el proceso de 720 filas queda preparado para terminar en segundos bajo
+  el escenario validado.
+- Al finalizar Excel se actualiza la vista sin limpiar la seleccion persistente de
+  las bandejas bancarias.
+- Para las cuentas hardcodeadas `(5,33,3)`, `(7,16,4)`, `(8,7,3)`, `(5,4,2)` y
+  `(6,5,2)`, solo `fecha_deposito_cliente` y la hora de Lima deciden la retencion.
+  Scotiabank/BanBif usan 21:00; BCP usa 00:00. No hay liberacion automatica.
+
 ## Estado vigente
 
 El bloque de carga actualmente soporta archivos bancarios:

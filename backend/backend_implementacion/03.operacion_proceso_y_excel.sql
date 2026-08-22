@@ -206,6 +206,26 @@ ALTER TABLE public.tb_operacion_proceso
 ALTER TABLE public.tb_operacion_proceso
   ADD COLUMN IF NOT EXISTS email_cliente character varying;
 
+ALTER TABLE public.tb_operacion_proceso
+  ADD COLUMN IF NOT EXISTS numero_tarjeta character varying(4);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE c.conname = 'tb_operacion_proceso_numero_tarjeta_check'
+      AND n.nspname = 'public'
+      AND t.relname = 'tb_operacion_proceso'
+  ) THEN
+      ALTER TABLE public.tb_operacion_proceso
+        ADD CONSTRAINT tb_operacion_proceso_numero_tarjeta_check
+      CHECK (numero_tarjeta IS NULL OR numero_tarjeta = '' OR numero_tarjeta ~ '^[0-9]{4}$');
+  END IF;
+END $$;
+
 /*
 Migracion de contratos: los importes de deposito, transferencia, devolucion y
 resultados de comision conservan centavos en registro, edicion y carga.
@@ -4619,13 +4639,23 @@ BEGIN
     IF v_error_motivo IS NULL THEN
       BEGIN
         v_fecha_deposito := public.f_get_tb_parsear_fecha(v_fila.fecha_pago)::timestamp with time zone;
-        IF v_fecha_deposito::time = '00:00:00'::time THEN
+        IF v_fecha_deposito IS NULL THEN
+          v_fecha_deposito := NOW();
+        ELSIF v_fecha_deposito::time = '00:00:00'::time THEN
           IF COALESCE(v_fila.hora_proceso, '') <> '' THEN
             -- BCP entrega la hora en horario local de Lima. Convertirla
             -- explicitamente evita interpretarla como UTC.
-            v_fecha_deposito := (
-              v_fecha_deposito::date + v_fila.hora_proceso::time
-            ) AT TIME ZONE 'America/Lima';
+            BEGIN
+              v_fecha_deposito := (
+                v_fecha_deposito::date + v_fila.hora_proceso::time
+              ) AT TIME ZONE 'America/Lima';
+            EXCEPTION WHEN OTHERS THEN
+              -- Una hora mal formada no debe bloquear la carga. Se conserva
+              -- la fecha valida y se usa la hora local actual como respaldo.
+              v_fecha_deposito := (
+                v_fecha_deposito::date + (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::time
+              ) AT TIME ZONE 'America/Lima';
+            END;
           ELSE
             v_fecha_deposito := (
               v_fecha_deposito::date + (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::time
@@ -4633,7 +4663,9 @@ BEGIN
           END IF;
         END IF;
       EXCEPTION WHEN OTHERS THEN
-        v_error_motivo := 'Fecha invÃ¡lida: ' || COALESCE(v_fila.fecha_pago, 'vacÃ­a');
+        -- La fecha tambien es informativa para este flujo: si no se puede
+        -- interpretar, registrar la operacion con la fecha/hora actual.
+        v_fecha_deposito := NOW();
       END;
     END IF;
 
@@ -5375,13 +5407,23 @@ BEGIN
 
     BEGIN
       v_fecha_deposito := public.f_get_tb_parsear_fecha(v_fila.fecha_pago)::timestamp with time zone;
-      IF v_fecha_deposito::time = '00:00:00'::time THEN
+      IF v_fecha_deposito IS NULL THEN
+        v_fecha_deposito := NOW();
+      ELSIF v_fecha_deposito::time = '00:00:00'::time THEN
         IF COALESCE(v_fila.hora_proceso, '') <> '' THEN
           -- BCP entrega la hora en horario local de Lima. Convertirla
           -- explicitamente evita interpretarla como UTC.
-          v_fecha_deposito := (
-            v_fecha_deposito::date + v_fila.hora_proceso::time
-          ) AT TIME ZONE 'America/Lima';
+          BEGIN
+            v_fecha_deposito := (
+              v_fecha_deposito::date + v_fila.hora_proceso::time
+            ) AT TIME ZONE 'America/Lima';
+          EXCEPTION WHEN OTHERS THEN
+            -- Una hora mal formada no debe bloquear la carga. Se conserva
+            -- la fecha valida y se usa la hora local actual como respaldo.
+            v_fecha_deposito := (
+              v_fecha_deposito::date + (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::time
+            ) AT TIME ZONE 'America/Lima';
+          END;
         ELSE
           v_fecha_deposito := (
             v_fecha_deposito::date + (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::time

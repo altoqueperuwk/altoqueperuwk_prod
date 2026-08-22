@@ -1,5 +1,17 @@
 # 00. Orden de Lectura
 
+## Estado vigente para nuevas sesiones
+
+Antes de modificar Operaciones, leer estas dos fuentes maestras:
+
+1. `../CONTEXTO_GENERAL_BACKEND.md`
+2. `../../src/CONTEXTO_GENERAL_FRONTEND.md`
+
+Luego leer `28`, `29`, `30`, `34` y `35`. Esos documentos resumen el estado
+actual de retenciones, KPI, cierres, bandejas y conciliacion. Los documentos
+anteriores describen decisiones de diseno, fases o contratos historicos; si hay
+contradiccion, prevalece el codigo vigente y las fuentes maestras.
+
 ## Objetivo
 
 Este folder ya no se lee primero por ejes tecnicos, sino por dominios reales del producto. La idea es que otra IA entienda primero como se divide el negocio y despues consuma el soporte tecnico para implementar sin mezclar responsabilidades.
@@ -133,7 +145,13 @@ Cuando la implementacion llegue a `Operaciones`, leer obligatoriamente esta segu
 - `31_contexto_general_recuperacion_proyecto.md`
 - `32_operaciones_descarga_reportes.md`
 - `33_manual_global_operaciones_pago_deuda_safetypay.md`
-- `manuales_md/00_indice_manuales_operativos.md`
+- `34_cajas_operativas_modal_y_cierre.md`
+- `35_retenidos_informativos_y_fuera_horario.md`
+
+Los manuales por ruta que existian en `manuales_md/` y en las carpetas de
+operaciones son historicos y pueden no estar presentes en el checkout actual.
+Para la guia operativa vigente usar `33_manual_global_operaciones_pago_deuda_safetypay.md`
+y las dos fuentes maestras indicadas arriba.
 
 Aqui se entiende:
 
@@ -147,6 +165,14 @@ Aqui se entiende:
 - que guia funcional sirve como base para manual HTML de bancos, SafetyPay y Pago Deuda.
 - que manuales operativos por ruta existen para usuarios finales.
 
+## Fuentes maestras de continuidad
+
+- Backend: `../CONTEXTO_GENERAL_BACKEND.md`
+- Frontend: `../../src/CONTEXTO_GENERAL_FRONTEND.md`
+- Analisis de locks: `../backend_implementacion/REVISION_TB_OPERACION_PROCESO.md`
+- Plan de locks: `../backend_implementacion/PLAN_OPTIMIZACION_LOCKS.md`
+- Plan de refresco: `../backend_implementacion/PLAN_OPTIMIZACION_REFRESH_FRONTEND.md`
+
 ## Regla de implementacion
 
 1. leer primero los dominios `01-08`;
@@ -158,3 +184,4 @@ Aqui se entiende:
 7. al iniciar `Operaciones`, dejar de improvisar el layout y seguir de forma obligatoria los documentos `17-23`;
 8. para cambios actuales de negocio, leer siempre `28-30` porque reflejan la implementacion vigente;
 9. para recuperar contexto general o reconstruir archivos criticos, leer `31_contexto_general_recuperacion_proyecto.md`.
+10. para reportes y cierres, validar `32_operaciones_descarga_reportes.md` y `34_cajas_operativas_modal_y_cierre.md`.

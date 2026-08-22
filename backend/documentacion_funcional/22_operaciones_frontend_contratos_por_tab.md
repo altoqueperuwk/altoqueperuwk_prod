@@ -1,5 +1,22 @@
 # 22. Operaciones Frontend: Contratos por Tab
 
+> **Estado vigente 22/08/2026:** El contrato visual actual concentra las bandejas
+> en `Efectivizacion TC`, `Pago Deuda TC` y `Movimientos`; no se deben interpretar
+> las secciones antiguas de este documento como una prohibicion de la vista unificada.
+> Las bandejas antiguas siguen disponibles desde el selector secundario.
+
+### Contrato vigente
+
+| Vista | Fuentes | Identificacion principal |
+|---|---|---|
+| Efectivizacion TC | Efectivizacion, Derivados y POS | columna `Flujo` |
+| Pago Deuda TC | Pago Deuda | pasos visuales y estado |
+| Movimientos | `tb_operacion_caja` | origen y tipo de movimiento |
+
+Las acciones de comision especial, comision extra, Directo, Confirmar Pago Deuda,
+Derivar, Reiniciar y Eliminar Excel se habilitan solo cuando el flujo y estado de
+la fila lo permiten. Las acciones recurrentes no se muestran en la vista unificada.
+
 ## Objetivo
 
 Definir cada bandeja del bloque inferior como contrato funcional y visual cerrado, tomando `Webpage-2.png` como fuente principal.

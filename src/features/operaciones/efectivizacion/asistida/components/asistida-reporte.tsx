@@ -4,6 +4,7 @@ import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/
 
 export type AsistidaReportColumnKey =
     | "entidad"
+    | "tarjeta"
     | "dni"
     | "comunidad"
     | "monto"
@@ -34,6 +35,7 @@ export interface AsistidaReportProps {
 export const getAsistidaReportColumns = (ruta: AsistidaReportProps["ruta"]): AsistidaReportColumn[] => ruta === "linkpago"
     ? [
         { key: "entidad", label: "Entidad Tarjeta" },
+        { key: "tarjeta", label: "Tarjeta" },
         { key: "dni", label: "DNI" },
         { key: "comunidad", label: "Comunidad" },
         { key: "monto", label: "Monto", money: true },
@@ -46,6 +48,7 @@ export const getAsistidaReportColumns = (ruta: AsistidaReportProps["ruta"]): Asi
     ]
     : [
         { key: "entidad", label: "Entidad Tarjeta" },
+        { key: "tarjeta", label: "Tarjeta" },
         { key: "dni", label: "DNI" },
         { key: "comunidad", label: "Comunidad" },
         { key: "monto", label: "Monto", money: true },
@@ -67,6 +70,7 @@ const dateTimeValue = (value: string | null | undefined) => value
 export const getAsistidaReportCellValue = (row: OperacionProceso, key: AsistidaReportColumnKey): string | number => {
     switch (key) {
         case "entidad": return textValue(row.nombre_banco_cliente);
+        case "tarjeta": return textValue(row.numero_tarjeta);
         case "dni": return textValue(row.dni_cliente);
         case "comunidad": return textValue(row.nombre_comunidad);
         case "monto": return numberValue(row.monto_deposito_cliente);

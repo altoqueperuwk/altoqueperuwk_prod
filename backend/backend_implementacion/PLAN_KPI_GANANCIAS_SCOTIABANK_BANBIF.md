@@ -2,6 +2,11 @@
 
 ## Estado
 
+**Estado vigente 22/08/2026:** El ajuste ya esta implementado. Este archivo
+conserva el analisis original; la seccion `Implementacion Retomada` y
+`backend/CONTEXTO_GENERAL_BACKEND.md` son la referencia actual. No debe tratarse
+como una tarea pendiente.
+
 Documento de análisis para retomar posteriormente. En esta fase no se modifican funciones SQL, tablas ni componentes frontend.
 
 ## Objetivo

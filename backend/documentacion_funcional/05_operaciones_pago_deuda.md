@@ -1,5 +1,11 @@
 # 05. Operaciones: Pago Deuda
 
+> **Estado vigente 22/08/2026:** En bancos se muestra como `Pago Deuda TC`. El
+> codigo de transferencia no es requisito para avanzar del paso 1 al paso 2.
+> La operacion de salida se valida contra el saldo de la caja destino; la bandeja
+> mantiene pasos visuales y el match con Efectivizacion se busca dentro de la
+> ventana operativa definida por el backend.
+
 ## Estado vigente
 
 Pago Deuda se divide en cuatro pasos:

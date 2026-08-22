@@ -1,5 +1,12 @@
 # 31. Contexto General de Recuperacion del Proyecto
 
+> **Estado vigente 22/08/2026:** Este documento es de recuperacion historica.
+> Para reconstruir el sistema actual se deben leer primero
+> [`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md) y
+> [`src/CONTEXTO_GENERAL_FRONTEND.md`](../../src/CONTEXTO_GENERAL_FRONTEND.md).
+> Las referencias antiguas a `flag_retencion`, liberacion manual, tabs separados
+> o formularios previos no prevalecen sobre esas fuentes maestras.
+
 ## Objetivo
 
 Este documento sirve como mapa de recuperacion si se corrompen archivos del frontend, backend o documentacion. Resume la arquitectura vigente y los archivos criticos que permiten reconstruir el contexto del sistema sin depender del historial del chat.

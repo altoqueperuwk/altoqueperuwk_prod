@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Edit03, Trash01 } from "@untitledui/icons";
+import { Calendar as CalendarIcon, Edit03, Trash01 } from "@untitledui/icons";
 import { motion } from "motion/react";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -19,9 +19,11 @@ import type {
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
+import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { cx } from "@/utils/cx";
 import { LinkPagoEditModal } from "@/features/operaciones/efectivizacion/asistida/components/linkpago-edit-modal";
+import { LinkPagoFechaModal } from "@/features/operaciones/efectivizacion/asistida/components/linkpago-fecha-modal";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import { CopyableDni } from "@/features/operaciones/efectivizacion/shared/components/copyable-dni";
 import { useWindowFocusRefresh } from "@/features/operaciones/efectivizacion/shared/hooks/use-window-focus-refresh";
@@ -105,6 +107,12 @@ const linkpagoColumns = [
         render: (row: OperacionProceso) => (
             <CompactBadge>{row.nombre_banco_cliente ?? "-"}</CompactBadge>
         ),
+    },
+    {
+        key: "numero_tarjeta",
+        label: "Tarjeta",
+        cellClassName: "font-medium text-primary tabular-nums",
+        render: (row: OperacionProceso) => row.numero_tarjeta || "-",
     },
     { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
     {
@@ -198,6 +206,12 @@ const posColumns = [
             <CompactBadge>{row.nombre_banco_cliente ?? "-"}</CompactBadge>
         ),
     },
+    {
+        key: "numero_tarjeta",
+        label: "Tarjeta",
+        cellClassName: "font-medium text-primary tabular-nums",
+        render: (row: OperacionProceso) => row.numero_tarjeta || "-",
+    },
     { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
     {
         key: "nombre_cliente",
@@ -290,8 +304,11 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
     const [estadoPendiente, setEstadoPendiente] = useState<{ id: number; nombre: string } | null>(null);
     const [estadoSolicitado, setEstadoSolicitado] = useState<{ id: number; nombre: string } | null>(null);
     const [editOperation, setEditOperation] = useState<OperacionProceso | null>(null);
+    const [dateOperation, setDateOperation] = useState<OperacionProceso | null>(null);
     const [deleteOperation, setDeleteOperation] = useState<OperacionProceso | null>(null);
     const [entidadTarjetaFiltro, setEntidadTarjetaFiltro] = useState("");
+    const [tarjeta, setTarjeta] = useState("");
+    const [montoDeposito, setMontoDeposito] = useState("");
     const [bancosFiltro, setBancosFiltro] = useState<{ id: number; nombre: string; tipo: string }[]>([]);
     const focusRefreshKey = useWindowFocusRefresh();
     const hasLoadedRows = useRef(false);
@@ -323,6 +340,16 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                                 icon={Edit03}
                                 isDisabled={!canManageOperation(row)}
                                 onClick={() => setEditOperation(row)}
+                            />
+                        )}
+                        {(ruta === "linkpago" || ruta === "pos") && (
+                            <ButtonUtility
+                                size="xs"
+                                color="tertiary"
+                                tooltip={canManageOperation(row) ? "Cambiar fecha de registro" : "Solo el usuario que registro la operacion puede editarla"}
+                                icon={CalendarIcon}
+                                isDisabled={!canManageOperation(row)}
+                                onClick={() => setDateOperation(row)}
                             />
                         )}
                         <ButtonUtility
@@ -375,22 +402,34 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
     }, []);
 
     const params = useMemo(() => {
-        const values: Record<string, unknown> = {
-            p_ruta: ruta,
-            p_fecha_registro_desde: `${selectedDate}T00:00:00`,
-            p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
-        };
+        const hasGlobalFilter = Boolean(
+            codigo.trim()
+            || dni.trim()
+            || entidadTarjetaFiltro
+            || tarjeta.trim()
+            || montoDeposito.trim(),
+        );
+        const values: Record<string, unknown> = { p_ruta: ruta };
+        if (!hasGlobalFilter) {
+            values.p_fecha_registro_desde = `${selectedDate}T00:00:00`;
+            values.p_fecha_registro_hasta = `${selectedDate}T23:59:59`;
+        }
         if (canViewAllAssisted) values.p_id_usuario_consulta = userId;
         else values.p_id_usuario_solicitud = userId;
 
-        if (ruta !== "pos" && codigo.trim()) values.p_codigo_operacion = codigo.trim();
+        if (codigo.trim()) values.p_codigo_operacion = codigo.trim();
         if (dni.trim()) values.p_dni_cliente = dni.trim();
         if (activeFilter === "Solicitado" && estadoSolicitado) values.p_nombre_estado = estadoSolicitado.nombre;
         if (activeFilter !== "Todos" && estadoByFilter[activeFilter]) values.p_nombre_estado = estadoByFilter[activeFilter];
         if (entidadTarjetaFiltro) values.p_id_banco_cliente = Number(entidadTarjetaFiltro);
+        if (ruta === "pos" && tarjeta.trim()) values.p_numero_tarjeta = tarjeta.trim();
+        if (montoDeposito.trim()) {
+            const monto = Number(montoDeposito);
+            if (Number.isFinite(monto)) values.p_monto_deposito_cliente = monto;
+        }
 
         return values;
-    }, [activeFilter, canViewAllAssisted, codigo, dni, entidadTarjetaFiltro, estadoSolicitado, ruta, selectedDate, userId]);
+    }, [activeFilter, canViewAllAssisted, codigo, dni, entidadTarjetaFiltro, estadoSolicitado, montoDeposito, ruta, selectedDate, tarjeta, userId]);
 
     useEffect(() => {
         let ignore = false;
@@ -417,7 +456,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
 
     useEffect(() => {
         setSelectedIds([]);
-    }, [activeFilter, codigo, dni, entidadTarjetaFiltro, refreshKey, ruta, selectedDate]);
+    }, [activeFilter, codigo, dni, entidadTarjetaFiltro, montoDeposito, refreshKey, ruta, selectedDate, tarjeta]);
 
     useEffect(() => {
         let ignore = false;
@@ -539,7 +578,17 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         >
             {ruta === "linkpago" ? (
                 <div className="flex flex-wrap items-center gap-3 border-b border-secondary px-4 py-3">
+                    <Input size="sm" label="" aria-label="Codigo operacion" placeholder="Cod. Operacion" value={codigo} onChange={setCodigo} className="w-44" />
                     <Input size="sm" label="" aria-label="DNI" placeholder="Buscar DNI" value={dni} onChange={setDni} className="w-44" />
+                    <Input
+                        size="sm"
+                        label=""
+                        aria-label="Monto deposito"
+                        placeholder="Monto Deposito"
+                        value={montoDeposito}
+                        onChange={(value) => setMontoDeposito(sanitizeAmountInput(value))}
+                        className="w-44"
+                    />
                     <NativeSelect
                         size="sm"
                         label=""
@@ -564,21 +613,43 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                     codeMaxLength={ruta === "pos" ? 15 : undefined}
                     dni={dni}
                     extraFilters={ruta === "pos" ? (
-                        <NativeSelect
-                            size="sm"
-                            label=""
-                            aria-label="Entidad Tarjeta"
-                            value={entidadTarjetaFiltro}
-                            onChange={(event) => setEntidadTarjetaFiltro(event.currentTarget.value)}
-                            options={[
-                                { label: "Filtrar por Entidad", value: "" },
-                                ...entidadTarjetaOptions.map((item) => ({
-                                    label: item.nombre,
-                                    value: String(item.id),
-                                })),
-                            ]}
-                            className="w-56"
-                        />
+                        <>
+                            <NativeSelect
+                                size="sm"
+                                label=""
+                                aria-label="Entidad Tarjeta"
+                                value={entidadTarjetaFiltro}
+                                onChange={(event) => setEntidadTarjetaFiltro(event.currentTarget.value)}
+                                options={[
+                                    { label: "Filtrar por Entidad", value: "" },
+                                    ...entidadTarjetaOptions.map((item) => ({
+                                        label: item.nombre,
+                                        value: String(item.id),
+                                    })),
+                                ]}
+                                className="w-56"
+                            />
+                            <Input
+                                size="sm"
+                                label=""
+                                aria-label="Tarjeta"
+                                placeholder="Tarjeta"
+                                value={tarjeta}
+                                inputMode="numeric"
+                                maxLength={4}
+                                onChange={(value) => setTarjeta(value.replace(/\D/g, "").slice(0, 4))}
+                                className="w-32"
+                            />
+                            <Input
+                                size="sm"
+                                label=""
+                                aria-label="Monto deposito"
+                                placeholder="Monto Deposito"
+                                value={montoDeposito}
+                                onChange={(value) => setMontoDeposito(sanitizeAmountInput(value))}
+                                className="w-44"
+                            />
+                        </>
                     ) : undefined}
                     filters={filters}
                     isActionDisabled={() => isApplyingAction || !selectedIds.length}
@@ -608,6 +679,16 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                 onClose={() => setEditOperation(null)}
                 onSaved={() => {
                     setEditOperation(null);
+                    onChanged?.();
+                }}
+            />
+
+            <LinkPagoFechaModal
+                isOpen={!!dateOperation}
+                operation={dateOperation}
+                onClose={() => setDateOperation(null)}
+                onSaved={() => {
+                    setDateOperation(null);
                     onChanged?.();
                 }}
             />

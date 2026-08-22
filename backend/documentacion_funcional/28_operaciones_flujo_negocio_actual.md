@@ -1,5 +1,31 @@
 # 28. Operaciones: Flujo de Negocio Actual
 
+> **Estado vigente 22/08/2026:** Esta nota reemplaza las reglas antiguas de
+> retencion, cierre y KPI que aparecen mas abajo. La fuente maestra es
+> [`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md).
+
+### Correcciones vigentes
+
+- La retencion automatica solo aplica a estas combinaciones empresa + cuenta + banco:
+  `(5,33,3)`, `(7,16,4)`, `(8,7,3)`, `(5,4,2)` y `(6,5,2)`.
+- Scotiabank y BanBif retienen desde las 21:00; BCP retiene las operaciones del
+  ciclo que inicia a las 00:00. La decision usa exclusivamente
+  `fecha_deposito_cliente` convertida a `America/Lima`.
+- Otras empresas y cuentas no heredan retencion por tener reglas antiguas activas.
+- No existe liberacion automatica. Los jobs permanecen seguros y no liberan fondos;
+  una operacion retenida puede derivarse para atender su salida.
+- Una retencion nunca incrementa Caja Actual ni Caja Recaudacion. Al pagar una
+  operacion retenida o Fuera de Horario, solo la salida y el gasto de salida afectan
+  la caja viva; la ganancia no se recalcula como ingreso nuevo.
+- El cierre conserva el snapshot. La nueva caja empieza con KPI en cero; operaciones
+  abiertas quedan en Hoy y las finalizadas quedan en el historico. Si una pendiente
+  heredada se paga despues, el impacto es solo Salidas, Gasto Operacional y Caja Actual.
+- Scotiabank y BanBif calculan visualmente Ganancias con operaciones Efectivizacion
+  PAGADAS agrupadas por fecha de deposito, incluyendo ambas modalidades y excluyendo
+  pendientes de Dia Siguiente.
+- `Directo Caja` y POS sin envio son flujos especiales: no deben confundirse con
+  la salida normal de Efectivizacion.
+
 ## Objetivo
 
 Este documento resume el flujo vigente de negocio de `Operaciones` despues de los ajustes de efectivizacion, pago deuda, retenciones, caja y cierre. Es la referencia funcional actual para entender que debe pasar en la tienda y como debe reflejarse en base de datos.

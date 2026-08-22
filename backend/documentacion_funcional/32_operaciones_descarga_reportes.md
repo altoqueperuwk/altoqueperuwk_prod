@@ -1,5 +1,20 @@
 # 32. Operaciones: Descarga de Reportes de Cierre (PDF/Excel)
 
+> **Estado vigente 22/08/2026:** PDF y Excel deben reflejar el estado de la
+> bandeja seleccionada y el snapshot del cierre. Ademas de pagadas, las secciones
+> operativas pueden incluir pendientes segun el contrato vigente de la consulta;
+> no asumir que `nombre_estado = Pagado` es un filtro global del reporte.
+
+### Reglas actuales de cierre
+
+- El historico conserva operaciones finalizadas y su clasificacion informativa.
+- Las operaciones pendientes se atienden en Hoy y no se deben presentar como si
+  fueran nuevas operaciones del cierre anterior.
+- Retenidos y Fuera de Horario no generan liberacion automatica ni modifican caja
+  por el solo hecho de aparecer en el reporte.
+- Para Scotiabank y BanBif, la ganancia especial se agrupa por
+  `fecha_deposito_cliente` y solo considera operaciones Efectivizacion PAGADAS.
+
 ## Objetivo
 
 Documentar la feature de descarga de reportes de cierre de caja implementada en `operaciones`. El boton "Descargar" genera un PDF o Excel identico a lo que el usuario visualiza en los tabs operativos de la web, usando las mismas fuentes de datos.

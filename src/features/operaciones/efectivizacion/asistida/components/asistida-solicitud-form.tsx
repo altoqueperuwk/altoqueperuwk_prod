@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Save01, XClose } from "@untitledui/icons";
+import { Calendar as CalendarIcon, Save01, XClose } from "@untitledui/icons";
+import { CalendarDate, type DateValue } from "@internationalized/date";
 import { Button } from "@/components/base/buttons/button";
+import { Calendar } from "@/components/application/date-picker/calendar";
 import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
@@ -24,6 +26,7 @@ import {
     type TipoDocumentoOperacion,
 } from "@/features/operaciones/efectivizacion/shared/components/documento-input-group";
 import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
+import { formatDateValue, getPeruDateValue } from "@/features/operaciones/efectivizacion/shared/utils/date";
 
 interface AsistidaSolicitudFormProps {
     activeCompany: RutaOperacionCaja | null;
@@ -49,10 +52,28 @@ const ASISTIDA_DEFAULT_COMMUNITY_NAME = "ATK1";
 const usesFixedCommunity = (ruta: OperacionRuta) => ruta === "pos" || ruta === "linkpago";
 const allowedBankNames = new Set(["BBVA", "BCP", "SCOTIABANK", "BANBIF", "INTERBANK"]);
 
+const stringToCalendarDate = (value: string) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return new CalendarDate(year, month, day);
+};
+
+const getCurrentPeruTime = () => {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+        hour: "2-digit",
+        hour12: false,
+        minute: "2-digit",
+        second: "2-digit",
+        timeZone: "America/Lima",
+    }).formatToParts(new Date());
+    const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "00";
+    return `${value("hour")}:${value("minute")}:${value("second")}-05:00`;
+};
+
 export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: AsistidaSolicitudFormProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [codigoOperacion, setCodigoOperacion] = useState("");
+    const [numeroTarjeta, setNumeroTarjeta] = useState("");
     const [sinEnvioSolicitud, setSinEnvioSolicitud] = useState(false);
     const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
@@ -72,11 +93,14 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const [clienteId, setClienteId] = useState<number | null>(null);
     const [originalWhatsapp, setOriginalWhatsapp] = useState("");
     const [originalComunidadId, setOriginalComunidadId] = useState("");
+    const [fechaDeposito, setFechaDeposito] = useState(getPeruDateValue);
+    const [isFechaDepositoOpen, setIsFechaDepositoOpen] = useState(false);
 
     const { result: clienteLookup, isLoading: isClienteLoading } = useClienteLookup(dni, tipoDocumento);
 
     useEffect(() => {
         setCodigoOperacion("");
+        setNumeroTarjeta("");
         setSinEnvioSolicitud(false);
         setTipoDocumento(1);
         setDni("");
@@ -88,6 +112,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         setClienteId(null);
         setOriginalWhatsapp("");
         setOriginalComunidadId(String(ASISTIDA_DEFAULT_COMMUNITY_ID));
+        setFechaDeposito(getPeruDateValue());
+        setIsFechaDepositoOpen(false);
         setEntidadTarjetaId("");
         setBancoDestinoId("");
         setServicio(null);
@@ -329,6 +355,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                       p_celular_cliente: whatsapp || null,
                       p_monto_deposito_cliente: amount,
                       p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null,
+                      p_numero_tarjeta: numeroTarjeta || null,
                       p_id_banco_cliente: selectedEntidadTarjeta?.id,
                       p_id_usuario: userId,
                       p_nombre_usuario: userName,
@@ -336,7 +363,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                       p_nombre_usuario_gestor: userName,
                       p_id_usuario_solicitud: userId,
                       p_nombre_usuario_solicitud: userName,
-                      p_fecha_registro: now,
+                      p_fecha_registro: `${fechaDeposito}T${getCurrentPeruTime()}`,
                   })
                 : await operacionesRpcService.postOperacionAsistida({
                       p_ruta: ruta,
@@ -352,6 +379,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                       p_celular_cliente: whatsapp || null,
                       p_monto_deposito_cliente: amount,
                       p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null,
+                      p_numero_tarjeta: numeroTarjeta || null,
                       p_id_estado: estadoRequerido.id,
                       p_nombre_estado: estadoRequerido.nombre,
                       p_id_usuario: userId,
@@ -362,7 +390,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                       p_nombre_usuario_solicitud: userName,
                       p_id_banco_destino: ruta === "pos" ? selectedBancoTransferir?.id : null,
                       p_id_banco_cliente: (ruta === "pos" || ruta === "linkpago") ? selectedEntidadTarjeta?.id : null,
-                      p_fecha_registro: now,
+                      p_fecha_deposito_cliente: (ruta === "pos" || ruta === "linkpago") ? `${fechaDeposito}T${getCurrentPeruTime()}` : null,
+                      p_fecha_registro: `${fechaDeposito}T${getCurrentPeruTime()}`,
                   });
 
             if (result && "error" in result) {
@@ -370,6 +399,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             }
 
             setCodigoOperacion("");
+            setNumeroTarjeta("");
             setSinEnvioSolicitud(false);
             setDni("");
             setTipoDocumento(1);
@@ -382,6 +412,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             setClienteId(null);
             setOriginalWhatsapp("");
             setOriginalComunidadId("");
+            setFechaDeposito(getPeruDateValue());
+            setIsFechaDepositoOpen(false);
             onSaved();
             addToast(
                 "success",
@@ -401,6 +433,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
 
     const handleClear = () => {
         setCodigoOperacion("");
+        setNumeroTarjeta("");
         setSinEnvioSolicitud(false);
         setDni("");
         setTipoDocumento(1);
@@ -413,6 +446,13 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         setClienteId(null);
         setOriginalWhatsapp("");
         setOriginalComunidadId("");
+        setFechaDeposito(getPeruDateValue());
+        setIsFechaDepositoOpen(false);
+    };
+
+    const handleFechaDepositoChange = (date: DateValue) => {
+        setFechaDeposito(`${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`);
+        setIsFechaDepositoOpen(false);
     };
 
     return (
@@ -426,7 +466,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                     }
                 >
                     {ruta === "pos" && (
-                        <div className="flex w-full min-w-0 flex-col gap-2 sm:w-[15ch] xl:w-[16ch] xl:shrink-0">
+                        <div className="contents">
                             <Input
                                 size="sm"
                                 label="Cod. Operacion"
@@ -434,18 +474,44 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                                 value={codigoOperacion}
                                 maxLength={15}
                                 onChange={(value) => setCodigoOperacion(value.slice(0, 15))}
-                                className="w-full min-w-0"
+                                className="order-1 w-full min-w-0 sm:w-[16ch]"
                             />
-                            <Toggle
-                                size="sm"
-                                label="Sin Envío Solicitud"
-                                isSelected={sinEnvioSolicitud}
-                                onChange={(isSelected) => {
-                                    setSinEnvioSolicitud(isSelected);
-                                    setEntidadTarjetaId("");
-                                    setBancoDestinoId("");
-                                }}
-                            />
+                            <div className="order-10 flex w-full flex-row-reverse flex-wrap items-center justify-end gap-2 sm:w-max">
+                                <div className="relative flex w-[11rem] shrink-0 flex-col gap-1">
+                                    <span className="text-sm font-medium text-secondary">Fecha Deposito</span>
+                                    <Button
+                                        size="sm"
+                                        color="secondary"
+                                        iconLeading={CalendarIcon}
+                                        onClick={() => setIsFechaDepositoOpen((current) => !current)}
+                                        className="w-full justify-start"
+                                    >
+                                        {formatDateValue(fechaDeposito)}
+                                    </Button>
+                                    {isFechaDepositoOpen && (
+                                        <div className="absolute bottom-full left-0 z-50 mb-2 rounded-lg border border-secondary bg-primary p-3 shadow-lg">
+                                            <Calendar value={stringToCalendarDate(fechaDeposito)} onChange={handleFechaDepositoChange}>
+                                                <div />
+                                            </Calendar>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex w-[11rem] flex-col gap-1">
+                                    <span className="text-sm font-medium text-secondary">No Enviar Solicitud</span>
+                                    <Toggle
+                                    size="sm"
+                                    label={undefined}
+                                    aria-label="No Enviar Solicitud"
+                                    isSelected={sinEnvioSolicitud}
+                                    className="w-full justify-start"
+                                    onChange={(isSelected) => {
+                                        setSinEnvioSolicitud(isSelected);
+                                        setEntidadTarjetaId("");
+                                        setBancoDestinoId("");
+                                    }}
+                                    />
+                                </div>
+                            </div>
                         </div>
                     )}
                     {(ruta === "pos" || ruta === "linkpago") && (
@@ -462,10 +528,23 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                                     value: String(item.id),
                                 })),
                             ]}
-                            className="w-full min-w-0 xl:w-[18ch] xl:shrink-0"
+                            className={ruta === "pos" ? "order-2 w-full min-w-0 xl:w-[18ch] xl:shrink-0" : "w-full min-w-0 xl:w-[18ch] xl:shrink-0"}
                         />
                     )}
-                    <div className="flex w-full min-w-0 items-end gap-2 xl:max-w-[12rem]">
+                    {(ruta === "pos" || ruta === "linkpago") && (
+                        <Input
+                            size="sm"
+                            label="Tarjeta"
+                            placeholder="4 dígitos"
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={4}
+                            value={numeroTarjeta}
+                            onChange={(value) => setNumeroTarjeta(value.replace(/\D/g, "").slice(0, 4))}
+                            className={ruta === "pos" ? "order-2 w-full min-w-0 xl:w-[10ch] xl:shrink-0" : "w-full min-w-0 xl:w-[10ch] xl:shrink-0"}
+                        />
+                    )}
+                    <div className={ruta === "pos" ? "order-3 flex w-full min-w-0 items-end gap-2 xl:max-w-[12rem]" : "flex w-full min-w-0 items-end gap-2 xl:max-w-[12rem]"}>
                         <DocumentoInputGroup
                             isRequired
                             tipoDocumento={tipoDocumento}
@@ -487,7 +566,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         value={nombre}
                         onChange={setNombre}
                         isDisabled={!!clienteId}
-                        className="w-full min-w-0 flex-1 xl:min-w-[14ch]"
+                        className={ruta === "pos" ? "order-4 w-full min-w-0 flex-1 xl:min-w-[14ch]" : "w-full min-w-0 flex-1 xl:min-w-[14ch]"}
                     />
                     {ruta === "pos" && (
                         <Input
@@ -497,7 +576,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                             placeholder="Correo del cliente"
                             value={email}
                             onChange={setEmail}
-                            className="w-full min-w-0 xl:w-[15ch] xl:shrink-0"
+                            className="order-5 w-full min-w-0 xl:w-[15ch] xl:shrink-0"
                         />
                     )}
                     <Input
@@ -506,14 +585,14 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         placeholder="Número de WhatsApp"
                         value={whatsapp}
                         onChange={(value) => setWhatsapp(value.replace(/\D/g, "").slice(0, 9))}
-                        className="w-full min-w-0 xl:min-w-[9ch] xl:max-w-[9rem]"
+                        className={ruta === "pos" ? "order-6 w-full min-w-0 xl:min-w-[9ch] xl:max-w-[9rem]" : "w-full min-w-0 xl:min-w-[9ch] xl:max-w-[9rem]"}
                     />
                     <Input
                         size="sm"
                         label="Comunidad"
                         value={selectedCommunity?.nombre ?? ""}
                         isDisabled
-                        className="w-full max-w-[10ch] shrink-0"
+                        className={ruta === "pos" ? "order-7 w-full max-w-[10ch] shrink-0" : "w-full max-w-[10ch] shrink-0"}
                     />
                     {ruta === "pos" && !isPosSinEnvio && (
                         <NativeSelect
@@ -529,7 +608,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                                     value: String(item.id),
                                 })),
                             ]}
-                            className="w-full min-w-0 xl:w-[14ch] xl:shrink-0"
+                            className="order-8 w-full min-w-0 xl:w-[14ch] xl:shrink-0"
                         />
                     )}
                     <Input
@@ -539,37 +618,78 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         placeholder="S/ 0.00"
                         value={monto}
                         onChange={(value) => setMonto(sanitizeAmountInput(value))}
-                        className="w-full min-w-0 xl:min-w-[8ch] xl:max-w-[9rem]"
+                        className={ruta === "pos" ? "order-9 w-full min-w-0 xl:min-w-[8ch] xl:max-w-[9rem]" : "w-full min-w-0 xl:min-w-[8ch] xl:max-w-[9rem]"}
                     />
+                    {ruta === "linkpago" && (
+                        <div className="relative flex w-full min-w-0 flex-col gap-1 xl:w-[11rem] xl:shrink-0">
+                            <span className="text-sm font-medium text-secondary">Fecha Deposito</span>
+                            <Button
+                                size="sm"
+                                color="secondary"
+                                iconLeading={CalendarIcon}
+                                onClick={() => setIsFechaDepositoOpen((current) => !current)}
+                                className="w-full justify-start"
+                            >
+                                {formatDateValue(fechaDeposito)}
+                            </Button>
+                            {isFechaDepositoOpen && (
+                                <div className="absolute bottom-full left-0 z-50 mb-2 rounded-lg border border-secondary bg-primary p-3 shadow-lg">
+                                    <Calendar value={stringToCalendarDate(fechaDeposito)} onChange={handleFechaDepositoChange}>
+                                        <div />
+                                    </Calendar>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {ruta === "pos" && (
+                        <div className="order-12 flex w-full min-w-0 justify-end gap-2 xl:ml-auto xl:w-[calc(14ch+9rem+0.5rem)]">
+                            <Button
+                                size="sm"
+                                color="primary"
+                                iconLeading={Save01}
+                                isLoading={isSaving}
+                                onClick={handleSave}
+                                className="min-w-0 flex-1"
+                            >
+                                Guardar
+                            </Button>
+                            <Button
+                                size="sm"
+                                color="secondary"
+                                iconLeading={XClose}
+                                isDisabled={isSaving}
+                                onClick={handleClear}
+                                className="min-w-0 flex-1"
+                            >
+                                Cancelar
+                            </Button>
+                        </div>
+                    )}
                 </div>
-                <div
-                    className={
-                        ruta === "pos"
-                            ? "flex w-full min-w-0 justify-end gap-2 xl:ml-auto xl:w-[calc(14ch+9rem+0.5rem)]"
-                            : "flex w-full min-w-0 shrink-0 gap-2 sm:justify-end xl:w-auto"
-                    }
-                >
-                    <Button
-                        size="sm"
-                        color="primary"
-                        iconLeading={Save01}
-                        isLoading={isSaving}
-                        onClick={handleSave}
-                        className={ruta === "pos" ? "min-w-0 flex-1" : "min-w-0 flex-1 xl:flex-none"}
-                    >
-                        Guardar
-                    </Button>
-                    <Button
-                        size="sm"
-                        color="secondary"
-                        iconLeading={XClose}
-                        isDisabled={isSaving}
-                        onClick={handleClear}
-                        className={ruta === "pos" ? "min-w-0 flex-1" : "min-w-0 flex-1 xl:flex-none"}
-                    >
-                        Cancelar
-                    </Button>
-                </div>
+                {ruta !== "pos" && (
+                    <div className="flex w-full min-w-0 shrink-0 gap-2 sm:justify-end xl:w-auto">
+                        <Button
+                            size="sm"
+                            color="primary"
+                            iconLeading={Save01}
+                            isLoading={isSaving}
+                            onClick={handleSave}
+                            className="min-w-0 flex-1 xl:flex-none"
+                        >
+                            Guardar
+                        </Button>
+                        <Button
+                            size="sm"
+                            color="secondary"
+                            iconLeading={XClose}
+                            isDisabled={isSaving}
+                            onClick={handleClear}
+                            className="min-w-0 flex-1 xl:flex-none"
+                        >
+                            Cancelar
+                        </Button>
+                    </div>
+                )}
             </div>
         </InlineFormCard>
     );

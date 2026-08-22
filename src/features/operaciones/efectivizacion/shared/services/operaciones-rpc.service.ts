@@ -189,6 +189,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_patch_tb_operacion_asistida", params);
     },
 
+    patchOperacionAsistidaFechaDeposito(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_asistida_fecha_deposito", params);
+    },
+
     patchOperacionBase(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_base", params);
     },

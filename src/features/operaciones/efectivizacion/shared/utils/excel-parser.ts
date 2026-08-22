@@ -343,14 +343,28 @@ const normalizeDateToIsoSafetyPay = (value: unknown): string => {
 
 const formatBcpTxtDateTime = (fechaRaw: string, horaRaw: string) => {
     const fecha = fechaRaw.trim();
-    const hora = horaRaw.trim();
     const date = fecha.match(/^(\d{4})(\d{2})(\d{2})$/);
-    const time = hora.match(/^(\d{2})(\d{2})(\d{2})$/);
 
     if (!date) return normalizeDateToIso(fecha);
 
-    return `${date[1]}-${date[2]}-${date[3]} ${time?.[1] ?? "00"}:${time?.[2] ?? "00"}:${time?.[3] ?? "00"}`;
+    // El backend combina esta fecha a medianoche con hora_proceso en Lima.
+    return `${date[1]}-${date[2]}-${date[3]} 00:00:00`;
 };
+
+const formatBcpTxtTime = (horaRaw: string) => {
+    const time = horaRaw.trim().match(/^(\d{2})(\d{2})(\d{2})$/);
+    return time ? `${time[1]}:${time[2]}:${time[3]}` : "";
+};
+
+const BCP_TXT_POSITIONS = {
+    dateStart: 57,
+    amountStart: 73,
+    dniStart: 138,
+    dniLength: 14,
+    timeStart: 168,
+    referenceStart: 187,
+    referenceLength: 16,
+} as const;
 
 export const parseBcpTxtRows = (content: string): ExcelRow[] => {
     const rows: ExcelRow[] = [];
@@ -359,41 +373,39 @@ export const parseBcpTxtRows = (content: string): ExcelRow[] => {
         const trimmed = line.trimEnd();
         if (!trimmed.startsWith("DD")) continue;
 
-        const parts = trimmed.split(/\s+/).filter(Boolean);
-        const headerToken = parts[0] ?? "";
-        const fechaRaw = parts[1] ?? "";
-        const payload = parts[2] ?? "";
-        const canal = parts[3] ?? "";
-        const horaRaw = parts[4] ?? "";
-        const referencia = parts[5] ?? "";
-
-        if (!/^DD\d+$/.test(headerToken) || !/^\d{8}$/.test(fechaRaw) || payload.length < 16) continue;
-
-        const montoRaw = payload.slice(0, 15);
-        const descripcionIndex = payload.indexOf("EFECTIVO");
-        const descripcion = descripcionIndex >= 0 ? payload.slice(descripcionIndex) : "";
-        const codigoCorto =
-            descripcionIndex >= 0
-                ? payload
-                      .slice(15, descripcionIndex)
-                      .replace(/\D/g, "")
-                      .slice(-6)
-                : "";
-        const dniRaw = descripcion.match(/EFECTIVO0*(\d+)$/)?.[1] ?? headerToken.slice(-8);
-        const dni = dniRaw.padStart(8, "0");
+        const fechaRaw = trimmed.slice(BCP_TXT_POSITIONS.dateStart, BCP_TXT_POSITIONS.dateStart + 8);
+        const montoRaw = trimmed.slice(BCP_TXT_POSITIONS.amountStart, BCP_TXT_POSITIONS.amountStart + 15);
+        const dniField = trimmed.slice(BCP_TXT_POSITIONS.dniStart, BCP_TXT_POSITIONS.dniStart + BCP_TXT_POSITIONS.dniLength);
+        const horaRaw = trimmed.slice(BCP_TXT_POSITIONS.timeStart, BCP_TXT_POSITIONS.timeStart + 6);
+        const referencia = trimmed.slice(
+            BCP_TXT_POSITIONS.referenceStart,
+            BCP_TXT_POSITIONS.referenceStart + BCP_TXT_POSITIONS.referenceLength,
+        );
+        const dni = dniField.replace(/\D/g, "").replace(/^0+/, "").padStart(8, "0");
+        const codigoOperacion = referencia.replace(/\D/g, "").slice(-8);
+        const horaProceso = formatBcpTxtTime(horaRaw);
         const monto = Number(montoRaw) / 100;
-        const codigoReferencia = referencia.replace(/\D/g, "").slice(-8);
 
-        if (!Number.isFinite(monto) || monto <= 0 || !dni.trim()) continue;
+        if (
+            !/^DD\d{25}$/.test(trimmed.slice(0, 27)) ||
+            !/^\d{8}$/.test(fechaRaw) ||
+            !horaProceso ||
+            !/^\d{15}$/.test(montoRaw) ||
+            !/^\d{16}$/.test(referencia) ||
+            !Number.isFinite(monto) ||
+            monto <= 0 ||
+            !/^\d{8}$/.test(dni) ||
+            !/^\d{8}$/.test(codigoOperacion)
+        ) continue;
 
         rows.push({
-            dni: descripcion || `EFECTIVO000000${dni}`,
+            dni: `EFECTIVO000000${dni}`,
             monto: String(monto),
-            codigo_operacion: codigoReferencia || codigoCorto,
+            codigo_operacion: codigoOperacion,
             fecha_pago: formatBcpTxtDateTime(fechaRaw, horaRaw),
-            hora_proceso: horaRaw,
+            hora_proceso: horaProceso,
             nombre_cliente_banco_ingreso: "BCP",
-            estado: canal,
+            estado: "",
         });
     }
 
