@@ -14,6 +14,9 @@ const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "ba
 const toLimaDayStart = (date: string) => `${date}T00:00:00-05:00`;
 const toLimaDayEnd = (date: string) => `${date}T23:59:59-05:00`;
 
+const matchesOptionalId = (value: unknown, filter: number | null | undefined) =>
+    filter == null || (value != null && Number(value) === Number(filter));
+
 export interface MovimientoMerged {
     id: number;
     id_operacion_proceso: number | null;
@@ -339,11 +342,11 @@ export const useBancariaBandeja = ({
                 const isPos = row.ruta_origen === "pos" && String(row.ruta_destino ?? "").toLowerCase() === currentRoute;
                 const isFrozenOrigin = row.flag_derivado === true && String(row.ruta_origen ?? "").toLowerCase() === currentRoute;
                 const matchesDestination =
-                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
-                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId);
+                    matchesOptionalId(row.id_empresa_salida, activeCompanyId) &&
+                    matchesOptionalId(row.id_empresa_cuenta_salida, activeAccountId);
                 const matchesFrozenOrigin =
-                    (!activeCompanyId || (row.id_empresa_salida_origen ?? row.id_empresa_salida) === activeCompanyId) &&
-                    (!activeAccountId || (row.id_empresa_cuenta_salida_origen ?? row.id_empresa_cuenta_salida) === activeAccountId);
+                    matchesOptionalId(row.id_empresa_salida_origen ?? row.id_empresa_salida, activeCompanyId) &&
+                    matchesOptionalId(row.id_empresa_cuenta_salida_origen ?? row.id_empresa_cuenta_salida, activeAccountId);
 
                 return (
                     row.id_estado !== 10 &&
@@ -366,13 +369,11 @@ export const useBancariaBandeja = ({
                     ((!isFrozenOrigin &&
                         String(row.ruta_destino ?? "").toLowerCase() === currentRoute &&
                         row.flag_derivado === false &&
-                        (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
-                        (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)) ||
+                        matchesOptionalId(row.id_empresa_salida, activeCompanyId) &&
+                        matchesOptionalId(row.id_empresa_cuenta_salida, activeAccountId)) ||
                         (isFrozenOrigin &&
-                            (!activeCompanyId ||
-                                (row.id_empresa_salida_origen ?? row.id_empresa_salida) === activeCompanyId) &&
-                            (!activeAccountId ||
-                                (row.id_empresa_cuenta_salida_origen ?? row.id_empresa_cuenta_salida) === activeAccountId)))
+                            matchesOptionalId(row.id_empresa_salida_origen ?? row.id_empresa_salida, activeCompanyId) &&
+                            matchesOptionalId(row.id_empresa_cuenta_salida_origen ?? row.id_empresa_cuenta_salida, activeAccountId)))
                 );
             }
 
@@ -393,8 +394,8 @@ export const useBancariaBandeja = ({
                 return (
                     row.ruta_destino === ruta &&
                     row.flag_derivado === true &&
-                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
-                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)
+                    matchesOptionalId(row.id_empresa_salida, activeCompanyId) &&
+                    matchesOptionalId(row.id_empresa_cuenta_salida, activeAccountId)
                 );
             }
 
@@ -403,13 +404,13 @@ export const useBancariaBandeja = ({
                     row.ruta_origen === "pos" &&
                     row.ruta_destino === ruta &&
                     row.flag_retenido === false &&
-                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
-                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)
+                    matchesOptionalId(row.id_empresa_salida, activeCompanyId) &&
+                    matchesOptionalId(row.id_empresa_cuenta_salida, activeAccountId)
                 );
             }
 
             if (tab === "Retenidos") {
-                return row.ruta_destino === ruta && row.flag_retenido === true && row.flag_fuera_horario !== true && (!activeAccountId || row.id_empresa_cuenta_ingreso === activeAccountId);
+                return row.ruta_destino === ruta && row.flag_retenido === true && row.flag_fuera_horario !== true && matchesOptionalId(row.id_empresa_cuenta_ingreso, activeAccountId);
             }
 
             if (tab === "Eliminados") {
@@ -417,8 +418,8 @@ export const useBancariaBandeja = ({
                     row.id_estado === 10 &&
                     row.ruta_destino === ruta &&
                     (row.tipo_servicio ?? "").toUpperCase() === "EFECTIVIZACION" &&
-                    (!activeCompanyId || row.id_empresa_salida === activeCompanyId) &&
-                    (!activeAccountId || row.id_empresa_cuenta_salida === activeAccountId)
+                    matchesOptionalId(row.id_empresa_salida, activeCompanyId) &&
+                    matchesOptionalId(row.id_empresa_cuenta_salida, activeAccountId)
                 );
             }
 
@@ -565,8 +566,8 @@ export const useBancariaBandeja = ({
                         .filter((row) => {
                             if (!originRequest || row.flag_derivado !== true) return true;
                             return (
-                                (!activeCompanyId || (row.id_empresa_salida_origen ?? row.id_empresa_salida) === activeCompanyId) &&
-                                (!activeAccountId || (row.id_empresa_cuenta_salida_origen ?? row.id_empresa_cuenta_salida) === activeAccountId)
+                                matchesOptionalId(row.id_empresa_salida_origen ?? row.id_empresa_salida, activeCompanyId) &&
+                                matchesOptionalId(row.id_empresa_cuenta_salida_origen ?? row.id_empresa_cuenta_salida, activeAccountId)
                             );
                         }));
                     if (tab === "Retenidos" && activeAccountId && rows.length) {
