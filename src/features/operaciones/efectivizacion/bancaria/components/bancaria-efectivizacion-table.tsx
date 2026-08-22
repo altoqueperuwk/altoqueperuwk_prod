@@ -295,6 +295,7 @@ export const BancariaEfectivizacionTable = ({
     const [confirmAction, setConfirmAction] = useState<{ row: OperacionProceso; type: ConfirmActionType } | null>(null);
     const hasSelection = Boolean(onToggleRow) && !readOnly;
     const isPlain = presentation === "plain";
+    const showPagination = mode !== "unificado";
     const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
 
     useEffect(() => {
@@ -332,8 +333,11 @@ export const BancariaEfectivizacionTable = ({
         };
     }, [addToast]);
 
-    const paginatedRows = useMemo(() => rows.slice((page - 1) * pageSize, page * pageSize), [page, pageSize, rows]);
-    const visibleIds = paginatedRows
+    const visibleRows = useMemo(
+        () => (showPagination ? rows.slice((page - 1) * pageSize, page * pageSize) : rows),
+        [page, pageSize, rows, showPagination],
+    );
+    const visibleIds = visibleRows
         .filter((row) => !isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId))
         .map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
@@ -434,14 +438,14 @@ export const BancariaEfectivizacionTable = ({
     ]);
 
     useEffect(() => {
-        if (mode !== "efectivizacion" || !paginatedRows.length) {
+        if (mode !== "efectivizacion" || !visibleRows.length) {
             setRecurringByOperation({});
             return;
         }
 
         let ignore = false;
         Promise.all(
-            paginatedRows.map(async (row) => {
+            visibleRows.map(async (row) => {
                 try {
                     let client = row.id_cliente == null ? null : await clienteService.getById(Number(row.id_cliente));
                     if (!client) {
@@ -470,7 +474,7 @@ export const BancariaEfectivizacionTable = ({
         return () => {
             ignore = true;
         };
-    }, [mode, paginatedRows]);
+    }, [mode, visibleRows]);
 
     const commissionActionState = (row: OperacionProceso) => {
         const recurring = recurringByOperation[row.id];
@@ -1098,9 +1102,9 @@ export const BancariaEfectivizacionTable = ({
                                     </td>
                                 </tr>
                             ))
-                        ) : paginatedRows.length ? (
+                        ) : visibleRows.length ? (
                             <AnimatePresence initial={false}>
-                            {paginatedRows.map((row) => {
+                            {visibleRows.map((row) => {
                                 const frozenOrigin = isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId);
                                 const frozenPaid = isFrozenPaidOperation(row, mode);
                                 const frozenRow = frozenOrigin || frozenPaid;
@@ -1473,7 +1477,7 @@ export const BancariaEfectivizacionTable = ({
                     </tbody>
                 </table>
             </div>
-            <div className="flex flex-wrap items-center justify-center gap-3 border-t border-secondary px-4 py-3">
+            {showPagination && <div className="flex flex-wrap items-center justify-center gap-3 border-t border-secondary px-4 py-3">
                 <Button
                     aria-label="Pagina anterior"
                     size="sm"
@@ -1499,7 +1503,7 @@ export const BancariaEfectivizacionTable = ({
                     onChange={(event) => setPageSize(Number(event.currentTarget.value))}
                     options={[{ label: "20", value: "20" }, { label: "50", value: "50" }, { label: "100", value: "100" }]}
                 />
-            </div>
+            </div>}
             <ModalOverlay isOpen={manualCommission !== null} onOpenChange={(open) => !open && setManualCommission(null)}>
                 <Modal className="max-w-sm">
                     <Dialog>

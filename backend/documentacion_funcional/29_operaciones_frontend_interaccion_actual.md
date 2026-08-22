@@ -1,5 +1,26 @@
 # 29. Operaciones: Interaccion Frontend Actual
 
+> **Estado vigente 22/08/2026:** Este documento conserva el detalle de interaccion,
+> pero las bandejas actuales se leen como `Efectivizacion TC`, `Pago Deuda TC` y
+> `Movimientos`, con bandejas antiguas dentro del selector. Ver
+> [`src/CONTEXTO_GENERAL_FRONTEND.md`](../../src/CONTEXTO_GENERAL_FRONTEND.md).
+> Si una seccion posterior difiere, prevalece este bloque y el codigo vigente.
+
+### Cambios de UX vigentes
+
+- Las acciones de guardado, Excel finalizado, cambio de empresa/cuenta/bandeja,
+  acciones de fila y acciones masivas disparan la actualizacion necesaria.
+- Volver desde otra pestana del navegador no dispara una cascada automatica de RPC.
+- La seleccion de filas permanece entre paginacion, cambio entre las dos bandejas
+  principales y carga Excel; se limpia solo al cambiar contexto real o completar
+  correctamente la accion.
+- La tabla conserva filas durante el refresco y usa actualizacion parcial con motion;
+  no muestra un skeleton completo por cada accion.
+- La vista unificada muestra `Flujo`, mantiene acciones propias de cada flujo y
+  permite derivar POS y operaciones Efectivizacion sin cambiar el backend.
+- Las filas pagadas se ven grises; checkbox y `Reiniciar` quedan disponibles cuando
+  el backend permite revertirlas.
+
 ## Objetivo
 
 Documentar como interactua actualmente el frontend de operaciones con el flujo de negocio. Este documento complementa los documentos 17-27 y corrige puntos que cambiaron durante la implementacion.

@@ -515,3 +515,13 @@ Las reglas iniciales son:
 - BCP: corte 12:00 a. m. y abono en 1 día hábil.
 
 Toda la lógica debe mantenerse parametrizable para permitir cambios futuros y diferencias contractuales entre cuentas, bancos o proveedores.
+# Estado vigente 22/08/2026
+
+Este documento describe el modelo historico de cortes y abonos. En la operacion
+actual, los cortes configurables no deciden la retencion de las cuentas especiales.
+La fuente de verdad es la funcion hardcodeada documentada en
+[`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md): Scotiabank
+y BanBif usan 21:00, BCP usa 00:00, siempre con `fecha_deposito_cliente` en hora de
+Lima. No existe liberacion automatica; las funciones de job son seguras y no
+liberan fondos. Mantener este documento como referencia conceptual de abonos, no
+como contrato actual de retenciones.

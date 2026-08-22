@@ -153,7 +153,13 @@ Objetivo:
 */
 DROP FUNCTION IF EXISTS public.f_get_tb_operacion_asistida_bandeja(
   character varying, timestamp with time zone, timestamp with time zone,
-  character varying, character varying, character varying, bigint, bigint
+  character varying, character varying, character varying, bigint, bigint, bigint
+);
+
+DROP FUNCTION IF EXISTS public.f_get_tb_operacion_asistida_bandeja(
+  character varying, timestamp with time zone, timestamp with time zone,
+  character varying, character varying, character varying, bigint, bigint, bigint,
+  character varying, numeric
 );
 
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_asistida_bandeja(
@@ -165,7 +171,9 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_asistida_bandeja(
   p_codigo_operacion character varying DEFAULT NULL,
   p_id_banco_cliente bigint DEFAULT NULL,
   p_id_usuario_solicitud bigint DEFAULT NULL,
-  p_id_usuario_consulta bigint DEFAULT NULL
+  p_id_usuario_consulta bigint DEFAULT NULL,
+  p_numero_tarjeta character varying DEFAULT NULL,
+  p_monto_deposito_cliente numeric DEFAULT NULL
 )
 RETURNS SETOF jsonb
 LANGUAGE sql
@@ -238,6 +246,11 @@ AS $$
       OR COALESCE(op.codigo_operacion_deposito_cliente, '') ILIKE '%' || BTRIM(p_codigo_operacion) || '%'
     )
     AND (p_id_banco_cliente IS NULL OR op.id_banco_cliente = p_id_banco_cliente)
+    AND (
+      NULLIF(BTRIM(COALESCE(p_numero_tarjeta, '')), '') IS NULL
+      OR COALESCE(op.numero_tarjeta, '') ILIKE '%' || BTRIM(p_numero_tarjeta) || '%'
+    )
+    AND (p_monto_deposito_cliente IS NULL OR op.monto_deposito_cliente = p_monto_deposito_cliente)
   ORDER BY op.fecha_registro DESC, op.id DESC;
 $$;
 
@@ -262,7 +275,25 @@ DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida(
   bigint, character varying, bigint, character varying, bigint,
   character varying, bigint, character varying, bigint, bigint,
   timestamp with time zone, bigint, character varying, character varying,
-  character varying
+  character varying, bigint
+);
+
+DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida(
+  character varying, bigint, character varying, character varying,
+  bigint, character varying, character varying, numeric, character varying,
+  bigint, character varying, bigint, character varying, bigint,
+  character varying, bigint, character varying, bigint, bigint,
+  timestamp with time zone, bigint, character varying, character varying,
+  character varying, bigint, timestamp with time zone
+);
+
+DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida(
+  character varying, bigint, character varying, character varying,
+  bigint, character varying, character varying, numeric, character varying,
+  bigint, character varying, bigint, character varying, bigint,
+  character varying, bigint, character varying, bigint, bigint,
+  timestamp with time zone, bigint, character varying, character varying,
+  character varying, bigint, timestamp with time zone, character varying
 );
 
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
@@ -290,7 +321,9 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
   p_nombre_cliente character varying DEFAULT NULL,
   p_celular_cliente character varying DEFAULT NULL,
   p_email_cliente character varying DEFAULT NULL,
-  p_id_empresa_destino bigint DEFAULT NULL
+  p_id_empresa_destino bigint DEFAULT NULL,
+  p_fecha_deposito_cliente timestamp with time zone DEFAULT NULL,
+  p_numero_tarjeta character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -334,6 +367,11 @@ BEGIN
   END IF;
 
   p_codigo_operacion_deposito_cliente := NULLIF(BTRIM(COALESCE(p_codigo_operacion_deposito_cliente, '')), '');
+  p_numero_tarjeta := NULLIF(BTRIM(COALESCE(p_numero_tarjeta, '')), '');
+
+  IF p_numero_tarjeta IS NOT NULL AND p_numero_tarjeta !~ '^[0-9]{4}$' THEN
+    RETURN jsonb_build_object('error', 'El numero de tarjeta debe contener exactamente 4 digitos.');
+  END IF;
 
   IF v_ruta = 'pos'
      AND p_codigo_operacion_deposito_cliente IS NOT NULL
@@ -597,6 +635,7 @@ BEGIN
     dni_cliente,
     nombre_cliente,
     email_cliente,
+    numero_tarjeta,
     monto_deposito_cliente,
     codigo_operacion_deposito_cliente,
     fecha_deposito_cliente,
@@ -651,9 +690,10 @@ BEGIN
     p_dni_cliente,
     COALESCE(NULLIF(BTRIM(COALESCE(v_cliente_nombre, '')), ''), NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''), ''),
     NULLIF(BTRIM(COALESCE(p_email_cliente, '')), ''),
+    p_numero_tarjeta,
     ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2),
     p_codigo_operacion_deposito_cliente,
-    COALESCE(p_fecha_registro, now()),
+    NULL,
     CASE WHEN v_ruta IN ('pos', 'linkpago') THEN v_id_empresa_ingreso ELSE NULL END,
     CASE WHEN v_ruta IN ('pos', 'linkpago') THEN v_nombre_empresa_ingreso ELSE NULL END,
     CASE WHEN v_ruta IN ('pos', 'linkpago') THEN v_id_empresa_cuenta_ingreso ELSE NULL END,
@@ -693,7 +733,7 @@ BEGIN
     false,
     COALESCE(p_fecha_registro, now()),
     'Boleta',
-    COALESCE(p_fecha_registro, now())
+    COALESCE(p_fecha_deposito_cliente, p_fecha_registro, now())
   )
   RETURNING id INTO v_id;
 
@@ -726,6 +766,14 @@ DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida_pos_sin_envio(
   timestamp with time zone
 );
 
+DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida_pos_sin_envio(
+  bigint, character varying, character varying, bigint, character varying,
+  character varying, numeric, bigint, character varying, bigint,
+  character varying, character varying, character varying, bigint,
+  character varying, bigint, character varying, bigint, character varying,
+  timestamp with time zone, character varying
+);
+
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida_pos_sin_envio(
   p_id_codigo_servicio bigint,
   p_nombre_codigo_servicio character varying,
@@ -746,7 +794,8 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida_pos_sin_envio(
   p_nombre_usuario_gestor character varying DEFAULT NULL,
   p_id_usuario_solicitud bigint DEFAULT NULL,
   p_nombre_usuario_solicitud character varying DEFAULT NULL,
-  p_fecha_registro timestamp with time zone DEFAULT NULL
+  p_fecha_registro timestamp with time zone DEFAULT NULL,
+  p_numero_tarjeta character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -769,6 +818,11 @@ BEGIN
   END IF;
 
   p_codigo_operacion_deposito_cliente := NULLIF(BTRIM(COALESCE(p_codigo_operacion_deposito_cliente, '')), '');
+  p_numero_tarjeta := NULLIF(BTRIM(COALESCE(p_numero_tarjeta, '')), '');
+
+  IF p_numero_tarjeta IS NOT NULL AND p_numero_tarjeta !~ '^[0-9]{4}$' THEN
+    RETURN jsonb_build_object('error', 'El numero de tarjeta debe contener exactamente 4 digitos.');
+  END IF;
 
   IF p_codigo_operacion_deposito_cliente IS NOT NULL
      AND LENGTH(p_codigo_operacion_deposito_cliente) > 15 THEN
@@ -872,6 +926,7 @@ BEGIN
     dni_cliente,
     nombre_cliente,
     email_cliente,
+    numero_tarjeta,
     monto_deposito_cliente,
     codigo_operacion_deposito_cliente,
     id_banco_cliente,
@@ -918,6 +973,7 @@ BEGIN
     p_dni_cliente,
     COALESCE(NULLIF(BTRIM(COALESCE(v_cliente_nombre, '')), ''), NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''), ''),
     NULLIF(BTRIM(COALESCE(p_email_cliente, '')), ''),
+    p_numero_tarjeta,
     v_monto,
     p_codigo_operacion_deposito_cliente,
     p_id_banco_cliente,
@@ -965,6 +1021,86 @@ END;
 $$;
 
 -- ============================================================================
+-- Funcion: f_patch_tb_operacion_asistida_fecha_deposito
+-- Objetivo:
+--   Actualizar solo la fecha de registro de una operacion Link Pago.
+--   La hora se toma del momento actual en hora de Lima.
+--
+-- Reglas:
+--   - no recalcula comisiones;
+--   - no modifica estados, caja ni movimientos;
+--   - respeta el permiso de edicion del usuario de la operacion.
+-- ============================================================================
+DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida_fecha_deposito(
+  bigint, date, bigint
+);
+
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida_fecha_deposito(
+  p_id bigint,
+  p_fecha_deposito_cliente date,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actual record;
+  v_fecha_registro timestamp with time zone;
+BEGIN
+  SELECT *
+  INTO v_actual
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id
+  FOR UPDATE;
+
+  IF v_actual.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Operacion no encontrada.');
+  END IF;
+
+  IF LOWER(COALESCE(v_actual.ruta_origen, '')) NOT IN ('linkpago', 'pos') THEN
+    RETURN jsonb_build_object('error', 'La operacion no pertenece a Link Pago o POS.');
+  END IF;
+
+  IF p_fecha_deposito_cliente IS NULL THEN
+    RETURN jsonb_build_object('error', 'La fecha de registro es obligatoria.');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_usuario u
+    LEFT JOIN public.tb_rol r ON r.id = u.id_rol
+    WHERE u.id = p_id_usuario
+      AND (
+        u.id_rol = 3
+        OR UPPER(BTRIM(COALESCE(r.nombre, ''))) = 'JEFE DE TIENDA'
+      )
+  )
+  AND (
+    v_actual.id_usuario_solicitud IS NULL
+    OR v_actual.id_usuario_solicitud IS DISTINCT FROM p_id_usuario
+  ) THEN
+    RETURN jsonb_build_object('error', 'Solo el usuario que registro la operacion puede editarla.');
+  END IF;
+
+  v_fecha_registro := (
+    p_fecha_deposito_cliente::timestamp
+    + ((now() AT TIME ZONE 'America/Lima')::time)
+  ) AT TIME ZONE 'America/Lima';
+
+  UPDATE public.tb_operacion_proceso
+  SET fecha_registro = v_fecha_registro
+  WHERE id = p_id;
+
+  RETURN (
+    SELECT x
+    FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
+    LIMIT 1
+  );
+END;
+$$;
+
+-- ============================================================================
 -- Funcion: f_patch_tb_operacion_asistida
 -- Objetivo:
 --   Editar una operacion asistida (linkpago/pos) y recalcular comisiones.
@@ -981,6 +1117,12 @@ DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
   character varying
 );
 
+DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
+  bigint, bigint, character varying, character varying, bigint,
+  character varying, numeric, bigint, character varying, bigint, bigint,
+  character varying, bigint, character varying
+);
+
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_id bigint,
   p_id_banco_cliente bigint DEFAULT NULL,
@@ -994,7 +1136,8 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_tipo_documento_cliente bigint DEFAULT NULL,
   p_id_banco_destino bigint DEFAULT NULL,
   p_email_cliente character varying DEFAULT NULL,
-  p_id_ruta_operacion_caja_destino bigint DEFAULT NULL
+  p_id_ruta_operacion_caja_destino bigint DEFAULT NULL,
+  p_numero_tarjeta character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -1028,6 +1171,12 @@ DECLARE
   v_calc_ing jsonb;
   v_calc_sal jsonb;
 BEGIN
+  p_numero_tarjeta := NULLIF(BTRIM(COALESCE(p_numero_tarjeta, '')), '');
+
+  IF p_numero_tarjeta IS NOT NULL AND p_numero_tarjeta !~ '^[0-9]{4}$' THEN
+    RETURN jsonb_build_object('error', 'El numero de tarjeta debe contener exactamente 4 digitos.');
+  END IF;
+
   SELECT * INTO v_actual
   FROM public.tb_operacion_proceso
   WHERE id = p_id
@@ -1252,6 +1401,7 @@ BEGIN
       dni_cliente = p_dni_cliente,
       nombre_cliente = COALESCE(v_cliente_nombre, p_nombre_cliente, ''),
       email_cliente = COALESCE(p_email_cliente, email_cliente),
+      numero_tarjeta = p_numero_tarjeta,
       id_comunidad = p_id_comunidad,
       nombre_comunidad = p_nombre_comunidad,
       monto_deposito_cliente = ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2),
@@ -1305,8 +1455,10 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
+  'f_get_tb_operacion_asistida_bandeja',
   'f_post_tb_operacion_asistida',
   'f_post_tb_operacion_asistida_pos_sin_envio',
+  'f_patch_tb_operacion_asistida_fecha_deposito',
   'f_patch_tb_operacion_asistida'
 )
 ORDER BY n.nspname, p.proname;

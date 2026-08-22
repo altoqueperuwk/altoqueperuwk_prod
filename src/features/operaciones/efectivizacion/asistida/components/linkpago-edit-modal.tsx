@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, X } from "@untitledui/icons";
+import { Calendar as CalendarIcon, Check, X } from "@untitledui/icons";
+import { CalendarDate, type DateValue } from "@internationalized/date";
+import { Calendar } from "@/components/application/date-picker/calendar";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
@@ -22,6 +24,7 @@ import {
     type TipoDocumentoOperacion,
 } from "@/features/operaciones/efectivizacion/shared/components/documento-input-group";
 import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
+import { formatDateValue, getPeruDateValue } from "@/features/operaciones/efectivizacion/shared/utils/date";
 
 interface CatalogItem {
     id: number;
@@ -46,10 +49,28 @@ interface LinkPagoEditModalProps {
 const inferTipoDocumentoOperacion = (documento?: string | null): TipoDocumentoOperacion =>
     documento?.replace(/\D/g, "").length === 9 ? 2 : 1;
 
+const stringToCalendarDate = (value: string) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return new CalendarDate(year, month, day);
+};
+
+const getCurrentPeruTime = () => {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+        hour: "2-digit",
+        hour12: false,
+        minute: "2-digit",
+        second: "2-digit",
+        timeZone: "America/Lima",
+    }).formatToParts(new Date());
+    const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "00";
+    return `${value("hour")}:${value("minute")}:${value("second")}-05:00`;
+};
+
 export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }: LinkPagoEditModalProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [entidadTarjetaId, setEntidadTarjetaId] = useState("");
+    const [numeroTarjeta, setNumeroTarjeta] = useState("");
     const [bancoDestinoId, setBancoDestinoId] = useState("");
     const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
@@ -61,6 +82,8 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
     const [bancosDestino, setBancosDestino] = useState<BancoDestino[]>([]);
     const [clienteId, setClienteId] = useState<number | null>(null);
     const [originalCelulares, setOriginalCelulares] = useState<string[]>([]);
+    const [fechaRegistro, setFechaRegistro] = useState(getPeruDateValue);
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
     const { result: clienteLookup, isLoading: isClienteLoading } = useClienteLookup(
         isOpen ? dni : "",
@@ -106,6 +129,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
 
         if (operation) {
             setEntidadTarjetaId(String(operation.id_banco_cliente ?? ""));
+            setNumeroTarjeta(operation.numero_tarjeta ?? "");
             setBancoDestinoId(String(operation.id_banco_cliente_transferencia ?? ""));
             setTipoDocumento(inferTipoDocumentoOperacion(operation.dni_cliente));
             setDni(operation.dni_cliente ?? "");
@@ -114,6 +138,8 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
             setMonto(String(operation.monto_deposito_cliente ?? ""));
             setClienteId(operation.id_cliente ?? null);
             setOriginalCelulares([]);
+            setFechaRegistro(operation.fecha_registro ? getPeruDateValue(new Date(operation.fecha_registro)) : getPeruDateValue());
+            setIsCalendarOpen(false);
         }
 
         let ignore = false;
@@ -222,6 +248,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
             const result = await operacionesRpcService.patchOperacionAsistida({
                 p_id: operation!.id,
                 p_id_banco_cliente: selectedEntidadTarjeta.id,
+                p_numero_tarjeta: numeroTarjeta || null,
                 p_id_banco_destino: ruta === "pos" ? Number(bancoDestinoId) : null,
                 p_tipo_documento_cliente: tipoDocumento,
                 p_dni_cliente: cleanDni,
@@ -237,6 +264,15 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                 throw new Error(String((result as Record<string, unknown>).error));
             }
 
+            const dateResult = await operacionesRpcService.patchOperacionAsistidaFechaDeposito({
+                p_id: operation!.id,
+                p_fecha_deposito_cliente: fechaRegistro,
+                p_id_usuario: userId,
+            });
+            if (dateResult && "error" in dateResult) {
+                throw new Error(String((dateResult as Record<string, unknown>).error));
+            }
+
             onClose();
             onSaved();
             addToast("success", "Operacion actualizada correctamente.");
@@ -250,6 +286,11 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
 
     const handleCancel = () => {
         if (!isSaving) onClose();
+    };
+
+    const handleDateChange = (date: DateValue) => {
+        setFechaRegistro(`${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`);
+        setIsCalendarOpen(false);
     };
 
     return (
@@ -276,6 +317,17 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                                         value: String(item.id),
                                     })),
                                 ]}
+                                className="w-full min-w-0"
+                            />
+                            <Input
+                                size="sm"
+                                label="Tarjeta"
+                                placeholder="4 dígitos"
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={4}
+                                value={numeroTarjeta}
+                                onChange={(value) => setNumeroTarjeta(value.replace(/\D/g, "").slice(0, 4))}
                                 className="w-full min-w-0"
                             />
                             <div className="flex w-full min-w-0 items-end gap-2">
@@ -335,6 +387,25 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                                     className="w-full min-w-0"
                                 />
                             )}
+                            <div className="relative">
+                                <label className="text-sm font-medium text-primary">Fecha Registro</label>
+                                <Button
+                                    size="sm"
+                                    color="secondary"
+                                    iconLeading={CalendarIcon}
+                                    onClick={() => setIsCalendarOpen((current) => !current)}
+                                    className="mt-2 w-full justify-start"
+                                >
+                                    {formatDateValue(fechaRegistro)}
+                                </Button>
+                                {isCalendarOpen && (
+                                    <div className="absolute bottom-full right-0 z-50 mb-2 rounded-lg border border-secondary bg-primary p-3 shadow-lg">
+                                        <Calendar value={stringToCalendarDate(fechaRegistro)} onChange={handleDateChange}>
+                                            <div />
+                                        </Calendar>
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         <div className="flex justify-end gap-2">

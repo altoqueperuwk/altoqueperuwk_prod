@@ -1,5 +1,13 @@
 # 33. Manual Global: Operaciones Bancarias, SafetyPay y Pago Deuda
 
+> **Actualizacion 22/08/2026:** Este manual contiene pasos historicos de usuario.
+> Para el comportamiento vigente, leer primero
+> [`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md) y
+> [`src/CONTEXTO_GENERAL_FRONTEND.md`](../../src/CONTEXTO_GENERAL_FRONTEND.md).
+> En particular, las retenciones ya son informativas, no se liberan automaticamente,
+> se derivan sin el bloqueo antiguo y las bandejas principales son `Efectivizacion TC`
+> y `Pago Deuda TC`.
+
 ## Objetivo
 
 Este manual resume, en una sola guia, como debe trabajar el usuario en:

@@ -1,5 +1,22 @@
 # 23. Operaciones Frontend: Mapeo Backend y RPC
 
+> **Estado vigente 22/08/2026:** Para continuar el desarrollo, usar
+> [`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md) y
+> [`src/CONTEXTO_GENERAL_FRONTEND.md`](../../src/CONTEXTO_GENERAL_FRONTEND.md)
+> como contrato actual. Este documento contiene mapeos historicos que pueden
+> mencionar tabs o reglas anteriores.
+
+### Correcciones de contrato vigentes
+
+- La retencion automatica de las cuentas especiales ya no se decide con
+  `flag_retencion`, `fuera_horario`, hora de carga ni regla generica de abono.
+- La carga, el registro manual y la correccion manual usan la funcion central de
+  retencion hardcodeada cuando corresponde.
+- `f_get_tb_ruta_operacion_ganancias_efectivizacion` reemplaza solamente el KPI
+  visual de Ganancias para Scotiabank y BanBif; no cambia caja ni otros KPI.
+- El frontend usa refresco parcial despues de acciones determinantes y no por
+  foco, visibilidad o clicks pasivos.
+
 ## Objetivo
 
 Traducir el backend compacto y el comportamiento validado del frontend actual a contratos concretos de frontend para la nueva implementacion de `operaciones`.

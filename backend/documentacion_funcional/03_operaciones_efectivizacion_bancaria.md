@@ -1,5 +1,10 @@
 # 03. Operaciones: Efectivizacion Bancaria
 
+> **Estado vigente 22/08/2026:** Las seis rutas bancarias comparten el flujo de
+> caja, pero SafetyPay puede integrarse visualmente dentro de Interbank. La tabla
+> principal es `Efectivizacion TC`, que unifica Efectivizacion, Derivados y POS y
+> diferencia cada fila mediante `Flujo`.
+
 ## Alcance
 
 `efectivizacion-bancaria` es la familia con logica operativa completa. Aqui viven las rutas que si tienen caja inicial propia, flujo de caja completo y carga Excel.

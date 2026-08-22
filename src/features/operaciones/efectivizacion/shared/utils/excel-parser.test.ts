@@ -54,10 +54,38 @@ describe("excel-parser", () => {
                 dni: "EFECTIVO00000044779896",
                 monto: "609",
                 codigo_operacion: "00496406",
-                fecha_pago: "2026-07-09 07:54:15",
-                hora_proceso: "075415",
+                fecha_pago: "2026-07-09 00:00:00",
+                hora_proceso: "07:54:15",
                 nombre_cliente_banco_ingreso: "BCP",
-                estado: "BM",
+                estado: "",
+            },
+        ]);
+    });
+
+    it("parses BCP fixed-width rows without using the BM or TERMIB block", () => {
+        const content = [
+            "DD1910738003400000002539973                              20260822        000000000050000000000000000000000000000000000111023583031EFECTIVO00000002539973    BM          094548             0258303100881048                                               ",
+            "DD1910738003400000074307488                              20260822        000000000048000000000000000000000000000000000111023610059EFECTIVO00000074307488TERMIB          094958             0261005906002866     ",
+        ].join("\n");
+
+        expect(parseBcpTxtRows(content)).toEqual([
+            {
+                dni: "EFECTIVO00000002539973",
+                monto: "500",
+                codigo_operacion: "00881048",
+                fecha_pago: "2026-08-22 00:00:00",
+                hora_proceso: "09:45:48",
+                nombre_cliente_banco_ingreso: "BCP",
+                estado: "",
+            },
+            {
+                dni: "EFECTIVO00000074307488",
+                monto: "480",
+                codigo_operacion: "06002866",
+                fecha_pago: "2026-08-22 00:00:00",
+                hora_proceso: "09:49:58",
+                nombre_cliente_banco_ingreso: "BCP",
+                estado: "",
             },
         ]);
     });

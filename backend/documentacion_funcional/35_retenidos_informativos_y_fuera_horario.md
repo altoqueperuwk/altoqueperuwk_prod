@@ -1,5 +1,27 @@
 # Retenciones Informativas Y Operaciones Fuera De Horario
 
+> **Estado vigente 22/08/2026:** La definicion propuesta en secciones posteriores
+> queda reemplazada por la implementacion hardcodeada descrita aqui y en
+> [`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md).
+> No usar las decisiones pendientes del final de este documento como reglas
+> actuales.
+
+### Regla implementada
+
+- La retencion automatica depende solo de empresa + cuenta + banco.
+- Combinaciones activas: `(5,33,3)`, `(7,16,4)`, `(8,7,3)`, `(5,4,2)` y `(6,5,2)`.
+- Scotiabank/BanBif: deposito desde 21:00, hora de Lima, queda retenido.
+- BCP: deposito del ciclo desde 00:00 queda retenido; el deposito anterior al ciclo
+  operativo impacta normalmente segun la fecha real del deposito.
+- La fuente es `fecha_deposito_cliente`; nunca `fecha_carga_excel`.
+- La retencion no modifica Caja Actual ni Caja Recaudacion y no libera fondos en jobs.
+- `Fuera de Horario` se conserva como dato compatible, pero se oculta en las tablas
+  actuales y no decide la retencion hardcodeada.
+- Retenidos puede derivarse; el bloqueo antiguo "No se puede derivar una operacion
+  retenida" ya no forma parte del flujo vigente.
+- Cierre: el snapshot conserva lo finalizado; los pendientes quedan en Hoy y los
+  KPI de la nueva caja empiezan en cero.
+
 ## Objetivo
 
 Documentar la nueva forma de trabajar las retenciones antes de modificar el

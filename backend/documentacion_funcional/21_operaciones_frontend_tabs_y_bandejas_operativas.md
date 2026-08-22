@@ -1,5 +1,26 @@
 # 21. Operaciones Frontend: Tabs y Bandejas Operativas
 
+> **Estado vigente 22/08/2026:** La pantalla bancaria muestra como bandejas
+> principales `Efectivizacion TC`, `Pago Deuda TC` y `Movimientos`. Las bandejas
+> `Eliminados`, `Efectivizacion`, `POS`, `Derivados` y `Retenidos` se conservan
+> en el selector secundario. El detalle de implementacion esta en
+> [`src/CONTEXTO_GENERAL_FRONTEND.md`](../../src/CONTEXTO_GENERAL_FRONTEND.md).
+
+### Reglas vigentes de bandeja
+
+- `Efectivizacion TC` es la vista unificada de Efectivizacion, Derivados y POS; la
+  columna `Flujo` identifica cada tipo.
+- `Pago Deuda TC` es la vista unificada del flujo Pago Deuda.
+- La columna `Fuera de Horario` se oculta en los datatables actuales; los campos
+  de backend se conservan para compatibilidad.
+- Las filas `Pagado` se muestran en gris y sus controles de datos quedan congelados,
+  pero conservan checkbox y menu `Reiniciar` cuando la operacion es elegible.
+- La seleccion se conserva por `id` al paginar, cambiar de bandeja o terminar Excel;
+  se limpia al cambiar empresa, cuenta, fecha, contexto historico o completar una accion.
+- El orden operativo es ascendente por fecha de deposito y, como respaldo, fecha de registro.
+- `SafetyPay` se integra visualmente bajo la experiencia de Interbank; sus operaciones
+  siguen identificadas internamente por su servicio y ruta.
+
 ## Objetivo
 
 Congelar el bloque inferior de bandejas operativas y datatable usando `Webpage-2.png` como contrato visual principal.

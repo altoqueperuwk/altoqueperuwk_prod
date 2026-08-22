@@ -1,5 +1,10 @@
 # 04. Operaciones: Efectivizacion Asistida
 
+> **Estado vigente 22/08/2026:** POS conserva su solicitud normal y adicionalmente
+> permite `Sin Envio Solicitud`, que registra directamente `Pagado` sin comision,
+> transferencia ni movimiento de caja. Link Pago mantiene su flujo asistido sin
+> caja propia. Ver la fuente maestra del backend para las RPC exactas.
+
 ## Alcance
 
 `efectivizacion-asistida` cubre rutas que viven dentro de `operaciones`, pero que no son cajas bancarias completas. No tienen caja operativa propia, no hacen cierre de caja y se consultan por fecha de registro de la operacion.

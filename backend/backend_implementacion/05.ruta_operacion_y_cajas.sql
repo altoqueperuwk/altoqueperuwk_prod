@@ -577,8 +577,10 @@ ALTER TABLE public.tb_ruta_operacion_kpi
 /*
 Funcion: f_get_tb_ruta_operacion_kpi
 Objetivo:
-  Leer los KPI ya materializados por ruta. Esta funcion es la fuente de verdad
-  del bloque superior principal de Operaciones.
+  Calcular los KPI actuales por ruta. Los importes comerciales de
+  Efectivizacion y Pago Deuda se leen desde tb_operacion_proceso; los
+  movimientos no comerciales se leen desde tb_operacion_caja. Caja inicial y
+  caja actual se mantienen en tb_caja_operativa.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_kpi(
   p_id bigint DEFAULT NULL,
@@ -939,19 +941,168 @@ BEGIN
       JOIN base b ON b.ruta = COALESCE(op.ruta_destino, op.ruta_origen)
       WHERE op.id_caja_cierre IS NULL
       GROUP BY COALESCE(op.ruta_destino, op.ruta_origen)
+    ),
+    operaciones_proceso_kpi AS (
+      SELECT
+        COALESCE(op.ruta_destino, op.ruta_origen) AS ruta,
+        COALESCE(SUM(
+          CASE
+            WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+             AND COALESCE(op.flag_retenido, false) = false
+            THEN COALESCE(op.monto_deposito_cliente, 0)
+            ELSE 0
+          END
+        ), 0) AS total_recaudado,
+        COALESCE(SUM(
+          CASE
+            WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+            THEN COALESCE(op.monto_transferencia_cliente, 0)
+            ELSE 0
+          END
+        ), 0) AS salidas,
+        COALESCE(SUM(
+          CASE
+            WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+            THEN COALESCE(op.resultado_comision_banco_ingreso, 0)
+            ELSE 0
+          END
+          + CASE
+              WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+              THEN COALESCE(op.resultado_comision_banco_salida, 0)
+              ELSE 0
+            END
+        ), 0) AS gastos_operacionales,
+        COALESCE(SUM(
+          CASE
+            WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+             AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN (
+               'RETORNO', 'RETORNO_DIRECTO', 'DIRECTO_CAJA'
+             )
+            THEN GREATEST(
+              COALESCE(op.monto_deposito_cliente, 0)
+              - COALESCE(
+                  op.monto_transferencia_cliente,
+                  GREATEST(
+                    COALESCE(op.monto_deposito_cliente, 0)
+                    - COALESCE(op.resultado_comision_servicio, 0),
+                    0
+                  )
+                )
+              - COALESCE(op.resultado_comision_banco_ingreso, 0)
+              - COALESCE(op.resultado_comision_banco_salida, 0),
+              0
+            )
+            ELSE 0
+          END
+        ), 0) AS ganancias,
+        COALESCE(SUM(
+          CASE
+            WHEN COALESCE(op.flag_retenido, false) = true
+            THEN COALESCE(op.monto_deposito_cliente, 0)
+            ELSE 0
+          END
+        ), 0) AS ingresos_retenidos,
+        COALESCE(SUM(
+          CASE
+            WHEN COALESCE(op.flag_fuera_horario, false) = true
+             AND COALESCE(op.flag_retenido, false) = false
+            THEN COALESCE(op.monto_deposito_cliente, 0)
+            ELSE 0
+          END
+        ), 0) AS fuera_horario
+      FROM public.tb_operacion_proceso op
+      JOIN base b
+        ON b.ruta = COALESCE(op.ruta_destino, op.ruta_origen)
+      WHERE op.id_caja_cierre IS NULL
+        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+        AND UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) IN (
+          'EFECTIVIZACION', 'PAGO DEUDA'
+        )
+        AND (p_id_empresa IS NULL OR op.id_empresa_ingreso = p_id_empresa OR op.id_empresa_salida = p_id_empresa)
+        AND (
+          p_id_empresa_cuenta_bancaria IS NULL
+          OR op.id_empresa_cuenta_ingreso = p_id_empresa_cuenta_bancaria
+          OR op.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM public.tb_operacion_caja oc_hist
+          WHERE oc_hist.id_operacion_proceso = op.id
+            AND oc_hist.id_caja_cierre IS NOT NULL
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM operaciones_arrastre oa
+          WHERE oa.id_operacion_proceso = op.id
+        )
+      GROUP BY COALESCE(op.ruta_destino, op.ruta_origen)
+    ),
+    movimientos_caja_kpi AS (
+      SELECT
+        rc.ruta,
+        COALESCE(SUM(CASE WHEN UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO' THEN COALESCE(oc.monto_ingreso, 0) ELSE 0 END), 0) AS ingresos,
+        COALESCE(SUM(CASE WHEN UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'SALIDA' THEN COALESCE(oc.monto_salida, 0) ELSE 0 END), 0) AS salidas,
+        COALESCE(SUM(COALESCE(oc.monto_gasto, 0)), 0) AS gastos_operacionales,
+        COALESCE(SUM(COALESCE(oc.monto_ganancia, 0)), 0) AS ganancias
+      FROM base b
+      JOIN public.tb_ruta_operacion_caja rc
+        ON rc.ruta = b.ruta
+       AND rc.id_estado = b.id_estado
+      JOIN public.tb_caja_operativa c
+        ON c.id_empresa = rc.id_empresa
+       AND c.id_empresa_cuenta_bancaria = rc.id_empresa_cuenta_bancaria
+       AND c.id_estado = b.id_estado
+      JOIN public.tb_operacion_caja oc ON oc.id_caja = c.id
+      LEFT JOIN public.tb_operacion_proceso op ON op.id = oc.id_operacion_proceso
+      WHERE (p_id_empresa IS NULL OR rc.id_empresa = p_id_empresa)
+        AND (p_id_empresa_cuenta_bancaria IS NULL OR rc.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria)
+        AND oc.id_caja_cierre IS NULL
+        AND UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) NOT IN (
+          'EFECTIVIZACION', 'PAGO DEUDA'
+        )
+        AND UPPER(BTRIM(COALESCE(oc.tipo_origen, ''))) NOT IN (
+          'EXCEL',
+          'EXCEL_GANANCIA',
+          'OPERACION_PROCESO',
+          'EDICION SALDO INICIAL CAJA',
+          'EFECTIVIZACION',
+          'PAGO_DEUDA',
+          'PAGO_DEUDA_RETORNO',
+          'PAGO_DEUDA_DIRECTO',
+          'PAGO_DEUDA_DEVOLUCION',
+          'PAGO_DEUDA_COMISION'
+        )
+      GROUP BY rc.ruta
+    ),
+    caja_saldos AS (
+      SELECT
+        rc.ruta,
+        COALESCE(SUM(c.saldo_inicial), 0) AS caja_inicial,
+        COALESCE(SUM(c.saldo_actual), 0) AS caja_actual
+      FROM base b
+      JOIN public.tb_ruta_operacion_caja rc
+        ON rc.ruta = b.ruta
+       AND rc.id_estado = b.id_estado
+      JOIN public.tb_caja_operativa c
+        ON c.id_empresa = rc.id_empresa
+       AND c.id_empresa_cuenta_bancaria = rc.id_empresa_cuenta_bancaria
+       AND c.id_estado = b.id_estado
+      WHERE (p_id_empresa IS NULL OR rc.id_empresa = p_id_empresa)
+        AND (p_id_empresa_cuenta_bancaria IS NULL OR rc.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria)
+      GROUP BY rc.ruta
     )
     SELECT
       b.id,
       b.ruta,
       COALESCE(ct.caja_inicial, 0),
       COALESCE(ct.caja_actual, 0),
-      COALESCE(ct.total_recaudado, 0),
-      COALESCE(im.ingresos, 0),
-      COALESCE(ct.salidas, 0),
-      COALESCE(ct.gastos_operacionales, 0),
-      COALESCE(ct.ganancias, 0),
-      COALESCE(ct.ingresos_retenidos, 0),
-      COALESCE(ct.fuera_horario, 0),
+      COALESCE(pk.total_recaudado, 0),
+      COALESCE(mk.ingresos, 0),
+      COALESCE(pk.salidas, 0) + COALESCE(mk.salidas, 0),
+      COALESCE(pk.gastos_operacionales, 0) + COALESCE(mk.gastos_operacionales, 0),
+      COALESCE(pk.ganancias, 0) + COALESCE(mk.ganancias, 0),
+      COALESCE(pk.ingresos_retenidos, 0),
+      COALESCE(pk.fuera_horario, 0),
       COALESCE(ot.pendiente_depositar, 0),
       COALESCE(ot.total_efectivizacion, 0),
       COALESCE(ot.total_pago_deuda, 0),
@@ -961,16 +1112,33 @@ BEGIN
       b.nombre_usuario,
       b.fecha_registro
     FROM base b
-    LEFT JOIN caja_totales ct ON ct.ruta = b.ruta
-    LEFT JOIN ingresos_movimientos im ON im.ruta = b.ruta
+    LEFT JOIN caja_saldos ct ON ct.ruta = b.ruta
     LEFT JOIN operacion_totales ot ON ot.ruta = b.ruta
+    LEFT JOIN operaciones_proceso_kpi pk ON pk.ruta = b.ruta
+    LEFT JOIN movimientos_caja_kpi mk ON mk.ruta = b.ruta
     ORDER BY b.ruta, b.id;
 
     RETURN;
   END IF;
 
   RETURN QUERY
-  WITH ganancias_modalidad AS (
+  WITH base AS (
+    SELECT
+      k.id,
+      k.ruta,
+      k.id_estado,
+      est.nombre AS nombre_estado,
+      k.id_usuario,
+      u.nombre AS nombre_usuario,
+      k.fecha_registro
+    FROM public.tb_ruta_operacion_kpi k
+    JOIN public.tb_estado est ON est.id = k.id_estado
+    LEFT JOIN public.tb_usuario u ON u.id = k.id_usuario
+    WHERE (p_id IS NULL OR k.id = p_id)
+      AND (p_ruta IS NULL OR k.ruta = p_ruta)
+      AND (p_id_estado IS NULL OR k.id_estado = p_id_estado)
+  ),
+  ganancias_modalidad AS (
     SELECT
       COALESCE(op.ruta_destino, op.ruta_origen) AS ruta,
       COALESCE(SUM(
@@ -1014,134 +1182,174 @@ BEGIN
           AND oc_hist.id_caja_cierre IS NOT NULL
       )
     GROUP BY COALESCE(op.ruta_destino, op.ruta_origen)
+  ),
+  operaciones_proceso_kpi AS (
+    SELECT
+      COALESCE(op.ruta_destino, op.ruta_origen) AS ruta,
+      COALESCE(SUM(
+        CASE
+          WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+           AND COALESCE(op.flag_retenido, false) = false
+          THEN COALESCE(op.monto_deposito_cliente, 0)
+          ELSE 0
+        END
+      ), 0) AS total_recaudado,
+      COALESCE(SUM(
+        CASE
+          WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+          THEN COALESCE(op.monto_transferencia_cliente, 0)
+          ELSE 0
+        END
+      ), 0) AS salidas,
+      COALESCE(SUM(
+        CASE
+          WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+          THEN COALESCE(op.resultado_comision_banco_ingreso, 0)
+          ELSE 0
+        END
+        + CASE
+            WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+            THEN COALESCE(op.resultado_comision_banco_salida, 0)
+            ELSE 0
+          END
+      ), 0) AS gastos_operacionales,
+      COALESCE(SUM(
+        CASE
+          WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+           AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN (
+             'RETORNO', 'RETORNO_DIRECTO', 'DIRECTO_CAJA'
+           )
+          THEN GREATEST(
+            COALESCE(op.monto_deposito_cliente, 0)
+            - COALESCE(
+                op.monto_transferencia_cliente,
+                GREATEST(
+                  COALESCE(op.monto_deposito_cliente, 0)
+                  - COALESCE(op.resultado_comision_servicio, 0),
+                  0
+                )
+              )
+            - COALESCE(op.resultado_comision_banco_ingreso, 0)
+            - COALESCE(op.resultado_comision_banco_salida, 0),
+            0
+          )
+          ELSE 0
+        END
+      ), 0) AS ganancias,
+      COALESCE(SUM(
+        CASE
+          WHEN COALESCE(op.flag_retenido, false) = true
+          THEN COALESCE(op.monto_deposito_cliente, 0)
+          ELSE 0
+        END
+      ), 0) AS ingresos_retenidos,
+      COALESCE(SUM(
+        CASE
+          WHEN COALESCE(op.flag_fuera_horario, false) = true
+           AND COALESCE(op.flag_retenido, false) = false
+          THEN COALESCE(op.monto_deposito_cliente, 0)
+          ELSE 0
+        END
+      ), 0) AS fuera_horario
+    FROM public.tb_operacion_proceso op
+    JOIN base b
+      ON b.ruta = COALESCE(op.ruta_destino, op.ruta_origen)
+    WHERE op.id_caja_cierre IS NULL
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+      AND UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) IN (
+        'EFECTIVIZACION', 'PAGO DEUDA'
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.tb_operacion_caja oc_hist
+        WHERE oc_hist.id_operacion_proceso = op.id
+          AND oc_hist.id_caja_cierre IS NOT NULL
+      )
+    GROUP BY COALESCE(op.ruta_destino, op.ruta_origen)
+  ),
+  movimientos_caja_kpi AS (
+    SELECT
+      rc.ruta,
+      COALESCE(SUM(CASE WHEN UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO' THEN COALESCE(oc.monto_ingreso, 0) ELSE 0 END), 0) AS ingresos,
+      COALESCE(SUM(CASE WHEN UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'SALIDA' THEN COALESCE(oc.monto_salida, 0) ELSE 0 END), 0) AS salidas,
+      COALESCE(SUM(COALESCE(oc.monto_gasto, 0)), 0) AS gastos_operacionales,
+      COALESCE(SUM(COALESCE(oc.monto_ganancia, 0)), 0) AS ganancias
+    FROM base b
+    JOIN public.tb_ruta_operacion_caja rc
+      ON rc.ruta = b.ruta
+     AND rc.id_estado = b.id_estado
+    JOIN public.tb_caja_operativa c
+      ON c.id_empresa = rc.id_empresa
+     AND c.id_empresa_cuenta_bancaria = rc.id_empresa_cuenta_bancaria
+     AND c.id_estado = b.id_estado
+    JOIN public.tb_operacion_caja oc ON oc.id_caja = c.id
+    LEFT JOIN public.tb_operacion_proceso op ON op.id = oc.id_operacion_proceso
+    WHERE oc.id_caja_cierre IS NULL
+      AND UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) NOT IN (
+        'EFECTIVIZACION', 'PAGO DEUDA'
+      )
+      AND UPPER(BTRIM(COALESCE(oc.tipo_origen, ''))) NOT IN (
+        'EXCEL',
+        'EXCEL_GANANCIA',
+        'OPERACION_PROCESO',
+        'EDICION SALDO INICIAL CAJA',
+        'EFECTIVIZACION',
+        'PAGO_DEUDA',
+        'PAGO_DEUDA_RETORNO',
+        'PAGO_DEUDA_DIRECTO',
+        'PAGO_DEUDA_DEVOLUCION',
+        'PAGO_DEUDA_COMISION'
+      )
+    GROUP BY rc.ruta
+  ),
+  operacion_totales AS (
+    SELECT
+      COALESCE(op.ruta_destino, op.ruta_origen) AS ruta,
+      COALESCE(SUM(
+        CASE
+          WHEN public.f_get_tb_operacion_proceso_flag_pendiente_kpi(op.nombre_estado, op.flag_retenido)
+          THEN COALESCE(op.monto_transferencia_cliente, 0)
+          ELSE 0
+        END
+      ), 0) AS pendiente_depositar,
+      COUNT(*) FILTER (
+        WHERE UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'EFECTIVIZACION'
+          AND NOT (
+            COALESCE(op.flag_retenido, false) = true
+            AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+          )
+      )::integer AS total_efectivizacion,
+      COUNT(*) FILTER (
+        WHERE UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'PAGO DEUDA'
+      )::integer AS total_pago_deuda
+    FROM public.tb_operacion_proceso op
+    JOIN base b
+      ON b.ruta = COALESCE(op.ruta_destino, op.ruta_origen)
+    WHERE op.id_caja_cierre IS NULL
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.tb_operacion_caja oc_hist
+        WHERE oc_hist.id_operacion_proceso = op.id
+          AND oc_hist.id_caja_cierre IS NOT NULL
+      )
+    GROUP BY COALESCE(op.ruta_destino, op.ruta_origen)
   )
   SELECT
     k.id,
     k.ruta,
     k.caja_inicial,
     k.caja_actual,
-    COALESCE((
-      SELECT SUM(oc.monto_ingreso)
-      FROM public.tb_ruta_operacion_caja rc
-      JOIN public.tb_caja_operativa c
-        ON c.id_empresa = rc.id_empresa
-       AND c.id_empresa_cuenta_bancaria = rc.id_empresa_cuenta_bancaria
-       AND c.id_estado = k.id_estado
-       JOIN public.tb_operacion_caja oc ON oc.id_caja = c.id
-       LEFT JOIN public.tb_operacion_proceso op ON op.id = oc.id_operacion_proceso
-       WHERE rc.ruta = k.ruta
-        AND rc.id_estado = k.id_estado
-        AND oc.id_caja_cierre IS NULL
-         AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
-         AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) <> 'RETENIDO'
-         AND COALESCE(op.flag_retenido, false) = false
-         AND COALESCE(op.flag_fuera_horario, false) = false
-         AND UPPER(BTRIM(COALESCE(oc.tipo_origen, ''))) IN (
-          'EFECTIVIZACION',
-          'PAGO_DEUDA',
-          'PAGO_DEUDA_DEVOLUCION',
-          'PAGO_DEUDA_COMISION'
-        )
-    ), 0) AS total_recaudado,
-    k.ingresos,
-    k.salidas,
-    k.gastos_operacionales,
-    CASE
-      WHEN LOWER(BTRIM(COALESCE(k.ruta, ''))) IN ('scotiabank', 'banbif')
-        THEN COALESCE(gm.ganancias, 0)
-      ELSE k.ganancias
-    END AS ganancias,
-    COALESCE((
-      SELECT SUM(op.monto_deposito_cliente)
-      FROM public.tb_operacion_proceso op
-      WHERE op.flag_retenido = true
-        AND COALESCE(op.ruta_destino, op.ruta_origen) = k.ruta
-        AND op.id_caja_cierre IS NULL
-        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM public.tb_operacion_caja oc_hist
-          WHERE oc_hist.id_operacion_proceso = op.id
-            AND oc_hist.id_caja_cierre IS NOT NULL
-            AND UPPER(BTRIM(COALESCE(oc_hist.tipo_movimiento, ''))) = 'INGRESO'
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM public.tb_caja_operativa c_live
-          JOIN public.tb_ruta_operacion_caja rc_live
-            ON rc_live.id_empresa = c_live.id_empresa
-           AND rc_live.id_empresa_cuenta_bancaria = c_live.id_empresa_cuenta_bancaria
-           AND rc_live.id_estado = k.id_estado
-          WHERE c_live.id_estado = k.id_estado
-            AND rc_live.ruta = k.ruta
-            AND op.fecha_registro < c_live.fecha_apertura
-            AND (
-              (
-                op.id_empresa_ingreso = c_live.id_empresa
-                AND op.id_empresa_cuenta_ingreso = c_live.id_empresa_cuenta_bancaria
-              )
-              OR (
-                op.id_empresa_salida = c_live.id_empresa
-                AND op.id_empresa_cuenta_salida = c_live.id_empresa_cuenta_bancaria
-              )
-            )
-        )
-        AND EXISTS (
-          SELECT 1
-          FROM public.tb_ruta_operacion_caja rc
-          WHERE rc.ruta = k.ruta
-            AND rc.id_estado = k.id_estado
-            AND rc.id_empresa = op.id_empresa_ingreso
-            AND rc.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_ingreso
-        )
-    ), 0) AS ingresos_retenidos,
-    COALESCE((
-      SELECT SUM(op.monto_deposito_cliente)
-      FROM public.tb_operacion_proceso op
-      WHERE op.flag_fuera_horario = true
-        AND op.flag_retenido = false
-        AND COALESCE(op.ruta_destino, op.ruta_origen) = k.ruta
-        AND op.id_caja_cierre IS NULL
-        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM public.tb_operacion_caja oc_hist
-          WHERE oc_hist.id_operacion_proceso = op.id
-            AND oc_hist.id_caja_cierre IS NOT NULL
-            AND UPPER(BTRIM(COALESCE(oc_hist.tipo_movimiento, ''))) = 'INGRESO'
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM public.tb_caja_operativa c_live
-          JOIN public.tb_ruta_operacion_caja rc_live
-            ON rc_live.id_empresa = c_live.id_empresa
-           AND rc_live.id_empresa_cuenta_bancaria = c_live.id_empresa_cuenta_bancaria
-           AND rc_live.id_estado = k.id_estado
-          WHERE c_live.id_estado = k.id_estado
-            AND rc_live.ruta = k.ruta
-            AND op.fecha_registro < c_live.fecha_apertura
-            AND (
-              (
-                op.id_empresa_ingreso = c_live.id_empresa
-                AND op.id_empresa_cuenta_ingreso = c_live.id_empresa_cuenta_bancaria
-              )
-              OR (
-                op.id_empresa_salida = c_live.id_empresa
-                AND op.id_empresa_cuenta_salida = c_live.id_empresa_cuenta_bancaria
-              )
-            )
-        )
-        AND EXISTS (
-          SELECT 1 FROM public.tb_ruta_operacion_caja rc
-          WHERE rc.ruta = k.ruta
-            AND rc.id_estado = k.id_estado
-            AND rc.id_empresa = op.id_empresa_ingreso
-            AND rc.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_ingreso
-        )
-    ), 0) AS fuera_horario,
-    k.pendiente_depositar,
-    k.total_efectivizacion,
-    k.total_pago_deuda,
+    COALESCE(pk.total_recaudado, 0) AS total_recaudado,
+    COALESCE(mk.ingresos, 0) AS ingresos,
+    COALESCE(pk.salidas, 0) + COALESCE(mk.salidas, 0) AS salidas,
+    COALESCE(pk.gastos_operacionales, 0) + COALESCE(mk.gastos_operacionales, 0) AS gastos_operacionales,
+    COALESCE(pk.ganancias, 0) + COALESCE(mk.ganancias, 0) AS ganancias,
+    COALESCE(pk.ingresos_retenidos, 0) AS ingresos_retenidos,
+    COALESCE(pk.fuera_horario, 0) AS fuera_horario,
+    COALESCE(ot.pendiente_depositar, 0),
+    COALESCE(ot.total_efectivizacion, 0),
+    COALESCE(ot.total_pago_deuda, 0),
     k.id_estado,
     est.nombre AS nombre_estado,
     k.id_usuario,
@@ -1151,6 +1359,9 @@ BEGIN
   JOIN public.tb_estado est ON est.id = k.id_estado
   LEFT JOIN public.tb_usuario u ON u.id = k.id_usuario
   LEFT JOIN ganancias_modalidad gm ON gm.ruta = k.ruta
+  LEFT JOIN operaciones_proceso_kpi pk ON pk.ruta = k.ruta
+  LEFT JOIN movimientos_caja_kpi mk ON mk.ruta = k.ruta
+  LEFT JOIN operacion_totales ot ON ot.ruta = k.ruta
   WHERE (p_id IS NULL OR k.id = p_id)
     AND (p_ruta IS NULL OR k.ruta = p_ruta)
     AND (p_id_estado IS NULL OR k.id_estado = p_id_estado)
@@ -4888,6 +5099,22 @@ DECLARE
   v_monto_salida numeric := 0;
   v_monto_requerido numeric := 0;
   v_saldo_disponible numeric := 0;
+  v_saldo_delta_anterior numeric := 0;
+  v_saldo_delta_nuevo numeric := 0;
+  v_delta_ingresos_anterior numeric := 0;
+  v_delta_ingresos_nuevo numeric := 0;
+  v_delta_ingresos_retenido_anterior numeric := 0;
+  v_delta_ingresos_retenido_nuevo numeric := 0;
+  v_delta_total_recaudado_anterior numeric := 0;
+  v_delta_total_recaudado_nuevo numeric := 0;
+  v_delta_gastos_anterior numeric := 0;
+  v_delta_gastos_nuevo numeric := 0;
+  v_delta_ganancia_anterior numeric := 0;
+  v_delta_ganancia_nuevo numeric := 0;
+  v_delta_ganancia_retenido_anterior numeric := 0;
+  v_delta_ganancia_retenido_nuevo numeric := 0;
+  v_delta_operaciones_anterior integer := 0;
+  v_delta_operaciones_nuevo integer := 0;
   v_tipo_servicio character varying;
   v_tipo_flujo_pago_deuda character varying;
   v_flag_retencion boolean := false;
@@ -5147,37 +5374,150 @@ BEGIN
       END IF;
     END IF;
 
-    PERFORM public.f_apply_tb_operacion_caja_delta(
-      p_id_caja := v_mov.id_caja,
-      p_tipo_movimiento := v_mov.tipo_movimiento,
-      p_nombre_estado := v_mov.nombre_estado,
-      p_monto_ingreso := v_mov.monto_ingreso,
-      p_monto_gasto := v_mov.monto_gasto,
-      p_monto_ganancia := v_mov.monto_ganancia,
-      p_monto_salida := v_mov.monto_salida,
-      p_flag_contabiliza_operacion := v_mov.flag_contabiliza_operacion,
-      p_factor := -1,
-      p_id_usuario := COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario)
-    );
+    IF v_tipo_movimiento = 'INGRESO'
+       AND UPPER(BTRIM(COALESCE(v_mov.tipo_movimiento, ''))) = 'INGRESO'
+       AND v_mov.id_caja = v_id_caja THEN
+      -- Reemplazar un ingreso abierto mediante diferencias evita una reversa
+      -- intermedia negativa cuando el importe ya fue utilizado en salidas.
+      SELECT saldo_actual
+      INTO v_saldo_anterior_nuevo
+      FROM public.tb_caja_operativa
+      WHERE id = v_id_caja
+      LIMIT 1
+      FOR UPDATE;
 
-    SELECT saldo_actual
-    INTO v_saldo_anterior_nuevo
-    FROM public.tb_caja_operativa
-    WHERE id = v_id_caja
-    LIMIT 1;
+      IF UPPER(BTRIM(COALESCE(v_mov.nombre_estado, ''))) = 'RETENIDO' THEN
+        v_saldo_delta_anterior := 0;
+        v_delta_ingresos_retenido_anterior := COALESCE(v_mov.monto_ingreso, 0);
+        v_delta_ganancia_retenido_anterior := COALESCE(v_mov.monto_ganancia, 0);
+      ELSE
+        v_saldo_delta_anterior := COALESCE(v_mov.monto_ingreso, 0);
+        v_delta_ingresos_anterior := COALESCE(v_mov.monto_ingreso, 0);
+        v_delta_total_recaudado_anterior := COALESCE(v_mov.monto_ingreso, 0);
+        v_delta_ganancia_anterior := COALESCE(v_mov.monto_ganancia, 0);
+      END IF;
+      v_delta_gastos_anterior := COALESCE(v_mov.monto_gasto, 0);
+      IF COALESCE(v_mov.flag_contabiliza_operacion, true) THEN
+        v_delta_operaciones_anterior := 1;
+      END IF;
 
-    v_saldo_actual_nuevo := public.f_apply_tb_operacion_caja_delta(
-      p_id_caja := v_id_caja,
-      p_tipo_movimiento := v_tipo_movimiento,
-      p_nombre_estado := COALESCE(v_estado_nombre, v_op.nombre_estado, v_mov.nombre_estado),
-      p_monto_ingreso := v_monto_ingreso,
-      p_monto_gasto := v_monto_gasto,
-      p_monto_ganancia := v_monto_ganancia,
-      p_monto_salida := v_monto_salida,
-      p_flag_contabiliza_operacion := COALESCE(v_mov.flag_contabiliza_operacion, true),
-      p_factor := 1,
-      p_id_usuario := COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario)
-    );
+      IF UPPER(BTRIM(COALESCE(v_estado_nombre, v_op.nombre_estado, v_mov.nombre_estado))) = 'RETENIDO' THEN
+        v_saldo_delta_nuevo := 0;
+        v_delta_ingresos_retenido_nuevo := COALESCE(v_monto_ingreso, 0);
+        v_delta_ganancia_retenido_nuevo := COALESCE(v_monto_ganancia, 0);
+      ELSE
+        v_saldo_delta_nuevo := COALESCE(v_monto_ingreso, 0);
+        v_delta_ingresos_nuevo := COALESCE(v_monto_ingreso, 0);
+        v_delta_total_recaudado_nuevo := COALESCE(v_monto_ingreso, 0);
+        v_delta_ganancia_nuevo := COALESCE(v_monto_ganancia, 0);
+      END IF;
+      v_delta_gastos_nuevo := COALESCE(v_monto_gasto, 0);
+      IF COALESCE(v_mov.flag_contabiliza_operacion, true) THEN
+        v_delta_operaciones_nuevo := 1;
+      END IF;
+
+      v_saldo_actual_nuevo := COALESCE(v_saldo_anterior_nuevo, 0)
+        - v_saldo_delta_anterior
+        + v_saldo_delta_nuevo;
+
+      IF v_saldo_actual_nuevo < 0 THEN
+        RETURN jsonb_build_object(
+          'error', 'La operacion deja la caja con saldo negativo.',
+          'codigo', 'SALDO_INSUFICIENTE',
+          'id_caja', v_id_caja,
+          'saldo_disponible', COALESCE(v_saldo_anterior_nuevo, 0),
+          'monto_requerido', GREATEST(v_saldo_delta_nuevo - v_saldo_delta_anterior, 0)
+        );
+      END IF;
+
+      UPDATE public.tb_caja_operativa
+      SET saldo_actual = v_saldo_actual_nuevo,
+          saldo_total = v_saldo_actual_nuevo,
+          total_recaudado = GREATEST(
+            COALESCE(total_recaudado, 0)
+              - v_delta_total_recaudado_anterior
+              + v_delta_total_recaudado_nuevo,
+            0
+          ),
+          ingresos = GREATEST(
+            COALESCE(ingresos, 0)
+              - v_delta_ingresos_anterior
+              + v_delta_ingresos_nuevo,
+            0
+          ),
+          ingresos_retenido = GREATEST(
+            COALESCE(ingresos_retenido, 0)
+              - v_delta_ingresos_retenido_anterior
+              + v_delta_ingresos_retenido_nuevo,
+            0
+          ),
+          gastos = GREATEST(
+            COALESCE(gastos, 0)
+              - v_delta_gastos_anterior
+              + v_delta_gastos_nuevo,
+            0
+          ),
+          ganancia = GREATEST(
+            COALESCE(ganancia, 0)
+              - v_delta_ganancia_anterior
+              + v_delta_ganancia_nuevo,
+            0
+          ),
+          ganancia_retenido = GREATEST(
+            COALESCE(ganancia_retenido, 0)
+              - v_delta_ganancia_retenido_anterior
+              + v_delta_ganancia_retenido_nuevo,
+            0
+          ),
+          operaciones = GREATEST(
+            COALESCE(operaciones, 0)
+              - v_delta_operaciones_anterior
+              + v_delta_operaciones_nuevo,
+            0
+          ),
+          id_usuario = COALESCE(p_id_usuario, id_usuario)
+      WHERE id = v_id_caja;
+
+      IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
+        PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario)
+        FROM public.tb_ruta_operacion_caja rc
+        WHERE rc.id_empresa = v_caja_destino.id_empresa
+          AND rc.id_empresa_cuenta_bancaria = v_caja_destino.id_empresa_cuenta_bancaria
+          AND rc.id_estado = 1;
+      END IF;
+    ELSE
+      PERFORM public.f_apply_tb_operacion_caja_delta(
+        p_id_caja := v_mov.id_caja,
+        p_tipo_movimiento := v_mov.tipo_movimiento,
+        p_nombre_estado := v_mov.nombre_estado,
+        p_monto_ingreso := v_mov.monto_ingreso,
+        p_monto_gasto := v_mov.monto_gasto,
+        p_monto_ganancia := v_mov.monto_ganancia,
+        p_monto_salida := v_mov.monto_salida,
+        p_flag_contabiliza_operacion := v_mov.flag_contabiliza_operacion,
+        p_factor := -1,
+        p_id_usuario := COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario)
+      );
+
+      SELECT saldo_actual
+      INTO v_saldo_anterior_nuevo
+      FROM public.tb_caja_operativa
+      WHERE id = v_id_caja
+      LIMIT 1;
+
+      v_saldo_actual_nuevo := public.f_apply_tb_operacion_caja_delta(
+        p_id_caja := v_id_caja,
+        p_tipo_movimiento := v_tipo_movimiento,
+        p_nombre_estado := COALESCE(v_estado_nombre, v_op.nombre_estado, v_mov.nombre_estado),
+        p_monto_ingreso := v_monto_ingreso,
+        p_monto_gasto := v_monto_gasto,
+        p_monto_ganancia := v_monto_ganancia,
+        p_monto_salida := v_monto_salida,
+        p_flag_contabiliza_operacion := COALESCE(v_mov.flag_contabiliza_operacion, true),
+        p_factor := 1,
+        p_id_usuario := COALESCE(p_id_usuario, v_op.id_usuario_gestor, v_op.id_usuario)
+      );
+    END IF;
 
     UPDATE public.tb_operacion_caja
     SET id_caja = v_id_caja,
@@ -6249,30 +6589,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_reporte_cierre',
-  'f_get_tb_operacion_caja',
-  'f_get_tb_ruta_operacion_ganancias_efectivizacion',
-  'f_get_tb_operacion_bandeja_badges',
-  'f_get_tb_operacion_empresa_badges',
-  'f_get_tb_ruta_operacion_kpi',
-  'f_patch_tb_caja_operativa_saldo_inicial',
-  'f_patch_tb_caja_operativa_reconciliar_saldo_bancario',
-  'f_post_tb_caja_operativa_cierre',
-  'f_delete_tb_caja_operativa_cierre_ultimo_dia',
-  'f_post_tb_operacion_caja',
-  'f_patch_tb_operacion_caja_revertir_informativa',
-  'f_patch_tb_operacion_proceso_retornar_retencion',
-  'f_patch_tb_ruta_operacion_caja',
-  'f_patch_tb_ruta_operacion_caja_principal',
-  'f_post_tb_caja_operativa',
-  'f_post_tb_operacion_caja_desde_proceso',
-  'f_post_tb_ruta_operacion_caja',
-  'f_apply_tb_operacion_caja_delta',
-  'f_sync_tb_ruta_operacion_caja_principal',
-  'f_sync_tb_ruta_operacion_kpi_operacion',
-  'f_sync_tb_ruta_operacion_kpi_caja',
-  'f_patch_tb_operacion_caja_confirmar_retencion',
-  'f_patch_tb_operacion_proceso_confirmar_retencion',
-  'f_patch_tb_operacion_proceso_retornar_retencion'
+  'f_get_tb_ruta_operacion_kpi'
 )
 ORDER BY n.nspname, p.proname;

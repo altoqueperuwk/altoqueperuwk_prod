@@ -1,5 +1,24 @@
 # 19. Operaciones Frontend: Formularios Inline
 
+> **Estado vigente 22/08/2026:** La fuente maestra del frontend es
+> [`src/CONTEXTO_GENERAL_FRONTEND.md`](../../src/CONTEXTO_GENERAL_FRONTEND.md).
+> Esta guia conserva el detalle historico del formulario, pero la implementacion
+> actual oculta `Mover Saldo`, usa `Ingreso y Salidas` y permite seleccionar la
+> misma empresa como referencia de destino.
+
+### Cambios vigentes
+
+- `Ingreso y Salidas` registra solo un movimiento en la caja de la empresa/cuenta activa.
+- El destino se guarda como referencia; no se crea movimiento en la caja destino.
+- `Empresa Destino` y `Cuenta Destino` se pueden seleccionar en cascada, pero la cuenta
+  no bloquea el formulario y el concepto permanece visible para explicar el banco o motivo.
+- La opcion `Otra Empresa` permite movimientos no mapeados; el concepto sigue siendo obligatorio.
+- `Mover Saldo` queda oculto, pero su codigo se conserva para una eventual restauracion.
+- El modal de conciliacion permite ingresar el saldo de banca con formatos como
+  `1,000.00`, `1000` y `1,000`; el backend registra la diferencia como ajuste administrativo.
+- En `Operacion Efectivizacion`, Scotiabank y BanBif permiten fecha manual de deposito;
+  la hora se toma al guardar.
+
 ## Estado vigente
 
 La implementacion actual ya no usa titulos con empresa ni tabs rapidos de cuenta en el encabezado de cada card.

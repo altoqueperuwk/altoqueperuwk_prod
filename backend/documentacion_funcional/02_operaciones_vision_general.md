@@ -1,5 +1,11 @@
 # 02. Operaciones: Vision General
 
+> **Estado vigente 22/08/2026:** Para el sistema implementado, consultar primero
+> [`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md) y
+> [`src/CONTEXTO_GENERAL_FRONTEND.md`](../../src/CONTEXTO_GENERAL_FRONTEND.md).
+> Este documento conserva la separacion conceptual de familias, pero la pantalla
+> bancaria actual usa las vistas `Efectivizacion TC`, `Pago Deuda TC` y `Movimientos`.
+
 ## Objetivo del dominio
 
 `operaciones` concentra los flujos transaccionales del negocio. En el sistema compacto nuevo no debe documentarse como un modulo unico y monolitico, sino como 3 familias de negocio con responsabilidades distintas.
