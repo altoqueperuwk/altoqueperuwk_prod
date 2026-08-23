@@ -11,7 +11,6 @@ import { NativeSelect } from "@/components/base/select/select-native";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { isAdministrator, isJefeTienda, useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
-import { estadoService } from "@/services/estado.service";
 import { bancoService } from "@/services/banco.service";
 import { comunidadService } from "@/services/comunidad.service";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
@@ -270,7 +269,6 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [dni, setDni] = useState("");
-    const [estadoPagado, setEstadoPagado] = useState<{ id: number; nombre: string } | null>(null);
     const [activeFilter, setActiveFilter] = useState("Todos");
     const [solicitudes, setSolicitudes] = useState<OperacionProceso[]>([]);
     const [cuentasActivas, setCuentasActivas] = useState<EmpresaCuentaActiva[]>([]);
@@ -359,15 +357,6 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
 
     useEffect(() => {
         let ignore = false;
-
-        estadoService
-            .getList({})
-            .then((rows) => {
-                if (ignore) return;
-                const estados = rows.map((row) => ({ id: Number(row.id), nombre: String(row.nombre ?? "") }));
-                setEstadoPagado(estados.find((item) => item.nombre.toUpperCase() === "PAGADO") ?? null);
-            })
-            .catch(() => addToast("error", "Error al cargar estados."));
 
         pagoDeudaService
             .getEmpresasComision({ p_id_estado: 1 })
@@ -620,11 +609,6 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             return;
         }
 
-        if (!estadoPagado) {
-            addToast("error", "No se encontro el estado Pagado.");
-            return;
-        }
-
         const eligible = solicitudes.filter(
             (row) => selectedIds.includes(row.id) && hasDevolucionConfirmada(row) && !Boolean(row.flag_comision_registrada),
         );
@@ -633,17 +617,33 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
             return;
         }
 
+        const missingCuenta = eligible.find((row) => {
+            const cuentaId = selectedCuentaComisionIds[row.id] ?? row.id_empresa_cuenta_ingreso;
+            return !cuentaId || !cuentasComisionHabilitadas.some((cuenta) => cuenta.id === Number(cuentaId));
+        });
+        if (missingCuenta) {
+            addToast("error", "Selecciona la cuenta de comision antes de confirmar.");
+            return;
+        }
+
         setIsApplyingAction(true);
 
         try {
             const updatedRows: OperacionProceso[] = [];
             for (const row of eligible) {
-                const saved = await pagoDeudaService.patchPagado({
+                const cuentaId = Number(selectedCuentaComisionIds[row.id] ?? row.id_empresa_cuenta_ingreso);
+                const cuenta = cuentasComisionHabilitadas.find((item) => item.id === cuentaId);
+                if (!cuenta) continue;
+
+                await pagoDeudaService.postComision({
                     p_id_operacion: row.id,
-                    p_id_usuario_gestor: userId,
-                    p_nombre_usuario_gestor: userName,
+                    p_id_empresa_ingreso: cuenta.id_empresa,
+                    p_id_empresa_cuenta_ingreso: cuenta.id,
+                    p_monto_comision: Number(row.resultado_comision_servicio ?? 0),
+                    p_id_usuario: userId,
+                    p_nombre_usuario: userName,
                 });
-                updatedRows.push(await getSolicitudActualizada(row, saved));
+                updatedRows.push(await getSolicitudActualizada(row, row));
             }
 
             setSelectedIds([]);
