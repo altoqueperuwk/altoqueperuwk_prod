@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Calendar as CalendarIcon, Edit03, Trash01 } from "@untitledui/icons";
+import { Calendar as CalendarIcon, CreditCardX, Edit03, Trash01 } from "@untitledui/icons";
 import { motion } from "motion/react";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -20,6 +20,7 @@ import type {
 import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
+import { toPeruDayEnd, toPeruDayStart } from "@/features/operaciones/efectivizacion/shared/utils/date";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { cx } from "@/utils/cx";
 import { LinkPagoEditModal } from "@/features/operaciones/efectivizacion/asistida/components/linkpago-edit-modal";
@@ -324,6 +325,42 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         || !isJefeTiendaProfile
         || (userId !== null && Number(row.id_usuario_solicitud) === userId);
     const actions: string[] = [];
+    const handleSinEnvioSolicitud = async (row: OperacionProceso) => {
+        if (ruta !== "pos" || !canManageOperation(row) || isPagado(row)) return;
+
+        setIsApplyingAction(true);
+        try {
+            const saved = await operacionesRpcService.patchOperacionAsistida({
+                p_id: row.id,
+                p_id_banco_cliente: row.id_banco_cliente,
+                p_numero_tarjeta: row.numero_tarjeta ?? null,
+                p_id_banco_destino: null,
+                p_tipo_documento_cliente: null,
+                p_dni_cliente: row.dni_cliente,
+                p_nombre_cliente: row.nombre_cliente,
+                p_id_comunidad: row.id_comunidad,
+                p_nombre_comunidad: row.nombre_comunidad,
+                p_monto_deposito_cliente: row.monto_deposito_cliente,
+                p_id_usuario: userId,
+                p_nombre_usuario: userName,
+                p_sin_envio_solicitud: true,
+            });
+
+            if (saved && typeof saved === "object" && "error" in saved && saved.error) {
+                throw new Error(String(saved.error));
+            }
+
+            const updated = saved as OperacionProceso;
+            setOperaciones((current) => current.map((item) => item.id === row.id ? updated : item));
+            setSelectedIds((current) => current.filter((id) => id !== row.id));
+            onChanged?.();
+            addToast("success", "POS registrado sin enviar solicitud.");
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo registrar el POS sin envio.");
+        } finally {
+            setIsApplyingAction(false);
+        }
+    };
     const columns = useMemo(
         () => {
             const actionColumn = {
@@ -352,6 +389,16 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
                                 onClick={() => setDateOperation(row)}
                             />
                         )}
+                        {ruta === "pos" && (
+                            <ButtonUtility
+                                size="xs"
+                                color="tertiary"
+                                tooltip={canManageOperation(row) ? "No Enviar Solicitud" : "Solo el usuario que registro la operacion puede editarla"}
+                                icon={CreditCardX}
+                                isDisabled={!canManageOperation(row) || isPagado(row) || isApplyingAction}
+                                onClick={() => void handleSinEnvioSolicitud(row)}
+                            />
+                        )}
                         <ButtonUtility
                             size="xs"
                             color="tertiary"
@@ -368,7 +415,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
             if (ruta === "linkpago") return [...linkpagoColumns, actionColumn];
             return baseColumns;
         },
-        [isAdministratorProfile, isJefeTiendaProfile, ruta, userId],
+        [canManageOperation, handleSinEnvioSolicitud, isAdministratorProfile, isApplyingAction, isJefeTiendaProfile, ruta, userId],
     );
     const entidadTarjetaOptions = useMemo(
         () => {
@@ -411,8 +458,8 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         );
         const values: Record<string, unknown> = { p_ruta: ruta };
         if (!hasGlobalFilter) {
-            values.p_fecha_registro_desde = `${selectedDate}T00:00:00`;
-            values.p_fecha_registro_hasta = `${selectedDate}T23:59:59`;
+            values.p_fecha_registro_desde = toPeruDayStart(selectedDate);
+            values.p_fecha_registro_hasta = toPeruDayEnd(selectedDate);
         }
         if (canViewAllAssisted) values.p_id_usuario_consulta = userId;
         else values.p_id_usuario_solicitud = userId;

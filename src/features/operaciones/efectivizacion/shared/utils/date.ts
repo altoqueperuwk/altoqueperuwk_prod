@@ -12,6 +12,10 @@ export const getPeruDateValue = (date = new Date()) => {
     return `${getDatePart(parts, "year")}-${getDatePart(parts, "month")}-${getDatePart(parts, "day")}`;
 };
 
+export const toPeruDayStart = (date: string) => `${date}T00:00:00-05:00`;
+
+export const toPeruDayEnd = (date: string) => `${date}T23:59:59.999-05:00`;
+
 export const formatDateValue = (value: string) => {
     const [year, month, day] = value.split("-").map(Number);
     return new Intl.DateTimeFormat("es-PE", {

@@ -565,7 +565,6 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                         placeholder={clienteId ? "Cliente encontrado" : "Nombre del cliente"}
                         value={nombre}
                         onChange={setNombre}
-                        isDisabled={!!clienteId}
                         className={ruta === "pos" ? "order-4 w-full min-w-0 flex-1 xl:min-w-[14ch]" : "w-full min-w-0 flex-1 xl:min-w-[14ch]"}
                     />
                     {ruta === "pos" && (

@@ -1123,6 +1123,12 @@ DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
   character varying, bigint, character varying
 );
 
+DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
+  bigint, bigint, character varying, character varying, bigint,
+  character varying, numeric, bigint, character varying, bigint, bigint,
+  character varying, bigint, character varying, boolean
+);
+
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_id bigint,
   p_id_banco_cliente bigint DEFAULT NULL,
@@ -1137,7 +1143,8 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_id_banco_destino bigint DEFAULT NULL,
   p_email_cliente character varying DEFAULT NULL,
   p_id_ruta_operacion_caja_destino bigint DEFAULT NULL,
-  p_numero_tarjeta character varying DEFAULT NULL
+  p_numero_tarjeta character varying DEFAULT NULL,
+  p_sin_envio_solicitud boolean DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -1170,6 +1177,11 @@ DECLARE
   v_calc_serv jsonb;
   v_calc_ing jsonb;
   v_calc_sal jsonb;
+  v_id_estado_pagado bigint;
+  v_nombre_estado_pagado character varying;
+  v_id_estado_solicitado bigint;
+  v_nombre_estado_solicitado character varying;
+  v_reactivar_solicitud boolean := false;
 BEGIN
   p_numero_tarjeta := NULLIF(BTRIM(COALESCE(p_numero_tarjeta, '')), '');
 
@@ -1185,6 +1197,16 @@ BEGIN
   IF v_actual.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Operacion no encontrada.');
   END IF;
+
+  v_reactivar_solicitud := LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos'
+    AND p_sin_envio_solicitud IS FALSE
+    AND UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) = 'PAGADO'
+    AND v_actual.id_empresa_salida IS NULL
+    AND v_actual.id_empresa_cuenta_salida IS NULL
+    AND v_actual.id_banco_cliente_transferencia IS NULL
+    AND COALESCE(v_actual.monto_transferencia_cliente, 0) = 0
+    AND COALESCE(v_actual.resultado_comision_servicio, 0) = 0
+    AND COALESCE(v_actual.resultado_comision_banco_salida, 0) = 0;
 
   IF LOWER(COALESCE(v_actual.ruta_origen, '')) NOT IN ('pos', 'linkpago') THEN
     RETURN jsonb_build_object('error', 'La operacion no pertenece a una ruta asistida.');
@@ -1257,7 +1279,14 @@ BEGIN
   v_id_banco_empresa_cuenta_salida := COALESCE(v_id_banco_empresa_cuenta_ingreso, v_actual.id_banco_empresa_cuenta_salida);
   v_nombre_banco_empresa_cuenta_salida := COALESCE(v_nombre_banco_empresa_cuenta_ingreso, v_actual.nombre_banco_empresa_cuenta_salida);
 
-  IF LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos' AND p_id_ruta_operacion_caja_destino IS NOT NULL THEN
+  IF p_sin_envio_solicitud IS TRUE AND LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos' THEN
+    v_ruta_destino_resolved := 'pos';
+    v_id_empresa_salida := NULL;
+    v_nombre_empresa_salida := NULL;
+    v_id_empresa_cuenta_salida := NULL;
+    v_id_banco_empresa_cuenta_salida := NULL;
+    v_nombre_banco_empresa_cuenta_salida := NULL;
+  ELSIF LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos' AND p_id_ruta_operacion_caja_destino IS NOT NULL THEN
     SELECT
       rc.ruta,
       rc.id_empresa,
@@ -1357,6 +1386,71 @@ BEGIN
     RETURNING id, nombre INTO v_cliente_id, v_cliente_nombre;
   END IF;
 
+  IF p_sin_envio_solicitud IS TRUE AND LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos' THEN
+    SELECT id, nombre
+    INTO v_id_estado_pagado, v_nombre_estado_pagado
+    FROM public.tb_estado
+    WHERE UPPER(BTRIM(COALESCE(nombre, ''))) = 'PAGADO'
+    LIMIT 1;
+
+    IF v_id_estado_pagado IS NULL THEN
+      RETURN jsonb_build_object('error', 'No se encontro el estado Pagado.');
+    END IF;
+
+    UPDATE public.tb_operacion_proceso
+    SET id_cliente = COALESCE(v_cliente_id, id_cliente),
+        dni_cliente = p_dni_cliente,
+        nombre_cliente = COALESCE(v_cliente_nombre, p_nombre_cliente, ''),
+        email_cliente = COALESCE(p_email_cliente, email_cliente),
+        numero_tarjeta = p_numero_tarjeta,
+        id_comunidad = p_id_comunidad,
+        nombre_comunidad = p_nombre_comunidad,
+        monto_deposito_cliente = ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2),
+        id_banco_cliente = v_id_banco_cliente_resolved,
+        nombre_banco_cliente = v_nombre_banco_cliente_resolved,
+        id_empresa_ingreso = NULL,
+        nombre_empresa_ingreso = NULL,
+        id_empresa_cuenta_ingreso = NULL,
+        id_banco_empresa_cuenta_ingreso = NULL,
+        nombre_banco_empresa_cuenta_ingreso = NULL,
+        flag_por_sol_comision_banco_ingreso = NULL,
+        id_banco_cliente_transferencia = NULL,
+        nombre_banco_cliente_transferencia = NULL,
+        id_empresa_salida = NULL,
+        nombre_empresa_salida = NULL,
+        id_empresa_cuenta_salida = NULL,
+        id_banco_empresa_cuenta_salida = NULL,
+        nombre_banco_empresa_cuenta_salida = NULL,
+        comision_banco_ingreso = 0,
+        comision_minimo_banco_ingreso = 0,
+        comision_igv_banco_ingreso = 0,
+        resultado_comision_banco_ingreso = 0,
+        monto_itf_ingreso = 0,
+        comision_servicio = 0,
+        monto_minimo_deposito_servicio = 0,
+        comision_minima_servicio = 0,
+        comision_monto_extra_servicio = 0,
+        resultado_comision_servicio = 0,
+        comision_transf_banco_salida = 0,
+        comision_transf_inter_banco_salida = 0,
+        resultado_comision_banco_salida = 0,
+        monto_transferencia_cliente = 0,
+        monto_itf_salida = 0,
+        id_estado = v_id_estado_pagado,
+        nombre_estado = v_nombre_estado_pagado,
+        fecha_pagado = COALESCE(v_actual.fecha_pagado, now()),
+        ruta_destino = 'pos',
+        id_usuario = COALESCE(p_id_usuario, id_usuario),
+        nombre_usuario = COALESCE(p_nombre_usuario, nombre_usuario)
+    WHERE id = p_id;
+
+    RETURN (
+      SELECT x
+      FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
+      LIMIT 1
+    );
+  END IF;
+
   SELECT r.* INTO v_regla
   FROM public.tb_reglas_efectivizacion r
   WHERE r.id_codigo_servicio = v_actual.id_codigo_servicio
@@ -1396,6 +1490,19 @@ BEGIN
     v_id_banco_empresa_cuenta_salida
   );
 
+  IF v_reactivar_solicitud THEN
+    SELECT id, nombre
+    INTO v_id_estado_solicitado, v_nombre_estado_solicitado
+    FROM public.tb_estado
+    WHERE UPPER(BTRIM(COALESCE(nombre, ''))) IN ('SOLICITADO', 'PENDIENTE')
+    ORDER BY CASE WHEN UPPER(BTRIM(COALESCE(nombre, ''))) = 'SOLICITADO' THEN 0 ELSE 1 END
+    LIMIT 1;
+
+    IF v_id_estado_solicitado IS NULL THEN
+      RETURN jsonb_build_object('error', 'No se encontro el estado Solicitud.');
+    END IF;
+  END IF;
+
   UPDATE public.tb_operacion_proceso
   SET id_cliente = COALESCE(v_cliente_id, id_cliente),
       dni_cliente = p_dni_cliente,
@@ -1431,6 +1538,10 @@ BEGIN
       resultado_comision_banco_ingreso = (v_calc_ing->>'resultado_comision_banco_ingreso')::numeric,
       resultado_comision_banco_salida = (v_calc_sal->>'resultado_comision_banco_salida')::numeric,
       monto_transferencia_cliente = (v_calc_serv->>'monto_transferencia_cliente')::numeric,
+      id_estado = CASE WHEN v_reactivar_solicitud THEN v_id_estado_solicitado ELSE id_estado END,
+      nombre_estado = CASE WHEN v_reactivar_solicitud THEN v_nombre_estado_solicitado ELSE nombre_estado END,
+      fecha_pagado = CASE WHEN v_reactivar_solicitud THEN NULL ELSE fecha_pagado END,
+      fecha_pendiente = CASE WHEN v_reactivar_solicitud THEN now() ELSE fecha_pendiente END,
       id_usuario = COALESCE(p_id_usuario, id_usuario),
       nombre_usuario = COALESCE(p_nombre_usuario, nombre_usuario),
       ruta_destino = COALESCE(v_ruta_destino_resolved, ruta_destino)

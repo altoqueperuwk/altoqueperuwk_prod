@@ -7,6 +7,7 @@ import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { LoadingIndicator } from "@/components/application/loading-indicator/loading-indicator";
 import { NativeSelect } from "@/components/base/select/select-native";
+import { Toggle } from "@/components/base/toggle/toggle";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { bancoService } from "@/services/banco.service";
@@ -72,6 +73,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
     const [entidadTarjetaId, setEntidadTarjetaId] = useState("");
     const [numeroTarjeta, setNumeroTarjeta] = useState("");
     const [bancoDestinoId, setBancoDestinoId] = useState("");
+    const [sinEnvioSolicitud, setSinEnvioSolicitud] = useState(false);
     const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
     const [nombre, setNombre] = useState("");
@@ -123,6 +125,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
 
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
+    const isPosSinEnvio = ruta === "pos" && sinEnvioSolicitud;
 
     useEffect(() => {
         if (!isOpen) return;
@@ -131,6 +134,14 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
             setEntidadTarjetaId(String(operation.id_banco_cliente ?? ""));
             setNumeroTarjeta(operation.numero_tarjeta ?? "");
             setBancoDestinoId(String(operation.id_banco_cliente_transferencia ?? ""));
+            setSinEnvioSolicitud(
+                ruta === "pos"
+                && String(operation.nombre_estado ?? "").trim().toUpperCase() === "PAGADO"
+                && operation.id_empresa_salida == null
+                && operation.id_empresa_cuenta_salida == null
+                && operation.id_banco_cliente_transferencia == null
+                && Number(operation.monto_transferencia_cliente ?? 0) === 0,
+            );
             setTipoDocumento(inferTipoDocumentoOperacion(operation.dni_cliente));
             setDni(operation.dni_cliente ?? "");
             setNombre(operation.nombre_cliente ?? "");
@@ -199,7 +210,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
             return;
         }
 
-        if (ruta === "pos" && !bancoDestinoId) {
+        if (ruta === "pos" && !isPosSinEnvio && !bancoDestinoId) {
             addToast("error", "Selecciona el banco al que transferir.");
             return;
         }
@@ -258,6 +269,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                 p_monto_deposito_cliente: amount,
                 p_id_usuario: userId,
                 p_nombre_usuario: userName,
+                p_sin_envio_solicitud: ruta === "pos" ? sinEnvioSolicitud : null,
             });
 
             if (result && "error" in result) {
@@ -351,7 +363,6 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                                 placeholder={clienteId ? "Cliente encontrado" : "Nombre del cliente"}
                                 value={nombre}
                                 onChange={setNombre}
-                                isDisabled={!!clienteId}
                                 className="w-full min-w-0"
                             />
                             <Input
@@ -370,7 +381,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                                 onChange={(value) => setMonto(sanitizeAmountInput(value))}
                                 className="w-full min-w-0"
                             />
-                            {ruta === "pos" && (
+                            {ruta === "pos" && !isPosSinEnvio && (
                                 <NativeSelect
                                     size="sm"
                                     label="Banco Transferir"
@@ -386,6 +397,20 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                                     ]}
                                     className="w-full min-w-0"
                                 />
+                            )}
+                            {ruta === "pos" && (
+                                <div className="flex items-end gap-2">
+                                    <Toggle
+                                        size="sm"
+                                        label="No Enviar Solicitud"
+                                        aria-label="No Enviar Solicitud"
+                                        isSelected={sinEnvioSolicitud}
+                                        onChange={(isSelected) => {
+                                            setSinEnvioSolicitud(isSelected);
+                                            if (isSelected) setBancoDestinoId("");
+                                        }}
+                                    />
+                                </div>
                             )}
                             <div className="relative">
                                 <label className="text-sm font-medium text-primary">Fecha Registro</label>

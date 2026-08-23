@@ -402,6 +402,20 @@ const getUnifiedOperationFlow = (row: Pick<OperacionProceso, "flag_derivado" | "
     if (String(row.ruta_origen ?? "").toLowerCase() === "pos") return "POS" as const;
     return "Efectivizacion" as const;
 };
+const isDerivedOriginForContext = (
+    row: OperacionProceso,
+    activeCompanyId: number | null,
+    activeAccountId: number | null,
+) => {
+    if (!row.flag_derivado || activeCompanyId == null || row.id_empresa_salida_origen == null) return false;
+    if (Number(row.id_empresa_salida_origen) !== Number(activeCompanyId)) return false;
+
+    return (
+        activeAccountId == null ||
+        row.id_empresa_cuenta_salida_origen == null ||
+        Number(row.id_empresa_cuenta_salida_origen) === Number(activeAccountId)
+    );
+};
 const isPagoDeudaDerivable = (row: OperacionProceso) => getPagoDeudaEstadoVisual(row).action === "transferencia";
 const quickActionRuleTabs: BancariaTab[] = ["Efectivizacion", "Unificado", "Derivados", "POS"];
 const toNumber = (value: unknown) => Number(value ?? 0);
@@ -1144,6 +1158,7 @@ export const BancariaOperationalTabs = ({
                 return actionRows
                     .filter((row) => {
                         const flow = getUnifiedOperationFlow(row);
+                        if (action === "Pagar" && isDerivedOriginForContext(row, activeCompanyId, activeAccountId)) return false;
                         return flow === "POS" ? isPosSolicitado(row) : isPendingOperation(row);
                     })
                     .map((row) => row.id);
@@ -1442,12 +1457,7 @@ export const BancariaOperationalTabs = ({
             const canPayEfectivizacionBatch =
                 action === "Pagar" &&
                 estadoPagado &&
-                (currentTab === "Efectivizacion" ||
-                    (currentTab === "Unificado" &&
-                        eligibleIds.every((id) => {
-                            const row = operaciones.find((item) => item.id === id);
-                            return row ? getUnifiedOperationFlow(row) === "Efectivizacion" : false;
-                        })));
+                (currentTab === "Efectivizacion" || currentTab === "Unificado");
 
             if (canPayEfectivizacionBatch) {
                 const result = await operacionesRpcService.patchOperacionPagadoLote({

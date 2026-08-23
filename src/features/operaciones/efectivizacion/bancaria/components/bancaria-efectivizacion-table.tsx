@@ -1112,6 +1112,7 @@ export const BancariaEfectivizacionTable = ({
                                 const rowIsDerivaciones = isUnificado ? rowFlow === "Derivado" : isDerivaciones;
                                 const rowIsPos = isUnificado ? rowFlow === "POS" : mode === "pos";
                                 const rowIsEfectivizacion = !isUnificado || rowFlow === "Efectivizacion";
+                                const displayOperationDate = rowIsPos ? row.fecha_registro : row.fecha_deposito_cliente;
                                 const disabledIngreso = (isUnificado && rowIsDerivaciones) || readOnlyIngreso(row);
                                 const disabledSalida = readOnlySalida(row);
                                 const rowSaving = savingIds.includes(row.id);
@@ -1367,8 +1368,8 @@ export const BancariaEfectivizacionTable = ({
                                         </td>
                                         <td className="px-2 py-2 align-top">
                                             {isPlain ? (
-                                                <span className="text-sm text-secondary">{formatDate(row.fecha_deposito_cliente) || "-"}</span>
-                                            ) : <CompactCellText primary={formatTime(row.fecha_deposito_cliente) || "-"} secondary={formatDate(row.fecha_deposito_cliente)} />}
+                                                <span className="text-sm text-secondary">{formatDate(displayOperationDate) || "-"}</span>
+                                            ) : <CompactCellText primary={formatTime(displayOperationDate) || "-"} secondary={formatDate(displayOperationDate)} />}
                                         </td>
                                                 {!readOnly && <td className="px-2 py-2 text-center align-top">
                                             {!frozenOrigin && <div className="flex items-center justify-center gap-1">

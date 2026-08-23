@@ -5273,9 +5273,12 @@ BEGIN
     IF v_tipo_flujo_pago_deuda IN ('RETORNO', 'RETORNO_DIRECTO', 'DIRECTO_CAJA') THEN
       v_monto_transferencia := 0;
     ELSE
-      v_monto_transferencia := COALESCE(
-        v_op.monto_transferencia_cliente,
-        GREATEST(COALESCE(v_op.monto_deposito_cliente, 0) - COALESCE(v_op.resultado_comision_servicio, 0), 0),
+      v_monto_transferencia := GREATEST(
+        COALESCE(
+          v_op.monto_transferencia_cliente,
+          GREATEST(COALESCE(v_op.monto_deposito_cliente, 0) - COALESCE(v_op.resultado_comision_servicio, 0), 0),
+          0
+        ),
         0
       );
     END IF;
@@ -5320,7 +5323,10 @@ BEGIN
     END IF;
 
     v_id_caja := v_caja_destino.id;
-    v_monto_salida := COALESCE(v_op.monto_transferencia_cliente, v_op.monto_deposito_cliente, 0);
+    v_monto_salida := GREATEST(
+      COALESCE(v_op.monto_transferencia_cliente, v_op.monto_deposito_cliente, 0),
+      0
+    );
     v_monto_gasto := COALESCE(v_op.resultado_comision_banco_salida, 0);
     v_detalle := 'Operacion comercial de salida';
   ELSE
@@ -5332,7 +5338,17 @@ BEGIN
   END IF;
 
   IF v_tipo_movimiento = 'SALIDA' AND v_monto_salida <= 0 THEN
-    RETURN jsonb_build_object('error', 'La operacion no tiene monto de salida para caja.');
+    IF v_existente IS NULL THEN
+      -- Una transferencia cero es un pago valido sin salida financiera.
+      RETURN jsonb_build_object(
+        'id_operacion_proceso', v_op.id,
+        'tipo_movimiento', 'SALIDA',
+        'monto_salida', 0,
+        'monto_gasto', 0,
+        'monto_ganancia', 0,
+        'sin_movimiento', true
+      );
+    END IF;
   END IF;
 
   IF v_existente IS NOT NULL THEN
@@ -6589,6 +6605,7 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_ruta_operacion_kpi'
+  'f_get_tb_ruta_operacion_kpi',
+  'f_post_tb_operacion_caja_desde_proceso'
 )
 ORDER BY n.nspname, p.proname;

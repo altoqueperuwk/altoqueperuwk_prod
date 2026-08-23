@@ -14,7 +14,7 @@ import { operacionesRpcService } from "@/features/operaciones/efectivizacion/sha
 import type { OperacionAsistidaKpi, OperacionProceso, OperacionRuta } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { isAdministrator, isJefeTienda, useAuth } from "@/providers/auth-provider";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
-import { formatDateValue, getPeruDateValue } from "@/features/operaciones/efectivizacion/shared/utils/date";
+import { formatDateValue, getPeruDateValue, toPeruDayEnd, toPeruDayStart } from "@/features/operaciones/efectivizacion/shared/utils/date";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { AsistidaOperationalBoard } from "@/features/operaciones/efectivizacion/asistida/components/asistida-operational-board";
 import { AsistidaSolicitudForm } from "@/features/operaciones/efectivizacion/asistida/components/asistida-solicitud-form";
@@ -57,8 +57,8 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
         if (userId === null) throw new Error("No se encontro el usuario autenticado.");
         const params: Record<string, unknown> = {
             p_ruta: ruta,
-            p_fecha_registro_desde: `${selectedDate}T00:00:00`,
-            p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
+            p_fecha_registro_desde: toPeruDayStart(selectedDate),
+            p_fecha_registro_hasta: toPeruDayEnd(selectedDate),
         };
         if (canViewAllAssisted) params.p_id_usuario_consulta = userId;
         else params.p_id_usuario_solicitud = userId;
@@ -232,8 +232,8 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
 
         const kpiParams: Record<string, unknown> = {
             p_ruta: ruta,
-            p_fecha_registro_desde: `${selectedDate}T00:00:00`,
-            p_fecha_registro_hasta: `${selectedDate}T23:59:59`,
+            p_fecha_registro_desde: toPeruDayStart(selectedDate),
+            p_fecha_registro_hasta: toPeruDayEnd(selectedDate),
         };
         if (canViewAllAssisted) kpiParams.p_id_usuario_consulta = userId;
         else kpiParams.p_id_usuario_solicitud = userId;

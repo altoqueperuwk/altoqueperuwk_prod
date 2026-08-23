@@ -3112,7 +3112,10 @@ BEGIN
       RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida de la operacion.');
     END IF;
 
-    v_monto_requerido := COALESCE(v_actual.monto_transferencia_cliente, v_actual.monto_deposito_cliente, 0);
+    v_monto_requerido := GREATEST(
+      COALESCE(v_actual.monto_transferencia_cliente, v_actual.monto_deposito_cliente, 0),
+      0
+    );
 
     SELECT COALESCE(SUM(c.monto_salida), 0)
     INTO v_salida_abierta
@@ -3133,6 +3136,16 @@ BEGIN
         'monto_requerido', v_monto_requerido
       );
     END IF;
+  END IF;
+
+  IF UPPER(BTRIM(COALESCE(p_nombre_estado, ''))) = 'PAGADO'
+     AND v_actual.monto_transferencia_cliente IS NOT NULL
+     AND v_actual.monto_transferencia_cliente <= 0 THEN
+    UPDATE public.tb_operacion_proceso
+    SET monto_transferencia_cliente = 0,
+        resultado_comision_servicio = 0,
+        resultado_comision_banco_salida = 0
+    WHERE id = p_id;
   END IF;
 
   UPDATE public.tb_operacion_proceso
@@ -3242,7 +3255,7 @@ $$;
 /*
 Funcion: f_patch_tb_operacion_proceso_pagado_lote
 Objetivo:
-  Marcar como pagadas varias operaciones de Efectivizacion en una sola RPC.
+  Marcar como pagadas varias operaciones operativas en una sola RPC.
 
 Reglas:
   - bloquea las filas en un orden estable para evitar carreras entre usuarios;
@@ -3313,16 +3326,23 @@ BEGIN
 
     v_ruta := LOWER(BTRIM(COALESCE(v_actual.ruta_destino, v_actual.ruta_origen, '')));
 
-    IF UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) <> 'EFECTIVIZACION' THEN
+    IF UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) NOT IN ('EFECTIVIZACION', 'POS') THEN
       v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
         'id', v_id,
-        'motivo', 'La operacion no pertenece a Efectivizacion.'
+        'motivo', 'La operacion no pertenece a un flujo pagable en lote.'
       ));
-    ELSIF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) <> 'PENDIENTE'
-       OR v_actual.id_estado = 10 THEN
+    ELSIF (
+        UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) = 'POS'
+        AND UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) NOT IN ('PENDIENTE', 'SOLICITADO')
+      )
+      OR (
+        UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) <> 'POS'
+        AND UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) <> 'PENDIENTE'
+      )
+      OR v_actual.id_estado = 10 THEN
       v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
         'id', v_id,
-        'motivo', 'La operacion ya no se encuentra en estado Pendiente.'
+        'motivo', 'La operacion ya no se encuentra en un estado pagable.'
       ));
     ELSIF v_actual.id_caja_cierre IS NOT NULL THEN
       v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
@@ -3387,7 +3407,7 @@ BEGIN
     FOR UPDATE
   LOOP
     SELECT
-      COALESCE(SUM(COALESCE(op.monto_transferencia_cliente, op.monto_deposito_cliente, 0)), 0),
+      COALESCE(SUM(GREATEST(COALESCE(op.monto_transferencia_cliente, op.monto_deposito_cliente, 0), 0)), 0),
       COALESCE(SUM(COALESCE(salidas.monto_salida, 0)), 0),
       COUNT(*)
     INTO v_monto_requerido, v_salida_abierta, v_cantidad_bloque
@@ -4009,7 +4029,11 @@ BEGIN
     v_resultado := v_resultado + p_comision_monto_extra_servicio;
   END IF;
 
-  v_transferencia := COALESCE(p_monto_deposito_cliente, 0) - COALESCE(v_resultado, 0);
+  -- Una comision mayor al deposito no puede generar una transferencia negativa.
+  v_transferencia := GREATEST(
+    COALESCE(p_monto_deposito_cliente, 0) - COALESCE(v_resultado, 0),
+    0
+  );
 
   RETURN jsonb_build_object(
     'resultado_comision_servicio', ROUND(COALESCE(v_resultado, 0), 2),
@@ -6114,6 +6138,7 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_tb_operacion_retencion_hardcodeada',
+  'f_get_tb_operacion_calculo_comision_servicio',
   'f_get_tb_operacion_proceso',
   'f_post_tb_operacion_proceso',
   'f_post_tb_operacion_proceso_excel',
