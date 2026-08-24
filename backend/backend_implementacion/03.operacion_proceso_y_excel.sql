@@ -209,6 +209,22 @@ ALTER TABLE public.tb_operacion_proceso
 ALTER TABLE public.tb_operacion_proceso
   ADD COLUMN IF NOT EXISTS numero_tarjeta character varying(4);
 
+-- Atribucion independiente del ciclo donde se reconoce el deposito y del
+-- ciclo donde se ejecuta la transferencia. id_caja_cierre se conserva para
+-- compatibilidad con las consultas historicas existentes.
+ALTER TABLE public.tb_operacion_proceso
+  ADD COLUMN IF NOT EXISTS id_caja_cierre_ingreso bigint,
+  ADD COLUMN IF NOT EXISTS id_caja_cierre_salida bigint;
+
+CREATE INDEX IF NOT EXISTS idx_tb_operacion_proceso_kpi_ingreso_cierre
+  ON public.tb_operacion_proceso (id_caja_cierre_ingreso, id_empresa_ingreso, id_empresa_cuenta_ingreso);
+
+CREATE INDEX IF NOT EXISTS idx_tb_operacion_proceso_kpi_salida_cierre
+  ON public.tb_operacion_proceso (id_caja_cierre_salida, id_empresa_salida, id_empresa_cuenta_salida);
+
+CREATE INDEX IF NOT EXISTS idx_tb_operacion_proceso_kpi_estado_ruta
+  ON public.tb_operacion_proceso (ruta_destino, ruta_origen, id_estado, nombre_estado);
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -2871,6 +2887,127 @@ END;
 $$;
 
 /*
+Funcion: f_patch_tb_operacion_proceso_devolver_derivacion
+Objetivo:
+  Devolver una operacion de efectivizacion a la empresa y cuenta que la
+  derivaron originalmente, sin tratar la devolucion como una nueva derivacion.
+
+Reglas:
+  - la operacion debe continuar Pendiente;
+  - solo puede devolverla la empresa/cuenta que actualmente la atiende;
+  - se conserva la metadata *_origen como trazabilidad;
+  - flag_derivado=false indica que la responsabilidad volvio al origen.
+*/
+DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_proceso_devolver_derivacion(
+  bigint, bigint, bigint, bigint, character varying
+);
+
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_devolver_derivacion(
+  p_id bigint,
+  p_id_empresa_actual bigint DEFAULT NULL,
+  p_id_empresa_cuenta_actual bigint DEFAULT NULL,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actual record;
+  v_calc_salida jsonb;
+  v_resultado_comision_banco_salida numeric;
+  v_ruta_actual character varying;
+  v_ruta_origen character varying;
+  v_usuario bigint;
+BEGIN
+  SELECT *
+  INTO v_actual
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_actual.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion no existe.');
+  END IF;
+
+  IF COALESCE(v_actual.monto_deposito_cliente, 0) <= 0 THEN
+    RETURN jsonb_build_object('error', 'La operacion no tiene monto de deposito para caja.');
+  END IF;
+
+  IF UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) <> 'EFECTIVIZACION' THEN
+    RETURN jsonb_build_object('error', 'Solo se pueden devolver operaciones de Efectivizacion.');
+  END IF;
+
+  IF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) <> 'PENDIENTE' THEN
+    RETURN jsonb_build_object('error', 'Solo se pueden devolver operaciones en estado Pendiente.');
+  END IF;
+
+  IF NOT COALESCE(v_actual.flag_derivado, false) THEN
+    RETURN jsonb_build_object('error', 'La operacion no se encuentra derivada.');
+  END IF;
+
+  IF v_actual.id_empresa_salida_origen IS NULL
+     OR v_actual.id_empresa_cuenta_salida_origen IS NULL THEN
+    RETURN jsonb_build_object('error', 'La operacion no tiene una empresa y cuenta de origen validas.');
+  END IF;
+
+  IF p_id_empresa_actual IS NOT NULL
+     AND v_actual.id_empresa_salida IS DISTINCT FROM p_id_empresa_actual THEN
+    RETURN jsonb_build_object('error', 'La operacion no pertenece a la empresa que intenta devolverla.');
+  END IF;
+
+  IF p_id_empresa_cuenta_actual IS NOT NULL
+     AND v_actual.id_empresa_cuenta_salida IS DISTINCT FROM p_id_empresa_cuenta_actual THEN
+    RETURN jsonb_build_object('error', 'La operacion no pertenece a la cuenta que intenta devolverla.');
+  END IF;
+
+  v_calc_salida := public.f_get_tb_operacion_calculo_comision_banco_salida(
+    COALESCE(v_actual.monto_transferencia_cliente, 0),
+    COALESCE(v_actual.comision_transf_banco_salida, 0),
+    COALESCE(v_actual.comision_transf_inter_banco_salida, 0),
+    COALESCE(v_actual.monto_itf_salida, 0),
+    v_actual.id_empresa_salida_origen,
+    v_actual.id_empresa_cuenta_salida_origen,
+    v_actual.id_banco_empresa_cuenta_salida_origen,
+    v_actual.id_banco_empresa_cuenta_salida_origen
+  );
+  v_resultado_comision_banco_salida := (v_calc_salida->>'resultado_comision_banco_salida')::numeric;
+
+  v_ruta_actual := LOWER(BTRIM(COALESCE(v_actual.ruta_destino, v_actual.ruta_origen, '')));
+  v_ruta_origen := LOWER(BTRIM(COALESCE(v_actual.ruta_origen, v_actual.ruta_destino, '')));
+  v_usuario := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario);
+
+  UPDATE public.tb_operacion_proceso
+  SET ruta_destino = COALESCE(v_actual.ruta_origen, v_actual.ruta_destino),
+      id_empresa_salida = v_actual.id_empresa_salida_origen,
+      nombre_empresa_salida = v_actual.nombre_empresa_salida_origen,
+      id_empresa_cuenta_salida = v_actual.id_empresa_cuenta_salida_origen,
+      id_banco_empresa_cuenta_salida = v_actual.id_banco_empresa_cuenta_salida_origen,
+      nombre_banco_empresa_cuenta_salida = v_actual.nombre_banco_empresa_cuenta_salida_origen,
+      id_banco_cliente_transferencia = COALESCE(v_actual.id_banco_empresa_cuenta_salida_origen, v_actual.id_banco_cliente_transferencia),
+      nombre_banco_cliente_transferencia = COALESCE(v_actual.nombre_banco_empresa_cuenta_salida_origen, v_actual.nombre_banco_cliente_transferencia),
+      resultado_comision_banco_salida = COALESCE(v_resultado_comision_banco_salida, resultado_comision_banco_salida),
+      flag_derivado = false,
+      id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+      nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+  WHERE id = p_id;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_actual, v_usuario);
+  IF v_ruta_origen IS DISTINCT FROM v_ruta_actual THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_origen, v_usuario);
+  END IF;
+
+  RETURN (
+    SELECT x
+    FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
+    LIMIT 1
+  );
+END;
+$$;
+
+/*
 Funcion: f_patch_tb_operacion_proceso_retencion
 Objetivo:
   Marcar o desmarcar la retencion de una operacion con trazabilidad propia.
@@ -3067,11 +3204,6 @@ DECLARE
   v_tiene_ingreso boolean := false;
   v_tiene_salida boolean := false;
   v_es_pos boolean := false;
-  v_aplica_validacion_saldo boolean := false;
-  v_caja_salida record;
-  v_saldo_disponible numeric := 0;
-  v_monto_requerido numeric := 0;
-  v_salida_abierta numeric := 0;
 BEGIN
   SELECT *
   INTO v_actual
@@ -3085,58 +3217,12 @@ BEGIN
   END IF;
 
   v_es_pos := UPPER(COALESCE(v_actual.tipo_servicio, '')) = 'POS';
-  v_aplica_validacion_saldo := UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) IN ('EFECTIVIZACION', 'POS');
 
   SELECT id
   INTO v_estado_retenido_id
   FROM public.tb_estado
   WHERE UPPER(nombre) = 'RETENIDO'
   LIMIT 1;
-
-  /*
-    La salida debe validarse antes de marcar la operacion como Pagado.
-    El bloqueo de la caja mantiene consistente esta validacion frente a
-    pagos concurrentes y replica el ajuste de idempotencia de la funcion
-    de movimientos para una salida abierta ya existente.
-  */
-  IF v_aplica_validacion_saldo THEN
-    SELECT c.id, c.saldo_actual
-    INTO v_caja_salida
-    FROM public.tb_caja_operativa c
-    WHERE c.id_empresa = v_actual.id_empresa_salida
-      AND c.id_empresa_cuenta_bancaria = v_actual.id_empresa_cuenta_salida
-    LIMIT 1
-    FOR UPDATE;
-
-    IF v_caja_salida.id IS NULL THEN
-      RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida de la operacion.');
-    END IF;
-
-    v_monto_requerido := GREATEST(
-      COALESCE(v_actual.monto_transferencia_cliente, v_actual.monto_deposito_cliente, 0),
-      0
-    );
-
-    SELECT COALESCE(SUM(c.monto_salida), 0)
-    INTO v_salida_abierta
-    FROM public.tb_operacion_caja c
-    WHERE c.id_operacion_proceso = p_id
-      AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
-      AND c.id_caja = v_caja_salida.id
-      AND c.id_caja_cierre IS NULL;
-
-    v_saldo_disponible := COALESCE(v_caja_salida.saldo_actual, 0) + v_salida_abierta;
-
-    IF v_saldo_disponible < v_monto_requerido THEN
-      RETURN jsonb_build_object(
-        'error', 'Saldo insuficiente en caja actual.',
-        'codigo', 'SALDO_INSUFICIENTE',
-        'id_caja', v_caja_salida.id,
-        'saldo_disponible', v_saldo_disponible,
-        'monto_requerido', v_monto_requerido
-      );
-    END IF;
-  END IF;
 
   IF UPPER(BTRIM(COALESCE(p_nombre_estado, ''))) = 'PAGADO'
      AND v_actual.monto_transferencia_cliente IS NOT NULL
@@ -3278,17 +3364,10 @@ DECLARE
   v_ids bigint[];
   v_id bigint;
   v_actual record;
-  v_caja_salida record;
   v_result jsonb;
   v_actualizadas jsonb := '[]'::jsonb;
   v_detalle jsonb := '[]'::jsonb;
   v_ruta character varying;
-  v_saldo_disponible numeric := 0;
-  v_monto_requerido numeric := 0;
-  v_salida_abierta numeric := 0;
-  v_cantidad_bloque bigint := 0;
-  v_bloqueos_saldo jsonb := '[]'::jsonb;
-  v_bloqueo_saldo jsonb;
   v_rutas character varying[];
   v_ruta_sync character varying;
 BEGIN
@@ -3360,20 +3439,6 @@ BEGIN
         'id', v_id,
         'motivo', 'La operacion no tiene una cuenta operativa valida.'
       ));
-    ELSE
-      SELECT c.id
-      INTO v_caja_salida
-      FROM public.tb_caja_operativa c
-      WHERE c.id_empresa = v_actual.id_empresa_salida
-        AND c.id_empresa_cuenta_bancaria = v_actual.id_empresa_cuenta_salida
-      LIMIT 1;
-
-      IF v_caja_salida.id IS NULL THEN
-        v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
-          'id', v_id,
-          'motivo', 'No existe caja inicial para la empresa y cuenta de salida de la operacion.'
-        ));
-      END IF;
     END IF;
   END LOOP;
 
@@ -3381,81 +3446,6 @@ BEGIN
     RETURN jsonb_build_object(
       'error', 'No se pudo procesar el lote completo.',
       'detalle', v_detalle
-    );
-  END IF;
-
-  /*
-    La validacion del saldo se realiza por bloque y por caja. Primero se
-    bloquean todas las cajas en orden estable; despues se compara la suma de
-    las transferencias de cada caja contra su saldo actual. Asi ninguna
-    operacion del lote puede avanzar parcialmente.
-  */
-  FOR v_caja_salida IN
-    SELECT c.id, c.id_empresa, c.id_empresa_cuenta_bancaria, c.saldo_actual
-    FROM public.tb_caja_operativa c
-    WHERE c.id IN (
-      SELECT DISTINCT cx.id
-      FROM public.tb_operacion_proceso op
-      JOIN public.tb_caja_operativa cx
-        ON cx.id_empresa = op.id_empresa_salida
-       AND cx.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_salida
-      WHERE op.id = ANY(v_ids)
-        AND op.id_empresa_salida IS NOT NULL
-        AND op.id_empresa_cuenta_salida IS NOT NULL
-    )
-    ORDER BY c.id
-    FOR UPDATE
-  LOOP
-    SELECT
-      COALESCE(SUM(GREATEST(COALESCE(op.monto_transferencia_cliente, op.monto_deposito_cliente, 0), 0)), 0),
-      COALESCE(SUM(COALESCE(salidas.monto_salida, 0)), 0),
-      COUNT(*)
-    INTO v_monto_requerido, v_salida_abierta, v_cantidad_bloque
-    FROM public.tb_operacion_proceso op
-    LEFT JOIN LATERAL (
-      SELECT COALESCE(SUM(oc.monto_salida), 0) AS monto_salida
-      FROM public.tb_operacion_caja oc
-      WHERE oc.id_operacion_proceso = op.id
-        AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'SALIDA'
-        AND oc.id_caja = v_caja_salida.id
-        AND oc.id_caja_cierre IS NULL
-    ) salidas ON true
-    WHERE op.id = ANY(v_ids)
-      AND op.id_empresa_salida = v_caja_salida.id_empresa
-      AND op.id_empresa_cuenta_salida = v_caja_salida.id_empresa_cuenta_bancaria;
-
-    v_saldo_disponible := COALESCE(v_caja_salida.saldo_actual, 0) + v_salida_abierta;
-
-    IF v_saldo_disponible < v_monto_requerido THEN
-      v_bloqueos_saldo := v_bloqueos_saldo || jsonb_build_array(jsonb_build_object(
-        'id_caja', v_caja_salida.id,
-        'saldo_disponible', v_saldo_disponible,
-        'monto_requerido', v_monto_requerido,
-        'monto_faltante', v_monto_requerido - v_saldo_disponible,
-        'cantidad_operaciones', v_cantidad_bloque
-      ));
-    END IF;
-  END LOOP;
-
-  IF jsonb_array_length(v_bloqueos_saldo) > 0 THEN
-    IF jsonb_array_length(v_bloqueos_saldo) = 1 THEN
-      v_bloqueo_saldo := v_bloqueos_saldo -> 0;
-
-      RETURN jsonb_build_object(
-        'error', 'Saldo insuficiente para procesar el bloque.',
-        'codigo', 'SALDO_INSUFICIENTE_BLOQUE',
-        'id_caja', v_bloqueo_saldo->'id_caja',
-        'saldo_disponible', v_bloqueo_saldo->'saldo_disponible',
-        'monto_requerido', v_bloqueo_saldo->'monto_requerido',
-        'monto_faltante', v_bloqueo_saldo->'monto_faltante',
-        'cantidad_operaciones', v_bloqueo_saldo->'cantidad_operaciones'
-      );
-    END IF;
-
-    RETURN jsonb_build_object(
-      'error', 'Saldo insuficiente para procesar el bloque.',
-      'codigo', 'SALDO_INSUFICIENTE_BLOQUE',
-      'detalle_cajas', v_bloqueos_saldo
     );
   END IF;
 
@@ -3510,8 +3500,9 @@ Objetivo:
 
 Regla:
   - marca la operacion como Pagado
-  - genera/sincroniza solo el INGRESO
-  - no genera SALIDA ni ganancia normal de efectivizacion
+  - conserva unicamente el monto del deposito como impacto de Caja Actual
+  - no genera movimiento comercial ni afecta recaudacion, ganancias o gastos
+  - limpia retencion, fuera de horario, transferencia y comisiones resultantes
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_directo_caja(
   p_id bigint,
@@ -3526,8 +3517,6 @@ DECLARE
   v_actual record;
   v_estado_pagado_id bigint;
   v_estado_pagado_nombre character varying;
-  v_ruta_kpi character varying;
-  v_ingreso_result jsonb;
 BEGIN
   SELECT *
   INTO v_actual
@@ -3558,26 +3547,25 @@ BEGIN
       id_estado = v_estado_pagado_id,
       nombre_estado = v_estado_pagado_nombre,
       fecha_pagado = COALESCE(fecha_pagado, NOW()),
-      monto_transferencia_cliente = monto_deposito_cliente,
+      monto_transferencia_cliente = 0,
+      comision_servicio = 0,
+      resultado_comision_servicio = 0,
+      resultado_comision_banco_ingreso = 0,
+      resultado_comision_banco_salida = 0,
+      monto_itf_ingreso = 0,
+      monto_itf_salida = 0,
+      flag_retenido = false,
+      fecha_retencion = NULL,
+      id_usuario_retiene = NULL,
+      nombre_usuario_retiene = NULL,
+      motivo_retencion = NULL,
+      flag_fuera_horario = false,
+      fecha_fuera_horario = NULL,
+      id_usuario_fuera_horario = NULL,
+      motivo_fuera_horario = NULL,
       id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = p_id;
-
-  v_ingreso_result := public.f_post_tb_operacion_caja_desde_proceso(
-    p_id_operacion_proceso := p_id,
-    p_tipo_origen := 'OTROS',
-    p_tipo_movimiento := 'INGRESO',
-    p_id_usuario := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario),
-    p_nombre_usuario := COALESCE(p_nombre_usuario_gestor, v_actual.nombre_usuario_gestor, v_actual.nombre_usuario),
-    p_id_estado := v_estado_pagado_id
-  );
-
-  IF v_ingreso_result ? 'error' THEN
-    RETURN v_ingreso_result;
-  END IF;
-
-  v_ruta_kpi := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
-  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario));
 
   RETURN (
     SELECT x
@@ -3595,7 +3583,7 @@ Objetivo:
 Regla:
   - reutiliza la misma funcion individual para conservar la logica actual
   - devuelve los resultados exitosos y los errores por operacion
-  - no cambia estados, montos ni movimientos de la funcion individual
+  - mantiene la misma semantica de Directo para cada operacion
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_directo_caja_lote(
   p_ids_operaciones bigint[],
@@ -3691,14 +3679,24 @@ BEGIN
 
   IF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) = 'PAGADO'
      AND UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) = 'EFECTIVIZACION'
-     AND LOWER(BTRIM(COALESCE(v_actual.ruta_destino, v_actual.ruta_origen, ''))) IN ('banbif', 'scotiabank', 'interbank')
-     AND EXISTS (
-       SELECT 1
-       FROM public.tb_operacion_caja c
-       WHERE c.id_operacion_proceso = p_id
-         AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
-       AND c.id_caja_cierre IS NOT NULL
-       AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+     AND LOWER(BTRIM(COALESCE(v_actual.ruta_destino, v_actual.ruta_origen, ''))) IN ('bcp', 'bbva', 'banbif', 'scotiabank', 'interbank', 'safetypay')
+     AND (
+       EXISTS (
+         SELECT 1
+         FROM public.tb_operacion_caja c
+         WHERE c.id_operacion_proceso = p_id
+           AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
+           AND c.id_caja_cierre IS NOT NULL
+           AND c.tipo_origen <> 'PAGO_DEUDA_COMISION'
+       )
+       OR (
+         v_actual.id_caja_cierre_salida IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM public.tb_operacion_caja c
+           WHERE c.id_operacion_proceso = p_id
+         )
+       )
      )
      AND NOT EXISTS (
        SELECT 1
@@ -3788,8 +3786,10 @@ BEGIN
   WHERE id = p_id;
 
   v_ruta_kpi := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
-  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, v_id_usuario_final);
-  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta_kpi, v_id_usuario_final);
+  IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, v_id_usuario_final);
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta_kpi, v_id_usuario_final);
+  END IF;
 
   RETURN (
     SELECT x
@@ -3840,10 +3840,10 @@ BEGIN
 
   v_ruta := LOWER(BTRIM(COALESCE(v_actual.ruta_destino, v_actual.ruta_origen, '')));
 
-  IF v_ruta NOT IN ('banbif', 'scotiabank', 'interbank')
+  IF v_ruta NOT IN ('bcp', 'bbva', 'banbif', 'scotiabank', 'interbank', 'safetypay')
      OR UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) <> 'EFECTIVIZACION' THEN
     RETURN jsonb_build_object(
-      'error', 'El reinicio post cierre solo aplica a Efectivizacion de BanBif, Scotiabank o Interbank.'
+      'error', 'El reinicio post cierre solo aplica a Efectivizacion de rutas bancarias.'
     );
   END IF;
 
@@ -3855,7 +3855,8 @@ BEGIN
     RETURN jsonb_build_object('error', 'No se puede reiniciar una operacion enlazada a un match de Pago Deuda.');
   END IF;
 
-  IF NOT EXISTS (
+  IF v_actual.id_caja_cierre_salida IS NULL
+     AND NOT EXISTS (
     SELECT 1
     FROM public.tb_operacion_caja c
     WHERE c.id_operacion_proceso = p_id
@@ -3886,17 +3887,118 @@ BEGIN
       fecha_pagado = NULL,
       id_caja_cierre = NULL,
       fecha_caja_cierre = NULL,
+      id_caja_cierre_salida = NULL,
       id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = p_id;
 
-  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta, v_id_usuario_final);
-  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta, v_id_usuario_final);
+  IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta, v_id_usuario_final);
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta, v_id_usuario_final);
+  END IF;
 
   RETURN (
     SELECT x
     FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
     LIMIT 1
+  );
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_operacion_proceso_reanudar_lote
+Objetivo:
+  Reiniciar varias operaciones pagadas en una sola llamada RPC.
+
+Reglas:
+  - reutiliza la funcion individual para conservar todas sus validaciones;
+  - mantiene el resultado parcial por operacion, igual que las acciones masivas existentes;
+  - difiere la sincronizacion de KPI hasta terminar el lote;
+  - procesa los ids en orden estable para reducir carreras entre usuarios.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_reanudar_lote(
+  p_ids_operaciones bigint[],
+  p_id_estado bigint,
+  p_nombre_estado character varying,
+  p_fecha_pendiente timestamp with time zone DEFAULT now(),
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_ids bigint[];
+  v_id bigint;
+  v_result jsonb;
+  v_actualizadas jsonb := '[]'::jsonb;
+  v_errores jsonb := '[]'::jsonb;
+  v_rutas character varying[];
+  v_ruta character varying;
+  v_defer_kpi_sync text;
+BEGIN
+  SELECT array_agg(item.id ORDER BY item.id)
+  INTO v_ids
+  FROM (
+    SELECT DISTINCT value AS id
+    FROM unnest(COALESCE(p_ids_operaciones, ARRAY[]::bigint[])) AS ids(value)
+    WHERE value IS NOT NULL
+  ) item;
+
+  IF COALESCE(array_length(v_ids, 1), 0) = 0 THEN
+    RETURN jsonb_build_object(
+      'cantidad_procesada', 0,
+      'operaciones_actualizadas', '[]'::jsonb,
+      'errores', '[]'::jsonb
+    );
+  END IF;
+
+  SELECT array_agg(ruta ORDER BY ruta)
+  INTO v_rutas
+  FROM (
+    SELECT DISTINCT LOWER(BTRIM(COALESCE(op.ruta_destino, op.ruta_origen, ''))) AS ruta
+    FROM public.tb_operacion_proceso op
+    WHERE op.id = ANY(v_ids)
+      AND NULLIF(BTRIM(COALESCE(op.ruta_destino, op.ruta_origen, '')), '') IS NOT NULL
+  ) rutas;
+
+  v_defer_kpi_sync := current_setting('app.defer_kpi_sync', true);
+  PERFORM set_config('app.defer_kpi_sync', 'on', true);
+
+  FOREACH v_id IN ARRAY v_ids LOOP
+    v_result := public.f_patch_tb_operacion_proceso_reanudar(
+      p_id := v_id,
+      p_id_estado := p_id_estado,
+      p_nombre_estado := p_nombre_estado,
+      p_fecha_pendiente := p_fecha_pendiente,
+      p_id_usuario_gestor := p_id_usuario_gestor,
+      p_nombre_usuario_gestor := p_nombre_usuario_gestor
+    );
+
+    IF v_result IS NULL OR v_result ? 'error' THEN
+      v_errores := v_errores || jsonb_build_array(
+        jsonb_build_object(
+          'id', v_id,
+          'error', COALESCE(v_result ->> 'error', 'No se pudo reiniciar la operacion.')
+        )
+      );
+    ELSE
+      v_actualizadas := v_actualizadas || jsonb_build_array(v_result);
+    END IF;
+  END LOOP;
+
+  PERFORM set_config('app.defer_kpi_sync', COALESCE(NULLIF(v_defer_kpi_sync, ''), 'off'), true);
+
+  FOREACH v_ruta IN ARRAY COALESCE(v_rutas, ARRAY[]::character varying[]) LOOP
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta, p_id_usuario_gestor);
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta, p_id_usuario_gestor);
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'cantidad_procesada', jsonb_array_length(v_actualizadas),
+    'operaciones_actualizadas', v_actualizadas,
+    'errores', v_errores
   );
 END;
 $$;
@@ -6144,11 +6246,14 @@ WHERE p.proname IN (
   'f_post_tb_operacion_proceso_excel',
   'f_post_tb_operacion_proceso_excel_ganancia',
   'f_patch_tb_operacion_proceso_derivacion',
+  'f_patch_tb_operacion_proceso_devolver_derivacion',
   'f_patch_tb_operacion_proceso_retencion',
   'f_patch_tb_operacion_proceso_reanudar',
   'f_patch_tb_operacion_proceso_pagado',
   'f_patch_tb_operacion_proceso_pagado_lote',
+  'f_patch_tb_operacion_proceso_directo_caja',
   'f_patch_tb_operacion_proceso_directo_caja_lote',
+  'f_patch_tb_operacion_proceso_reanudar_lote',
   'f_patch_tb_operacion_proceso_reanudar_post_cierre'
 )
 ORDER BY n.nspname, p.proname;

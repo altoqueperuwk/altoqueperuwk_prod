@@ -28,7 +28,7 @@ import type {
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
-import { getPeruDateValue } from "@/features/operaciones/efectivizacion/shared/utils/date";
+import { getPeruDateValue, getPeruTimestamp } from "@/features/operaciones/efectivizacion/shared/utils/date";
 import { findCodigoServicioForRuta } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { formatMovimientoOrigen, formatMovimientoTipo } from "@/features/operaciones/efectivizacion/shared/utils/movement-labels";
 import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
@@ -64,7 +64,14 @@ const getCajaSelectionKey = (caja: RutaOperacionCaja) => String(caja.id_caja ?? 
 const excludedTransferCompanyIds = new Set([10, 14, 15, 16]);
 const OTHER_COMPANY_VALUE = "__OTRA_EMPRESA__";
 const OTHER_ACCOUNT_VALUE = "__OTRA_CUENTA__";
-const manualDateRoutes = new Set<OperacionRutaBancaria>(["banbif", "scotiabank"]);
+const manualDateRoutes = new Set<OperacionRutaBancaria>([
+    "bcp",
+    "bbva",
+    "banbif",
+    "scotiabank",
+    "interbank",
+    "safetypay",
+]);
 
 const getLimaTime = (date = new Date()) => {
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -178,15 +185,17 @@ const SegmentedControl = ({
 };
 
 const FormActions = ({
+    className,
     isSaving,
     onCancel,
     onSave,
 }: {
+    className?: string;
     isSaving: boolean;
     onCancel: () => void;
     onSave: () => void;
 }) => (
-    <div className="grid grid-cols-2 gap-3 pt-3">
+    <div className={cx("grid grid-cols-2 gap-3 pt-3", className)}>
         <Button
             type="button"
             color="primary"
@@ -737,7 +746,7 @@ export const BancariaInlineForms = ({
         setIsSavingManual(true);
 
         try {
-            const now = new Date().toISOString();
+            const now = getPeruTimestamp();
             const fechaDeposito = allowsManualDepositDate ? getManualDepositTimestamp(manualDepositDate) : now;
             const result = await operacionesRpcService.postOperacionProceso({
                 p_id_codigo_servicio: codigoEfectivizacion.id,
@@ -884,7 +893,7 @@ export const BancariaInlineForms = ({
                 ) : (
                     <InlineFormCard title="Operacion Efectivizacion" actions={activeCajaBadges}>
                         <div className="flex flex-col gap-2">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <Field label="Codigo Operacion">
                                 <CompactInput value={manualCode} onChange={setManualCode} />
                             </Field>
@@ -927,18 +936,34 @@ export const BancariaInlineForms = ({
                                     />
                                 </Field>
                             ) : null}
+                            {allowsManualDepositDate ? (
+                                <FormActions
+                                    className="self-end pt-0"
+                                    isSaving={isSavingManual}
+                                    onCancel={() => {
+                                        setManualCode("");
+                                        setManualTipoDocumento(1);
+                                        setManualDni("");
+                                        setManualAmount("");
+                                        setManualDepositDate(getPeruDateValue());
+                                    }}
+                                    onSave={handleSaveManualOperation}
+                                />
+                            ) : null}
                         </div>
-                        <FormActions
-                            isSaving={isSavingManual}
-                            onCancel={() => {
-                                setManualCode("");
-                                setManualTipoDocumento(1);
-                                setManualDni("");
-                                setManualAmount("");
-                                setManualDepositDate(getPeruDateValue());
-                            }}
-                            onSave={handleSaveManualOperation}
-                        />
+                        {!allowsManualDepositDate ? (
+                            <FormActions
+                                isSaving={isSavingManual}
+                                onCancel={() => {
+                                    setManualCode("");
+                                    setManualTipoDocumento(1);
+                                    setManualDni("");
+                                    setManualAmount("");
+                                    setManualDepositDate(getPeruDateValue());
+                                }}
+                                onSave={handleSaveManualOperation}
+                            />
+                        ) : null}
                         </div>
                     </InlineFormCard>
                 )}

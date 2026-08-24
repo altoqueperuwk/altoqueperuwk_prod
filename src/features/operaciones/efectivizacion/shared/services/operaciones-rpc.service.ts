@@ -10,6 +10,7 @@ import type {
     OperacionProceso,
     RecaudacionOperacionInfo,
     RecaudacionReglaAbono,
+    RutaGananciaEspecial,
     RutaOperacionCaja,
     RutaOperacionKpi,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
@@ -77,6 +78,12 @@ interface OperacionDirectoLoteResult {
     errores?: Array<{ id: number; error: string }>;
 }
 
+interface OperacionReanudarLoteResult {
+    cantidad_procesada: number;
+    operaciones_actualizadas: OperacionProceso[];
+    errores?: Array<{ id: number; error: string }>;
+}
+
 const rpc = async <T>(fn: string, params: Record<string, unknown>): Promise<T> => {
     const { data, error } = await supabase.rpc(fn, params);
 
@@ -109,8 +116,20 @@ export const operacionesRpcService = {
         });
     },
 
+    getRutaKpiOperacionesV2(params: Record<string, unknown>) {
+        return rpc<RutaOperacionKpi[]>("f_get_tb_ruta_operacion_kpi_operaciones_v2", params);
+    },
+
+    getRutaKpiCierreOperacionesV2(params: Record<string, unknown>) {
+        return rpc<RutaOperacionKpi[]>("f_get_tb_ruta_operacion_kpi_cierre_operaciones_v2", params);
+    },
+
     getRutaGananciasEfectivizacion(params: Record<string, unknown>) {
         return rpc<number>("f_get_tb_ruta_operacion_ganancias_efectivizacion", params);
+    },
+
+    getRutaGananciasEfectivizacionV2(params: Record<string, unknown>) {
+        return rpc<RutaGananciaEspecial[]>("f_get_tb_ruta_operacion_ganancias_efectivizacion_v2", params);
     },
 
     getOperacionBandejaBadges(params: Record<string, unknown>) {
@@ -131,6 +150,10 @@ export const operacionesRpcService = {
 
     getOperaciones(params: Record<string, unknown>) {
         return rpc<OperacionProceso[]>("f_get_tb_operacion_proceso", params);
+    },
+
+    getOperacionesBandejaUnificada(params: Record<string, unknown>) {
+        return rpc<OperacionProceso[]>("f_get_tb_operacion_bandeja_unificada", params);
     },
 
     getOperacionAsistidaKpi(params: Record<string, unknown>) {
@@ -224,6 +247,10 @@ export const operacionesRpcService = {
         return rpc<Record<string, unknown>>("f_post_tb_caja_operativa_cierre", params);
     },
 
+    postCajaCierreRuta(params: Record<string, unknown>) {
+        return rpc<Record<string, unknown>>("f_post_tb_caja_operativa_cierre_ruta", params);
+    },
+
     deleteUltimoCierreCajaDia(params: Record<string, unknown>) {
         return rpc<Record<string, unknown>>("f_delete_tb_caja_operativa_cierre_ultimo_dia", params);
     },
@@ -248,6 +275,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_reanudar", params);
     },
 
+    patchOperacionReanudarLote(params: Record<string, unknown>) {
+        return rpc<OperacionReanudarLoteResult>("f_patch_tb_operacion_proceso_reanudar_lote", params);
+    },
+
     patchOperacionReanudarPostCierre(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_reanudar_post_cierre", params);
     },
@@ -270,6 +301,10 @@ export const operacionesRpcService = {
 
     patchOperacionDerivacion(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_derivacion", params);
+    },
+
+    devolverOperacionDerivada(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_devolver_derivacion", params);
     },
 
     patchOperacionUsuario(params: Record<string, unknown>) {

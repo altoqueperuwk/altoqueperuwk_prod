@@ -6,6 +6,29 @@ import type {
     RutaOperacionKpi,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
+const GANANCIAS_ESPECIALES = new Set([
+    "scotiabank:5:33",
+    "scotiabank:8:7",
+    "banbif:7:16",
+]);
+
+const hasGananciaEspecial = (ruta: OperacionRutaBancaria, idEmpresa: number | null, idCuenta: number | null) =>
+    idEmpresa !== null && idCuenta !== null && GANANCIAS_ESPECIALES.has(`${ruta}:${idEmpresa}:${idCuenta}`);
+
+const formatCierreBadge = (value: string | null | undefined) => {
+    if (!value) return null;
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+
+    return `Cierre: ${new Intl.DateTimeFormat("es-PE", {
+        day: "2-digit",
+        month: "2-digit",
+        timeZone: "America/Lima",
+        year: "numeric",
+    }).format(date)}`;
+};
+
 const numberFromSnapshot = (snapshot: Record<string, unknown> | null, key: string) => {
     const value = snapshot?.[key];
     return typeof value === "number" ? value : Number(value ?? 0);
@@ -81,10 +104,26 @@ const mergeKpis = (ruta: OperacionRutaBancaria, rows: RutaOperacionKpi[]): RutaO
         pendiente_depositar: sum("pendiente_depositar"),
         total_efectivizacion: sum("total_efectivizacion"),
         total_pago_deuda: sum("total_pago_deuda"),
+        caja_recaudacion: sum("caja_recaudacion"),
+        pendiente_transferencia: sum("pendiente_transferencia"),
     };
 };
 
-const usesModalidadGanancia = (ruta: OperacionRutaBancaria) => ruta === "scotiabank" || ruta === "banbif";
+// Feature flag de rollback: permite volver a las funciones KPI existentes sin
+// modificar la nueva vía basada directamente en tb_operacion_proceso.
+export const USE_OPERACIONES_KPI_V2 = true;
+
+const getKpiLive = (
+    ruta: OperacionRutaBancaria,
+    idEmpresa: number | null,
+    idEmpresaCuentaBancaria: number | null,
+    idCaja: number | null,
+) => operacionesRpcService.getRutaKpiOperacionesV2({
+    p_ruta: ruta,
+    p_id_empresa: idEmpresa,
+    p_id_empresa_cuenta_bancaria: idEmpresaCuentaBancaria,
+    p_id_caja: idCaja,
+});
 
 export const useBancariaKpis = (
     ruta: OperacionRutaBancaria,
@@ -96,6 +135,7 @@ export const useBancariaKpis = (
     queryRoutes: OperacionRutaBancaria[] = [ruta],
 ) => {
     const [data, setData] = useState<RutaOperacionKpi | null>(null);
+    const [gananciasBadge, setGananciasBadge] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const routes = useMemo(() => Array.from(new Set(queryRoutes.length ? queryRoutes : [ruta])), [queryRoutes, ruta]);
@@ -106,12 +146,13 @@ export const useBancariaKpis = (
         let ignore = false;
 
         setData(null);
+        setGananciasBadge(null);
         setLoadedKey(null);
         setIsLoading(true);
         setError(null);
 
         const request = (() => {
-            if (historyDate && !activeCajaId && !activeCompanyId) return Promise.resolve(null);
+            if (historyDate && !activeCajaId && !activeCompanyId) return Promise.resolve({ kpi: null, gananciasBadge: null });
             if (historyDate) {
                 return operacionesRpcService
                     .getCajaCierres(
@@ -120,49 +161,91 @@ export const useBancariaKpis = (
                             : { p_id_empresa: activeCompanyId },
                     )
                     .then(async (rows) => {
-                        const base = buildHistoryKpi(ruta, rows, historyDate);
-                        if (!base || !usesModalidadGanancia(ruta)) return base;
+                        const filtered = rows.filter((row) => toHistoryDateKey(row.fecha_cierre) === historyDate);
+                        if (!filtered.length) return { kpi: null, gananciasBadge: null };
 
-                        const ganancias = await operacionesRpcService.getRutaGananciasEfectivizacion({
-                            p_ruta: ruta,
-                            p_id_empresa: activeCompanyId,
-                            p_id_empresa_cuenta_bancaria: routes.length === 1 ? activeAccountId : null,
-                            p_fecha_operativa: historyDate,
-                            p_id_caja: activeCajaId,
-                            p_historico: true,
-                        });
+                        if (!USE_OPERACIONES_KPI_V2) {
+                            return { kpi: buildHistoryKpi(ruta, rows, historyDate), gananciasBadge: null };
+                        }
 
-                        return { ...base, ganancias: Number(ganancias ?? 0) };
+                        const groups = await Promise.all(
+                            filtered.map((row) => operacionesRpcService.getRutaKpiCierreOperacionesV2({
+                                p_id_caja_cierre: row.id,
+                                p_ruta: ruta,
+                                p_id_empresa: activeCompanyId,
+                                p_id_empresa_cuenta_bancaria: routes.length === 1 ? activeAccountId : null,
+                            })),
+                        );
+
+                        const base = mergeKpis(ruta, groups.flatMap((group) => group ?? []));
+                        const useSpecialGain = routes.length === 1 && hasGananciaEspecial(ruta, activeCompanyId, activeAccountId);
+                        if (!useSpecialGain) return { kpi: base, gananciasBadge: null };
+
+                        const specialGroups = await Promise.all(
+                            filtered.map((row) => operacionesRpcService.getRutaGananciasEfectivizacionV2({
+                                p_ruta: ruta,
+                                p_id_empresa: activeCompanyId,
+                                p_id_empresa_cuenta_bancaria: activeAccountId,
+                                p_id_caja: activeCajaId,
+                                p_id_caja_cierre: row.id,
+                                p_historico: true,
+                            })),
+                        );
+                        const special = specialGroups.flatMap((group) => group ?? []);
+                        const specialGain = special.reduce((total, row) => total + Number(row.ganancias ?? 0), 0);
+                        const reference = special
+                            .map((row) => row.fecha_cierre_referencia)
+                            .filter((value): value is string => Boolean(value))
+                            .sort()
+                            .pop();
+
+                        return {
+                            kpi: base ? { ...base, ganancias: specialGain } : base,
+                            gananciasBadge: formatCierreBadge(reference),
+                        };
                     });
             }
 
-            return Promise.all(
-                routes.map((item) => operacionesRpcService.getRutaKpi(
-                    item,
-                    activeCompanyId,
-                    routes.length === 1 ? activeAccountId : null,
-                )),
-            ).then(async (groups) => {
-                const base = mergeKpis(ruta, groups.flatMap((group) => group?.[0] ? [group[0]] : []));
-                if (!base || !usesModalidadGanancia(ruta)) return base;
-
-                const ganancias = await operacionesRpcService.getRutaGananciasEfectivizacion({
+            const kpiRequest = Promise.all(
+                routes.map((item) => USE_OPERACIONES_KPI_V2
+                    ? getKpiLive(
+                        item,
+                        activeCompanyId,
+                        routes.length === 1 ? activeAccountId : null,
+                        routes.length === 1 ? activeCajaId : null,
+                    )
+                    : operacionesRpcService.getRutaKpi(
+                        item,
+                        activeCompanyId,
+                        routes.length === 1 ? activeAccountId : null,
+                    )),
+            );
+            const useSpecialGain = routes.length === 1 && hasGananciaEspecial(ruta, activeCompanyId, activeAccountId);
+            const specialRequest = useSpecialGain
+                ? operacionesRpcService.getRutaGananciasEfectivizacionV2({
                     p_ruta: ruta,
                     p_id_empresa: activeCompanyId,
-                    p_id_empresa_cuenta_bancaria: routes.length === 1 ? activeAccountId : null,
-                    p_fecha_operativa: null,
+                    p_id_empresa_cuenta_bancaria: activeAccountId,
                     p_id_caja: activeCajaId,
                     p_historico: false,
-                });
+                })
+                : Promise.resolve([]);
 
-                return { ...base, ganancias: Number(ganancias ?? 0) };
+            return Promise.all([kpiRequest, specialRequest]).then(([groups, special]) => {
+                const base = mergeKpis(ruta, groups.flatMap((group) => group?.[0] ? [group[0]] : []));
+                const specialRow = special[0];
+                return {
+                    kpi: base && specialRow ? { ...base, ganancias: Number(specialRow.ganancias ?? 0) } : base,
+                    gananciasBadge: formatCierreBadge(specialRow?.fecha_cierre_referencia),
+                };
             });
         })();
 
         request
             .then((result) => {
                 if (!ignore) {
-                    setData(result);
+                    setData(result.kpi);
+                    setGananciasBadge(result.gananciasBadge);
                     setLoadedKey(requestKey);
                 }
             })
@@ -178,5 +261,5 @@ export const useBancariaKpis = (
         };
     }, [activeAccountId, activeCajaId, activeCompanyId, historyDate, queryRoutes, refreshKey, requestKey, ruta, routes]);
 
-    return { data, error, isLoading, loadedKey };
+    return { data, error, isLoading, loadedKey, gananciasBadge };
 };

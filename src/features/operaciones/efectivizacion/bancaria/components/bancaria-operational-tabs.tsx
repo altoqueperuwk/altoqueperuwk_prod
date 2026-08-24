@@ -25,6 +25,7 @@ import type {
 import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { CopyableDni } from "@/features/operaciones/efectivizacion/shared/components/copyable-dni";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
+import { getPeruDateValue, getPeruTimestamp } from "@/features/operaciones/efectivizacion/shared/utils/date";
 import { downloadCsv } from "@/features/operaciones/efectivizacion/shared/utils/csv";
 import { isDigitalWalletBank } from "@/features/operaciones/efectivizacion/shared/utils/digital-wallet";
 import { bancariaRouteKeys, getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
@@ -1259,7 +1260,7 @@ export const BancariaOperationalTabs = ({
 
         if (currentTab === "Movimientos") {
             downloadCsv(
-                `${ruta}-${currentTab.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`,
+                `${ruta}-${currentTab.toLowerCase()}-${getPeruDateValue()}.csv`,
                 currentMovementColumns.map((column) => column.label),
                 movimientos.map((row) => currentMovementColumns.map((column) => getExportValue(row, column))),
             );
@@ -1268,7 +1269,7 @@ export const BancariaOperationalTabs = ({
         }
 
         downloadCsv(
-            `${ruta}-${currentTab.toLowerCase().replaceAll(" ", "-")}-${new Date().toISOString().slice(0, 10)}.csv`,
+            `${ruta}-${currentTab.toLowerCase().replaceAll(" ", "-")}-${getPeruDateValue()}.csv`,
             currentOperationColumns.map((column) => column.label),
             operaciones.map((row) => currentOperationColumns.map((column) => getExportValue(row, column))),
         );
@@ -1453,11 +1454,18 @@ export const BancariaOperationalTabs = ({
             if (!eligibleIds.length) return;
 
             const updatedRows: OperacionProceso[] = [];
+            let processedIds = eligibleIds;
+            let batchErrors = 0;
 
             const canPayEfectivizacionBatch =
                 action === "Pagar" &&
                 estadoPagado &&
                 (currentTab === "Efectivizacion" || currentTab === "Unificado");
+
+            const canReanudarOperationBatch =
+                action === "Reiniciar" &&
+                estadoPendiente &&
+                currentTab !== "Pago Deuda";
 
             if (canPayEfectivizacionBatch) {
                 const result = await operacionesRpcService.patchOperacionPagadoLote({
@@ -1468,6 +1476,20 @@ export const BancariaOperationalTabs = ({
                     p_nombre_usuario_gestor: userName,
                 });
                 updatedRows.push(...(result.operaciones_actualizadas ?? []));
+            } else if (canReanudarOperationBatch) {
+                const result = await operacionesRpcService.patchOperacionReanudarLote({
+                    p_ids_operaciones: eligibleIds,
+                    p_id_estado: estadoPendiente.id,
+                    p_nombre_estado: estadoPendiente.nombre,
+                    p_fecha_pendiente: getPeruTimestamp(),
+                    p_id_usuario_gestor: userId,
+                    p_nombre_usuario_gestor: userName,
+                });
+                updatedRows.push(...(result.operaciones_actualizadas ?? []));
+
+                const errors = result.errores ?? [];
+                processedIds = updatedRows.map((row) => row.id);
+                batchErrors = errors.length;
             } else {
                 for (const id of eligibleIds) {
                     if (action === "Pagar" && estadoPagado) {
@@ -1515,9 +1537,16 @@ export const BancariaOperationalTabs = ({
                 }
             }
 
-            removeSelectedIds(eligibleIds);
+            removeSelectedIds(processedIds);
             applyUpdatedRows(updatedRows);
-            addToast("success", `Operaciones actualizadas: ${eligibleIds.length}`);
+            if (batchErrors) {
+                addToast(
+                    "error",
+                    `Se reiniciaron ${processedIds.length} de ${eligibleIds.length} operaciones. No procesadas: ${batchErrors}.`,
+                );
+            } else {
+                addToast("success", `Operaciones actualizadas: ${processedIds.length}`);
+            }
         } catch (err) {
             const message = err instanceof Error ? err.message : "Error al actualizar operaciones.";
             addToast("error", message);
@@ -1638,9 +1667,26 @@ export const BancariaOperationalTabs = ({
                         });
                     } else {
                         const destination = derivationDestinations.find((item) => String(item.id) === value);
-                        saved = await operacionesRpcService.patchOperacionDerivacion(
-                            buildOperacionDerivacionPayload(id, getOperationRoute(operation, ruta), destination ?? value, { userId, userName }),
+                        const isReturnToOrigin = Boolean(
+                            destination &&
+                                operation.flag_derivado === true &&
+                                operation.id_empresa_salida_origen != null &&
+                                operation.id_empresa_cuenta_salida_origen != null &&
+                                Number(destination.id_empresa) === Number(operation.id_empresa_salida_origen) &&
+                                Number(destination.id_empresa_cuenta_bancaria) === Number(operation.id_empresa_cuenta_salida_origen),
                         );
+
+                        saved = isReturnToOrigin
+                            ? await operacionesRpcService.devolverOperacionDerivada({
+                                  p_id: id,
+                                  p_id_empresa_actual: activeCompanyId,
+                                  p_id_empresa_cuenta_actual: activeAccountId,
+                                  p_id_usuario_gestor: userId,
+                                  p_nombre_usuario_gestor: userName,
+                              })
+                            : await operacionesRpcService.patchOperacionDerivacion(
+                                  buildOperacionDerivacionPayload(id, getOperationRoute(operation, ruta), destination ?? value, { userId, userName }),
+                              );
                     }
                     updatedRows.push(saved);
                 }

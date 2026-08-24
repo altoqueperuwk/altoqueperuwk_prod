@@ -684,13 +684,11 @@ AS $$
     GROUP BY id_operacion_efectivizacion
   )
   SELECT jsonb_build_object(
-    'id_operacion_efectivizacion', origen.id,
-    'matches', COALESCE(agrupados.matches, '[]'::jsonb)
+    'id_operacion_efectivizacion', agrupados.id_operacion_efectivizacion,
+    'matches', agrupados.matches
   )
-  FROM operaciones_efectivizacion origen
-  LEFT JOIN candidatos_agrupados agrupados
-    ON agrupados.id_operacion_efectivizacion = origen.id
-  ORDER BY origen.id;
+  FROM candidatos_agrupados agrupados
+  ORDER BY agrupados.id_operacion_efectivizacion;
 $$;
 
 /*
@@ -1941,7 +1939,8 @@ $$;
 Funcion: f_patch_tb_pago_deuda_salida
 Objetivo:
   Confirmar el deposito al cliente desde la operacion bancaria hija. Cambia a
-  Procesado y crea/sincroniza la SALIDA de caja.
+  Procesado y crea/sincroniza la SALIDA de caja. La caja puede quedar con
+  saldo negativo; no se bloquea el paso por falta de saldo disponible.
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_salida(
   p_id_operacion bigint,
@@ -1969,9 +1968,6 @@ DECLARE
   v_id_empresa_salida_final bigint;
   v_id_empresa_cuenta_salida_final bigint;
   v_caja_salida record;
-  v_saldo_disponible numeric := 0;
-  v_monto_requerido numeric := 0;
-  v_salida_abierta numeric := 0;
 BEGIN
   SELECT *
   INTO v_input
@@ -2037,7 +2033,7 @@ BEGIN
     p_id_banco_cliente_transferencia := v_op.id_banco_cliente
   );
 
-  /* Validar el saldo antes de mover la operacion al Paso 2 (Procesado). */
+  /* Mantener el lock y validar que exista la caja, sin bloquear por saldo. */
   SELECT c.id, c.saldo_actual
   INTO v_caja_salida
   FROM public.tb_caja_operativa c
@@ -2048,28 +2044,6 @@ BEGIN
 
   IF v_caja_salida.id IS NULL THEN
     RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida seleccionada.');
-  END IF;
-
-  v_monto_requerido := COALESCE(v_op.monto_deposito_cliente, 0);
-
-  SELECT COALESCE(SUM(c.monto_salida), 0)
-  INTO v_salida_abierta
-  FROM public.tb_operacion_caja c
-  WHERE c.id_operacion_proceso = v_op.id
-    AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
-    AND c.id_caja = v_caja_salida.id
-    AND c.id_caja_cierre IS NULL;
-
-  v_saldo_disponible := COALESCE(v_caja_salida.saldo_actual, 0) + v_salida_abierta;
-
-  IF v_saldo_disponible < v_monto_requerido THEN
-    RETURN jsonb_build_object(
-      'error', 'Saldo insuficiente en caja actual.',
-      'codigo', 'SALDO_INSUFICIENTE',
-      'id_caja', v_caja_salida.id,
-      'saldo_disponible', v_saldo_disponible,
-      'monto_requerido', v_monto_requerido
-    );
   END IF;
 
   SELECT id, nombre

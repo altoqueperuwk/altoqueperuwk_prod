@@ -48,6 +48,14 @@ export interface RutaOperacionKpi {
     id_usuario: number | null;
     nombre_usuario: string | null;
     fecha_registro: string;
+    caja_recaudacion?: number | null;
+    pendiente_transferencia?: number | null;
+}
+
+export interface RutaGananciaEspecial {
+    ganancias: number;
+    id_caja_cierre_referencia: number | null;
+    fecha_cierre_referencia: string | null;
 }
 
 export interface OperacionAsistidaKpi {

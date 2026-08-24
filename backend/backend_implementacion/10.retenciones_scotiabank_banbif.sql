@@ -242,6 +242,123 @@ AS $$
 $$;
 
 /*
+Funcion: f_get_tb_operacion_bandeja_unificada
+Objetivo:
+  Devolver en una sola consulta las operaciones que alimentan el tab
+  Unificado de las rutas bancarias. La retencion se conserva como atributo
+  de la operacion; no cambia el saldo ni decide por si sola la pertenencia a
+  Caja Actual o Caja Recaudacion.
+
+  Esta funcion evita que el frontend tenga que consultar por separado
+  efectivizaciones, derivados recibidos, operaciones de origen y POS.
+  Las funciones anteriores se conservan para compatibilidad y rollback.
+*/
+DROP FUNCTION IF EXISTS public.f_get_tb_operacion_bandeja_unificada(
+  character varying,
+  character varying,
+  bigint,
+  bigint,
+  character varying,
+  character varying,
+  character varying,
+  timestamp with time zone,
+  timestamp with time zone,
+  timestamp with time zone,
+  timestamp with time zone
+);
+
+CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_bandeja_unificada(
+  p_tab character varying,
+  p_ruta character varying,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_filtro_estado character varying DEFAULT NULL,
+  p_codigo_operacion character varying DEFAULT NULL,
+  p_dni_cliente character varying DEFAULT NULL,
+  p_fecha_deposito_desde timestamp with time zone DEFAULT NULL,
+  p_fecha_deposito_hasta timestamp with time zone DEFAULT NULL,
+  p_fecha_caja_cierre_desde timestamp with time zone DEFAULT NULL,
+  p_fecha_caja_cierre_hasta timestamp with time zone DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH args AS (
+    SELECT
+      LOWER(BTRIM(COALESCE(p_ruta, ''))) AS ruta,
+      UPPER(BTRIM(COALESCE(p_filtro_estado, 'TODOS'))) AS filtro_estado,
+      (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL) AS historico
+  )
+  SELECT to_jsonb(op)
+  FROM public.tb_operacion_proceso op
+  CROSS JOIN args a
+  WHERE
+    (
+      (
+        NOT a.historico
+        AND COALESCE(op.id_estado, 0) <> 10
+        AND op.id_caja_cierre IS NULL
+      )
+      OR (
+        a.historico
+        AND op.id_caja_cierre IS NOT NULL
+        AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+        AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN (
+          'PENDIENTE', 'RECHAZADO', 'SOLICITADO', 'PROCESADO'
+        )
+      )
+    )
+    AND (
+      p_codigo_operacion IS NULL
+      OR COALESCE(op.codigo_operacion_deposito_cliente, '') ILIKE '%' || p_codigo_operacion || '%'
+    )
+    AND (
+      p_dni_cliente IS NULL
+      OR COALESCE(op.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%'
+    )
+    AND (p_fecha_deposito_desde IS NULL OR op.fecha_deposito_cliente >= p_fecha_deposito_desde)
+    AND (p_fecha_deposito_hasta IS NULL OR op.fecha_deposito_cliente <= p_fecha_deposito_hasta)
+    AND (
+      a.filtro_estado = 'TODOS'
+      OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = a.filtro_estado
+    )
+    AND (
+      (
+        UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
+        AND COALESCE(op.flag_derivado, false) = false
+        AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
+        AND (p_id_empresa IS NULL OR op.id_empresa_salida = p_id_empresa)
+        AND (p_id_empresa_cuenta_bancaria IS NULL OR op.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
+      )
+      OR (
+        COALESCE(op.flag_derivado, false) = true
+        AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
+        AND (p_id_empresa IS NULL OR op.id_empresa_salida = p_id_empresa)
+        AND (p_id_empresa_cuenta_bancaria IS NULL OR op.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
+      )
+      OR (
+        COALESCE(op.flag_derivado, false) = true
+        AND LOWER(COALESCE(op.ruta_origen, '')) = a.ruta
+        AND (p_id_empresa IS NULL OR COALESCE(op.id_empresa_salida_origen, op.id_empresa_salida) = p_id_empresa)
+        AND (p_id_empresa_cuenta_bancaria IS NULL OR COALESCE(op.id_empresa_cuenta_salida_origen, op.id_empresa_cuenta_salida) = p_id_empresa_cuenta_bancaria)
+      )
+      OR (
+        LOWER(COALESCE(op.ruta_origen, '')) = 'pos'
+        AND LOWER(COALESCE(op.ruta_destino, '')) = a.ruta
+        AND (p_id_empresa IS NULL OR op.id_empresa_salida = p_id_empresa)
+        AND (p_id_empresa_cuenta_bancaria IS NULL OR op.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
+      )
+    )
+  ORDER BY
+    COALESCE(op.fecha_deposito_cliente, op.fecha_registro) ASC,
+    op.fecha_registro ASC,
+    op.id ASC;
+$$;
+
+/*
 Funcion: f_get_tb_operacion_retencion_bandeja_badges
 Objetivo:
   Contar tabs operativos para rutas con retencion, manteniendo retenidos como
@@ -556,6 +673,7 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_tb_operacion_retencion_bandeja',
+  'f_get_tb_operacion_bandeja_unificada',
   'f_get_tb_operacion_retencion_bandeja_badges',
   'f_get_tb_operacion_retencion_empresa_badges'
 )

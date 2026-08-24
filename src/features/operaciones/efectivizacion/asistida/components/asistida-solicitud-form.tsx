@@ -26,7 +26,7 @@ import {
     type TipoDocumentoOperacion,
 } from "@/features/operaciones/efectivizacion/shared/components/documento-input-group";
 import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
-import { formatDateValue, getPeruDateValue } from "@/features/operaciones/efectivizacion/shared/utils/date";
+import { formatDateValue, getPeruDateValue, getPeruTimestamp } from "@/features/operaciones/efectivizacion/shared/utils/date";
 
 interface AsistidaSolicitudFormProps {
     activeCompany: RutaOperacionCaja | null;
@@ -340,7 +340,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         try {
             await handleSaveCliente();
 
-            const now = new Date().toISOString();
+            const now = getPeruTimestamp();
             const result = isPosSinEnvio
                 ? await operacionesRpcService.postOperacionAsistidaPosSinEnvio({
                       p_id_codigo_servicio: servicio.id,

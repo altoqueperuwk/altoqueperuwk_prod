@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import ExcelJS from "exceljs";
 import { AppLayout } from "@/components/application/app-layout";
@@ -37,6 +37,21 @@ interface BancariaPageProps {
     ruta: OperacionRutaBancaria;
 }
 
+const toLimaDateKey = (value: string | Date) => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        day: "2-digit",
+        month: "2-digit",
+        timeZone: "America/Lima",
+        year: "numeric",
+    }).formatToParts(new Date(value));
+
+    const year = parts.find((part) => part.type === "year")?.value ?? "";
+    const month = parts.find((part) => part.type === "month")?.value ?? "";
+    const day = parts.find((part) => part.type === "day")?.value ?? "";
+
+    return `${year}-${month}-${day}`;
+};
+
 export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const [refreshKey, setRefreshKey] = useState(0);
     const [metricsRefreshKey, setMetricsRefreshKey] = useState(0);
@@ -55,8 +70,6 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const [editSaldoInicial, setEditSaldoInicial] = useState("");
     const [isSavingCaja, setIsSavingCaja] = useState(false);
     const [isDownloadOpen, setIsDownloadOpen] = useState(false);
-    const [saldoInicialWarning, setSaldoInicialWarning] = useState<{ companyName: string; accountName: string; saldoInicial: number } | null>(null);
-    const validatedSaldoKeys = useRef(new Set<string>());
     const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
     const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
     const [todayCloseDateKey, setTodayCloseDateKey] = useState<string | null>(null);
@@ -95,7 +108,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             : activeCompanyCajas,
         [activeCompanyCajas, ruta],
     );
-    const { data: kpi, error: kpiError, isLoading: isLoadingKpis, loadedKey: loadedKpiKey } = useBancariaKpis(
+    const { data: kpi, error: kpiError, gananciasBadge, isLoading: isLoadingKpis } = useBancariaKpis(
         activeOperationRoute,
         activeCompanyId,
         activeAccountId,
@@ -104,30 +117,19 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         refreshKey + metricsRefreshKey,
         workspaceRoutes,
     );
-    const currentKpiKey = `${workspaceRoutes.join(",")}:${activeCompanyId ?? ""}:${activeAccountId ?? ""}:${activeCajaId ?? ""}:${selectedHistoryDate ?? ""}`;
 
-    useEffect(() => {
-        if (selectedHistoryDate || !activeCompanyId || !activeAccountId || !kpi || loadedKpiKey !== currentKpiKey) {
-            return;
-        }
-
-        if (validatedSaldoKeys.current.has(currentKpiKey)) {
-            return;
-        }
-
-        validatedSaldoKeys.current.add(currentKpiKey);
-
-        if (Number(kpi.caja_inicial ?? 0) <= 0) {
-            setSaldoInicialWarning({
-                companyName: activeCompanyCaja?.nombre_empresa ?? activeCompany?.nombre_empresa ?? "La empresa seleccionada",
-                accountName: activeCompanyCaja?.nombre_banco ?? routeLabel,
-                saldoInicial: Number(kpi.caja_inicial ?? 0),
-            });
-        }
-    }, [activeCompany, activeCompanyCaja, activeAccountId, activeCajaId, activeCompanyId, currentKpiKey, kpi, loadedKpiKey, routeLabel, selectedHistoryDate]);
     const activeCajaIds = useMemo(
         () => activeCajaId ? [activeCajaId] : [],
         [activeCajaId],
+    );
+    const routeCajaIds = useMemo(
+        () => Array.from(new Set(
+            cajas
+                .filter((caja) => caja.ruta === ruta)
+                .map((caja) => caja.id_caja)
+                .filter((id): id is number => id != null),
+        )),
+        [cajas, ruta],
     );
     const isActiveDigitalWallet = isDigitalWalletBank(activeCompanyCaja);
 
@@ -144,13 +146,8 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             .getCajaCierres({ p_id_caja: cajaId })
             .then((rows) => {
                 if (ignore) return;
-                const today = new Date();
-                const todayKey = [
-                    today.getFullYear(),
-                    String(today.getMonth() + 1).padStart(2, "0"),
-                    String(today.getDate()).padStart(2, "0"),
-                ].join("-");
-                const hasTodayClose = (rows ?? []).some((row) => String(row.fecha_cierre ?? "").slice(0, 10) === todayKey);
+                const todayKey = toLimaDateKey(new Date());
+                const hasTodayClose = (rows ?? []).some((row) => row.fecha_cierre && toLimaDateKey(row.fecha_cierre) === todayKey);
                 setTodayCloseDateKey(hasTodayClose ? todayKey : null);
             })
             .catch(() => {
@@ -255,15 +252,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         const pos = ((data.pos as Record<string, unknown>[]) ?? []);
         const posPendientes = ((data.pos_pendientes as Record<string, unknown>[]) ?? []);
         const movimientos = ((data.movimientos as Record<string, unknown>[]) ?? []);
-        const retenciones = ((data.retenciones as Record<string, unknown>[]) ?? []);
-        const hasRetentionSplit = data.retenciones_pagadas !== undefined || data.retenciones_pendientes !== undefined;
-        const retencionesPagadas = hasRetentionSplit
-            ? ((data.retenciones_pagadas as Record<string, unknown>[]) ?? [])
-            : retenciones.filter((row) => String(row.estado ?? row.nombre_estado ?? "").trim().toLowerCase() === "pagado");
-        const retencionesPendientes = hasRetentionSplit
-            ? ((data.retenciones_pendientes as Record<string, unknown>[]) ?? [])
-            : retenciones.filter((row) => String(row.estado ?? row.nombre_estado ?? "").trim().toLowerCase() !== "pagado");
-        const totalRows = efectivizacion.length + efectivizacionPendientes.length + derivados.length + derivadosPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length + movimientos.length + retencionesPagadas.length + retencionesPendientes.length;
+        const totalRows = efectivizacion.length + efectivizacionPendientes.length + derivados.length + derivadosPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length + movimientos.length;
 
         worksheet.columns = [
             { width: 13 }, { width: 12 }, { width: 12 }, { width: 13 },
@@ -318,12 +307,12 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         const kpiRows = [
             ["Caja Inicial", kpi.caja_inicial],
             ["Caja Actual", kpi.caja_actual],
-            ["Caja Recaudacion", kpi.total_recaudado],
+            ["Caja Recaudacion", kpi.caja_recaudacion ?? kpi.total_recaudado],
             ["Ingresos", kpi.ingresos],
             ["Salidas", kpi.salidas],
             ["Gastos Operacionales", kpi.gastos_operacionales],
             ["Ganancias", kpi.ganancias],
-            ["Retencion Recaudacion", kpi.ingresos_retenidos],
+            ["Pendiente Transferencia", kpi.pendiente_transferencia ?? kpi.pendiente_depositar],
         ];
         kpiRows.forEach(([label, value], index) => {
             const rowIndex = nextRow + Math.floor(index / 4) * 2;
@@ -588,20 +577,6 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             [5, 6],
         );
 
-        const retentionRows = (rows: Record<string, unknown>[]) => rows.map((row) => [
-            text(row.codigo_operacion_deposito_cliente),
-            text(row.dni_cliente),
-            money(row.monto),
-            text(row.estado ?? row.nombre_estado),
-            date(row.fecha_deposito_cliente),
-            date(row.fecha_corte_recaudacion),
-            date(row.fecha_liberacion_abono),
-            text(row.motivo_retencion),
-            "Si",
-        ]);
-        addSection("Recaudacion Retenida - Pagadas", ["Codigo", "DNI", "Monto", "Estado", "Fecha Deposito", "Fecha Corte", "Fecha Abono", "Motivo", "Informativo"], retentionRows(retencionesPagadas), [2]);
-        addSection("Recaudacion Retenida - Pendientes", ["Codigo", "DNI", "Monto", "Estado", "Fecha Deposito", "Fecha Corte", "Fecha Abono", "Motivo", "Informativo"], retentionRows(retencionesPendientes), [2]);
-
         if (!totalRows) {
             worksheet.mergeCells(nextRow, 1, nextRow, 12);
             const empty = worksheet.getCell(nextRow, 1);
@@ -771,13 +746,8 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     };
 
     const handleCloseRoute = () => {
-        if (!activeCompanyCaja) {
-            addToast("error", "Selecciona una empresa antes de cerrar.");
-            return;
-        }
-
-        if (!activeCompanyCaja.id_caja) {
-            addToast("error", "La cuenta activa no tiene caja operativa configurada.");
+        if (!routeCajaIds.length) {
+            addToast("error", "La ruta no tiene cajas operativas configuradas.");
             return;
         }
 
@@ -789,15 +759,15 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         setIsClosing(true);
 
         try {
-            await operacionesRpcService.postCajaCierre({
-                p_id_caja: activeCompanyCaja?.id_caja,
+            const result = await operacionesRpcService.postCajaCierreRuta({
+                p_rutas: [ruta],
                 p_id_usuario: userId,
-                p_kpi_snapshot: kpi ?? null,
             });
+            if (result?.error) throw new Error(String(result.error));
 
             await operacionesRpcService.syncRutaKpiCaja(ruta, userId);
             setRefreshKey((value) => value + 1);
-            addToast("success", "Cierre registrado correctamente.");
+            addToast("success", `Cierre registrado para ${result?.cajas_cerradas ?? routeCajaIds.length} cajas.`);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Error al registrar el cierre.";
             addToast("error", message);
@@ -904,6 +874,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     <div className="xl:col-span-4">
                         <BancariaKpiGrid
                             hasRetentionRule={activeCompanyCaja?.flag_retencion_cuenta === true}
+                            gananciasBadge={gananciasBadge}
                             isLoading={isLoadingKpis}
                             kpi={kpi}
                         />
@@ -1073,7 +1044,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
 
                 <OperacionConfirmModal
                     confirmLabel="Cerrar caja"
-                    description={`Se cerrara la caja de ${activeCompanyCaja?.nombre_empresa ?? activeCompany?.nombre_empresa ?? "la empresa seleccionada"} - ${activeCompanyCaja?.nombre_banco ?? routeLabel}. Esta accion congelara movimientos y resultados del periodo.`}
+                    description={`Se cerraran ${routeCajaIds.length} cajas operativas de la ruta ${routeLabel}. Esta accion congelara movimientos y resultados del periodo para todas las empresas.`}
                     intent="destructive"
                     isLoading={isClosing}
                     isOpen={isCloseConfirmOpen}
@@ -1092,27 +1063,6 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     onConfirm={() => void handleConfirmReopenClose()}
                     title="Reabrir ultimo cierre"
                 />
-
-                <ModalOverlay isOpen={saldoInicialWarning !== null} onOpenChange={(open) => !open && setSaldoInicialWarning(null)}>
-                    <Modal className="max-w-md">
-                        <Dialog>
-                            <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                                <div className="flex flex-col gap-2">
-                                    <h2 className="text-lg font-semibold text-primary">Saldo inicial requerido</h2>
-                                    <p className="text-sm text-tertiary">
-                                        La caja de <span className="font-medium text-primary">{saldoInicialWarning?.companyName}</span> — {saldoInicialWarning?.accountName} tiene un saldo inicial de {formatMoney(saldoInicialWarning?.saldoInicial)}.
-                                    </p>
-                                    <p className="text-sm text-tertiary">
-                                        Ingresa el saldo inicial desde <span className="font-medium text-primary">Configuración &gt; Cajas</span> antes de registrar o procesar operaciones, para evitar errores por saldo negativo.
-                                    </p>
-                                </div>
-                                <div className="mt-6 flex justify-end">
-                                    <Button color="primary" onClick={() => setSaldoInicialWarning(null)}>Entendido</Button>
-                                </div>
-                            </div>
-                        </Dialog>
-                    </Modal>
-                </ModalOverlay>
 
             </div>
         </AppLayout>

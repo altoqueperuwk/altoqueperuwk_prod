@@ -173,8 +173,8 @@ export const BancariaReporteCierre = ({ data }: BancariaReporteCierreProps) => {
                     <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
                         <tbody>
                             <tr>
-                                {["Caja Inicial", "Caja Actual", "Caja Recaudación", "Ingresos", "Salidas", "Gastos Op.", "Ganancias", "Ret. Recaudación"].map((label, i) => {
-                                    const keys = ["caja_inicial", "caja_actual", "total_recaudado", "ingresos", "salidas", "gastos_operacionales", "ganancias", "ingresos_retenidos"];
+                                {["Caja Inicial", "Caja Actual", "Caja Recaudación", "Ingresos", "Salidas", "Gastos Op.", "Ganancias", "Pendiente Transferencia"].map((label, i) => {
+                                    const keys = ["caja_inicial", "caja_actual", "caja_recaudacion", "ingresos", "salidas", "gastos_operacionales", "ganancias", "pendiente_transferencia"];
                                     return (
                                         <td key={i} style={{ padding: "4px 8px", textAlign: "center", border: "1px solid #d1d5db", background: "#f9fafb" }}>
                                             <div style={{ fontSize: 10, color: "#6b7280" }}>{label}</div>

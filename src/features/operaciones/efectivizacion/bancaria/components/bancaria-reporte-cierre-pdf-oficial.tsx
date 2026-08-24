@@ -487,17 +487,9 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
     const pos = data.pos ?? [];
     const posPendientes = data.pos_pendientes ?? [];
     const movimientos = data.movimientos ?? [];
-    const retenciones = data.retenciones ?? [];
-    const hasRetentionSplit = data.retenciones_pagadas !== undefined || data.retenciones_pendientes !== undefined;
-    const retencionesPagadas = hasRetentionSplit
-        ? data.retenciones_pagadas ?? []
-        : retenciones.filter((row) => String(row.estado ?? row.nombre_estado ?? "").trim().toLowerCase() === "pagado");
-    const retencionesPendientes = hasRetentionSplit
-        ? data.retenciones_pendientes ?? []
-        : retenciones.filter((row) => String(row.estado ?? row.nombre_estado ?? "").trim().toLowerCase() !== "pagado");
     const kpi = data.kpi ?? {};
     const totalOperations = efectivizacion.length + efectivizacionPendientes.length + derivados.length + derivadosPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length;
-    const totalRows = totalOperations + movimientos.length + retencionesPagadas.length + retencionesPendientes.length;
+    const totalRows = totalOperations + movimientos.length;
     const hasRows = totalRows > 0;
     const sum = <T,>(rows: T[], selector: (row: T) => number | null | undefined) => rows.reduce((acc, row) => acc + numberValue(selector(row)), 0);
 
@@ -510,13 +502,12 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
                 <div className="kpi-grid">
                     <KpiCard label="Caja Inicial" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_inicial} />
                     <KpiCard label="Caja Actual" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_actual} />
-                    <KpiCard label="Caja Recaudación" tags={["Efectivización", "Pago Deuda"]} value={kpi.total_recaudado} tone="green" />
+                    <KpiCard label="Caja Recaudación" tags={["Efectivización", "Pago Deuda"]} value={kpi.caja_recaudacion ?? kpi.total_recaudado} tone="green" />
                     <KpiCard label="Ingresos" tags={["Movimientos"]} value={kpi.ingresos} tone="green" />
-                    <KpiCard label="Fuera de Horario" tags={["Efectivizacion"]} value={kpi.fuera_horario} tone="green" />
+                    <KpiCard label="Ganancias" tags={["Efectivización", "Pago Deuda"]} value={kpi.ganancias} tone="green" />
                     <KpiCard label="Salidas" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.salidas} tone="coral" />
                     <KpiCard label="Gastos Operacionales" tags={["Efectivización", "Pago Deuda"]} value={kpi.gastos_operacionales} tone="coral" />
-                    <KpiCard label="Ganancias" tags={["Efectivización", "Pago Deuda"]} value={kpi.ganancias} tone="green" />
-                    <KpiCard label="Retención Recaudación" tags={["Efectivización", "Pago Deuda"]} value={kpi.ingresos_retenidos} tone="green" />
+                    <KpiCard label="Pendiente Transferencia" tags={["Efectivización", "Pago Deuda"]} value={kpi.pendiente_transferencia ?? kpi.pendiente_depositar} />
                 </div>
 
                 {efectivizacion.length > 0 && (
@@ -596,24 +587,6 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
                         <SectionHeader title="Movimientos" count={movimientos.length} />
                         <Table headers={["Origen", "Movimiento", "DNI", "Empresa", "Cuenta", "Ingreso", "Salida", "Facturacion", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={5}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(movimientos, (row) => row.monto_ingreso))}</FooterCell><FooterCell numeric>{formatMoney(sum(movimientos, (row) => row.monto_salida))}</FooterCell><FooterCell colSpan={2} /></tr>}>
                             {movimientos.map((row, index) => <tr key={index}><Cell>{movementOrigin(row.tipo_origen)}</Cell><Cell>{movementType(row.tipo_movimiento)}</Cell><Cell>{valueOrDash(row.dni_cliente)}</Cell><Cell>{movementRelatedCompany(row)}</Cell><Cell>{movementRelatedBank(row)}</Cell><Cell numeric>{formatMoney(row.monto_ingreso)}</Cell><Cell numeric>{formatMoney(row.monto_salida)}</Cell><Cell>{valueOrDash(row.tipo_facturacion)}</Cell><Cell>{formatDate(row.fecha_registro)}</Cell></tr>)}
-                        </Table>
-                    </section>
-                )}
-
-                {retencionesPagadas.length > 0 && (
-                    <section>
-                        <SectionHeader title="Recaudacion Retenida - Pagadas" count={retencionesPagadas.length} />
-                        <Table headers={["Codigo", "DNI", "Monto", "Estado", "Fecha Deposito", "Fecha Corte", "Fecha Abono", "Motivo", "Informativo"]} footer={<tr className="total-row"><FooterCell colSpan={2}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(retencionesPagadas, (row) => row.monto))}</FooterCell><FooterCell colSpan={6} /></tr>}>
-                            {retencionesPagadas.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.codigo_operacion_deposito_cliente)}</Cell><Cell>{valueOrDash(row.dni_cliente)}</Cell><Cell numeric>{formatMoney(row.monto)}</Cell><Cell>{valueOrDash(row.estado ?? row.nombre_estado)}</Cell><Cell>{formatDateTime(row.fecha_deposito_cliente)}</Cell><Cell>{formatDateTime(row.fecha_corte_recaudacion)}</Cell><Cell>{formatDateTime(row.fecha_liberacion_abono)}</Cell><Cell>{valueOrDash(row.motivo_retencion)}</Cell><Cell>Si</Cell></tr>)}
-                        </Table>
-                    </section>
-                )}
-
-                {retencionesPendientes.length > 0 && (
-                    <section>
-                        <SectionHeader title="Recaudacion Retenida - Pendientes" count={retencionesPendientes.length} />
-                        <Table headers={["Codigo", "DNI", "Monto", "Estado", "Fecha Deposito", "Fecha Corte", "Fecha Abono", "Motivo", "Informativo"]} footer={<tr className="total-row"><FooterCell colSpan={2}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(retencionesPendientes, (row) => row.monto))}</FooterCell><FooterCell colSpan={6} /></tr>}>
-                            {retencionesPendientes.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.codigo_operacion_deposito_cliente)}</Cell><Cell>{valueOrDash(row.dni_cliente)}</Cell><Cell numeric>{formatMoney(row.monto)}</Cell><Cell>{valueOrDash(row.estado ?? row.nombre_estado)}</Cell><Cell>{formatDateTime(row.fecha_deposito_cliente)}</Cell><Cell>{formatDateTime(row.fecha_corte_recaudacion)}</Cell><Cell>{formatDateTime(row.fecha_liberacion_abono)}</Cell><Cell>{valueOrDash(row.motivo_retencion)}</Cell><Cell>Si</Cell></tr>)}
                         </Table>
                     </section>
                 )}

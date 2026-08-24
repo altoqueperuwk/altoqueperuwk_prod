@@ -482,34 +482,7 @@ export const useBancariaBandeja = ({
         setError(null);
 
         const request = tab === "Unificado"
-            ? Promise.all([
-                  retentionRoutes.has(ruta)
-                      ? operacionesRpcService.getOperacionesRetencionBandeja({ ...retentionParams, p_tab: "Efectivizacion" })
-                      : operacionesRpcService.getOperaciones(params),
-                  operacionesRpcService.getOperaciones({
-                      ...params,
-                      p_tipo_servicio: undefined,
-                      p_ruta_destino: ruta,
-                      p_flag_derivado: true,
-                  }),
-                  operacionesRpcService.getOperaciones({
-                      ...params,
-                      p_tipo_servicio: undefined,
-                      p_ruta_origen: "pos",
-                      p_ruta_destino: ruta,
-                      p_flag_retenido: false,
-                      p_flag_derivado: undefined,
-                  }),
-                  operacionesRpcService.getOperaciones({
-                      ...params,
-                      p_tipo_servicio: undefined,
-                      p_ruta_origen: ruta,
-                      p_ruta_destino: undefined,
-                      p_flag_derivado: true,
-                      p_id_empresa_salida: undefined,
-                      p_id_empresa_cuenta_salida: undefined,
-                  }),
-              ])
+            ? operacionesRpcService.getOperacionesBandejaUnificada({ ...retentionParams, p_tab: "UNIFICADO" })
             : tab === "Movimientos"
             ? operacionesRpcService.getMovimientos({
                   p_id_caja: activeCajaId || undefined,
@@ -547,9 +520,7 @@ export const useBancariaBandeja = ({
             .then(async (result) => {
                 if (ignore) return;
                 if (tab === "Unificado") {
-                    const parts = result as [unknown, unknown, unknown, unknown];
-                    const rows = sortOperacionesChronologically(parts
-                        .flatMap((part) => (part ?? []) as OperacionProceso[])
+                    const rows = sortOperacionesChronologically(((result ?? []) as OperacionProceso[])
                         .filter((row, index, all) => all.findIndex((item) => item.id === row.id) === index)
                         .filter((row) => matchesCurrentOperacionView(row)));
                     setOperaciones((current) => reconcileRows(current, rows));

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronLeft, ChevronRight, Coins01, Copy01, CreditCardCheck, Edit03, Percent01, RefreshCcw02, Send01, Trash01 } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
@@ -120,6 +120,34 @@ const isFrozenOriginOperation = (
         row.id_empresa_cuenta_salida_origen == null ||
         Number(row.id_empresa_cuenta_salida_origen) === Number(activeAccountId)
     );
+};
+const isDerivedReceiverOperation = (
+    row: OperacionProceso,
+    activeCompanyId: number | null,
+    activeAccountId: number | null,
+) => {
+    if (
+        row.flag_derivado !== true ||
+        activeCompanyId == null ||
+        row.id_empresa_salida == null ||
+        Number(row.id_empresa_salida) !== Number(activeCompanyId)
+    ) {
+        return false;
+    }
+
+    const matchesDestinationAccount = activeAccountId == null
+        ? true
+        : row.id_empresa_cuenta_salida == null || Number(row.id_empresa_cuenta_salida) === Number(activeAccountId);
+    if (!matchesDestinationAccount) return false;
+
+    const matchesOrigin = Number(row.id_empresa_salida_origen) === Number(activeCompanyId)
+        && (
+            activeAccountId != null
+                ? row.id_empresa_cuenta_salida_origen == null || Number(row.id_empresa_cuenta_salida_origen) === Number(activeAccountId)
+                : Number(row.id_empresa_cuenta_salida) === Number(row.id_empresa_cuenta_salida_origen)
+        );
+
+    return !matchesOrigin;
 };
 const isFrozenPaidOperation = (
     row: OperacionProceso,
@@ -287,6 +315,7 @@ export const BancariaEfectivizacionTable = ({
     } | null>(null);
     const [recurringByOperation, setRecurringByOperation] = useState<Record<number, ClienteComisionRecurrente>>({});
     const [pagoDeudaMatches, setPagoDeudaMatches] = useState<Record<number, OperacionProceso[]>>({});
+    const pagoDeudaMatchCache = useRef(new Map<number, { fingerprint: string; matches: OperacionProceso[] }>());
     const [pdMatchRow, setPdMatchRow] = useState<OperacionProceso | null>(null);
     const [pdSelectedMatchId, setPdSelectedMatchId] = useState<number | null>(null);
     const [interbankTransfer, setInterbankTransfer] = useState<{ row: OperacionProceso; value: string } | null>(null);
@@ -297,6 +326,8 @@ export const BancariaEfectivizacionTable = ({
     const isPlain = presentation === "plain";
     const showPagination = mode !== "unificado";
     const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+    const savingIdSet = useMemo(() => new Set(savingIds), [savingIds]);
 
     useEffect(() => {
         setRows(data);
@@ -340,7 +371,7 @@ export const BancariaEfectivizacionTable = ({
     const visibleIds = visibleRows
         .filter((row) => !isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId))
         .map((row) => row.id);
-    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIdSet.has(id));
     const showTipoDeposito = tipoDepositoVisibleRoutes.includes(ruta);
     const isUnificado = mode === "unificado";
     const isDerivaciones = mode === "derivaciones";
@@ -385,6 +416,16 @@ export const BancariaEfectivizacionTable = ({
         }
 
         let ignore = false;
+        const commitMatches = (nextMatches: Record<number, OperacionProceso[]>) => {
+            setPagoDeudaMatches((current) => {
+                const currentIds = Object.keys(current);
+                const nextIds = Object.keys(nextMatches);
+                if (currentIds.length !== nextIds.length) return nextMatches;
+
+                const isSame = nextIds.every((id) => current[Number(id)] === nextMatches[Number(id)]);
+                return isSame ? current : nextMatches;
+            });
+        };
         const matchRows = rows.filter((row) =>
             mode !== "unificado" || (!row.flag_derivado && String(row.ruta_origen ?? "").toLowerCase() !== "pos"),
         );
@@ -394,13 +435,42 @@ export const BancariaEfectivizacionTable = ({
             return;
         }
 
-        const matchesById: Record<number, OperacionProceso[]> = Object.fromEntries(
-            matchRows.map((row) => [row.id, [] as OperacionProceso[]]),
-        );
-        const candidateRows = matchRows.filter((row) => !isPagado(row) && !row.tipo_flujo_pago_deuda);
+        const matchesById: Record<number, OperacionProceso[]> = {};
+        const fingerprintById = new Map<number, string>();
+        const candidateRows: OperacionProceso[] = [];
+
+        for (const row of matchRows) {
+            const fingerprint = JSON.stringify([
+                row.id,
+                row.dni_cliente,
+                row.monto_deposito_cliente,
+                row.fecha_deposito_cliente,
+                row.nombre_estado,
+                row.tipo_flujo_pago_deuda,
+                row.id_caja_cierre,
+            ]);
+            fingerprintById.set(row.id, fingerprint);
+
+            const cached = pagoDeudaMatchCache.current.get(row.id);
+            if (cached?.fingerprint === fingerprint) {
+                matchesById[row.id] = cached.matches;
+            } else {
+                matchesById[row.id] = [];
+            }
+
+            if (!isPagado(row) && !row.tipo_flujo_pago_deuda && cached?.fingerprint !== fingerprint) {
+                candidateRows.push(row);
+            }
+        }
+
+        const visibleMatchIds = new Set(matchRows.map((row) => row.id));
+        for (const operationId of pagoDeudaMatchCache.current.keys()) {
+            if (!visibleMatchIds.has(operationId)) pagoDeudaMatchCache.current.delete(operationId);
+        }
+
+        commitMatches(matchesById);
 
         if (!candidateRows.length) {
-            setPagoDeudaMatches(matchesById);
             return;
         }
 
@@ -412,9 +482,18 @@ export const BancariaEfectivizacionTable = ({
                 for (const entry of entries ?? []) {
                     const operationId = Number(entry.id_operacion_efectivizacion);
                     if (!Number.isFinite(operationId)) continue;
-                    matchesById[operationId] = Array.isArray(entry.matches) ? entry.matches : [];
+                    const matches = Array.isArray(entry.matches) ? entry.matches : [];
+                    matchesById[operationId] = matches;
+                    const fingerprint = fingerprintById.get(operationId);
+                    if (fingerprint) pagoDeudaMatchCache.current.set(operationId, { fingerprint, matches });
                 }
-                setPagoDeudaMatches(matchesById);
+                for (const row of candidateRows) {
+                    const fingerprint = fingerprintById.get(row.id);
+                    if (fingerprint && !pagoDeudaMatchCache.current.has(row.id)) {
+                        pagoDeudaMatchCache.current.set(row.id, { fingerprint, matches: matchesById[row.id] ?? [] });
+                    }
+                }
+                commitMatches(matchesById);
             })
             .catch(() => {
                 if (!ignore) setPagoDeudaMatches({});
@@ -596,8 +675,12 @@ export const BancariaEfectivizacionTable = ({
         }
     };
 
-    const readOnlyIngreso = (row: OperacionProceso) => isDerivaciones || isEliminados || isFrozenTableOperation(row, mode, activeCompanyId, activeAccountId) || savingIds.includes(row.id);
-    const readOnlySalida = (row: OperacionProceso) => isEliminados || isFrozenTableOperation(row, mode, activeCompanyId, activeAccountId) || savingIds.includes(row.id);
+    const readOnlyIngreso = (row: OperacionProceso) =>
+        (isDerivaciones && !isDerivedReceiverOperation(row, activeCompanyId, activeAccountId)) ||
+        isEliminados ||
+        isFrozenTableOperation(row, mode, activeCompanyId, activeAccountId) ||
+        savingIdSet.has(row.id);
+    const readOnlySalida = (row: OperacionProceso) => isEliminados || isFrozenTableOperation(row, mode, activeCompanyId, activeAccountId) || savingIdSet.has(row.id);
 
     const handleDniEditSave = async () => {
         if (!dniEdit) return;
@@ -636,7 +719,7 @@ export const BancariaEfectivizacionTable = ({
             visibleIds.forEach((id) => onToggleRow(id));
             return;
         }
-        visibleIds.filter((id) => !selectedIds.includes(id)).forEach((id) => onToggleRow(id));
+        visibleIds.filter((id) => !selectedIdSet.has(id)).forEach((id) => onToggleRow(id));
     };
 
     const handleRowClick = (event: MouseEvent<HTMLTableRowElement>, row: OperacionProceso, isSaving: boolean) => {
@@ -671,7 +754,7 @@ export const BancariaEfectivizacionTable = ({
     };
 
     const openManualCommission = (row: OperacionProceso, type: ManualCommissionType) => {
-        if (isPagado(row) || savingIds.includes(row.id)) return;
+        if (isPagado(row) || savingIdSet.has(row.id)) return;
         setManualCommission({
             row,
             type,
@@ -733,7 +816,7 @@ export const BancariaEfectivizacionTable = ({
     };
 
     const openRecurringCommission = async (row: OperacionProceso, type: RecurringCommissionType) => {
-        if (mode !== "efectivizacion" || isPagado(row) || row.flag_retenido || isFrozenTableOperation(row, mode, activeCompanyId, activeAccountId) || savingIds.includes(row.id)) return;
+        if (mode !== "efectivizacion" || isPagado(row) || row.flag_retenido || isFrozenTableOperation(row, mode, activeCompanyId, activeAccountId) || savingIdSet.has(row.id)) return;
         try {
             const clientId = await resolveClienteId(row);
             if (!clientId) {
@@ -1113,9 +1196,11 @@ export const BancariaEfectivizacionTable = ({
                                 const rowIsPos = isUnificado ? rowFlow === "POS" : mode === "pos";
                                 const rowIsEfectivizacion = !isUnificado || rowFlow === "Efectivizacion";
                                 const displayOperationDate = rowIsPos ? row.fecha_registro : row.fecha_deposito_cliente;
-                                const disabledIngreso = (isUnificado && rowIsDerivaciones) || readOnlyIngreso(row);
+                                const disabledIngreso =
+                                    (isUnificado && rowIsDerivaciones && !isDerivedReceiverOperation(row, activeCompanyId, activeAccountId)) ||
+                                    readOnlyIngreso(row);
                                 const disabledSalida = readOnlySalida(row);
-                                const rowSaving = savingIds.includes(row.id);
+                                const rowSaving = savingIdSet.has(row.id);
                                 const tipoOptions = tipoDepositoOptions(row);
                                 const commissionState = commissionActionState(row);
                                 const pdDisabled = rowSaving || isPagado(row) || !(pagoDeudaMatches[row.id]?.length);
@@ -1124,11 +1209,11 @@ export const BancariaEfectivizacionTable = ({
                                 return (
                                     <motion.tr
                                         key={row.id}
-                                        layout
                                         className={cx(
+                                            isUnificado && "[content-visibility:auto] [contain-intrinsic-size:0_64px]",
                                             frozenPaid && "bg-secondary grayscale opacity-75",
                                             hasSelection && !rowSaving && !frozenRow && "cursor-pointer transition-colors hover:bg-primary_hover",
-                                            selectedIds.includes(row.id) && !frozenRow && "bg-warning-primary/20 hover:bg-warning-primary/30",
+                                            selectedIdSet.has(row.id) && !frozenRow && "bg-warning-primary/20 hover:bg-warning-primary/30",
                                         )}
                                         initial={{ opacity: 0, y: 4 }}
                                         animate={{ opacity: 1, y: 0 }}
@@ -1142,7 +1227,7 @@ export const BancariaEfectivizacionTable = ({
                                                 <Checkbox
                                                     aria-label={`Seleccionar ${row.id}`}
                                                     data-prevent-row-select
-                                                    isSelected={selectedIds.includes(row.id)}
+                                                    isSelected={selectedIdSet.has(row.id)}
                                                     isDisabled={rowSaving}
                                                     onChange={() => onToggleRow?.(row.id)}
                                                 />
@@ -1535,11 +1620,11 @@ export const BancariaEfectivizacionTable = ({
                             </div>
 
                             <div className="mt-6 flex justify-end gap-2">
-                                <Button color="secondary" isDisabled={manualCommission ? savingIds.includes(manualCommission.row.id) : false} onClick={() => setManualCommission(null)}>
+                                <Button color="secondary" isDisabled={manualCommission ? savingIdSet.has(manualCommission.row.id) : false} onClick={() => setManualCommission(null)}>
                                     Cancelar
                                 </Button>
                                 <Button
-                                    isLoading={manualCommission ? savingIds.includes(manualCommission.row.id) : false}
+                                    isLoading={manualCommission ? savingIdSet.has(manualCommission.row.id) : false}
                                     onClick={() => void handleManualCommissionSave()}
                                 >
                                     Guardar
@@ -1578,10 +1663,10 @@ export const BancariaEfectivizacionTable = ({
                                 />
                             </div>
                             <div className="mt-6 flex justify-end gap-2">
-                                <Button color="secondary" isDisabled={recurringCommission ? savingIds.includes(recurringCommission.row.id) : false} onClick={() => setRecurringCommission(null)}>
+                                <Button color="secondary" isDisabled={recurringCommission ? savingIdSet.has(recurringCommission.row.id) : false} onClick={() => setRecurringCommission(null)}>
                                     Cancelar
                                 </Button>
-                                <Button isLoading={recurringCommission ? savingIds.includes(recurringCommission.row.id) : false} onClick={() => void handleRecurringCommissionSave()}>
+                                <Button isLoading={recurringCommission ? savingIdSet.has(recurringCommission.row.id) : false} onClick={() => void handleRecurringCommissionSave()}>
                                     Guardar
                                 </Button>
                             </div>
@@ -1649,8 +1734,8 @@ export const BancariaEfectivizacionTable = ({
                                     Cancelar
                                 </Button>
                                 <Button
-                                    isDisabled={!pdSelectedMatchId || (pdMatchRow ? savingIds.includes(pdMatchRow.id) : false)}
-                                    isLoading={pdMatchRow ? savingIds.includes(pdMatchRow.id) : false}
+                                    isDisabled={!pdSelectedMatchId || (pdMatchRow ? savingIdSet.has(pdMatchRow.id) : false)}
+                                    isLoading={pdMatchRow ? savingIdSet.has(pdMatchRow.id) : false}
                                     onClick={() => void handleSavePagoDeudaMatch()}
                                 >
                                     Guardar
@@ -1711,8 +1796,8 @@ export const BancariaEfectivizacionTable = ({
                             <div className="mt-6 flex justify-end gap-2">
                                 <Button color="secondary" onClick={() => setInterbankTransfer(null)}>Cancelar</Button>
                                 <Button
-                                    isDisabled={!interbankTransfer?.value || (interbankTransfer ? savingIds.includes(interbankTransfer.row.id) : false)}
-                                    isLoading={interbankTransfer ? savingIds.includes(interbankTransfer.row.id) : false}
+                                    isDisabled={!interbankTransfer?.value || (interbankTransfer ? savingIdSet.has(interbankTransfer.row.id) : false)}
+                                    isLoading={interbankTransfer ? savingIdSet.has(interbankTransfer.row.id) : false}
                                     onClick={() => void handleInterbankTransferSave()}
                                 >
                                     Guardar
@@ -1725,7 +1810,7 @@ export const BancariaEfectivizacionTable = ({
             <OperacionConfirmModal
                 confirmLabel={confirmCopy?.confirmLabel}
                 description={confirmCopy?.description ?? ""}
-                isLoading={confirmAction ? savingIds.includes(confirmAction.row.id) : false}
+                isLoading={confirmAction ? savingIdSet.has(confirmAction.row.id) : false}
                 isOpen={confirmAction !== null}
                 onClose={() => setConfirmAction(null)}
                 onConfirm={() => void handleConfirmAction()}

@@ -20,7 +20,7 @@ import type {
 import { CompactBadgeLine } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
-import { toPeruDayEnd, toPeruDayStart } from "@/features/operaciones/efectivizacion/shared/utils/date";
+import { getPeruTimestamp, toPeruDayEnd, toPeruDayStart } from "@/features/operaciones/efectivizacion/shared/utils/date";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { cx } from "@/utils/cx";
 import { LinkPagoEditModal } from "@/features/operaciones/efectivizacion/asistida/components/linkpago-edit-modal";
@@ -283,8 +283,8 @@ const buildEstadoPayload = (
     p_id: id,
     p_id_estado: estado.id,
     p_nombre_estado: estado.nombre,
-    p_fecha_pagado: estado.nombre.toUpperCase() === "PAGADO" ? new Date().toISOString() : null,
-    p_fecha_pendiente: estado.nombre.toUpperCase() !== "PAGADO" ? new Date().toISOString() : null,
+    p_fecha_pagado: estado.nombre.toUpperCase() === "PAGADO" ? getPeruTimestamp() : null,
+    p_fecha_pendiente: estado.nombre.toUpperCase() !== "PAGADO" ? getPeruTimestamp() : null,
     p_id_usuario_gestor: user.userId,
     p_nombre_usuario_gestor: user.userName,
 });

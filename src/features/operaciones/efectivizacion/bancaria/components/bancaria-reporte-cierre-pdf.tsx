@@ -97,8 +97,9 @@ const typography = {
 const numberValue = (value: number | null | undefined) => Number(value ?? 0);
 const valueOrDash = (value?: string | number | null) => value === null || value === undefined || value === "" ? "-" : String(value);
 const formatPercent = (value?: number | null) => `${new Intl.NumberFormat("es-PE", { maximumFractionDigits: 2 }).format(numberValue(value))}%`;
-const formatDate = (value?: string | null) => value ? new Date(value).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" }) : "-";
-const formatGeneratedAt = () => new Date().toLocaleString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const peruTimeZone = "America/Lima";
+const formatDate = (value?: string | null) => value ? new Date(value).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", timeZone: peruTimeZone, year: "numeric" }) : "-";
+const formatGeneratedAt = () => new Date().toLocaleString("es-PE", { day: "2-digit", hour: "2-digit", minute: "2-digit", month: "2-digit", timeZone: peruTimeZone, year: "numeric" });
 const formatReportDate = (value?: string | null) => value ? formatDate(value) : formatDate(new Date().toISOString());
 
 const kpiValue = (value?: number, isCount = false) => isCount ? formatInteger(value ?? 0) : formatMoney(value ?? 0);
@@ -216,13 +217,12 @@ export const BancariaReporteCierrePdf = ({ data }: BancariaReporteCierrePdfProps
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginBottom: 6 }}>
                     <KpiCard label="Caja Inicial" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_inicial} />
                     <KpiCard label="Caja Actual" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_actual} />
-                    <KpiCard label="Caja Recaudación" tags={["Efectivización", "Pago Deuda"]} value={kpi.total_recaudado} tone="green" />
+                    <KpiCard label="Caja Recaudación" tags={["Efectivización", "Pago Deuda"]} value={kpi.caja_recaudacion ?? kpi.total_recaudado} tone="green" />
                     <KpiCard label="Ingresos" tags={["Movimientos"]} value={kpi.ingresos} tone="green" />
-                    <KpiCard label="Fuera de Horario" tags={["Efectivizacion"]} value={kpi.fuera_horario} tone="green" />
+                    <KpiCard label="Ganancias" tags={["Efectivización", "Pago Deuda"]} value={kpi.ganancias} tone="green" />
                     <KpiCard label="Salidas" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.salidas} tone="coral" />
                     <KpiCard label="Gastos Operacionales" tags={["Efectivización", "Pago Deuda"]} value={kpi.gastos_operacionales} tone="coral" />
-                    <KpiCard label="Ganancias" tags={["Efectivización", "Pago Deuda"]} value={kpi.ganancias} tone="green" />
-                    <KpiCard label="Retención Recaudación" tags={["Efectivización", "Pago Deuda"]} value={kpi.ingresos_retenidos} tone="green" />
+                    <KpiCard label="Pendiente Transferencia" tags={["Efectivización", "Pago Deuda"]} value={kpi.pendiente_transferencia ?? kpi.pendiente_depositar} />
                 </div>
 
                 {efectivizacion.length > 0 && (

@@ -349,22 +349,22 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
         setIsManagingCajas(true);
     };
 
-    const reconcileCaja = async () => {
+    const saveCajaInicial = async () => {
         if (!reconciliationCaja?.id) return;
-        const saldoBanco = parseMoney(saldoBancarioDraft);
-        if (saldoBanco === null || saldoBanco < 0) {
-            addToast("error", "Ingresa un saldo bancario mayor o igual a cero.");
+        const saldoInicial = parseMoney(saldoBancarioDraft);
+        if (saldoInicial === null || saldoInicial < 0) {
+            addToast("error", "Ingresa una caja inicial mayor o igual a cero.");
             return;
         }
 
         setIsReconciling(true);
         try {
-            await cajaOperativaService.reconcileSaldoBancario({
+            await cajaOperativaService.patchSaldoInicial({
                 p_id_caja: reconciliationCaja.id,
-                p_saldo_banco: saldoBanco,
+                p_saldo_inicial: saldoInicial,
                 p_id_usuario: userId,
             });
-            addToast("success", "Saldo bancario conciliado correctamente.");
+            addToast("success", "Caja inicial registrada correctamente.");
             closeReconciliation();
             await loadCajas();
             setSelectedCajaId(reconciliationCaja.id);
@@ -376,10 +376,8 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
         }
     };
 
-    const reconciliationSaldoActual = reconciliationCaja ? parseMoney(reconciliationCaja.saldo_actual) ?? 0 : 0;
-    const reconciliationSaldoBanco = parseMoney(saldoBancarioDraft);
-    const reconciliationDifference = reconciliationSaldoBanco === null ? null : reconciliationSaldoBanco - reconciliationSaldoActual;
-    const canReconcile = reconciliationSaldoBanco !== null && reconciliationSaldoBanco >= 0;
+    const saldoInicialDraft = parseMoney(saldoBancarioDraft);
+    const canSaveCajaInicial = saldoInicialDraft !== null && saldoInicialDraft >= 0;
 
     const requestClose = () => {
         if (hasPendingChanges) {
@@ -641,7 +639,7 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
                     <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
                         <div className="flex items-start justify-between gap-4">
                             <div>
-                                <h2 className="text-lg font-semibold text-primary">Conciliar saldo con banca</h2>
+                                <h2 className="text-lg font-semibold text-primary">Caja Inicial</h2>
                                 <p className="mt-1 text-sm text-tertiary">
                                     {reconciliationCaja?.nombre_empresa} - {reconciliationCaja?.nombre_banco}
                                 </p>
@@ -650,12 +648,8 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
                         </div>
 
                         <div className="mt-5 grid gap-4">
-                            <div className="rounded-lg border border-secondary bg-secondary p-3">
-                                <p className="text-xs font-medium uppercase text-tertiary">Saldo actual del sistema</p>
-                                <p className="mt-1 text-lg font-semibold tabular-nums text-primary">S/ {formatMoney(reconciliationSaldoActual)}</p>
-                            </div>
                             <label className="grid gap-1.5">
-                                <span className="text-sm font-medium text-primary">Saldo según banca</span>
+                                <span className="text-sm font-medium text-primary">Caja Inicial</span>
                                 <Input
                                     autoFocus
                                     type="text"
@@ -665,24 +659,13 @@ export const OperacionCajasRutaModal = ({ isOpen, onClose, onSaved, ruta, active
                                     placeholder="S/ 0.00"
                                 />
                             </label>
-                            <div className="rounded-lg border border-secondary p-3">
-                                <p className="text-xs font-medium uppercase text-tertiary">Resultado</p>
-                                <p className="mt-1 text-sm font-semibold tabular-nums text-primary">
-                                    {reconciliationDifference === null
-                                        ? "Ingresa el saldo de la banca."
-                                        : reconciliationDifference === 0
-                                            ? "La caja ya coincide con la banca."
-                                            : `${reconciliationDifference > 0 ? "Ingreso" : "Salida"} administrativo: S/ ${formatMoney(Math.abs(reconciliationDifference))}`}
-                                </p>
-                            </div>
                         </div>
 
-                        <div className="mt-5 flex justify-between gap-3">
-                            <Button size="sm" color="tertiary" isDisabled={isReconciling} onClick={manageCajas}>Administrar cajas</Button>
+                        <div className="mt-5 flex justify-end gap-3">
                             <div className="flex gap-3">
                             <Button size="sm" color="secondary" isDisabled={isReconciling} onClick={closeReconciliation}>Cancelar</Button>
-                            <Button size="sm" color="primary" isDisabled={!canReconcile} isLoading={isReconciling} onClick={() => void reconcileCaja()}>
-                                Aplicar conciliación
+                            <Button size="sm" color="primary" isDisabled={!canSaveCajaInicial} isLoading={isReconciling} onClick={() => void saveCajaInicial()}>
+                                Guardar Caja Inicial
                             </Button>
                             </div>
                         </div>
