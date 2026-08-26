@@ -254,6 +254,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         };
         const reportFileName = getReportFileName(data).replace(/\.pdf$/i, ".xlsx");
         const kpi = (data.kpi ?? {}) as Record<string, number>;
+        const saldoBanco = Number(kpi.caja_inicial ?? 0) + Number(kpi.ingresos ?? 0) - Number(kpi.salidas ?? 0);
         const efectivizacion = ((data.efectivizacion as Record<string, unknown>[]) ?? []);
         const efectivizacionPendientes = ((data.efectivizacion_pendientes as Record<string, unknown>[]) ?? []);
         const derivados = ((data.derivados as Record<string, unknown>[]) ?? []);
@@ -318,6 +319,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         const kpiRows = [
             ["Caja Inicial", kpi.caja_inicial],
             ["Caja Actual", kpi.caja_actual],
+            ["Saldo Banco", saldoBanco],
             ["Caja Recaudacion", kpi.caja_recaudacion ?? kpi.total_recaudado],
             ["Ingresos", kpi.ingresos],
             ["Salidas", kpi.salidas],
@@ -337,7 +339,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 numFmt: '"S/ "#,##0.00',
             });
         });
-        nextRow += 5;
+        nextRow += 7;
 
         const addSection = (
             sectionTitle: string,
