@@ -402,6 +402,7 @@ BEGIN
       AND rc.id_estado = 1
       AND ecb.id_estado = 1
       AND e.id_estado = 1
+      AND LOWER(COALESCE(rc.ruta, '')) <> 'safetypay'
       AND (p_id_empresa_destino IS NULL OR rc.id_empresa = p_id_empresa_destino)
       AND (p_id_empresa_destino IS NOT NULL OR rc.flag_caja_ingreso_principal = true)
     ORDER BY e.nombre ASC, rc.id ASC
@@ -1309,6 +1310,7 @@ BEGIN
       AND rc.id_estado = 1
       AND e.id_estado = 1
       AND ecb.id_estado = 1
+      AND LOWER(COALESCE(rc.ruta, '')) <> 'safetypay'
     LIMIT 1
     FOR UPDATE OF rc;
 
@@ -1342,6 +1344,7 @@ BEGIN
       AND ecb.id_estado = 1
       AND ecb.id_banco = COALESCE(p_id_banco_destino, v_actual.id_banco_cliente_transferencia)
       AND rc.flag_caja_ingreso_principal = true
+      AND LOWER(COALESCE(rc.ruta, '')) <> 'safetypay'
     LIMIT 1;
 
     IF v_id_empresa_salida IS NULL THEN
