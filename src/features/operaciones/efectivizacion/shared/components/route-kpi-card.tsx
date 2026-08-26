@@ -5,11 +5,21 @@ interface RouteKpiCardProps {
     badges?: readonly string[];
     isLoading?: boolean;
     label: string;
+    secondaryLabel?: string;
+    secondaryValue?: string;
     valueClassName?: string;
     value: string;
 }
 
-export const RouteKpiCard = ({ badges = [], isLoading = false, label, value, valueClassName = "text-primary" }: RouteKpiCardProps) => {
+export const RouteKpiCard = ({
+    badges = [],
+    isLoading = false,
+    label,
+    secondaryLabel,
+    secondaryValue,
+    value,
+    valueClassName = "text-primary",
+}: RouteKpiCardProps) => {
     return (
         <motion.div
             initial={{ opacity: 0, y: 6 }}
@@ -23,8 +33,14 @@ export const RouteKpiCard = ({ badges = [], isLoading = false, label, value, val
             ) : (
                 <>
                     <p className={cx("mt-2 truncate text-xl font-semibold", valueClassName)}>{value}</p>
+                    {secondaryValue ? (
+                        <div className="mt-1 flex min-w-0 items-baseline gap-1 text-xs text-tertiary">
+                            {secondaryLabel ? <span className="truncate">{secondaryLabel}:</span> : null}
+                            <span className="truncate font-semibold text-secondary">{secondaryValue}</span>
+                        </div>
+                    ) : null}
                     {badges.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1.5">
+                        <div className={cx("flex flex-wrap gap-1.5", secondaryValue ? "mt-2" : "mt-3")}>
                             {badges.map((badge) => (
                                 <span
                                     key={badge}

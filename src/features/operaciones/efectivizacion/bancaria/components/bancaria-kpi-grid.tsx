@@ -11,9 +11,17 @@ interface BancariaKpiGridProps {
 }
 
 export const BancariaKpiGrid = ({ gananciasBadge, isLoading = false, kpi }: BancariaKpiGridProps) => {
+    const cajaActualCalculada = (kpi?.caja_inicial ?? 0) + (kpi?.ingresos ?? 0) - (kpi?.salidas ?? 0);
     const cards = [
         { label: "Caja Inicial", value: formatMoney(kpi?.caja_inicial), valueClassName: "text-primary", badges: ["Efectivizacion", "Pago Deuda", "Otros"] },
-        { label: "Caja Actual", value: formatMoney(kpi?.caja_actual), valueClassName: "text-primary", badges: ["Efectivizacion", "Pago Deuda", "Otros"] },
+        {
+            label: "Caja Actual",
+            value: formatMoney(kpi?.caja_actual),
+            secondaryLabel: "Saldo Banco",
+            secondaryValue: formatMoney(cajaActualCalculada),
+            valueClassName: "text-primary",
+            badges: ["Efectivizacion", "Pago Deuda", "Otros"],
+        },
         { label: "Caja Recaudación", value: formatMoney(kpi?.caja_recaudacion ?? kpi?.total_recaudado), valueClassName: "text-concept-ingreso", badges: ["Efectivizacion", "Pago Deuda"] },
         { label: "Ingresos", value: formatMoney(kpi?.ingresos), valueClassName: "text-concept-ingreso", badges: ["Otros"] },
         {
@@ -35,6 +43,8 @@ export const BancariaKpiGrid = ({ gananciasBadge, isLoading = false, kpi }: Banc
                     isLoading={isLoading}
                     key={card.label}
                     label={card.label}
+                    secondaryLabel={"secondaryLabel" in card ? card.secondaryLabel : undefined}
+                    secondaryValue={"secondaryValue" in card ? card.secondaryValue : undefined}
                     value={card.value}
                     valueClassName={card.valueClassName}
                 />

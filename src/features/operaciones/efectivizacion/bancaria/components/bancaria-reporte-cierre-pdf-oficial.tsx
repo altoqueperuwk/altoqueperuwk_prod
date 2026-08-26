@@ -488,6 +488,7 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
     const posPendientes = data.pos_pendientes ?? [];
     const movimientos = data.movimientos ?? [];
     const kpi = data.kpi ?? {};
+    const saldoBanco = Number(kpi.caja_inicial ?? 0) + Number(kpi.ingresos ?? 0) - Number(kpi.salidas ?? 0);
     const totalOperations = efectivizacion.length + efectivizacionPendientes.length + derivados.length + derivadosPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length;
     const totalRows = totalOperations + movimientos.length;
     const hasRows = totalRows > 0;
@@ -500,6 +501,7 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
                 <ReportHeader data={data} totalRows={totalOperations} />
                 <SectionHeader title={data.empresa ?? "Empresa"} badge={data.banco ?? "Banco"} />
                 <div className="kpi-grid">
+                    <KpiCard label="Saldo Banco" tags={["Caja Inicial + Ingresos - Salidas"]} value={saldoBanco} />
                     <KpiCard label="Caja Inicial" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_inicial} />
                     <KpiCard label="Caja Actual" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_actual} />
                     <KpiCard label="Caja Recaudación" tags={["Efectivización", "Pago Deuda"]} value={kpi.caja_recaudacion ?? kpi.total_recaudado} tone="green" />
