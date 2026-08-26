@@ -10,9 +10,19 @@ import type {
 interface BancariaHistoryDropdownProps {
     activeCajaIds?: number[];
     activeCompany: RutaOperacionCaja | null;
+    selectedClosureId?: number | null;
     selectedDate: string | null;
+    onClosureChange?: (selection: { id: number; date: string } | null) => void;
     onDateChange: (date: string | null) => void;
     onSelectedDateAvailabilityChange?: (isAvailable: boolean) => void;
+}
+
+interface ClosureOption {
+    id: string;
+    closureId: number | null;
+    dateKey: string;
+    label: string;
+    supportingText?: string;
 }
 
 const toDateKey = (value: string) => {
@@ -35,23 +45,32 @@ const formatClosureDate = (dateKey: string) => {
     return `${day}/${month}/${year}`;
 };
 
-const getClosureDates = (items: CajaOperativaCierre[]) => {
-    const uniqueDates = new Map<string, CajaOperativaCierre>();
+const getClosureOptions = (items: CajaOperativaCierre[]): ClosureOption[] => {
+    const uniqueItems = new Map<number, CajaOperativaCierre>();
 
     for (const item of items) {
-        const dateKey = toDateKey(item.fecha_cierre);
-        if (!uniqueDates.has(dateKey)) uniqueDates.set(dateKey, item);
+        if (!uniqueItems.has(item.id)) uniqueItems.set(item.id, item);
     }
 
-    return Array.from(uniqueDates.entries())
-        .map(([dateKey]) => ({ id: dateKey, label: formatClosureDate(dateKey) }))
-        .sort((a, b) => b.id.localeCompare(a.id));
+    const closures = Array.from(uniqueItems.values()).sort((a, b) => {
+        const dateDifference = new Date(b.fecha_cierre).getTime() - new Date(a.fecha_cierre).getTime();
+        return dateDifference || b.id - a.id;
+    });
+    return closures.map((item) => {
+        const dateKey = toDateKey(item.fecha_cierre);
+        const dateLabel = formatClosureDate(dateKey);
+        const label = dateLabel;
+
+        return { id: String(item.id), closureId: item.id, dateKey, label };
+    });
 };
 
 export const BancariaHistoryDropdown = ({
     activeCajaIds = [],
     activeCompany,
+    selectedClosureId,
     selectedDate,
+    onClosureChange,
     onDateChange,
     onSelectedDateAvailabilityChange,
 }: BancariaHistoryDropdownProps) => {
@@ -59,21 +78,28 @@ export const BancariaHistoryDropdown = ({
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    const dateOptions = useMemo(() => getClosureDates(items), [items]);
+    const closureOptions = useMemo(() => getClosureOptions(items), [items]);
+    const activeCajaLabel = "Sin Cierre de Caja";
     const selectItems = useMemo(() => {
-        const options = [...dateOptions];
+        const options = [...closureOptions];
 
-        if (selectedDate && !options.some((item) => item.id === selectedDate)) {
-            options.unshift({ id: selectedDate, label: formatClosureDate(selectedDate) });
+        if (selectedClosureId && !options.some((item) => item.closureId === selectedClosureId)) {
+            options.unshift({
+                id: String(selectedClosureId),
+                closureId: selectedClosureId,
+                dateKey: selectedDate ?? "",
+                label: selectedDate ? formatClosureDate(selectedDate) : `Cierre ${selectedClosureId}`,
+            });
         }
 
-        return [{ id: "hoy", label: "Hoy" }, ...options];
-    }, [dateOptions, selectedDate]);
+        return [{ id: "sin-cierre", closureId: null, dateKey: "", label: activeCajaLabel }, ...options];
+    }, [activeCajaLabel, closureOptions, selectedClosureId, selectedDate]);
 
     useEffect(() => {
         if (!activeCompany) {
             setItems([]);
             onDateChange(null);
+            onClosureChange?.(null);
             return;
         }
 
@@ -106,7 +132,7 @@ export const BancariaHistoryDropdown = ({
         return () => {
             ignore = true;
         };
-    }, [activeCajaIds, activeCompany, onDateChange]);
+    }, [activeCajaIds, activeCompany, onClosureChange, onDateChange]);
 
     useEffect(() => {
         if (!selectedDate) {
@@ -121,30 +147,47 @@ export const BancariaHistoryDropdown = ({
 
         if (isLoading) return;
 
-        onSelectedDateAvailabilityChange?.(dateOptions.some((item) => item.id === selectedDate));
-    }, [activeCompany, dateOptions, isLoading, onSelectedDateAvailabilityChange, selectedDate]);
+        onSelectedDateAvailabilityChange?.(closureOptions.some((item) => item.dateKey === selectedDate));
+    }, [activeCompany, closureOptions, isLoading, onSelectedDateAvailabilityChange, selectedDate]);
 
     const handleSelectionChange = (key: Key | null) => {
         const value = key ? String(key) : null;
-        onDateChange(value === "hoy" ? null : value);
+        if (value === "sin-cierre" || !value) {
+            onDateChange(null);
+            onClosureChange?.(null);
+            return;
+        }
+
+        const option = closureOptions.find((item) => item.id === value);
+        onDateChange(option?.dateKey ?? null);
+        onClosureChange?.(option?.closureId != null ? { id: option.closureId, date: option.dateKey } : null);
     };
+
+    const selectedKey = selectedClosureId
+        ? String(selectedClosureId)
+        : selectedDate
+            ? (closureOptions.find((item) => item.dateKey === selectedDate)?.id ?? selectedDate)
+            : "sin-cierre";
 
     return (
         <Select
             aria-label="Historial de cierres"
-            className="w-48"
+            className="w-48 max-w-[calc(100vw-2rem)]"
             isDisabled={!activeCompany || isLoading || Boolean(error)}
             items={selectItems}
-            placeholder={isLoading ? "Cargando..." : "Hoy"}
+            placeholder={isLoading ? "Cargando..." : "Sin Cierre de Caja"}
             popoverClassName="max-h-[18.75rem] overflow-y-auto"
-            selectedKey={selectedDate ?? "hoy"}
+            selectedKey={selectedKey}
             size="sm"
             onSelectionChange={handleSelectionChange}
         >
             {(item) => (
-                <Select.Item id={item.id} selectionIndicator={item.id === "hoy" ? "none" : "checkmark"}>
-                    {item.label}
-                </Select.Item>
+                <Select.Item
+                    id={item.id}
+                    label={item.label}
+                    supportingText={undefined}
+                    selectionIndicator={item.id === "sin-cierre" ? "none" : "checkmark"}
+                />
             )}
         </Select>
     );

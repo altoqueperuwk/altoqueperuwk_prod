@@ -1464,8 +1464,9 @@ $$;
 Funcion: f_get_tb_ruta_operacion_ganancias_efectivizacion_v2
 Objetivo:
   Calcular la ganancia especial de Efectivizacion para las cuentas Scotiabank
-  y BanBif con atribucion separada entre el ultimo cierre y los pagos
-  posteriores. No modifica cajas, movimientos, cierres ni KPI materializados.
+  y BanBif usando fecha_deposito_cliente como clave de agrupacion. El cierre
+  solo identifica las fechas de deposito del ciclo; no se usa como clave de
+  la ganancia. No modifica cajas, movimientos, cierres ni KPI materializados.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_ganancias_efectivizacion_v2(
   p_ruta character varying,
@@ -1520,55 +1521,81 @@ WITH cuentas_especiales(ruta, id_empresa, id_empresa_cuenta_bancaria, id_banco) 
       p_id_empresa_cuenta_bancaria IS NULL
       OR p_id_empresa_cuenta_bancaria = e.id_empresa_cuenta_bancaria
     )
-), operaciones AS (
+), operaciones_base AS (
   SELECT
     op.*,
     ctx.id_caja_cierre AS cierre_referencia,
     ctx.fecha_cierre AS fecha_cierre_referencia,
-    CASE
-      WHEN COALESCE(p_historico, false) THEN
-        op.id_caja_cierre_ingreso = ctx.id_caja_cierre
-        OR (
-          op.id_caja_cierre_ingreso IS NULL
-          AND op.id_caja_cierre_salida IS NULL
-          AND op.id_caja_cierre = ctx.id_caja_cierre
-        )
-      ELSE
-        (
-          op.id_caja_cierre_ingreso = ctx.id_caja_cierre
-          OR (
-            op.id_caja_cierre_ingreso IS NULL
-            AND op.id_caja_cierre_salida IS NULL
-            AND op.id_caja_cierre = ctx.id_caja_cierre
-          )
-        )
-    END AS pertenece
+    (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date AS fecha_deposito_lima,
+    (
+      op.id_caja_cierre_ingreso = ctx.id_caja_cierre
+      OR op.id_caja_cierre_salida = ctx.id_caja_cierre
+      OR (
+        op.id_caja_cierre_ingreso IS NULL
+        AND op.id_caja_cierre_salida IS NULL
+        AND op.id_caja_cierre = ctx.id_caja_cierre
+      )
+    ) AS pertenece_cierre
   FROM public.tb_operacion_proceso op
   JOIN contexto_base ctx
     ON ctx.id_empresa = op.id_empresa_ingreso
    AND ctx.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_ingreso
    AND op.id_banco_empresa_cuenta_ingreso = ctx.id_banco
   WHERE UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'EFECTIVIZACION'
-    AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+    AND UPPER(BTRIM(COALESCE(op.nombre_tipo_deposito, ''))) IN (
+      'MISMO DIA', 'MISMO DÍA', 'DIA SIGUIENTE', 'DÍA SIGUIENTE'
+    )
+    AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
     AND op.fecha_deposito_cliente IS NOT NULL
-    AND op.fecha_pagado IS NOT NULL
     AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN (
       'DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO'
     )
+), fechas_referencia AS (
+  SELECT DISTINCT
+    o.fecha_deposito_lima
+  FROM operaciones_base o
+  WHERE o.pertenece_cierre
+), operaciones_ganancia AS (
+  SELECT o.*
+  FROM operaciones_base o
+  WHERE UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PAGADO'
+    AND o.fecha_pagado IS NOT NULL
+    AND EXISTS (
+      SELECT 1
+      FROM fechas_referencia f
+      WHERE f.fecha_deposito_lima = o.fecha_deposito_lima
+    )
+    AND CASE
+      WHEN COALESCE(p_historico, false) THEN
+        o.pertenece_cierre
+        AND (
+          UPPER(BTRIM(COALESCE(o.nombre_tipo_deposito, ''))) IN ('MISMO DIA', 'MISMO DÍA')
+          OR o.fecha_pagado <= o.fecha_cierre_referencia
+        )
+      ELSE
+        (
+          UPPER(BTRIM(COALESCE(o.nombre_tipo_deposito, ''))) IN ('MISMO DIA', 'MISMO DÍA')
+          AND o.pertenece_cierre
+        )
+        OR (
+          UPPER(BTRIM(COALESCE(o.nombre_tipo_deposito, ''))) IN ('DIA SIGUIENTE', 'DÍA SIGUIENTE')
+          AND o.fecha_pagado > o.fecha_cierre_referencia
+        )
+    END
 ), total AS (
   SELECT
     COALESCE(SUM(
-      CASE WHEN o.pertenece THEN GREATEST(
+      GREATEST(
         COALESCE(o.monto_deposito_cliente, 0)
         - COALESCE(o.monto_transferencia_cliente, 0)
         - COALESCE(o.resultado_comision_banco_ingreso, 0)
         - COALESCE(o.resultado_comision_banco_salida, 0),
         0
-      ) ELSE 0 END
+      )
     ), 0)::numeric AS ganancias,
     MAX(o.cierre_referencia) AS id_caja_cierre_referencia,
     MAX(o.fecha_cierre_referencia) AS fecha_cierre_referencia
-  FROM operaciones o
+  FROM operaciones_ganancia o
 )
 SELECT
   t.ganancias,
@@ -3326,15 +3353,87 @@ DECLARE
   v_ganancias_fuera_horario numeric := 0;
   v_ruta_operacion character varying;
   v_kpi_v2 jsonb;
+  v_ultimo_cierre record;
+  v_hay_actividad_nueva boolean := false;
 BEGIN
-  SELECT *
-  INTO v_caja
-  FROM public.tb_caja_operativa
-  WHERE id = p_id_caja
-  LIMIT 1;
+  BEGIN
+    SELECT *
+    INTO v_caja
+    FROM public.tb_caja_operativa
+    WHERE id = p_id_caja
+    LIMIT 1
+    FOR UPDATE NOWAIT;
+  EXCEPTION
+    WHEN lock_not_available THEN
+      RETURN jsonb_build_object(
+        'error', 'La caja ya tiene un cierre en proceso. Espere a que termine y vuelva a consultar.',
+        'codigo', 'CIERRE_EN_PROCESO',
+        'id_caja', p_id_caja
+      );
+  END;
 
   IF v_caja.id IS NULL THEN
     RETURN jsonb_build_object('error', 'La caja no existe.');
+  END IF;
+
+  -- La caja queda bloqueada hasta terminar toda la transaccion. Si otra
+  -- peticion llega despues de un cierre y no existe actividad nueva, se
+  -- devuelve el cierre anterior sin crear un historial duplicado.
+  SELECT cc.id, cc.fecha_cierre
+  INTO v_ultimo_cierre
+  FROM public.tb_caja_operativa_cierre cc
+  WHERE cc.id_caja = p_id_caja
+  ORDER BY cc.fecha_cierre DESC NULLS LAST, cc.id DESC
+  LIMIT 1;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_proceso op
+    WHERE op.id_caja_cierre IS NULL
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+      AND op.fecha_registro >= COALESCE(v_caja.fecha_apertura, '-infinity'::timestamp with time zone)
+      AND (
+        (
+          op.id_empresa_ingreso = v_caja.id_empresa
+          AND op.id_empresa_cuenta_ingreso = v_caja.id_empresa_cuenta_bancaria
+        )
+        OR (
+          op.id_empresa_salida = v_caja.id_empresa
+          AND op.id_empresa_cuenta_salida = v_caja.id_empresa_cuenta_bancaria
+        )
+      )
+  ) OR EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja oc
+    WHERE oc.id_caja = p_id_caja
+      AND oc.id_caja_cierre IS NULL
+      AND oc.fecha_registro >= COALESCE(v_caja.fecha_apertura, '-infinity'::timestamp with time zone)
+  ) OR COALESCE(v_caja.saldo_inicial, 0) <> 0
+    OR COALESCE(v_caja.saldo_actual, 0) <> 0
+    OR COALESCE(v_caja.saldo_total, 0) <> 0
+    OR COALESCE(v_caja.total_recaudado, 0) <> 0
+    OR COALESCE(v_caja.ingresos, 0) <> 0
+    OR COALESCE(v_caja.ingresos_retenido, 0) <> 0
+    OR COALESCE(v_caja.gastos, 0) <> 0
+    OR COALESCE(v_caja.ganancia, 0) <> 0
+    OR COALESCE(v_caja.ganancia_retenido, 0) <> 0
+    OR COALESCE(v_caja.salida, 0) <> 0
+    OR COALESCE(v_caja.operaciones, 0) <> 0
+  INTO v_hay_actividad_nueva;
+
+  IF v_ultimo_cierre.id IS NOT NULL
+     AND v_ultimo_cierre.fecha_cierre IS NOT DISTINCT FROM v_caja.fecha_apertura
+     AND NOT v_hay_actividad_nueva THEN
+    SELECT to_jsonb(x)
+    INTO v_result
+    FROM public.f_get_tb_caja_operativa_cierre(p_id := v_ultimo_cierre.id) AS x
+    LIMIT 1;
+
+    RETURN COALESCE(v_result, '{}'::jsonb) || jsonb_build_object(
+      'idempotente', true,
+      'operaciones_congeladas', 0,
+      'movimientos_congelados', 0
+    );
   END IF;
 
   SELECT LOWER(BTRIM(rc.ruta))
@@ -3832,6 +3931,7 @@ DECLARE
   v_cierre jsonb;
   v_cierres jsonb := '[]'::jsonb;
   v_cajas_cerradas integer := 0;
+  v_cajas_idempotentes integer := 0;
 BEGIN
   IF COALESCE(array_length(p_rutas, 1), 0) = 0 THEN
     RETURN jsonb_build_object('error', 'No se especificaron rutas para cerrar.');
@@ -3864,6 +3964,9 @@ BEGIN
 
     v_cierres := v_cierres || jsonb_build_array(v_cierre);
     v_cajas_cerradas := v_cajas_cerradas + 1;
+    IF COALESCE((v_cierre->>'idempotente')::boolean, false) THEN
+      v_cajas_idempotentes := v_cajas_idempotentes + 1;
+    END IF;
   END LOOP;
 
   IF v_cajas_cerradas = 0 THEN
@@ -3875,6 +3978,7 @@ BEGIN
   RETURN jsonb_build_object(
     'rutas', to_jsonb(p_rutas),
     'cajas_cerradas', v_cajas_cerradas,
+    'cajas_idempotentes', v_cajas_idempotentes,
     'cierres', v_cierres
   );
 END;
@@ -4055,6 +4159,8 @@ DECLARE
   v_kpi jsonb;
   v_fecha_cierre_ts timestamp with time zone;
   v_cierre_id bigint;
+  v_reporte_desde timestamp with time zone;
+  v_reporte_hasta timestamp with time zone;
 BEGIN
   SELECT *
   INTO v_caja
@@ -4090,7 +4196,17 @@ BEGIN
   ORDER BY fecha_cierre DESC
   LIMIT 1;
 
-  -- EFECTIVIZACION: operaciones normales y congeladas en la ruta de origen
+  IF v_cierre_id IS NOT NULL THEN
+    v_reporte_desde := (
+      COALESCE(p_fecha_cierre, (v_fecha_cierre_ts AT TIME ZONE 'America/Lima')::date)::timestamp
+      AT TIME ZONE 'America/Lima'
+    );
+    v_reporte_hasta := v_reporte_desde + interval '1 day' - interval '1 microsecond';
+  END IF;
+
+  -- EFECTIVIZACION: la bandeja unificada es la fuente de filas para evitar
+  -- mezclar operaciones de otros cierres. Se conserva el calculo historico
+  -- de gastos y ganancias del reporte.
   SELECT COALESCE(jsonb_agg(x ORDER BY operacion), '[]'::jsonb)
   INTO v_efectivizacion_todas
   FROM (
@@ -4138,7 +4254,17 @@ BEGIN
       COALESCE(op.flag_fuera_horario, false) AS fuera_horario,
       op.nombre_estado AS estado,
       op.fecha_deposito_cliente AS fecha
-    FROM public.tb_operacion_proceso op
+    FROM public.f_get_tb_operacion_bandeja_unificada(
+      p_tab := 'UNIFICADO',
+      p_ruta := COALESCE(p_ruta, v_ruta),
+      p_id_empresa := p_id_empresa,
+      p_id_empresa_cuenta_bancaria := v_caja.id_empresa_cuenta_bancaria,
+      p_filtro_estado := 'TODOS',
+      p_fecha_caja_cierre_desde := v_reporte_desde,
+      p_fecha_caja_cierre_hasta := v_reporte_hasta
+    ) AS unified(operation_json)
+    JOIN public.tb_operacion_proceso op
+      ON op.id = NULLIF(unified.operation_json->>'id', '')::bigint
     LEFT JOIN LATERAL (
       SELECT
         COUNT(oc.id) AS movimientos,
@@ -4149,32 +4275,11 @@ BEGIN
         AND UPPER(COALESCE(oc.tipo_origen, '')) <> 'PAGO_DEUDA_COMISION'
     ) caja ON true
     WHERE UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
-      AND op.id_estado <> 10
       AND (
-        (
-          op.flag_derivado = false
-          AND (p_id_empresa IS NULL OR op.id_empresa_salida = p_id_empresa OR op.id_empresa_ingreso = p_id_empresa)
-          AND (v_caja.id_empresa_cuenta_bancaria IS NULL OR op.id_empresa_cuenta_salida = v_caja.id_empresa_cuenta_bancaria OR op.id_empresa_cuenta_ingreso = v_caja.id_empresa_cuenta_bancaria)
-          AND (p_ruta IS NULL OR op.ruta_destino = p_ruta)
-          AND (
-            (p_fecha_cierre IS NULL AND op.id_caja_cierre IS NULL)
-            OR (v_cierre_id IS NOT NULL AND (
-              op.id_caja_cierre_ingreso = v_cierre_id
-              OR op.id_caja_cierre_salida = v_cierre_id
-              OR op.id_caja_cierre IN (
-              SELECT id FROM public.tb_caja_operativa_cierre
-              WHERE id_caja = p_id_caja
-                AND (fecha_cierre AT TIME ZONE 'America/Lima')::date = p_fecha_cierre
-              )
-            ))
-          )
-        )
-        OR (
-          op.flag_derivado = true
-          AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(COALESCE(p_ruta, v_ruta))
-          AND (p_id_empresa IS NULL OR op.id_empresa_salida_origen = p_id_empresa)
-          AND (v_caja.id_empresa_cuenta_bancaria IS NULL OR op.id_empresa_cuenta_salida_origen = v_caja.id_empresa_cuenta_bancaria)
-        )
+        v_cierre_id IS NULL
+        OR op.id_caja_cierre = v_cierre_id
+        OR op.id_caja_cierre_ingreso = v_cierre_id
+        OR op.id_caja_cierre_salida = v_cierre_id
       )
   ) x;
 
@@ -6959,7 +7064,16 @@ por_caja AS (
          AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
           AND op.fecha_registro >= COALESCE(c.fecha_apertura, '-infinity'::timestamp with time zone)
           AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA'
-          AND COALESCE(op.flag_retenido, false) = false
+          AND NOT (
+            COALESCE(op.flag_retenido, false) = true
+            AND (
+              (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
+              OR (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+              OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
+              OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
+              OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
+            )
+          )
          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
         THEN COALESCE(op.monto_deposito_cliente, 0)
         ELSE 0
@@ -7062,6 +7176,13 @@ por_caja AS (
         WHEN COALESCE(op.flag_retenido, false) = true
          AND op.id_empresa_ingreso = c.id_empresa
          AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
+         AND (
+           (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
+           OR (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+           OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
+           OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
+           OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
+         )
           AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA'
          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN ('ELIMINADO', 'PAGADO', 'DEVUELTO', 'RECHAZADO')
         THEN COALESCE(op.monto_deposito_cliente, 0)
@@ -7139,7 +7260,22 @@ SELECT
   COALESCE(rk.id, MAX(pc.id_caja)) AS id,
   p_ruta AS ruta,
   COALESCE(SUM(pc.saldo_inicial), 0) AS caja_inicial,
-  COALESCE(SUM(pc.saldo_actual), 0) AS caja_actual,
+  COALESCE(SUM(
+    CASE
+      -- La Caja Inicial es informativa y no forma parte del saldo operativo.
+      -- En Capital Nova-BCP y Fluxopay-BCP los depositos estan retenidos,
+      -- por lo que Caja Actual solo refleja movimientos manuales.
+      WHEN (pc.id_empresa = 5 AND pc.id_empresa_cuenta_bancaria = 4)
+        OR (pc.id_empresa = 6 AND pc.id_empresa_cuenta_bancaria = 5)
+      THEN pc.manual_ingresos
+        - pc.manual_salidas
+      ELSE pc.ingresos
+        + pc.directos
+        + pc.manual_ingresos
+        - pc.salidas
+        - pc.manual_salidas
+    END
+  ), 0) AS caja_actual,
   COALESCE(SUM(pc.recaudacion), 0) AS total_recaudado,
   COALESCE(SUM(pc.manual_ingresos), 0) AS ingresos,
   COALESCE(SUM(pc.salidas + pc.manual_salidas), 0) AS salidas,
@@ -7311,7 +7447,16 @@ agregado AS (
     COALESCE(m.manual_salidas, 0) AS manual_salidas,
     COALESCE(m.manual_gastos, 0) AS manual_gastos,
     COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO') THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS recaudacion,
-    COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO') AND COALESCE(o.flag_retenido, false) = false THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS ingresos,
+    COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO') AND NOT (
+      COALESCE(o.flag_retenido, false) = true
+      AND (
+        (o.id_empresa_ingreso = 5 AND o.id_empresa_cuenta_ingreso = 33 AND o.id_banco_empresa_cuenta_ingreso = 3)
+        OR (o.id_empresa_ingreso = 7 AND o.id_empresa_cuenta_ingreso = 16 AND o.id_banco_empresa_cuenta_ingreso = 4)
+        OR (o.id_empresa_ingreso = 8 AND o.id_empresa_cuenta_ingreso = 7 AND o.id_banco_empresa_cuenta_ingreso = 3)
+        OR (o.id_empresa_ingreso = 5 AND o.id_empresa_cuenta_ingreso = 4 AND o.id_banco_empresa_cuenta_ingreso = 2)
+        OR (o.id_empresa_ingreso = 6 AND o.id_empresa_cuenta_ingreso = 5 AND o.id_banco_empresa_cuenta_ingreso = 2)
+      )
+    ) THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS ingresos,
     COALESCE(SUM(CASE WHEN o.atribucion_salida AND o.id_empresa_salida = c.id_empresa AND o.id_empresa_cuenta_salida = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO') AND (UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PAGADO' OR (UPPER(BTRIM(COALESCE(o.tipo_servicio, ''))) = 'PAGO DEUDA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PROCESADO')) THEN COALESCE(o.monto_transferencia_cliente, 0) ELSE 0 END), 0) AS salidas,
     COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO') THEN COALESCE(o.resultado_comision_banco_ingreso, 0) ELSE 0 END), 0)
       + COALESCE(SUM(CASE WHEN o.atribucion_salida AND o.id_empresa_salida = c.id_empresa AND o.id_empresa_cuenta_salida = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO') AND (UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PAGADO' OR (UPPER(BTRIM(COALESCE(o.tipo_servicio, ''))) = 'PAGO DEUDA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PROCESADO')) THEN COALESCE(o.resultado_comision_banco_salida, 0) ELSE 0 END), 0) AS gastos,
@@ -7348,7 +7493,13 @@ agregado AS (
         ELSE 0
       END
     ), 0) AS ganancias,
-    COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND COALESCE(o.flag_retenido, false) = true THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS retenidos,
+    COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND COALESCE(o.flag_retenido, false) = true AND (
+      (o.id_empresa_ingreso = 5 AND o.id_empresa_cuenta_ingreso = 33 AND o.id_banco_empresa_cuenta_ingreso = 3)
+      OR (o.id_empresa_ingreso = 7 AND o.id_empresa_cuenta_ingreso = 16 AND o.id_banco_empresa_cuenta_ingreso = 4)
+      OR (o.id_empresa_ingreso = 8 AND o.id_empresa_cuenta_ingreso = 7 AND o.id_banco_empresa_cuenta_ingreso = 3)
+      OR (o.id_empresa_ingreso = 5 AND o.id_empresa_cuenta_ingreso = 4 AND o.id_banco_empresa_cuenta_ingreso = 2)
+      OR (o.id_empresa_ingreso = 6 AND o.id_empresa_cuenta_ingreso = 5 AND o.id_banco_empresa_cuenta_ingreso = 2)
+    ) THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS retenidos,
     COUNT(*) FILTER (WHERE UPPER(BTRIM(COALESCE(o.tipo_servicio, ''))) IN ('EFECTIVIZACION', 'POS') OR COALESCE(o.flag_derivado, false) = true)::integer AS total_efectivizacion,
     COUNT(*) FILTER (WHERE UPPER(BTRIM(COALESCE(o.tipo_servicio, ''))) = 'PAGO DEUDA')::integer AS total_pago_deuda
   FROM cierre c
@@ -7393,18 +7544,6 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_post_tb_caja_operativa_cierre',
-  'f_post_tb_caja_operativa_cierre_ruta',
-  'f_get_tb_ruta_operacion_kpi',
-  'f_get_tb_operacion_saldo_actual_v2',
-  'f_post_tb_operacion_caja_desde_proceso',
-  'f_sync_tb_operacion_cierre_atribucion_v2',
-  'f_get_tb_ruta_operacion_kpi_operaciones_v2',
-  'f_get_tb_ruta_operacion_kpi_cierre_operaciones_v2',
-  'f_get_tb_ruta_operacion_ganancias_efectivizacion_v2',
-  'f_get_reporte_cierre',
-  'f_delete_tb_caja_operativa_cierre_ultimo_dia',
-  'f_post_tb_operacion_caja',
-  'f_apply_tb_operacion_caja_delta',
-  'f_patch_tb_caja_operativa_saldo_inicial'
+  'f_post_tb_caja_operativa_cierre_ruta'
 )
 ORDER BY n.nspname, p.proname;

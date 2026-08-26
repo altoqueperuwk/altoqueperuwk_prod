@@ -10,8 +10,10 @@ interface BancariaTopActionsProps {
     canReopenTodayClose?: boolean;
     isClosing?: boolean;
     isReopening?: boolean;
+    selectedClosureId?: number | null;
     selectedHistoryDate: string | null;
     onCloseRoute: () => void;
+    onHistoryClosureChange?: (selection: { id: number; date: string } | null) => void;
     onHistoryDateChange: (date: string | null) => void;
     onHistoryDateAvailabilityChange?: (isAvailable: boolean) => void;
     onReopenTodayClose?: () => void;
@@ -26,8 +28,10 @@ export const BancariaTopActions = ({
     canReopenTodayClose = false,
     isClosing,
     isReopening,
+    selectedClosureId,
     selectedHistoryDate,
     onCloseRoute,
+    onHistoryClosureChange,
     onHistoryDateChange,
     onHistoryDateAvailabilityChange,
     onReopenTodayClose,
@@ -48,7 +52,9 @@ export const BancariaTopActions = ({
             <BancariaHistoryDropdown
                 activeCajaIds={activeCajaIds}
                 activeCompany={activeCompany}
+                selectedClosureId={selectedClosureId}
                 selectedDate={selectedHistoryDate}
+                onClosureChange={onHistoryClosureChange}
                 onDateChange={onHistoryDateChange}
                 onSelectedDateAvailabilityChange={onHistoryDateAvailabilityChange}
             />

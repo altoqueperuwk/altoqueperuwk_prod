@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import ExcelJS from "exceljs";
 import { AppLayout } from "@/components/application/app-layout";
@@ -64,6 +64,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const [isClosing, setIsClosing] = useState(false);
     const [isReopeningClose, setIsReopeningClose] = useState(false);
     const [selectedHistoryDate, setSelectedHistoryDate] = useState<string | null>(null);
+    const [selectedHistoryClosureId, setSelectedHistoryClosureId] = useState<number | null>(null);
     const [isHistoryDateAvailable, setIsHistoryDateAvailable] = useState(true);
     const [isEditCajaOpen, setIsEditCajaOpen] = useState(false);
     const [cajaEdit, setCajaEdit] = useState<CajaOperativa | null>(null);
@@ -117,6 +118,15 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         refreshKey + metricsRefreshKey,
         workspaceRoutes,
     );
+
+    useEffect(() => {
+        setSelectedHistoryDate(null);
+        setSelectedHistoryClosureId(null);
+    }, [activeAccountId, activeCompanyId]);
+
+    const handleHistoryClosureChange = useCallback((selection: { id: number; date: string } | null) => {
+        setSelectedHistoryClosureId(selection?.id ?? null);
+    }, []);
 
     const activeCajaIds = useMemo(
         () => activeCajaId ? [activeCajaId] : [],
@@ -172,7 +182,8 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 p_id_caja: cajaId,
                 p_id_empresa: activeCompanyId,
                 p_ruta: ruta,
-                p_fecha_cierre: selectedHistoryDate || undefined,
+                p_id_caja_cierre: selectedHistoryClosureId ?? undefined,
+                p_fecha_cierre: selectedHistoryClosureId ? undefined : selectedHistoryDate || undefined,
             });
 
             const normalizeMovementOrigin = (value: unknown) => String(value ?? "").trim().toUpperCase().replaceAll("_", " ");
@@ -828,8 +839,10 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                         canReopenTodayClose={Boolean(activeCompanyCaja?.id_caja && selectedHistoryDate && selectedHistoryDate === todayCloseDateKey)}
                         isClosing={isClosing}
                         isReopening={isReopeningClose}
+                        selectedClosureId={selectedHistoryClosureId}
                         selectedHistoryDate={selectedHistoryDate}
                         onCloseRoute={handleCloseRoute}
+                        onHistoryClosureChange={handleHistoryClosureChange}
                         onHistoryDateChange={setSelectedHistoryDate}
                         onHistoryDateAvailabilityChange={setIsHistoryDateAvailable}
                         onReopenTodayClose={handleReopenClose}
