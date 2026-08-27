@@ -135,11 +135,11 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const routeCajaIds = useMemo(
         () => Array.from(new Set(
             cajas
-                .filter((caja) => caja.ruta === ruta)
+                .filter((caja) => workspaceRoutes.includes(caja.ruta as OperacionRutaBancaria))
                 .map((caja) => caja.id_caja)
                 .filter((id): id is number => id != null),
         )),
-        [cajas, ruta],
+        [cajas, workspaceRoutes],
     );
     const isActiveDigitalWallet = isDigitalWalletBank(activeCompanyCaja);
 
@@ -773,12 +773,16 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
 
         try {
             const result = await operacionesRpcService.postCajaCierreRuta({
-                p_rutas: [ruta],
+                p_rutas: workspaceRoutes,
                 p_id_usuario: userId,
             });
             if (result?.error) throw new Error(String(result.error));
 
-            await operacionesRpcService.syncRutaKpiCaja(ruta, userId);
+            await Promise.all(
+                workspaceRoutes.map((workspaceRoute) =>
+                    operacionesRpcService.syncRutaKpiCaja(workspaceRoute, userId),
+                ),
+            );
             setRefreshKey((value) => value + 1);
             addToast("success", `Cierre registrado para ${result?.cajas_cerradas ?? routeCajaIds.length} cajas.`);
         } catch (err) {
