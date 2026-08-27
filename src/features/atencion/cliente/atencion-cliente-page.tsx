@@ -48,7 +48,7 @@ const KpiCard = ({ label, value }: { label: string; value: unknown }) => (
 
 export const AtencionClientePage = () => {
     const { addToast } = useToast();
-    const { businessUser } = useAuth();
+    const { businessUser, isLoading: isAuthLoading } = useAuth();
     const { estados, comunidades } = useSessionCache();
 
     const [data, setData] = useState<Record<string, unknown>[]>([]);
@@ -80,6 +80,14 @@ export const AtencionClientePage = () => {
     const [bulkResult, setBulkResult] = useState<Record<string, unknown> | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    const isAtencionCliente =
+        Number(businessUser?.id_rol ?? 0) === 4
+        || String(businessUser?.rol_nombre ?? "")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .trim()
+            .toUpperCase() === "ATENCION AL CLIENTE";
+
     const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
     const comunidadItems = useMemo(
         () => (comunidades || []).map((c) => ({ id: c.id as string | number, label: c.nombre as string })),
@@ -104,6 +112,14 @@ export const AtencionClientePage = () => {
     }, [filterDocumento, filterTipoDocumento, filterComunidad, filterWhatsapp, filterSinNombre, filterSinWhatsapp]);
 
     const loadData = useCallback(async () => {
+        if (isAtencionCliente && !filterDocumento.replace(/\D/g, "")) {
+            setData([]);
+            setKpi({});
+            setTotalPages(1);
+            setIsLoading(false);
+            return;
+        }
+
         setIsLoading(true);
         try {
             const filters = buildFilters();
@@ -120,11 +136,19 @@ export const AtencionClientePage = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [buildFilters, page, pageSize, addToast]);
+    }, [buildFilters, filterDocumento, isAtencionCliente, page, pageSize, addToast]);
 
     useEffect(() => {
+        if (isAuthLoading || !businessUser) return;
+        if (isAtencionCliente) {
+            setData([]);
+            setKpi({});
+            setTotalPages(1);
+            setPage(1);
+            return;
+        }
         loadData();
-    }, [loadData]);
+    }, [businessUser, isAtencionCliente, isAuthLoading, loadData]);
 
     const handleNumeroDocumentoChange = (value: string) => {
         setNumeroDocumento(value.replace(/\D/g, "").slice(0, tipoDocumento === 1 ? 8 : 9));
@@ -200,6 +224,21 @@ export const AtencionClientePage = () => {
         setPage(1);
     };
 
+    const handleSearch = async () => {
+        const document = filterDocumento.replace(/\D/g, "");
+        if (isAtencionCliente && !document) {
+            setData([]);
+            setKpi({});
+            setTotalPages(1);
+            setPage(1);
+            addToast("error", "Ingresa el numero de documento para buscar");
+            return;
+        }
+
+        setPage(1);
+        await loadData();
+    };
+
     const handleBulkFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         event.target.value = "";
@@ -271,22 +310,26 @@ export const AtencionClientePage = () => {
                         <h1 className="text-xl font-semibold text-primary">Clientes</h1>
                         <p className="mt-1 text-sm text-tertiary">Gestion de clientes para atencion al cliente.</p>
                     </div>
-                    <Dropdown.Root>
-                        <Button size="sm" color="primary" iconTrailing={ChevronDown}>
-                            Carga Masiva
-                        </Button>
-                        <Dropdown.Popover className="w-52">
-                            <Dropdown.Menu>
-                                <Dropdown.Item id="descarga-formato" icon={Download01} onAction={downloadClientesTemplate}>
-                                    Descarga Formato
-                                </Dropdown.Item>
-                                <Dropdown.Item id="carga-archivo" onAction={() => fileInputRef.current?.click()}>
-                                    Carga Archivo
-                                </Dropdown.Item>
-                            </Dropdown.Menu>
-                        </Dropdown.Popover>
-                    </Dropdown.Root>
-                    <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="sr-only" onChange={handleBulkFileChange} />
+                    {!isAtencionCliente && (
+                        <>
+                            <Dropdown.Root>
+                                <Button size="sm" color="primary" iconTrailing={ChevronDown}>
+                                    Carga Masiva
+                                </Button>
+                                <Dropdown.Popover className="w-52">
+                                    <Dropdown.Menu>
+                                        <Dropdown.Item id="descarga-formato" icon={Download01} onAction={downloadClientesTemplate}>
+                                            Descarga Formato
+                                        </Dropdown.Item>
+                                        <Dropdown.Item id="carga-archivo" onAction={() => fileInputRef.current?.click()}>
+                                            Carga Archivo
+                                        </Dropdown.Item>
+                                    </Dropdown.Menu>
+                                </Dropdown.Popover>
+                            </Dropdown.Root>
+                            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="sr-only" onChange={handleBulkFileChange} />
+                        </>
+                    )}
                 </div>
 
                 {bulkResult && (
@@ -327,15 +370,17 @@ export const AtencionClientePage = () => {
                     </div>
                 )}
 
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
-                    <KpiCard label="Total Cliente" value={kpi.total_cliente} />
-                    <KpiCard label="Total Sin Nombre" value={kpi.total_sin_nombre} />
-                    <KpiCard label="Total Con Whatsapp" value={kpi.total_con_whatsapp} />
-                    <KpiCard label="Total Sin Whatsapp" value={kpi.total_sin_whatsapp} />
-                    {comunidadesKpi.map((item) => (
-                        <KpiCard key={item.id_comunidad ?? item.comunidad_nombre} label={String(item.comunidad_nombre ?? "Comunidad")} value={item.total} />
-                    ))}
-                </div>
+                {!isAtencionCliente && (
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+                        <KpiCard label="Total Cliente" value={kpi.total_cliente} />
+                        <KpiCard label="Total Sin Nombre" value={kpi.total_sin_nombre} />
+                        <KpiCard label="Total Con Whatsapp" value={kpi.total_con_whatsapp} />
+                        <KpiCard label="Total Sin Whatsapp" value={kpi.total_sin_whatsapp} />
+                        {comunidadesKpi.map((item) => (
+                            <KpiCard key={item.id_comunidad ?? item.comunidad_nombre} label={String(item.comunidad_nombre ?? "Comunidad")} value={item.total} />
+                        ))}
+                    </div>
+                )}
 
                 <div className="rounded-lg border border-secondary bg-primary p-4 shadow-xs">
                     <h2 className="mb-3 text-sm font-semibold text-primary">Nuevo Cliente</h2>
@@ -409,45 +454,49 @@ export const AtencionClientePage = () => {
                         <div className="w-44">
                             <Input label="Nro. Documento" placeholder="Buscar documento" size="sm" value={filterDocumento} onChange={(value) => setFilterDocumento(value.replace(/\D/g, "").slice(0, 9))} />
                         </div>
-                        <div className="w-44">
-                            <Select
-                                label="Comunidad"
-                                placeholder="Todas"
-                                size="sm"
-                                items={[{ id: 0, label: "Todas" }, ...comunidadItems]}
-                                selectedKey={filterComunidad}
-                                onSelectionChange={(key) => {
-                                    if (key !== null) setFilterComunidad(Number(key));
-                                }}
-                            >
-                                {(i) => <Select.Item id={i.id}>{i.label}</Select.Item>}
-                            </Select>
-                        </div>
-                        <div className="w-44">
-                            <Input label="Whatsapp" placeholder="Buscar Whatsapp" size="sm" value={filterWhatsapp} onChange={(value) => setFilterWhatsapp(value.replace(/\D/g, "").slice(0, 9))} />
-                        </div>
-                        <Button
-                            size="sm"
-                            color={filterSinNombre ? "primary" : "secondary"}
-                            onClick={() => {
-                                setFilterSinNombre((value) => !value);
-                                setPage(1);
-                            }}
-                        >
-                            Clientes Sin Nombre
-                        </Button>
-                        <Button
-                            size="sm"
-                            color={filterSinWhatsapp ? "primary" : "secondary"}
-                            onClick={() => {
-                                setFilterSinWhatsapp((value) => !value);
-                                setPage(1);
-                            }}
-                        >
-                            Clientes Sin Whatsapp
-                        </Button>
+                        {!isAtencionCliente && (
+                            <>
+                                <div className="w-44">
+                                    <Select
+                                        label="Comunidad"
+                                        placeholder="Todas"
+                                        size="sm"
+                                        items={[{ id: 0, label: "Todas" }, ...comunidadItems]}
+                                        selectedKey={filterComunidad}
+                                        onSelectionChange={(key) => {
+                                            if (key !== null) setFilterComunidad(Number(key));
+                                        }}
+                                    >
+                                        {(i) => <Select.Item id={i.id}>{i.label}</Select.Item>}
+                                    </Select>
+                                </div>
+                                <div className="w-44">
+                                    <Input label="Whatsapp" placeholder="Buscar Whatsapp" size="sm" value={filterWhatsapp} onChange={(value) => setFilterWhatsapp(value.replace(/\D/g, "").slice(0, 9))} />
+                                </div>
+                                <Button
+                                    size="sm"
+                                    color={filterSinNombre ? "primary" : "secondary"}
+                                    onClick={() => {
+                                        setFilterSinNombre((value) => !value);
+                                        setPage(1);
+                                    }}
+                                >
+                                    Clientes Sin Nombre
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    color={filterSinWhatsapp ? "primary" : "secondary"}
+                                    onClick={() => {
+                                        setFilterSinWhatsapp((value) => !value);
+                                        setPage(1);
+                                    }}
+                                >
+                                    Clientes Sin Whatsapp
+                                </Button>
+                            </>
+                        )}
                         <Button size="sm" color="secondary" onClick={handleClearFilters}>Limpiar</Button>
-                        <Button size="sm" color="primary" onClick={() => { setPage(1); loadData(); }}>Buscar</Button>
+                        <Button size="sm" color="primary" onClick={handleSearch}>Buscar</Button>
                     </div>
                 </div>
 
