@@ -7623,7 +7623,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_post_tb_caja_operativa_cierre',
   'f_post_tb_caja_operativa_cierre_ruta',
   'f_get_tb_ruta_operacion_kpi_operaciones_v2',
   'f_get_tb_ruta_operacion_kpi_cierre_operaciones_v2'
