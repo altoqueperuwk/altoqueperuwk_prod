@@ -1,6 +1,6 @@
 # Atribucion De Operaciones Tardias A Cierres
 
-> ESTADO: PENDIENTE DE IMPLEMENTACION
+> ESTADO: CAUSA CONFIRMADA - PENDIENTE DE IMPLEMENTACION
 >
 > Este documento conserva el analisis para retomarlo posteriormente. No se ha
 > modificado todavia el flujo automatico de carga ni de cierre por este caso.
@@ -53,6 +53,72 @@ id_caja_cierre_salida  = NULL
 El KPI vivo interpreta entonces el deposito como parte del ciclo actual. Esto
 duplica el deposito cuando el saldo inicial bancario del nuevo ciclo ya lo
 incluia.
+
+## Investigacion Confirmada
+
+La expresion "pendiente de ayer" describe el estado operativo de la transaccion
+en el banco, pero no significa que la operacion ya existiera como fila pendiente
+en `tb_operacion_proceso`.
+
+La secuencia real fue:
+
+```text
+27/08 09:26  El cliente realiza el deposito en el banco.
+27/08 18:01  Se ejecuta el cierre 208.
+28/08 09:26  El usuario carga el Excel y se crea la operacion 11286.
+28/08 09:28  La operacion pasa a Pagado.
+```
+
+Al momento del cierre 208, la operacion 11286 todavia no existia. Por lo tanto,
+el cierre no pudo marcarla como pendiente ni completar sus campos de
+atribucion. El hecho de que el usuario iniciara el nuevo dia con cero
+operaciones confirma que la fila fue incorporada por primera vez mediante la
+carga del 28.
+
+### Comportamiento del cierre
+
+`f_post_tb_caja_operativa_cierre` llama a
+`f_sync_tb_operacion_cierre_atribucion_v2` despues de crear el historial. Esta
+funcion actualiza exclusivamente filas existentes y utiliza como limite de
+entrada:
+
+```sql
+op.fecha_registro >= tb_caja_operativa.fecha_apertura
+```
+
+No puede anticipar operaciones que seran insertadas despues del cierre. El
+parametro `p_fecha_cierre` se retorna como informacion, pero actualmente no se
+utiliza para resolver operaciones cargadas de forma tardia.
+
+### Comportamiento de la carga Excel
+
+`f_post_tb_operacion_proceso_excel` conserva correctamente la fecha bancaria en
+`fecha_deposito_cliente`, pero crea la fila con la fecha actual en
+`fecha_registro`. El `INSERT` no incluye:
+
+```text
+id_caja_cierre_ingreso
+id_caja_cierre_salida
+id_caja_cierre
+```
+
+Despues del `INSERT`, la funcion tampoco consulta
+`tb_caja_operativa_cierre`. La llamada posterior a
+`f_post_tb_operacion_caja_desde_proceso` no corrige la atribucion; para las
+rutas bancarias con KPI V2 esa funcion ya evita crear un movimiento nuevo en
+`tb_operacion_caja` y retorna de manera informativa.
+
+### Conclusion
+
+No se trata de un doble clic, un cierre incompleto ni una operacion pendiente
+que el cierre omitio. Existen dos momentos desconectados:
+
+1. El cierre atribuye solamente operaciones que existen al momento de cerrar.
+2. La carga Excel posterior no busca el cierre historico correspondiente a la
+   fecha real del deposito.
+
+Esa falta de reconciliacion retrospectiva es la causa exacta de que el deposito
+del 27 apareciera en la caja viva del 28.
 
 ## Atribucion Correcta
 

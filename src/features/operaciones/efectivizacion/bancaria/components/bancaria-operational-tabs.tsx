@@ -108,6 +108,7 @@ interface BancariaOperationalTabsProps {
     readOnly?: boolean;
     showCompanyTabs?: boolean;
     flowTabsAsButtons?: boolean;
+    hidePagination?: boolean;
     onChanged?: () => void;
     onMetricsChanged?: () => void;
     onCompanyChange: (id: number) => void;
@@ -457,6 +458,7 @@ export const BancariaOperationalTabs = ({
     readOnly = false,
     showCompanyTabs = true,
     flowTabsAsButtons = false,
+    hidePagination = false,
     onChanged,
     onMetricsChanged,
     onCompanyChange,
@@ -1992,6 +1994,7 @@ export const BancariaOperationalTabs = ({
                     isRefreshing={isRefreshing}
                     mode={currentTab === "Derivados" ? "derivaciones" : currentTab === "POS" ? "pos" : currentTab === "Unificado" ? "unificado" : currentTab === "Eliminados" ? "eliminados" : "efectivizacion"}
                     flow={currentTab === "Derivados" ? "Derivado" : currentTab === "POS" ? "POS" : "Efectivizacion"}
+                    hidePagination={hidePagination}
                     presentation={presentation}
                     readOnly={readOnly}
                     onMetricsChanged={refreshMetrics}

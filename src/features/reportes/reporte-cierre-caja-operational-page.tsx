@@ -11,7 +11,7 @@ import type { OperacionRutaBancaria } from "@/features/operaciones/efectivizacio
 import { BancariaOperationalTabs } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-operational-tabs";
 import { formatCierreDate, reporteCierreCajaService } from "./services/reporte-cierre-caja.service";
 
-const visibleTabs = ["Pago Deuda", "Efectivizacion", "Derivados"] as const;
+const visibleTabs = ["Efectivizacion", "Pago Deuda", "Derivados"] as const;
 const visibleTabNames = new Set<string>(visibleTabs);
 const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
 
@@ -221,12 +221,13 @@ export const ReporteCierreCajaOperationalPage = () => {
                     emptyText={selectedDate ? "Sin operaciones para este cierre." : "Selecciona una fecha de cierre para consultar operaciones."}
                     historyDate={selectedDate}
                     flowTabsAsButtons
+                    hidePagination
                     presentation="plain"
                     readOnly
                     showCompanyTabs={false}
                     onCompanyChange={setActiveCompanyId}
                     ruta={selectedBank}
-                    visibleTabs={["Pago Deuda", "Efectivizacion", "Derivados"]}
+                    visibleTabs={["Efectivizacion", "Pago Deuda", "Derivados"]}
                 />
                 </div>
             </div>

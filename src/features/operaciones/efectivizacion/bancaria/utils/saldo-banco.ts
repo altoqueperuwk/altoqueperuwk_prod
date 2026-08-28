@@ -11,6 +11,8 @@ const CUENTAS_CON_RETENCION_RECAUDACION = new Set([
     "5:3:33",
     "8:3:7",
     "7:4:16",
+    "5:2:4",
+    "6:2:5",
 ]);
 
 export const tieneRetencionRecaudacion = (

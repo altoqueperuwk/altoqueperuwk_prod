@@ -31,8 +31,8 @@ const banks = [
 
 const flows: Array<{ id: ReporteCierreCajaFlow; label: string }> = [
     { id: "efectivizacion", label: "Efectivización" },
-    { id: "derivados", label: "Derivados" },
     { id: "pago_deuda", label: "Pago Deuda" },
+    { id: "derivados", label: "Derivados" },
 ];
 
 const flowHeaders: Record<ReporteCierreCajaFlow, string[]> = {
@@ -48,10 +48,11 @@ const toDateKey = (value: string) => {
 
 const calendarDateKey = (date: { year: number; month: number; day: number }) => `${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`;
 const normalizeBank = (value: string | null | undefined) => String(value ?? "").trim().toLowerCase().replace(/\s+/g, "");
+const getRowRoute = (row: ReporteCierreCajaRow) => normalizeBank(row.ruta || row.nombre_banco);
 
 const filterButtonClass = "min-w-0 justify-center";
 
-const LegacyReporteCierreCajaPage = () => {
+export const ReporteCierreCajaPage = () => {
     const { addToast } = useToast();
     const [allRows, setAllRows] = useState<ReporteCierreCajaRow[]>([]);
     const [datedRows, setDatedRows] = useState<ReporteCierreCajaRow[]>([]);
@@ -109,7 +110,7 @@ const LegacyReporteCierreCajaPage = () => {
     const companies = useMemo(() => Array.from(
         new Map(
             allRows
-                .filter((row) => selectedBank === "all" || normalizeBank(row.nombre_banco) === selectedBank)
+                .filter((row) => selectedBank === "all" || getRowRoute(row) === selectedBank)
                 .map((row) => [row.id_empresa, { id: row.id_empresa, label: row.nombre_empresa }]),
         ).values(),
     ), [allRows, selectedBank]);
@@ -125,7 +126,7 @@ const LegacyReporteCierreCajaPage = () => {
     }, [companies, selectedEmpresa]);
 
     const visibleRows = useMemo(() => datedRows.filter((row) =>
-        (selectedBank === "all" || normalizeBank(row.nombre_banco) === selectedBank) &&
+        (selectedBank === "all" || getRowRoute(row) === selectedBank) &&
         (selectedEmpresa === null || row.id_empresa === selectedEmpresa) &&
         row.tiene_cierre,
     ), [datedRows, selectedBank, selectedEmpresa]);
@@ -321,5 +322,3 @@ const LegacyReporteCierreCajaPage = () => {
         </AppLayout>
     );
 };
-
-export { ReporteCierreCajaOperationalPage as ReporteCierreCajaPage } from "./reporte-cierre-caja-operational-page";

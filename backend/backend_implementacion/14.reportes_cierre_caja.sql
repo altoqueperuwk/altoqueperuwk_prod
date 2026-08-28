@@ -27,6 +27,8 @@ AS $$
   ORDER BY fecha_cierre DESC;
 $$;
 
+DROP FUNCTION IF EXISTS public.f_get_tb_reporte_cierre_caja_bandeja(bigint, bigint, date);
+
 CREATE OR REPLACE FUNCTION public.f_get_tb_reporte_cierre_caja_bandeja(
   p_id_empresa bigint DEFAULT NULL,
   p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
@@ -39,6 +41,7 @@ RETURNS TABLE (
   id_empresa_cuenta_bancaria bigint,
   id_banco bigint,
   nombre_banco character varying,
+  ruta character varying,
   id_caja bigint,
   id_caja_cierre bigint,
   fecha_cierre timestamp with time zone,
@@ -50,12 +53,13 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
   SELECT
-    ecb.id AS id,
+    COALESCE(cierre.id, ecb.id) AS id,
     e.id AS id_empresa,
     e.nombre AS nombre_empresa,
     ecb.id AS id_empresa_cuenta_bancaria,
     ecb.id_banco,
     b.nombre AS nombre_banco,
+    ruta.ruta,
     COALESCE(caja.id, cierre.id_caja) AS id_caja,
     cierre.id AS id_caja_cierre,
     cierre.fecha_cierre,
@@ -69,6 +73,14 @@ AS $$
    AND e.id_estado = 1
   JOIN public.tb_banco b
     ON b.id = ecb.id_banco
+  LEFT JOIN LATERAL (
+    SELECT rc.ruta
+    FROM public.tb_ruta_operacion_caja rc
+    WHERE rc.id_empresa = ecb.id_empresa
+      AND rc.id_empresa_cuenta_bancaria = ecb.id
+    ORDER BY rc.id DESC
+    LIMIT 1
+  ) ruta ON true
   LEFT JOIN LATERAL (
     SELECT c.id
     FROM public.tb_caja_operativa c
@@ -86,7 +98,6 @@ AS $$
       AND p_fecha_cierre IS NOT NULL
       AND (ch.fecha_cierre AT TIME ZONE 'America/Lima')::date = p_fecha_cierre
     ORDER BY ch.fecha_cierre DESC, ch.id DESC
-    LIMIT 1
   ) cierre ON true
   WHERE ecb.id_estado = 1
     AND (p_id_empresa IS NULL OR ecb.id_empresa = p_id_empresa)
@@ -101,7 +112,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-    'f_get_tb_reporte_cierre_caja_fechas',
     'f_get_tb_reporte_cierre_caja_bandeja'
 )
 ORDER BY n.nspname, p.proname;

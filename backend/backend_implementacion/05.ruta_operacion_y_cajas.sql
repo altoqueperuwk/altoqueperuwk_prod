@@ -7333,7 +7333,7 @@ SELECT
       - pc.manual_salidas
   ), 0) AS caja_actual,
   COALESCE(SUM(pc.recaudacion), 0) AS total_recaudado,
-  COALESCE(SUM(pc.manual_ingresos), 0) AS ingresos,
+  COALESCE(SUM(pc.manual_ingresos + pc.directos), 0) AS ingresos,
   COALESCE(SUM(pc.salidas + pc.manual_salidas), 0) AS salidas,
   COALESCE(SUM(pc.gastos + pc.manual_gastos), 0) AS gastos_operacionales,
   COALESCE(SUM(pc.ganancias), 0) AS ganancias,
@@ -7541,6 +7541,15 @@ agregado AS (
     COALESCE(m.manual_ingresos, 0) AS manual_ingresos,
     COALESCE(m.manual_salidas, 0) AS manual_salidas,
     COALESCE(m.manual_gastos, 0) AS manual_gastos,
+    COALESCE(SUM(CASE
+      WHEN o.atribucion_ingreso
+       AND o.id_empresa_ingreso = c.id_empresa
+       AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
+       AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) = 'DIRECTO_CAJA'
+       AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PAGADO'
+      THEN COALESCE(o.monto_deposito_cliente, 0)
+      ELSE 0
+    END), 0) AS directos,
     COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO') THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS recaudacion,
     COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO') AND NOT o.retencion_hardcodeada THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS ingresos,
     COALESCE(SUM(CASE WHEN o.atribucion_salida AND o.id_empresa_salida = c.id_empresa AND o.id_empresa_cuenta_salida = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO') AND (UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PAGADO' OR (UPPER(BTRIM(COALESCE(o.tipo_servicio, ''))) = 'PAGO DEUDA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PROCESADO')) THEN COALESCE(o.monto_transferencia_cliente, 0) ELSE 0 END), 0) AS salidas,
@@ -7594,7 +7603,7 @@ SELECT
   COALESCE(a.saldo_inicial, 0),
   COALESCE(a.saldo_actual, 0),
   a.recaudacion,
-  a.manual_ingresos,
+  a.manual_ingresos + a.directos,
   a.salidas + a.manual_salidas,
   a.gastos + a.manual_gastos,
   a.ganancias,
@@ -7722,6 +7731,8 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_ruta_operacion_gastos_salida_v2'
+  'f_get_tb_ruta_operacion_gastos_salida_v2',
+  'f_get_tb_ruta_operacion_kpi_operaciones_v2',
+  'f_get_tb_ruta_operacion_kpi_cierre_operaciones_v2'
 )
 ORDER BY n.nspname, p.proname;

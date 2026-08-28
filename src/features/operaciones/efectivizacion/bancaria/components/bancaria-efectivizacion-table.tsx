@@ -85,6 +85,7 @@ interface BancariaEfectivizacionTableProps {
     onToggleRow?: (id: number) => void;
     onToggleFueraHorario?: (row: OperacionProceso, value: boolean) => void;
     hideFueraHorario?: boolean;
+    hidePagination?: boolean;
     ruta: OperacionRutaBancaria;
     showBanca?: boolean;
     selectedIds?: number[];
@@ -291,6 +292,7 @@ export const BancariaEfectivizacionTable = ({
     onToggleRow,
     onToggleFueraHorario,
     hideFueraHorario = false,
+    hidePagination = false,
     ruta,
     showBanca = false,
     selectedIds = [],
@@ -324,7 +326,7 @@ export const BancariaEfectivizacionTable = ({
     const [confirmAction, setConfirmAction] = useState<{ row: OperacionProceso; type: ConfirmActionType } | null>(null);
     const hasSelection = Boolean(onToggleRow) && !readOnly;
     const isPlain = presentation === "plain";
-    const showPagination = mode !== "unificado";
+    const showPagination = !hidePagination && mode !== "unificado";
     const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
     const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
     const savingIdSet = useMemo(() => new Set(savingIds), [savingIds]);

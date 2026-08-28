@@ -303,9 +303,20 @@ AS $$
       )
       OR (
         a.historico
-        AND op.id_caja_cierre IS NOT NULL
-        AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
-        AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+        AND (
+          (
+            op.id_caja_cierre IS NOT NULL
+            AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+            AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM public.tb_caja_operativa_cierre ch
+            WHERE ch.id IN (op.id_caja_cierre_ingreso, op.id_caja_cierre_salida)
+              AND (p_fecha_caja_cierre_desde IS NULL OR ch.fecha_cierre >= p_fecha_caja_cierre_desde)
+              AND (p_fecha_caja_cierre_hasta IS NULL OR ch.fecha_cierre <= p_fecha_caja_cierre_hasta)
+          )
+        )
         AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN (
           'PENDIENTE', 'RECHAZADO', 'SOLICITADO', 'PROCESADO'
         )
@@ -672,9 +683,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_operacion_retencion_bandeja',
-  'f_get_tb_operacion_bandeja_unificada',
-  'f_get_tb_operacion_retencion_bandeja_badges',
-  'f_get_tb_operacion_retencion_empresa_badges'
+  'f_get_tb_operacion_bandeja_unificada'
 )
 ORDER BY n.nspname, p.proname;

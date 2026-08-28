@@ -2556,10 +2556,6 @@ DECLARE
   v_ruta_kpi character varying;
   v_salida_result jsonb;
   v_comision_result jsonb;
-  v_caja_salida record;
-  v_saldo_disponible numeric := 0;
-  v_monto_requerido numeric := 0;
-  v_salida_abierta numeric := 0;
 BEGIN
   SELECT *
   INTO v_input
@@ -2669,41 +2665,6 @@ BEGIN
       AND c.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_salida
   ) THEN
     RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida seleccionada.');
-  END IF;
-
-  /* Validar el saldo antes de actualizar la operacion y su solicitud raiz. */
-  SELECT c.id, c.saldo_actual
-  INTO v_caja_salida
-  FROM public.tb_caja_operativa c
-  WHERE c.id_empresa = v_op.id_empresa_salida
-    AND c.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_salida
-  LIMIT 1
-  FOR UPDATE;
-
-  IF v_caja_salida.id IS NULL THEN
-    RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida seleccionada.');
-  END IF;
-
-  v_monto_requerido := COALESCE(v_op.monto_transferencia_cliente, v_op.monto_deposito_cliente, 0);
-
-  SELECT COALESCE(SUM(c.monto_salida), 0)
-  INTO v_salida_abierta
-  FROM public.tb_operacion_caja c
-  WHERE c.id_operacion_proceso = v_op.id
-    AND UPPER(BTRIM(COALESCE(c.tipo_movimiento, ''))) = 'SALIDA'
-    AND c.id_caja = v_caja_salida.id
-    AND c.id_caja_cierre IS NULL;
-
-  v_saldo_disponible := COALESCE(v_caja_salida.saldo_actual, 0) + v_salida_abierta;
-
-  IF v_saldo_disponible < v_monto_requerido THEN
-    RETURN jsonb_build_object(
-      'error', 'Saldo insuficiente en caja actual.',
-      'codigo', 'SALDO_INSUFICIENTE',
-      'id_caja', v_caja_salida.id,
-      'saldo_disponible', v_saldo_disponible,
-      'monto_requerido', v_monto_requerido
-    );
   END IF;
 
   UPDATE public.tb_operacion_proceso

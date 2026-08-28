@@ -7,6 +7,7 @@ export interface ReporteCierreCajaRow {
     id_empresa_cuenta_bancaria: number;
     id_banco: number;
     nombre_banco: string;
+    ruta: string | null;
     id_caja: number | null;
     id_caja_cierre: number | null;
     fecha_cierre: string | null;
@@ -170,6 +171,7 @@ export const reporteCierreCajaService = {
         return rpc<ReporteCierreCajaData>("f_get_reporte_cierre", {
             p_id_caja: row.id_caja,
             p_id_empresa: row.id_empresa,
+            p_ruta: row.ruta,
             p_id_caja_cierre: row.id_caja_cierre,
             p_fecha_cierre: row.fecha_cierre ? toDateKey(row.fecha_cierre) : null,
         });
