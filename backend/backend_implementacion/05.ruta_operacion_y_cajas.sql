@@ -3932,10 +3932,30 @@ DECLARE
   v_cierres jsonb := '[]'::jsonb;
   v_cajas_cerradas integer := 0;
   v_cajas_idempotentes integer := 0;
+  v_rutas_cierre character varying[];
 BEGIN
   IF COALESCE(array_length(p_rutas, 1), 0) = 0 THEN
     RETURN jsonb_build_object('error', 'No se especificaron rutas para cerrar.');
   END IF;
+
+  -- Interbank y SafetyPay comparten el mismo espacio operativo en frontend.
+  -- Esto mantiene compatibles a clientes antiguos que envien solo Interbank.
+  SELECT ARRAY_AGG(ruta ORDER BY ruta)
+  INTO v_rutas_cierre
+  FROM (
+    SELECT DISTINCT LOWER(BTRIM(ruta))::character varying AS ruta
+    FROM unnest(p_rutas) AS rutas(ruta)
+    WHERE NULLIF(BTRIM(ruta), '') IS NOT NULL
+
+    UNION
+
+    SELECT 'safetypay'::character varying
+    WHERE EXISTS (
+      SELECT 1
+      FROM unnest(p_rutas) AS rutas(ruta)
+      WHERE LOWER(BTRIM(ruta)) = 'interbank'
+    )
+  ) rutas_normalizadas;
 
   FOR v_caja IN
     SELECT c.id AS id_caja
@@ -3947,7 +3967,7 @@ BEGIN
       AND rc.id_estado = 1
       AND LOWER(BTRIM(rc.ruta)) IN (
         SELECT LOWER(BTRIM(ruta))
-        FROM unnest(p_rutas) AS rutas(ruta)
+        FROM unnest(v_rutas_cierre) AS rutas(ruta)
       )
     GROUP BY c.id
     ORDER BY c.id
@@ -3976,7 +3996,7 @@ BEGIN
   END IF;
 
   RETURN jsonb_build_object(
-    'rutas', to_jsonb(p_rutas),
+    'rutas', to_jsonb(v_rutas_cierre),
     'cajas_cerradas', v_cajas_cerradas,
     'cajas_idempotentes', v_cajas_idempotentes,
     'cierres', v_cierres
@@ -7062,22 +7082,43 @@ por_caja AS (
          AND op.id_caja_cierre IS NULL
          AND op.id_empresa_ingreso = c.id_empresa
          AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
-          AND op.fecha_registro >= COALESCE(c.fecha_apertura, '-infinity'::timestamp with time zone)
-          AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA'
-          AND NOT (
-            COALESCE(op.flag_retenido, false) = true
-            AND (
-              (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
-              OR (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
-              OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
-              OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
-              OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
-            )
-          )
-         AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+         AND UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) <> 'POS'
+         AND (
+           (
+             UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) IN ('EFECTIVIZACION', 'PAGO DEUDA')
+             AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO_DIRECTO')
+             AND op.id_caja_cierre_salida IS NULL
+             AND (
+               (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+               OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
+               OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
+               OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
+               OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
+             )
+             AND (op.fecha_registro AT TIME ZONE 'America/Lima')::date =
+                 (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date
+             AND NOT retencion.retenido_hardcodeado
+           )
+           OR (
+             NOT (
+               UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) IN ('EFECTIVIZACION', 'PAGO DEUDA')
+               AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO_DIRECTO')
+               AND (
+                 (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+                 OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
+                 OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
+                 OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
+                 OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
+               )
+             )
+             AND op.fecha_registro >= COALESCE(c.fecha_apertura, '-infinity'::timestamp with time zone)
+             AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA'
+             AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+           )
+         )
         THEN COALESCE(op.monto_deposito_cliente, 0)
         ELSE 0
-        END) AS ingresos,
+      END) AS ingresos,
       SUM(CASE
         WHEN UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) = 'DIRECTO_CAJA'
          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
@@ -7086,7 +7127,6 @@ por_caja AS (
          AND op.id_caja_cierre IS NULL
          AND op.id_empresa_ingreso = c.id_empresa
          AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
-         AND COALESCE(op.flag_retenido, false) = false
          AND op.fecha_registro >= COALESCE(c.fecha_apertura, '-infinity'::timestamp with time zone)
         THEN COALESCE(op.monto_deposito_cliente, 0)
         ELSE 0
@@ -7173,16 +7213,9 @@ por_caja AS (
         ELSE 0
       END) AS ganancias,
       SUM(CASE
-        WHEN COALESCE(op.flag_retenido, false) = true
+        WHEN retencion.retenido_hardcodeado
          AND op.id_empresa_ingreso = c.id_empresa
          AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
-         AND (
-           (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
-           OR (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
-           OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
-           OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
-           OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
-         )
           AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA'
          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN ('ELIMINADO', 'PAGADO', 'DEVUELTO', 'RECHAZADO')
         THEN COALESCE(op.monto_deposito_cliente, 0)
@@ -7204,6 +7237,35 @@ por_caja AS (
         WHERE UPPER(BTRIM(COALESCE(op.tipo_servicio, ''))) = 'PAGO DEUDA'
       ) AS total_pago_deuda
     FROM public.tb_operacion_proceso op
+    LEFT JOIN LATERAL (
+      SELECT CASE
+        WHEN op.fecha_deposito_cliente IS NULL THEN false
+        WHEN (
+          (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
+          OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
+        ) THEN
+          (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
+          (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date
+        WHEN (
+          (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
+          OR (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+          OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
+        ) THEN
+          (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima') >= CASE
+            WHEN (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::time >= '21:00:00'::time
+              THEN (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date + '21:00:00'::time
+            ELSE ((CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date - 1) + '21:00:00'::time
+          END
+          AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima') < CASE
+            WHEN (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::time >= '21:00:00'::time
+              THEN ((CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date + 1) + '21:00:00'::time
+            ELSE (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date + '21:00:00'::time
+          END
+          AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima') <=
+              (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')
+        ELSE false
+      END AS retenido_hardcodeado
+    ) retencion ON true
     WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
       AND (
         (op.id_empresa_ingreso = c.id_empresa AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria)
@@ -7261,20 +7323,14 @@ SELECT
   p_ruta AS ruta,
   COALESCE(SUM(pc.saldo_inicial), 0) AS caja_inicial,
   COALESCE(SUM(
-    CASE
-      -- La Caja Inicial es informativa y no forma parte del saldo operativo.
-      -- En Capital Nova-BCP y Fluxopay-BCP los depositos estan retenidos,
-      -- por lo que Caja Actual solo refleja movimientos manuales.
-      WHEN (pc.id_empresa = 5 AND pc.id_empresa_cuenta_bancaria = 4)
-        OR (pc.id_empresa = 6 AND pc.id_empresa_cuenta_bancaria = 5)
-      THEN pc.manual_ingresos
-        - pc.manual_salidas
-      ELSE pc.ingresos
-        + pc.directos
-        + pc.manual_ingresos
-        - pc.salidas
-        - pc.manual_salidas
-    END
+    -- La Caja Inicial es informativa y no forma parte del saldo operativo.
+    -- Los depositos retenidos quedan fuera de pc.ingresos; los directos
+    -- mantienen su impacto en Caja Actual sin generar recaudacion ni ganancia.
+    pc.ingresos
+      + pc.directos
+      + pc.manual_ingresos
+      - pc.salidas
+      - pc.manual_salidas
   ), 0) AS caja_actual,
   COALESCE(SUM(pc.recaudacion), 0) AS total_recaudado,
   COALESCE(SUM(pc.manual_ingresos), 0) AS ingresos,
@@ -7349,6 +7405,7 @@ WITH cierre AS (
     cc.id_estado,
     cc.id_usuario,
     cc.fecha_registro,
+    cc.fecha_cierre AT TIME ZONE 'America/Lima' AS fecha_cierre_lima,
     COALESCE(rc.ruta, p_ruta) AS ruta
   FROM public.tb_caja_operativa_cierre cc
   LEFT JOIN public.tb_ruta_operacion_caja rc
@@ -7395,7 +7452,45 @@ operaciones AS (
           )
         )
       )
-    ) AS atribucion_salida
+    ) AS atribucion_salida,
+    CASE
+      WHEN (
+        (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
+        OR (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+        OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
+        OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
+        OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
+      )
+      AND op.fecha_deposito_cliente IS NOT NULL
+      AND (
+        (
+          (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
+          OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
+        )
+        AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima') >= c.fecha_cierre_lima::date
+        AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima') < c.fecha_cierre_lima::date + 1
+        AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima') <= c.fecha_cierre_lima
+      OR
+        (
+          (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
+          OR (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+          OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
+        )
+        AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima') >= CASE
+          WHEN c.fecha_cierre_lima::time >= '21:00:00'::time
+            THEN c.fecha_cierre_lima::date + '21:00:00'::time
+          ELSE (c.fecha_cierre_lima::date - 1) + '21:00:00'::time
+        END
+        AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima') < CASE
+          WHEN c.fecha_cierre_lima::time >= '21:00:00'::time
+            THEN (c.fecha_cierre_lima::date + 1) + '21:00:00'::time
+          ELSE c.fecha_cierre_lima::date + '21:00:00'::time
+        END
+        AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima') <= c.fecha_cierre_lima
+      )
+      THEN true
+      ELSE false
+    END AS retencion_hardcodeada
   FROM cierre c
   JOIN public.tb_operacion_proceso op
     ON UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
@@ -7447,16 +7542,7 @@ agregado AS (
     COALESCE(m.manual_salidas, 0) AS manual_salidas,
     COALESCE(m.manual_gastos, 0) AS manual_gastos,
     COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO') THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS recaudacion,
-    COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO') AND NOT (
-      COALESCE(o.flag_retenido, false) = true
-      AND (
-        (o.id_empresa_ingreso = 5 AND o.id_empresa_cuenta_ingreso = 33 AND o.id_banco_empresa_cuenta_ingreso = 3)
-        OR (o.id_empresa_ingreso = 7 AND o.id_empresa_cuenta_ingreso = 16 AND o.id_banco_empresa_cuenta_ingreso = 4)
-        OR (o.id_empresa_ingreso = 8 AND o.id_empresa_cuenta_ingreso = 7 AND o.id_banco_empresa_cuenta_ingreso = 3)
-        OR (o.id_empresa_ingreso = 5 AND o.id_empresa_cuenta_ingreso = 4 AND o.id_banco_empresa_cuenta_ingreso = 2)
-        OR (o.id_empresa_ingreso = 6 AND o.id_empresa_cuenta_ingreso = 5 AND o.id_banco_empresa_cuenta_ingreso = 2)
-      )
-    ) THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS ingresos,
+    COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO') AND NOT o.retencion_hardcodeada THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS ingresos,
     COALESCE(SUM(CASE WHEN o.atribucion_salida AND o.id_empresa_salida = c.id_empresa AND o.id_empresa_cuenta_salida = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO') AND (UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PAGADO' OR (UPPER(BTRIM(COALESCE(o.tipo_servicio, ''))) = 'PAGO DEUDA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PROCESADO')) THEN COALESCE(o.monto_transferencia_cliente, 0) ELSE 0 END), 0) AS salidas,
     COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO') THEN COALESCE(o.resultado_comision_banco_ingreso, 0) ELSE 0 END), 0)
       + COALESCE(SUM(CASE WHEN o.atribucion_salida AND o.id_empresa_salida = c.id_empresa AND o.id_empresa_cuenta_salida = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO') AND (UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PAGADO' OR (UPPER(BTRIM(COALESCE(o.tipo_servicio, ''))) = 'PAGO DEUDA' AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PROCESADO')) THEN COALESCE(o.resultado_comision_banco_salida, 0) ELSE 0 END), 0) AS gastos,
@@ -7493,13 +7579,7 @@ agregado AS (
         ELSE 0
       END
     ), 0) AS ganancias,
-    COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND COALESCE(o.flag_retenido, false) = true AND (
-      (o.id_empresa_ingreso = 5 AND o.id_empresa_cuenta_ingreso = 33 AND o.id_banco_empresa_cuenta_ingreso = 3)
-      OR (o.id_empresa_ingreso = 7 AND o.id_empresa_cuenta_ingreso = 16 AND o.id_banco_empresa_cuenta_ingreso = 4)
-      OR (o.id_empresa_ingreso = 8 AND o.id_empresa_cuenta_ingreso = 7 AND o.id_banco_empresa_cuenta_ingreso = 3)
-      OR (o.id_empresa_ingreso = 5 AND o.id_empresa_cuenta_ingreso = 4 AND o.id_banco_empresa_cuenta_ingreso = 2)
-      OR (o.id_empresa_ingreso = 6 AND o.id_empresa_cuenta_ingreso = 5 AND o.id_banco_empresa_cuenta_ingreso = 2)
-    ) THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS retenidos,
+    COALESCE(SUM(CASE WHEN o.atribucion_ingreso AND o.id_empresa_ingreso = c.id_empresa AND o.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria AND UPPER(BTRIM(COALESCE(o.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' AND o.retencion_hardcodeada THEN COALESCE(o.monto_deposito_cliente, 0) ELSE 0 END), 0) AS retenidos,
     COUNT(*) FILTER (WHERE UPPER(BTRIM(COALESCE(o.tipo_servicio, ''))) IN ('EFECTIVIZACION', 'POS') OR COALESCE(o.flag_derivado, false) = true)::integer AS total_efectivizacion,
     COUNT(*) FILTER (WHERE UPPER(BTRIM(COALESCE(o.tipo_servicio, ''))) = 'PAGO DEUDA')::integer AS total_pago_deuda
   FROM cierre c
@@ -7544,6 +7624,8 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_post_tb_caja_operativa_cierre',
-  'f_post_tb_caja_operativa_cierre_ruta'
+  'f_post_tb_caja_operativa_cierre_ruta',
+  'f_get_tb_ruta_operacion_kpi_operaciones_v2',
+  'f_get_tb_ruta_operacion_kpi_cierre_operaciones_v2'
 )
 ORDER BY n.nspname, p.proname;

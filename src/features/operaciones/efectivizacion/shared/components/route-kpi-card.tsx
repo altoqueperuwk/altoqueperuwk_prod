@@ -1,4 +1,7 @@
+import { useState } from "react";
+import { Eye, EyeOff } from "@untitledui/icons";
 import { motion } from "motion/react";
+import { Button as AriaButton } from "react-aria-components";
 import { cx } from "@/utils/cx";
 
 interface RouteKpiCardProps {
@@ -7,6 +10,7 @@ interface RouteKpiCardProps {
     label: string;
     secondaryLabel?: string;
     secondaryValue?: string;
+    secondaryValueHidden?: boolean;
     valueClassName?: string;
     value: string;
 }
@@ -17,9 +21,13 @@ export const RouteKpiCard = ({
     label,
     secondaryLabel,
     secondaryValue,
+    secondaryValueHidden = false,
     value,
     valueClassName = "text-primary",
 }: RouteKpiCardProps) => {
+    const [isSecondaryValueVisible, setIsSecondaryValueVisible] = useState(false);
+    const maskedSecondaryValue = secondaryValue?.trim().startsWith("-") ? "-S/ ••••••" : "S/ ••••••";
+
     return (
         <motion.div
             initial={{ opacity: 0, y: 6 }}
@@ -36,7 +44,26 @@ export const RouteKpiCard = ({
                     {secondaryValue ? (
                         <div className="mt-1 flex min-w-0 items-baseline gap-1 text-xs text-tertiary">
                             {secondaryLabel ? <span className="truncate">{secondaryLabel}:</span> : null}
-                            <span className="truncate font-semibold text-secondary">{secondaryValue}</span>
+                            {secondaryValueHidden ? (
+                                <div className="flex min-w-0 items-center gap-1">
+                                    <span className="truncate font-semibold text-secondary">
+                                        {isSecondaryValueVisible ? secondaryValue : maskedSecondaryValue}
+                                    </span>
+                                    <AriaButton
+                                        aria-label={`${isSecondaryValueVisible ? "Ocultar" : "Mostrar"} ${secondaryLabel ?? "monto"}`}
+                                        className="shrink-0 rounded-sm text-fg-quaternary outline-hidden transition duration-200 hover:text-fg-secondary focus-visible:ring-2 focus-visible:ring-focus-ring"
+                                        onPress={() => setIsSecondaryValueVisible((isVisible) => !isVisible)}
+                                    >
+                                        {isSecondaryValueVisible ? (
+                                            <EyeOff className="size-4 stroke-[2px]" />
+                                        ) : (
+                                            <Eye className="size-4 stroke-[2px]" />
+                                        )}
+                                    </AriaButton>
+                                </div>
+                            ) : (
+                                <span className="truncate font-semibold text-secondary">{secondaryValue}</span>
+                            )}
                         </div>
                     ) : null}
                     {badges.length > 0 && (
