@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { formatInteger, formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
+import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
 
 interface ReportRowBase {
     operacion?: string | null;
@@ -97,6 +98,9 @@ interface RetencionRow extends ReportRowBase {
 }
 
 interface ReporteCierreData {
+    id_empresa?: number;
+    id_banco?: number;
+    id_empresa_cuenta_bancaria?: number;
     empresa?: string;
     banco?: string;
     fecha_cierre?: string;
@@ -488,7 +492,12 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
     const posPendientes = data.pos_pendientes ?? [];
     const movimientos = data.movimientos ?? [];
     const kpi = data.kpi ?? {};
-    const saldoBanco = Number(kpi.caja_inicial ?? 0) + Number(kpi.ingresos ?? 0) - Number(kpi.salidas ?? 0);
+    const saldoBanco = calcularSaldoBanco(
+        kpi,
+        data.id_empresa,
+        data.id_banco,
+        data.id_empresa_cuenta_bancaria,
+    );
     const totalOperations = efectivizacion.length + efectivizacionPendientes.length + derivados.length + derivadosPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length;
     const totalRows = totalOperations + movimientos.length;
     const hasRows = totalRows > 0;
@@ -501,7 +510,7 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
                 <ReportHeader data={data} totalRows={totalOperations} />
                 <SectionHeader title={data.empresa ?? "Empresa"} badge={data.banco ?? "Banco"} />
                 <div className="kpi-grid">
-                    <KpiCard label="Saldo Banco" tags={["Caja Inicial + Ingresos - Salidas"]} value={saldoBanco} />
+                    <KpiCard label="Saldo Banco" tags={["Saldo conciliado"]} value={saldoBanco} />
                     <KpiCard label="Caja Inicial" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_inicial} />
                     <KpiCard label="Caja Actual" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_actual} />
                     <KpiCard label="Caja Recaudación" tags={["Efectivización", "Pago Deuda"]} value={kpi.caja_recaudacion ?? kpi.total_recaudado} tone="green" />

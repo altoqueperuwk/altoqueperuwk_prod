@@ -32,6 +32,7 @@ import { BancariaOperationalTabs } from "@/features/operaciones/efectivizacion/b
 import { BancariaReporteCierrePdfOficial } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-reporte-cierre-pdf-oficial";
 import { BancariaTopActions } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-top-actions";
 import { useBancariaKpis } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-kpis";
+import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
 
 interface BancariaPageProps {
     ruta: OperacionRutaBancaria;
@@ -185,6 +186,13 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 p_id_caja_cierre: selectedHistoryClosureId ?? undefined,
                 p_fecha_cierre: selectedHistoryClosureId ? undefined : selectedHistoryDate || undefined,
             });
+            const gastosBancoSalida = await operacionesRpcService.getRutaGastosSalidaV2({
+                p_ruta: activeOperationRoute,
+                p_id_empresa: activeCompanyCaja?.id_empresa ?? activeCompanyId,
+                p_id_empresa_cuenta_bancaria: activeCompanyCaja?.id_empresa_cuenta_bancaria ?? activeAccountId,
+                p_id_caja: cajaId,
+                p_id_caja_cierre: selectedHistoryClosureId,
+            });
 
             const normalizeMovementOrigin = (value: unknown) => String(value ?? "").trim().toUpperCase().replaceAll("_", " ");
             const isReportMovement = (row: Record<string, unknown>) => [
@@ -208,7 +216,17 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 movimientos = ((fallback ?? []) as unknown as Record<string, unknown>[]).filter(isReportMovement);
             }
 
-            const normalizedData = { ...data, movimientos };
+            const normalizedData = {
+                ...data,
+                id_empresa: activeCompanyCaja?.id_empresa ?? activeCompanyId,
+                id_banco: activeCompanyCaja?.id_banco ?? null,
+                id_empresa_cuenta_bancaria: activeCompanyCaja?.id_empresa_cuenta_bancaria ?? activeAccountId,
+                kpi: {
+                    ...((data.kpi ?? {}) as Record<string, unknown>),
+                    gastos_banco_salida: Number(gastosBancoSalida ?? 0),
+                },
+                movimientos,
+            };
             setReporteData(normalizedData);
             return normalizedData as Record<string, unknown>;
         } catch {
@@ -254,7 +272,12 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         };
         const reportFileName = getReportFileName(data).replace(/\.pdf$/i, ".xlsx");
         const kpi = (data.kpi ?? {}) as Record<string, number>;
-        const saldoBanco = Number(kpi.caja_inicial ?? 0) + Number(kpi.ingresos ?? 0) - Number(kpi.salidas ?? 0);
+        const saldoBanco = calcularSaldoBanco(
+            kpi,
+            Number(data.id_empresa ?? 0),
+            Number(data.id_banco ?? 0),
+            Number(data.id_empresa_cuenta_bancaria ?? 0),
+        );
         const efectivizacion = ((data.efectivizacion as Record<string, unknown>[]) ?? []);
         const efectivizacionPendientes = ((data.efectivizacion_pendientes as Record<string, unknown>[]) ?? []);
         const derivados = ((data.derivados as Record<string, unknown>[]) ?? []);
@@ -892,6 +915,9 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-6">
                     <div className="xl:col-span-4">
                         <BancariaKpiGrid
+                            activeAccountId={activeCompanyCaja?.id_empresa_cuenta_bancaria}
+                            activeBankId={activeCompanyCaja?.id_banco}
+                            activeCompanyId={activeCompanyCaja?.id_empresa}
                             hasRetentionRule={activeCompanyCaja?.flag_retencion_cuenta === true}
                             gananciasBadge={gananciasBadge}
                             isLoading={isLoadingKpis}

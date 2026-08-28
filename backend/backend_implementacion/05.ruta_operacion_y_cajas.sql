@@ -7616,6 +7616,105 @@ LEFT JOIN public.tb_usuario u ON u.id = a.id_usuario;
 $$;
 
 
+/*
+Funcion: f_get_tb_ruta_operacion_gastos_salida_v2
+Objetivo:
+  Obtener exclusivamente los gastos bancarios debitados por las salidas del
+  ciclo vivo o de un cierre. Se utiliza para conciliar el Saldo Banco sin
+  descontar las comisiones bancarias de ingreso.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_gastos_salida_v2(
+  p_ruta character varying,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_id_caja bigint DEFAULT NULL,
+  p_id_caja_cierre bigint DEFAULT NULL
+)
+RETURNS numeric
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH caja AS (
+    SELECT
+      c.id,
+      c.fecha_apertura
+    FROM public.tb_caja_operativa c
+    JOIN public.tb_ruta_operacion_caja rc
+      ON rc.id_empresa = c.id_empresa
+     AND rc.id_empresa_cuenta_bancaria = c.id_empresa_cuenta_bancaria
+     AND rc.id_estado = 1
+    WHERE LOWER(BTRIM(rc.ruta)) = LOWER(BTRIM(p_ruta))
+      AND (p_id_caja IS NULL OR c.id = p_id_caja)
+      AND (p_id_empresa IS NULL OR c.id_empresa = p_id_empresa)
+      AND (
+        p_id_empresa_cuenta_bancaria IS NULL
+        OR c.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria
+      )
+  )
+  SELECT COALESCE(SUM(COALESCE(op.resultado_comision_banco_salida, 0)), 0)
+  FROM public.tb_operacion_proceso op
+  WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+    AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN (
+      'DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO'
+    )
+    AND (p_id_empresa IS NULL OR op.id_empresa_salida = p_id_empresa)
+    AND (
+      p_id_empresa_cuenta_bancaria IS NULL
+      OR op.id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria
+    )
+    AND (
+      (
+        p_id_caja_cierre IS NULL
+        AND op.id_caja_cierre IS NULL
+        AND op.id_caja_cierre_salida IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM caja c
+          WHERE c.id = COALESCE(p_id_caja, c.id)
+            AND (
+              (
+                UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+                AND op.fecha_pagado IS NOT NULL
+                AND op.fecha_pagado >= COALESCE(c.fecha_apertura, '-infinity'::timestamp with time zone)
+              )
+              OR (
+                UPPER(BTRIM(COALESCE(op.tipo_servicio, ''))) = 'PAGO DEUDA'
+                AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PROCESADO'
+                AND EXISTS (
+                  SELECT 1
+                  FROM public.tb_operacion_caja oc
+                  WHERE oc.id_operacion_proceso = op.id
+                    AND oc.id_caja = c.id
+                    AND oc.id_caja_cierre IS NULL
+                    AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'SALIDA'
+                )
+              )
+            )
+        )
+      )
+      OR (
+        p_id_caja_cierre IS NOT NULL
+        AND (
+          op.id_caja_cierre_salida = p_id_caja_cierre
+          OR (
+            op.id_caja_cierre_salida IS NULL
+            AND op.id_caja_cierre = p_id_caja_cierre
+          )
+        )
+        AND (
+          UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+          OR (
+            UPPER(BTRIM(COALESCE(op.tipo_servicio, ''))) = 'PAGO DEUDA'
+            AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PROCESADO'
+          )
+        )
+      )
+    );
+$$;
+
+
 SELECT 'DROP FUNCTION IF EXISTS ' ||
        n.nspname || '.' ||
        p.proname || '(' ||
@@ -7623,8 +7722,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_post_tb_caja_operativa_cierre_ruta',
-  'f_get_tb_ruta_operacion_kpi_operaciones_v2',
-  'f_get_tb_ruta_operacion_kpi_cierre_operaciones_v2'
+  'f_get_tb_ruta_operacion_gastos_salida_v2'
 )
 ORDER BY n.nspname, p.proname;

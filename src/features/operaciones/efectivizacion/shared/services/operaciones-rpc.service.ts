@@ -124,6 +124,10 @@ export const operacionesRpcService = {
         return rpc<RutaOperacionKpi[]>("f_get_tb_ruta_operacion_kpi_cierre_operaciones_v2", params);
     },
 
+    getRutaGastosSalidaV2(params: Record<string, unknown>) {
+        return rpc<number>("f_get_tb_ruta_operacion_gastos_salida_v2", params);
+    },
+
     getRutaGananciasEfectivizacion(params: Record<string, unknown>) {
         return rpc<number>("f_get_tb_ruta_operacion_ganancias_efectivizacion", params);
     },

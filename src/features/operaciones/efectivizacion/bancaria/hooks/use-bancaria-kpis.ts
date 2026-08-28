@@ -106,6 +106,7 @@ const mergeKpis = (ruta: OperacionRutaBancaria, rows: RutaOperacionKpi[]): RutaO
         total_pago_deuda: sum("total_pago_deuda"),
         caja_recaudacion: sum("caja_recaudacion"),
         pendiente_transferencia: sum("pendiente_transferencia"),
+        gastos_banco_salida: sum("gastos_banco_salida"),
     };
 };
 
@@ -178,8 +179,20 @@ export const useBancariaKpis = (
                         );
 
                         const base = mergeKpis(ruta, groups.flatMap((group) => group ?? []));
+                        const gastosSalida = await Promise.all(
+                            filtered.map((row) => operacionesRpcService.getRutaGastosSalidaV2({
+                                p_ruta: ruta,
+                                p_id_empresa: activeCompanyId,
+                                p_id_empresa_cuenta_bancaria: routes.length === 1 ? activeAccountId : null,
+                                p_id_caja: activeCajaId,
+                                p_id_caja_cierre: row.id,
+                            })),
+                        );
+                        const baseConGastos = base
+                            ? { ...base, gastos_banco_salida: gastosSalida.reduce((total, value) => total + Number(value ?? 0), 0) }
+                            : base;
                         const useSpecialGain = routes.length === 1 && hasGananciaEspecial(ruta, activeCompanyId, activeAccountId);
-                        if (!useSpecialGain) return { kpi: base, gananciasBadge: null };
+                        if (!useSpecialGain) return { kpi: baseConGastos, gananciasBadge: null };
 
                         const specialGroups = await Promise.all(
                             filtered.map((row) => operacionesRpcService.getRutaGananciasEfectivizacionV2({
@@ -200,7 +213,7 @@ export const useBancariaKpis = (
                             .pop();
 
                         return {
-                            kpi: base ? { ...base, ganancias: specialGain } : base,
+                            kpi: baseConGastos ? { ...baseConGastos, ganancias: specialGain } : baseConGastos,
                             gananciasBadge: formatCierreBadge(reference),
                         };
                     });
@@ -230,12 +243,26 @@ export const useBancariaKpis = (
                     p_historico: false,
                 })
                 : Promise.resolve([]);
+            const gastosSalidaRequest = Promise.all(
+                routes.map((item) => operacionesRpcService.getRutaGastosSalidaV2({
+                    p_ruta: item,
+                    p_id_empresa: activeCompanyId,
+                    p_id_empresa_cuenta_bancaria: routes.length === 1 ? activeAccountId : null,
+                    p_id_caja: routes.length === 1 ? activeCajaId : null,
+                    p_id_caja_cierre: null,
+                })),
+            );
 
-            return Promise.all([kpiRequest, specialRequest]).then(([groups, special]) => {
+            return Promise.all([kpiRequest, specialRequest, gastosSalidaRequest]).then(([groups, special, gastosSalida]) => {
                 const base = mergeKpis(ruta, groups.flatMap((group) => group?.[0] ? [group[0]] : []));
                 const specialRow = special[0];
+                const baseConGastos = base
+                    ? { ...base, gastos_banco_salida: gastosSalida.reduce((total, value) => total + Number(value ?? 0), 0) }
+                    : base;
                 return {
-                    kpi: base && specialRow ? { ...base, ganancias: Number(specialRow.ganancias ?? 0) } : base,
+                    kpi: baseConGastos && specialRow
+                        ? { ...baseConGastos, ganancias: Number(specialRow.ganancias ?? 0) }
+                        : baseConGastos,
                     gananciasBadge: formatCierreBadge(specialRow?.fecha_cierre_referencia),
                 };
             });

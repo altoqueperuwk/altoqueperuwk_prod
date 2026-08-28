@@ -50,6 +50,7 @@ export interface RutaOperacionKpi {
     fecha_registro: string;
     caja_recaudacion?: number | null;
     pendiente_transferencia?: number | null;
+    gastos_banco_salida?: number | null;
 }
 
 export interface RutaGananciaEspecial {

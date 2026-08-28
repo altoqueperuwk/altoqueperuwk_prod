@@ -1,8 +1,12 @@
 import { RouteKpiCard } from "@/features/operaciones/efectivizacion/shared/components/route-kpi-card";
 import type { RutaOperacionKpi } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
+import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
 
 interface BancariaKpiGridProps {
+    activeAccountId?: number | null;
+    activeBankId?: number | null;
+    activeCompanyId?: number | null;
     isLoading?: boolean;
     kpi: RutaOperacionKpi | null;
     gananciasBadge?: string | null;
@@ -10,13 +14,20 @@ interface BancariaKpiGridProps {
     hasRetentionRule?: boolean;
 }
 
-export const BancariaKpiGrid = ({ gananciasBadge, isLoading = false, kpi }: BancariaKpiGridProps) => {
-    const cajaActualCalculada = (kpi?.caja_inicial ?? 0) + (kpi?.ingresos ?? 0) - (kpi?.salidas ?? 0);
+export const BancariaKpiGrid = ({
+    activeAccountId,
+    activeBankId,
+    activeCompanyId,
+    gananciasBadge,
+    isLoading = false,
+    kpi,
+}: BancariaKpiGridProps) => {
+    const saldoBanco = calcularSaldoBanco(kpi, activeCompanyId, activeBankId, activeAccountId);
     const cards = [
         { label: "Caja Inicial", value: formatMoney(kpi?.caja_inicial), valueClassName: "text-primary", badges: ["Efectivizacion", "Pago Deuda", "Otros"] },
         {
             label: "Saldo Banco",
-            value: formatMoney(cajaActualCalculada),
+            value: formatMoney(saldoBanco),
             secondaryLabel: "Caja Actual",
             secondaryValue: formatMoney(kpi?.caja_actual),
             secondaryValueHidden: true,
