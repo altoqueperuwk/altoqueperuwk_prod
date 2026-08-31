@@ -375,8 +375,8 @@ BEGIN
 
   IF v_ruta = 'pos'
      AND p_codigo_operacion_deposito_cliente IS NOT NULL
-     AND LENGTH(p_codigo_operacion_deposito_cliente) > 15 THEN
-    RETURN jsonb_build_object('error', 'El codigo de operacion POS no puede superar los 15 caracteres.');
+     AND LENGTH(p_codigo_operacion_deposito_cliente) > 30 THEN
+    RETURN jsonb_build_object('error', 'El codigo de operacion POS no puede superar los 30 caracteres.');
   END IF;
 
   IF v_ruta = 'pos' AND p_id_banco_destino IS NULL THEN
@@ -826,8 +826,8 @@ BEGIN
   END IF;
 
   IF p_codigo_operacion_deposito_cliente IS NOT NULL
-     AND LENGTH(p_codigo_operacion_deposito_cliente) > 15 THEN
-    RETURN jsonb_build_object('error', 'El codigo de operacion POS no puede superar los 15 caracteres.');
+     AND LENGTH(p_codigo_operacion_deposito_cliente) > 30 THEN
+    RETURN jsonb_build_object('error', 'El codigo de operacion POS no puede superar los 30 caracteres.');
   END IF;
 
   SELECT b.nombre

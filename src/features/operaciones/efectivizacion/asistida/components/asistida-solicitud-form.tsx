@@ -472,8 +472,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                                 label="Cod. Operacion"
                                 placeholder="Código de operación"
                                 value={codigoOperacion}
-                                maxLength={15}
-                                onChange={(value) => setCodigoOperacion(value.slice(0, 15))}
+                                maxLength={30}
+                                onChange={(value) => setCodigoOperacion(value.slice(0, 30))}
                                 className="order-1 w-full min-w-0 sm:w-[16ch]"
                             />
                             <div className="order-10 flex w-full flex-row-reverse flex-wrap items-center justify-end gap-2 sm:w-max">
