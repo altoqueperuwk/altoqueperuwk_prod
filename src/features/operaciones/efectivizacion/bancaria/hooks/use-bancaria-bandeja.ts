@@ -31,6 +31,11 @@ export interface MovimientoMerged {
     nombre_banco: string;
     nombre_empresa_relacionada?: string | null;
     nombre_banco_relacionada?: string | null;
+    id_empresa_contraparte?: number | null;
+    nombre_empresa_contraparte?: string | null;
+    id_empresa_cuenta_bancaria_contraparte?: number | null;
+    id_banco_contraparte?: number | null;
+    nombre_banco_contraparte?: string | null;
     monto_ingreso: number;
     monto_salida: number;
     monto_gasto: number;
@@ -95,6 +100,11 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
             nombre_banco: primary.nombre_banco ?? "",
             nombre_empresa_relacionada: primary.nombre_empresa_relacionada ?? null,
             nombre_banco_relacionada: primary.nombre_banco_relacionada ?? null,
+            id_empresa_contraparte: primary.id_empresa_contraparte ?? null,
+            nombre_empresa_contraparte: primary.nombre_empresa_contraparte ?? null,
+            id_empresa_cuenta_bancaria_contraparte: primary.id_empresa_cuenta_bancaria_contraparte ?? null,
+            id_banco_contraparte: primary.id_banco_contraparte ?? null,
+            nombre_banco_contraparte: primary.nombre_banco_contraparte ?? null,
             monto_ingreso: ingreso?.monto_ingreso ?? 0,
             monto_salida: salida?.monto_salida ?? 0,
             monto_gasto: (ingreso?.monto_gasto ?? 0) + (salida?.monto_gasto ?? 0),
@@ -121,6 +131,11 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
             nombre_banco: row.nombre_banco ?? "",
             nombre_empresa_relacionada: row.nombre_empresa_relacionada ?? null,
             nombre_banco_relacionada: row.nombre_banco_relacionada ?? null,
+            id_empresa_contraparte: row.id_empresa_contraparte ?? null,
+            nombre_empresa_contraparte: row.nombre_empresa_contraparte ?? null,
+            id_empresa_cuenta_bancaria_contraparte: row.id_empresa_cuenta_bancaria_contraparte ?? null,
+            id_banco_contraparte: row.id_banco_contraparte ?? null,
+            nombre_banco_contraparte: row.nombre_banco_contraparte ?? null,
             monto_ingreso: row.monto_ingreso,
             monto_salida: row.monto_salida,
             monto_gasto: row.monto_gasto,

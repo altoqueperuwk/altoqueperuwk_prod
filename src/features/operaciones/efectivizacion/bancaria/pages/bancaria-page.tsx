@@ -33,6 +33,7 @@ import { BancariaReporteCierrePdfOficial } from "@/features/operaciones/efectivi
 import { BancariaTopActions } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-top-actions";
 import { useBancariaKpis } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-kpis";
 import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
+import { getReporteEfectivizacionUnificada } from "@/features/operaciones/efectivizacion/bancaria/utils/reporte-efectivizacion";
 
 interface BancariaPageProps {
     ruta: OperacionRutaBancaria;
@@ -182,7 +183,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             const data = await operacionesRpcService.getReporteCierre({
                 p_id_caja: cajaId,
                 p_id_empresa: activeCompanyId,
-                p_ruta: ruta,
+                p_ruta: activeOperationRoute,
                 p_id_caja_cierre: selectedHistoryClosureId ?? undefined,
                 p_fecha_cierre: selectedHistoryClosureId ? undefined : selectedHistoryDate || undefined,
             });
@@ -278,21 +279,19 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             Number(data.id_banco ?? 0),
             Number(data.id_empresa_cuenta_bancaria ?? 0),
         );
-        const efectivizacion = ((data.efectivizacion as Record<string, unknown>[]) ?? []);
-        const efectivizacionPendientes = ((data.efectivizacion_pendientes as Record<string, unknown>[]) ?? []);
-        const derivados = ((data.derivados as Record<string, unknown>[]) ?? []);
-        const derivadosPendientes = ((data.derivados_pendientes as Record<string, unknown>[]) ?? []);
+        const { pagadas: efectivizacion, pendientes: efectivizacionPendientes } = getReporteEfectivizacionUnificada(data);
         const pagoDeuda = ((data.pago_deuda as Record<string, unknown>[]) ?? []);
         const pagoDeudaPendientes = ((data.pago_deuda_pendientes as Record<string, unknown>[]) ?? []);
         const pos = ((data.pos as Record<string, unknown>[]) ?? []);
         const posPendientes = ((data.pos_pendientes as Record<string, unknown>[]) ?? []);
         const movimientos = ((data.movimientos as Record<string, unknown>[]) ?? []);
-        const totalRows = efectivizacion.length + efectivizacionPendientes.length + derivados.length + derivadosPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length + movimientos.length;
+        const totalRows = efectivizacion.length + efectivizacionPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length + movimientos.length;
 
         worksheet.columns = [
-            { width: 13 }, { width: 12 }, { width: 12 }, { width: 13 },
-            { width: 13 }, { width: 11 }, { width: 13 }, { width: 12 },
-            { width: 12 }, { width: 14 }, { width: 11 }, { width: 11 },
+            { width: 13 }, { width: 18 }, { width: 14 }, { width: 12 },
+            { width: 12 }, { width: 13 }, { width: 13 }, { width: 11 },
+            { width: 13 }, { width: 12 }, { width: 12 }, { width: 14 },
+            { width: 11 }, { width: 11 },
         ];
         worksheet.views = [{ showGridLines: false }];
 
@@ -332,11 +331,11 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             minute: "2-digit",
         });
 
-        mergeAndStyle(1, 1, 12, "ALTOQUE PERU WK", { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
-        mergeAndStyle(2, 1, 12, "Reporte de Cierre de Caja", { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
-        mergeAndStyle(3, 1, 12, `Fecha: ${generatedAt}`, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
-        mergeAndStyle(4, 1, 12, `Empresa: ${String(data.empresa ?? "Empresa").toUpperCase()}`, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
-        mergeAndStyle(5, 1, 12, `Cuenta: ${String(data.banco ?? routeLabel).toUpperCase()}`, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+        mergeAndStyle(1, 1, 14, "ALTOQUE PERU WK", { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+        mergeAndStyle(2, 1, 14, "Reporte de Cierre de Caja", { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+        mergeAndStyle(3, 1, 14, `Fecha: ${generatedAt}`, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+        mergeAndStyle(4, 1, 14, `Empresa: ${String(data.empresa ?? "Empresa").toUpperCase()}`, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+        mergeAndStyle(5, 1, 14, `Cuenta: ${String(data.banco ?? routeLabel).toUpperCase()}`, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
 
         let nextRow = 7;
         const kpiRows = [
@@ -421,82 +420,46 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
 
         addSection(
             "Efectivizacion",
-            ["Facturacion", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"],
+            ["Facturacion", "Empresa", "Cuenta", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"],
             efectivizacion.map((row) => [
-                text(row.facturacion ?? row.tipo_facturacion),
-                `${text(row.operacion ?? row.codigo_operacion_deposito_cliente)}${row.derivada_congelada ? "\nDerivada" : ""}`,
-                text(row.dni ?? row.dni_cliente),
-                text(row.comunidad ?? row.nombre_comunidad),
-                money(row.deposito ?? row.monto),
-                percent(row.porcentaje_comision ?? row.comision_servicio),
-                money(row.soles_comision ?? row.comision),
+                text(row.facturacion),
+                text(row.empresa),
+                text(row.cuenta),
+                text(row.operacion),
+                text(row.dni),
+                text(row.comunidad),
+                money(row.deposito),
+                percent(row.porcentaje_comision),
+                money(row.soles_comision),
                 money(row.gastos),
                 money(row.ganancia),
                 money(row.transferencia),
-                text(row.estado ?? row.nombre_estado),
-                date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro),
+                text(row.estado),
+                date(row.fecha),
             ]),
-            [4, 6, 7, 8, 9],
+            [6, 8, 9, 10, 11],
         );
 
         addSection(
             "Efectivizacion - Pendientes",
-            ["Facturacion", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"],
+            ["Facturacion", "Empresa", "Cuenta", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"],
             efectivizacionPendientes.map((row) => [
-                text(row.facturacion ?? row.tipo_facturacion),
-                `${text(row.operacion ?? row.codigo_operacion_deposito_cliente)}${row.derivada_congelada ? "\nDerivada" : ""}`,
-                text(row.dni ?? row.dni_cliente),
-                text(row.comunidad ?? row.nombre_comunidad),
-                money(row.deposito ?? row.monto),
-                percent(row.porcentaje_comision ?? row.comision_servicio),
-                money(row.soles_comision ?? row.comision),
+                text(row.facturacion),
+                text(row.empresa),
+                text(row.cuenta),
+                text(row.operacion),
+                text(row.dni),
+                text(row.comunidad),
+                money(row.deposito),
+                percent(row.porcentaje_comision),
+                money(row.soles_comision),
                 money(row.gastos),
                 money(row.ganancia),
                 money(row.transferencia),
-                text(row.estado ?? row.nombre_estado),
-                date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro),
+                text(row.estado),
+                date(row.fecha),
             ]),
-            [4, 6, 7, 8, 9],
-        );
-
-        addSection(
-            "Derivados",
-            ["Facturacion", "Derivo", "Cod. Op.", "DNI", "Comunidad", "Cuenta Cliente", "Monto", "% Comision", "S/ Comision", "Transferencia", "Estado", "Fecha"],
-            derivados.map((row) => [
-                text(row.facturacion ?? row.tipo_facturacion),
-                row.derivo ? getRutaLabel(String(row.derivo) as never) : "-",
-                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
-                text(row.dni ?? row.dni_cliente),
-                text(row.comunidad),
-                text(row.cuenta_cliente),
-                money(row.monto),
-                percent(row.porcentaje_comision),
-                money(row.soles_comision),
-                money(row.transferencia),
-                text(row.estado ?? row.nombre_estado),
-                date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro),
-            ]),
-            [9],
-        );
-
-        addSection(
-            "Derivados - Pendientes",
-            ["Facturacion", "Derivo", "Cod. Op.", "DNI", "Comunidad", "Cuenta Cliente", "Monto", "% Comision", "S/ Comision", "Transferencia", "Estado", "Fecha"],
-            derivadosPendientes.map((row) => [
-                text(row.facturacion ?? row.tipo_facturacion),
-                row.derivo ? getRutaLabel(String(row.derivo) as never) : "-",
-                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
-                text(row.dni ?? row.dni_cliente),
-                text(row.comunidad),
-                text(row.cuenta_cliente),
-                money(row.monto),
-                percent(row.porcentaje_comision),
-                money(row.soles_comision),
-                money(row.transferencia),
-                text(row.estado ?? row.nombre_estado),
-                date(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro),
-            ]),
-            [9],
+            [6, 8, 9, 10, 11],
         );
 
         addSection(
@@ -589,11 +552,15 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         };
         const movementRelatedCompany = (row: Record<string, unknown>) => {
             const origin = String(row.tipo_origen ?? "").trim().toUpperCase().replaceAll("_", " ");
-            return origin === "TRANSFERENCIA INTERNA" ? text(row.nombre_empresa_relacionada) : text(row.nombre_empresa);
+            return origin === "TRANSFERENCIA INTERNA"
+                ? text(row.nombre_empresa_relacionada)
+                : text(row.nombre_empresa_contraparte ?? row.nombre_empresa);
         };
         const movementRelatedBank = (row: Record<string, unknown>) => {
             const origin = String(row.tipo_origen ?? "").trim().toUpperCase().replaceAll("_", " ");
-            return origin === "TRANSFERENCIA INTERNA" ? text(row.nombre_banco_relacionada) : text(row.nombre_banco);
+            return origin === "TRANSFERENCIA INTERNA"
+                ? text(row.nombre_banco_relacionada)
+                : text(row.nombre_banco_contraparte ?? row.nombre_banco);
         };
 
         addSection(
@@ -614,14 +581,14 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         );
 
         if (!totalRows) {
-            worksheet.mergeCells(nextRow, 1, nextRow, 12);
+            worksheet.mergeCells(nextRow, 1, nextRow, 14);
             const empty = worksheet.getCell(nextRow, 1);
             empty.value = "Sin operaciones para este periodo.";
             styleCell(empty, { bg: colors.white, color: colors.muted, align: "center" });
             nextRow += 1;
         }
 
-        worksheet.mergeCells(nextRow, 1, nextRow, 12);
+        worksheet.mergeCells(nextRow, 1, nextRow, 14);
         const footer = worksheet.getCell(nextRow, 1);
         footer.value = `${data.empresa ?? "Empresa"} - Altoque Peru WK - Reporte de Cierre de Caja`;
         styleCell(footer, { size: 8, color: colors.muted, bg: colors.paper });

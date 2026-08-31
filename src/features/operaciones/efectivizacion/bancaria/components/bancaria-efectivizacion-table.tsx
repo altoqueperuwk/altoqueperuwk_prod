@@ -23,11 +23,10 @@ import {
 } from "@/features/operaciones/efectivizacion/shared/components/compact-table-primitives";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import { CopyableDni } from "@/features/operaciones/efectivizacion/shared/components/copyable-dni";
-import type { OperacionProceso, OperacionRuta, OperacionRutaBancaria, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import type { OperacionProceso, OperacionRutaBancaria, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { formatInteger, formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { isInteractiveElement } from "@/features/operaciones/efectivizacion/shared/utils/row-selection";
 import { buildOperacionPagadoPayload, buildOperacionReanudarPayload } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
-import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { cx } from "@/utils/cx";
 
 interface EstadoRef {
@@ -149,6 +148,30 @@ const isDerivedReceiverOperation = (
         );
 
     return !matchesOrigin;
+};
+const getDerivationDisplay = (
+    row: OperacionProceso,
+    mode: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados",
+    activeCompanyId: number | null,
+    activeAccountId: number | null,
+) => {
+    if (row.flag_derivado !== true) return null;
+
+    if (isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId)) {
+        return {
+            empresa: row.nombre_empresa_salida,
+            cuenta: row.nombre_banco_empresa_cuenta_salida,
+        };
+    }
+
+    if (isDerivedReceiverOperation(row, activeCompanyId, activeAccountId)) {
+        return {
+            empresa: row.nombre_empresa_salida_origen,
+            cuenta: row.nombre_banco_empresa_cuenta_salida_origen,
+        };
+    }
+
+    return null;
 };
 const isFrozenPaidOperation = (
     row: OperacionProceso,
@@ -378,6 +401,7 @@ export const BancariaEfectivizacionTable = ({
     const isUnificado = mode === "unificado";
     const isDerivaciones = mode === "derivaciones";
     const isEliminados = mode === "eliminados";
+    const showDerivo = mode === "efectivizacion" || isDerivaciones || isUnificado;
     const showCuentaCliente = !isUnificado;
     const showFueraHorario = false;
     const getRowFlow = (row: OperacionProceso) => {
@@ -389,8 +413,8 @@ export const BancariaEfectivizacionTable = ({
         return flow ?? (isDerivaciones ? "Derivado" : "Efectivizacion");
     };
     const columnHeaders = useMemo(
-        () => getColumnHeaders(isUnificado, showBanca, isDerivaciones || isUnificado, showFueraHorario, showCuentaCliente).filter((column) => !readOnly || column.label !== "Acciones"),
-        [isDerivaciones, isUnificado, mode, readOnly, showBanca, showCuentaCliente, showFueraHorario],
+        () => getColumnHeaders(isUnificado, showBanca, showDerivo, showFueraHorario, showCuentaCliente).filter((column) => !readOnly || column.label !== "Acciones"),
+        [isUnificado, readOnly, showBanca, showCuentaCliente, showDerivo, showFueraHorario],
     );
     const tableColSpan = columnHeaders.length + (hasSelection ? 1 : 0);
     const activeCompanyAccounts = useMemo(
@@ -945,6 +969,9 @@ export const BancariaEfectivizacionTable = ({
             });
             setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)));
             onRowUpdated(saved);
+            if (selectedIdSet.has(row.id)) {
+                onToggleRow?.(row.id);
+            }
             addToast("success", "Retorno Pago Deuda enlazado.");
             onMetricsChanged();
         } catch (err) {
@@ -1207,6 +1234,7 @@ export const BancariaEfectivizacionTable = ({
                                 const commissionState = commissionActionState(row);
                                 const pdDisabled = rowSaving || isPagado(row) || !(pagoDeudaMatches[row.id]?.length);
                                 const displayedTransferAmount = frozenOrigin ? 0 : row.monto_transferencia_cliente;
+                                const derivationDisplay = getDerivationDisplay(row, mode, activeCompanyId, activeAccountId);
 
                                 return (
                                     <motion.tr
@@ -1264,27 +1292,27 @@ export const BancariaEfectivizacionTable = ({
                                             )}
                                         </td>
 
-                                        {(isDerivaciones || isUnificado) && (
+                                        {showDerivo && (
                                             <td className="px-2 py-2 align-top">
-                                                {isPlain ? (
-                                                    <span className="text-sm text-secondary">{rowIsDerivaciones && row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : ""}</span>
-                                                ) : <CompactBadgeLine color={row.ruta_origen ? "brand" : "gray"}>
-                                                    {rowIsDerivaciones && row.ruta_origen ? getRutaLabel(row.ruta_origen as OperacionRuta) : ""}
-                                                </CompactBadgeLine>}
+                                                {derivationDisplay ? (
+                                                    <div className="flex min-w-36 flex-col items-start gap-1">
+                                                        {isPlain ? <>
+                                                            <span className="text-sm text-secondary">{derivationDisplay.empresa || "-"}</span>
+                                                            <span className="text-sm text-secondary">{derivationDisplay.cuenta || "-"}</span>
+                                                        </> : <>
+                                                            <CompactBadgeLine color="brand">{derivationDisplay.empresa || "-"}</CompactBadgeLine>
+                                                            <CompactBadgeLine>{derivationDisplay.cuenta || "-"}</CompactBadgeLine>
+                                                        </>}
+                                                    </div>
+                                                ) : <span className="text-sm text-secondary">-</span>}
                                             </td>
                                         )}
 
                                         <td className="px-2 py-2 align-top">
                                             {isPlain ? (
-                                                <div className="flex flex-col items-start gap-1 text-sm text-secondary">
-                                                    <span>{row.codigo_operacion_deposito_cliente ?? "-"}</span>
-                                                    {frozenOrigin && <span>Derivada</span>}
-                                                </div>
+                                                <span className="text-sm text-secondary">{row.codigo_operacion_deposito_cliente ?? "-"}</span>
                                             ) : <>
-                                                <div className="flex flex-col items-start gap-1">
-                                                    <CompactCellText primary={row.codigo_operacion_deposito_cliente ?? "-"} />
-                                                    {frozenOrigin && <CompactBadgeLine color="gray">Derivada</CompactBadgeLine>}
-                                                </div>
+                                                <CompactCellText primary={row.codigo_operacion_deposito_cliente ?? "-"} />
                                                 {showTipoDeposito && (
                                                 disabledIngreso || tipoOptions.length <= 1 ? (
                                                     <CompactBadgeLine color="gray" className="mt-1">{row.nombre_tipo_deposito ?? "Sin tipo"}</CompactBadgeLine>

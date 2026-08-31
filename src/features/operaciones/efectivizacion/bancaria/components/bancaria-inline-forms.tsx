@@ -88,9 +88,9 @@ const getLimaTime = (date = new Date()) => {
 
 const getManualDepositTimestamp = (dateValue: string) => `${dateValue}T${getLimaTime()}-05:00`;
 
-const Field = ({ children, className, label }: { children: ReactNode; className?: string; label: string }) => (
+const Field = ({ children, className, label, required = false }: { children: ReactNode; className?: string; label: string; required?: boolean }) => (
     <label className={cx("flex min-w-0 flex-col gap-1", className)}>
-        <span className="text-sm font-normal leading-5 text-primary">{label}</span>
+        <span className="text-sm font-normal leading-5 text-primary">{label}{required ? " *" : ""}</span>
         {children}
     </label>
 );
@@ -126,12 +126,14 @@ const CompactSelect = ({
     disabled,
     onChange,
     options,
+    required = false,
     selectClassName,
     value,
 }: {
     disabled?: boolean;
     onChange: (value: string) => void;
     options: { label: string; value: string }[];
+    required?: boolean;
     selectClassName?: string;
     value: string;
 }) => (
@@ -139,7 +141,8 @@ const CompactSelect = ({
         className="w-full"
         disabled={disabled}
         options={options}
-        selectClassName={cx("w-full font-normal", selectClassName)}
+        required={required}
+        selectClassName={cx("w-full min-w-0 truncate font-normal", selectClassName)}
         size="sm"
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
@@ -441,10 +444,12 @@ export const BancariaInlineForms = ({
     }));
     const movementDestinationAccounts = useMemo(
         () =>
-            transferDestinationAccountsWithCaja
+            cuentasActivas
                 .filter((cuenta) => String(cuenta.id_empresa) === movementDestinationCompanyId)
+                .filter((cuenta) => !excludedTransferCompanyIds.has(cuenta.id_empresa))
+                .filter((cuenta) => cajaMap.has(`${cuenta.id_empresa}-${cuenta.id}`))
                 .sort((a, b) => a.banco_nombre.localeCompare(b.banco_nombre)),
-        [movementDestinationCompanyId, transferDestinationAccountsWithCaja],
+        [cajaMap, cuentasActivas, movementDestinationCompanyId],
     );
     const movementDestinationAccount =
         movementDestinationAccounts.find((cuenta) => String(cuenta.id) === movementDestinationKey) ?? null;
@@ -453,6 +458,8 @@ export const BancariaInlineForms = ({
         value: String(cuenta.id),
     }));
     const isOtherDestination = movementDestinationCompanyId === OTHER_COMPANY_VALUE;
+    const isActiveCompanyDestination =
+        activeCompany?.id_empresa != null && String(activeCompany.id_empresa) === movementDestinationCompanyId;
     const movementDestinationAccountOptions = isOtherDestination
         ? [{ label: "Otra Cuenta", value: OTHER_ACCOUNT_VALUE }]
         : [{ label: "Seleccionar", value: "" }, ...movementMappedAccountOptions];
@@ -538,9 +545,13 @@ export const BancariaInlineForms = ({
                 ? OTHER_ACCOUNT_VALUE
                 : movementDestinationAccounts.some((cuenta) => String(cuenta.id) === current)
                   ? current
-                  : "",
+                  : isActiveCompanyDestination
+                    ? movementDestinationAccounts.find((cuenta) => cuenta.id === activeCompany?.id_empresa_cuenta_bancaria)?.id.toString() ??
+                      movementDestinationAccounts[0]?.id.toString() ??
+                      ""
+                    : "",
         );
-    }, [isOtherDestination, movementDestinationAccounts]);
+    }, [activeCompany?.id_empresa, activeCompany?.id_empresa_cuenta_bancaria, isActiveCompanyDestination, isOtherDestination, movementDestinationAccounts]);
 
     useEffect(() => {
         let ignore = false;
@@ -668,14 +679,22 @@ export const BancariaInlineForms = ({
 
         try {
             const destinationCompany = movementCompanyOptions.find((option) => option.value === movementDestinationCompanyId)?.label ?? "Otra Empresa";
-            const destinationReference = `Destino: ${destinationCompany}`;
-            await operacionesRpcService.postMovimientoCaja({
+            if (!isOtherDestination && !movementDestinationAccount) {
+                addToast("error", "Selecciona una cuenta para la empresa.");
+                return;
+            }
+
+            const counterpartyRole = movementType === "Ingreso" ? "Origen" : "Destino";
+            const destinationReference = isOtherDestination
+                ? "Destino: Otra Empresa"
+                : `${counterpartyRole}: ${destinationCompany} | Cuenta: ${movementDestinationAccount?.banco_nombre ?? "-"}`;
+            await operacionesRpcService.postMovimientoCajaConContraparte({
                 p_id_caja: movementAccount.id_caja,
                 p_tipo_origen: "OTROS",
                 p_tipo_movimiento: movementType.toUpperCase(),
                 p_detalle: `${movementConcept.trim()} | ${destinationReference}`,
-                p_id_banco_tercero: null,
-                p_nombre_banco_tercero: null,
+                p_id_empresa_contraparte: movementDestinationAccount?.id_empresa ?? null,
+                p_id_empresa_cuenta_bancaria_contraparte: movementDestinationAccount?.id ?? null,
                 p_monto_ingreso: movementType === "Ingreso" ? amount : 0,
                 p_monto_salida: movementType === "Salida" ? amount : 0,
                 p_flag_contabiliza_operacion: false,
@@ -840,7 +859,7 @@ export const BancariaInlineForms = ({
             <div className="h-full xl:col-span-2">
                 <InlineFormCard className="h-full" title="Ingreso y Salidas" actions={activeCajaBadges}>
                     <div className="flex flex-col gap-2">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                         <Field label="Movimiento">
                             <SegmentedControl
                                 className="w-full grid-cols-2 rounded-lg"
@@ -855,11 +874,23 @@ export const BancariaInlineForms = ({
                         <Field label="Empresa">
                             <CompactSelect
                                 options={movementCompanyOptions}
-                                selectClassName={movementDestinationCompanyId ? "text-center font-semibold" : "text-center"}
+                                selectClassName={movementDestinationCompanyId ? "text-left font-semibold" : "text-left"}
                                 value={movementDestinationCompanyId}
                                 onChange={setMovementDestinationCompanyId}
                             />
                         </Field>
+                        <Field label="Cuenta" required={!isOtherDestination}>
+                            <CompactSelect
+                            disabled={isOtherDestination}
+                            options={movementDestinationAccountOptions}
+                            required={!isOtherDestination}
+                            selectClassName={movementDestinationKey ? "text-left font-semibold" : "text-left"}
+                            value={movementDestinationKey}
+                            onChange={setMovementDestinationKey}
+                            />
+                        </Field>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <Field label="Monto">
                             <CompactInput
                                 placeholder="S/ 0.00"

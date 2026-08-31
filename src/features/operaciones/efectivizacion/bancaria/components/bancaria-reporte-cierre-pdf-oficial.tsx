@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { formatInteger, formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
-import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
+import { formatInteger, formatMoney as formatCurrency } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
+import { getReporteEfectivizacionUnificada } from "@/features/operaciones/efectivizacion/bancaria/utils/reporte-efectivizacion";
 
 interface ReportRowBase {
     operacion?: string | null;
@@ -84,6 +84,8 @@ interface MovimientoRow {
     nombre_banco?: string | null;
     nombre_empresa_relacionada?: string | null;
     nombre_banco_relacionada?: string | null;
+    nombre_empresa_contraparte?: string | null;
+    nombre_banco_contraparte?: string | null;
     fecha_registro?: string | null;
 }
 
@@ -372,11 +374,12 @@ const reportStyles = `
 .report-container tfoot { display:table-footer-group; }
 `;
 
-const numberValue = (value: number | null | undefined) => Number(value ?? 0);
-const valueOrDash = (value?: string | number | null) => value === null || value === undefined || value === "" ? "-" : String(value);
-const formatPercent = (value?: number | null) => `${new Intl.NumberFormat("es-PE", { maximumFractionDigits: 2 }).format(numberValue(value))}%`;
-const formatDate = (value?: string | null) => value ? new Date(value).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" }) : "-";
-const formatDateTime = (value?: string | null) => value ? new Date(value).toLocaleString("es-PE") : "-";
+const numberValue = (value: unknown) => Number(value ?? 0);
+const formatMoney = (value: unknown) => formatCurrency(numberValue(value));
+const valueOrDash = (value?: unknown) => value === null || value === undefined || value === "" ? "-" : String(value);
+const formatPercent = (value?: unknown) => `${new Intl.NumberFormat("es-PE", { maximumFractionDigits: 2 }).format(numberValue(value))}%`;
+const formatDate = (value?: unknown) => value ? new Date(String(value)).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" }) : "-";
+const formatDateTime = (value?: unknown) => value ? new Date(String(value)).toLocaleString("es-PE") : "-";
 const formatTime = (value: Date) => value.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" }).replace(/\s*a\.\s*m\./i, " a.m.").replace(/\s*p\.\s*m\./i, " p.m.");
 const formatGeneratedAt = () => {
     const now = new Date();
@@ -467,11 +470,15 @@ const movementType = (value?: string | null) => {
 };
 const movementRelatedCompany = (row: MovimientoRow) => {
     const origin = String(row.tipo_origen ?? "").trim().toUpperCase().replaceAll("_", " ");
-    return origin === "TRANSFERENCIA INTERNA" ? valueOrDash(row.nombre_empresa_relacionada) : valueOrDash(row.nombre_empresa);
+    return origin === "TRANSFERENCIA INTERNA"
+        ? valueOrDash(row.nombre_empresa_relacionada)
+        : valueOrDash(row.nombre_empresa_contraparte ?? row.nombre_empresa);
 };
 const movementRelatedBank = (row: MovimientoRow) => {
     const origin = String(row.tipo_origen ?? "").trim().toUpperCase().replaceAll("_", " ");
-    return origin === "TRANSFERENCIA INTERNA" ? valueOrDash(row.nombre_banco_relacionada) : valueOrDash(row.nombre_banco);
+    return origin === "TRANSFERENCIA INTERNA"
+        ? valueOrDash(row.nombre_banco_relacionada)
+        : valueOrDash(row.nombre_banco_contraparte ?? row.nombre_banco);
 };
 const movementDateTime = (value?: string | null) => {
     if (!value) return "-";
@@ -482,10 +489,7 @@ const movementDateTime = (value?: string | null) => {
 export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierrePdfOficialProps) => {
     if (!data) return null;
 
-    const efectivizacion = data.efectivizacion ?? [];
-    const efectivizacionPendientes = data.efectivizacion_pendientes ?? [];
-    const derivados = data.derivados ?? [];
-    const derivadosPendientes = data.derivados_pendientes ?? [];
+    const { pagadas: efectivizacion, pendientes: efectivizacionPendientes } = getReporteEfectivizacionUnificada(data);
     const pagoDeuda = data.pago_deuda ?? [];
     const pagoDeudaPendientes = data.pago_deuda_pendientes ?? [];
     const pos = data.pos ?? [];
@@ -498,7 +502,7 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
         data.id_banco,
         data.id_empresa_cuenta_bancaria,
     );
-    const totalOperations = efectivizacion.length + efectivizacionPendientes.length + derivados.length + derivadosPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length;
+    const totalOperations = efectivizacion.length + efectivizacionPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length;
     const totalRows = totalOperations + movimientos.length;
     const hasRows = totalRows > 0;
     const sum = <T,>(rows: T[], selector: (row: T) => number | null | undefined) => rows.reduce((acc, row) => acc + numberValue(selector(row)), 0);
@@ -524,8 +528,8 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
                 {efectivizacion.length > 0 && (
                     <section>
                         <SectionHeader title="Efectivizacion" count={efectivizacion.length} />
-                        <Table headers={["Facturacion", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={4}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.deposito ?? row.monto))}</FooterCell><FooterCell /><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.soles_comision ?? row.comision))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.gastos))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.ganancia))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
-                            {efectivizacion.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.facturacion ?? row.tipo_facturacion)}</Cell><Cell><span className="code-cell">{valueOrDash(row.operacion ?? row.codigo_operacion_deposito_cliente)}{row.derivada_congelada ? "\nDerivada" : ""}</span></Cell><Cell>{valueOrDash(row.dni ?? row.dni_cliente)}</Cell><Cell>{valueOrDash(row.comunidad ?? row.nombre_comunidad)}</Cell><Cell numeric>{formatMoney(row.deposito ?? row.monto)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision ?? row.comision_servicio)}</Cell><Cell numeric>{formatMoney(row.soles_comision ?? row.comision)}</Cell><Cell numeric>{formatMoney(row.gastos)}</Cell><Cell numeric>{formatMoney(row.ganancia)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado ?? row.nombre_estado} /></Cell><Cell>{formatDate(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro)}</Cell></tr>)}
+                        <Table headers={["Facturacion", "Empresa", "Cuenta", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={6}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.deposito))}</FooterCell><FooterCell /><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.soles_comision))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.gastos))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.ganancia))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
+                            {efectivizacion.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.facturacion)}</Cell><Cell>{valueOrDash(row.empresa)}</Cell><Cell>{valueOrDash(row.cuenta)}</Cell><Cell><span className="code-cell">{valueOrDash(row.operacion)}</span></Cell><Cell>{valueOrDash(row.dni)}</Cell><Cell>{valueOrDash(row.comunidad)}</Cell><Cell numeric>{formatMoney(row.deposito)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell numeric>{formatMoney(row.gastos)}</Cell><Cell numeric>{formatMoney(row.ganancia)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado} /></Cell><Cell>{formatDate(row.fecha)}</Cell></tr>)}
                         </Table>
                     </section>
                 )}
@@ -533,26 +537,8 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
                 {efectivizacionPendientes.length > 0 && (
                     <section>
                         <SectionHeader title="Efectivizacion - Pendientes" count={efectivizacionPendientes.length} />
-                        <Table headers={["Facturacion", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={4}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.deposito ?? row.monto))}</FooterCell><FooterCell /><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.soles_comision ?? row.comision))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.gastos))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.ganancia))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
-                            {efectivizacionPendientes.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.facturacion ?? row.tipo_facturacion)}</Cell><Cell><span className="code-cell">{valueOrDash(row.operacion ?? row.codigo_operacion_deposito_cliente)}{row.derivada_congelada ? "\nDerivada" : ""}</span></Cell><Cell>{valueOrDash(row.dni ?? row.dni_cliente)}</Cell><Cell>{valueOrDash(row.comunidad ?? row.nombre_comunidad)}</Cell><Cell numeric>{formatMoney(row.deposito ?? row.monto)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision ?? row.comision_servicio)}</Cell><Cell numeric>{formatMoney(row.soles_comision ?? row.comision)}</Cell><Cell numeric>{formatMoney(row.gastos)}</Cell><Cell numeric>{formatMoney(row.ganancia)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado ?? row.nombre_estado} /></Cell><Cell>{formatDate(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro)}</Cell></tr>)}
-                        </Table>
-                    </section>
-                )}
-
-                {derivados.length > 0 && (
-                    <section>
-                        <SectionHeader title="Derivados" count={derivados.length} />
-                        <Table headers={["Facturacion", "Derivo", "Cod. Op.", "DNI", "Comunidad", "Cuenta Cliente", "Monto", "% Comision", "S/ Comision", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={9}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(derivados, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
-                            {derivados.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.facturacion ?? row.tipo_facturacion)}</Cell><Cell>{row.derivo ? getRutaLabel(row.derivo as never) : "-"}</Cell><Cell>{valueOrDash(row.operacion ?? row.codigo_operacion_deposito_cliente)}</Cell><Cell>{valueOrDash(row.dni ?? row.dni_cliente)}</Cell><Cell>{valueOrDash(row.comunidad)}</Cell><Cell>{valueOrDash(row.cuenta_cliente)}</Cell><Cell numeric>{formatMoney(row.monto)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado ?? row.nombre_estado} /></Cell><Cell>{formatDate(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro)}</Cell></tr>)}
-                        </Table>
-                    </section>
-                )}
-
-                {derivadosPendientes.length > 0 && (
-                    <section>
-                        <SectionHeader title="Derivados - Pendientes" count={derivadosPendientes.length} />
-                        <Table headers={["Facturacion", "Derivo", "Cod. Op.", "DNI", "Comunidad", "Cuenta Cliente", "Monto", "% Comision", "S/ Comision", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={9}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(derivadosPendientes, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
-                            {derivadosPendientes.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.facturacion ?? row.tipo_facturacion)}</Cell><Cell>{row.derivo ? getRutaLabel(row.derivo as never) : "-"}</Cell><Cell>{valueOrDash(row.operacion ?? row.codigo_operacion_deposito_cliente)}</Cell><Cell>{valueOrDash(row.dni ?? row.dni_cliente)}</Cell><Cell>{valueOrDash(row.comunidad)}</Cell><Cell>{valueOrDash(row.cuenta_cliente)}</Cell><Cell numeric>{formatMoney(row.monto)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado ?? row.nombre_estado} /></Cell><Cell>{formatDate(row.fecha ?? row.fecha_deposito_cliente ?? row.fecha_registro)}</Cell></tr>)}
+                        <Table headers={["Facturacion", "Empresa", "Cuenta", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={6}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.deposito))}</FooterCell><FooterCell /><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.soles_comision))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.gastos))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.ganancia))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
+                            {efectivizacionPendientes.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.facturacion)}</Cell><Cell>{valueOrDash(row.empresa)}</Cell><Cell>{valueOrDash(row.cuenta)}</Cell><Cell><span className="code-cell">{valueOrDash(row.operacion)}</span></Cell><Cell>{valueOrDash(row.dni)}</Cell><Cell>{valueOrDash(row.comunidad)}</Cell><Cell numeric>{formatMoney(row.deposito)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell numeric>{formatMoney(row.gastos)}</Cell><Cell numeric>{formatMoney(row.ganancia)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado} /></Cell><Cell>{formatDate(row.fecha)}</Cell></tr>)}
                         </Table>
                     </section>
                 )}

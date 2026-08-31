@@ -4,7 +4,6 @@ interface SaldoBancoKpi {
     total_recaudado?: number | null;
     ingresos?: number | null;
     salidas?: number | null;
-    gastos_banco_salida?: number | null;
 }
 
 const CUENTAS_CON_RETENCION_RECAUDACION = new Set([
@@ -35,6 +34,5 @@ export const calcularSaldoBanco = (
     return Number(kpi?.caja_inicial ?? 0)
         + Number(kpi?.ingresos ?? 0)
         + recaudacionDisponible
-        - Number(kpi?.salidas ?? 0)
-        - Number(kpi?.gastos_banco_salida ?? 0);
+        - Number(kpi?.salidas ?? 0);
 };

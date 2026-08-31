@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDate } from "@internationalized/date";
-import { File06, File07 } from "@untitledui/icons";
+import { ChevronDown, Download01, File06, File07 } from "@untitledui/icons";
 import { AppLayout } from "@/components/application/app-layout";
 import { Calendar } from "@/components/application/date-picker/calendar";
 import { Button } from "@/components/base/buttons/button";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useToast } from "@/providers/toast-provider";
 import {
     buildCierreExcel,
@@ -244,27 +245,29 @@ export const ReporteCierreCajaPage = () => {
                             ))}
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2 xl:grid-cols-1" aria-label="Descargar cierre">
-                            <Button
-                                size="sm"
-                                color="secondary"
-                                iconLeading={File07}
-                                isDisabled={!selectedDate || !visibleRows.length || downloadKind !== null}
-                                isLoading={downloadKind === "pdf"}
-                                onClick={() => void download("pdf")}
-                            >
-                                PDF
-                            </Button>
-                            <Button
-                                size="sm"
-                                color="secondary"
-                                iconLeading={File06}
-                                isDisabled={!selectedDate || !visibleRows.length || downloadKind !== null}
-                                isLoading={downloadKind === "xlsx"}
-                                onClick={() => void download("xlsx")}
-                            >
-                                EXCEL
-                            </Button>
+                        <div className="flex justify-start" aria-label="Descargar cierre">
+                            <Dropdown.Root>
+                                <Button
+                                    size="sm"
+                                    color="secondary"
+                                    iconLeading={Download01}
+                                    iconTrailing={ChevronDown}
+                                    isDisabled={!selectedDate || !visibleRows.length || downloadKind !== null}
+                                    isLoading={downloadKind !== null}
+                                >
+                                    Descargar
+                                </Button>
+                                <Dropdown.Popover className="w-48">
+                                    <Dropdown.Menu>
+                                        <Dropdown.Item icon={File06} isDisabled={downloadKind !== null} onAction={() => void download("xlsx")}>
+                                            Excel
+                                        </Dropdown.Item>
+                                        <Dropdown.Item icon={File07} isDisabled={downloadKind !== null} onAction={() => void download("pdf")}>
+                                            PDF
+                                        </Dropdown.Item>
+                                    </Dropdown.Menu>
+                                </Dropdown.Popover>
+                            </Dropdown.Root>
                         </div>
 
                         <div className="rounded-lg border border-secondary bg-primary p-3 md:col-span-2 xl:col-span-1 xl:col-start-4 xl:row-span-2 xl:row-start-1">

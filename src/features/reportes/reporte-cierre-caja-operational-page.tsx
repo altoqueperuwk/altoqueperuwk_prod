@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, Download01, File06, File07 } from "@untitledui/icons";
 import { AppLayout } from "@/components/application/app-layout";
 import { Button } from "@/components/base/buttons/button";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Select } from "@/components/base/select/select";
 import { useToast } from "@/providers/toast-provider";
 import { useActiveCompany } from "@/features/operaciones/efectivizacion/shared/hooks/use-active-company";
@@ -9,6 +11,13 @@ import { bancariaRouteKeys, getRutaLabel } from "@/features/operaciones/efectivi
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { OperacionRutaBancaria } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { BancariaOperationalTabs } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-operational-tabs";
+import {
+    buildCierreExcel,
+    buildCierrePdf,
+    downloadBlob,
+    downloadReportsAsZip,
+    getCierreReportFileName,
+} from "./services/reporte-cierre-caja-download";
 import { formatCierreDate, reporteCierreCajaService } from "./services/reporte-cierre-caja.service";
 
 const visibleTabs = ["Efectivizacion", "Pago Deuda", "Derivados"] as const;
@@ -41,6 +50,8 @@ const getVisibleFlowCount = (rows: Array<{ tab?: string | null; cantidad?: numbe
         .filter((row) => visibleTabNames.has(String(row.tab ?? "")))
         .reduce((total, row) => total + Number(row.cantidad ?? 0), 0);
 
+const normalizeRoute = (value: string | null | undefined) => String(value ?? "").trim().toLowerCase().replace(/\s+/g, "");
+
 export const ReporteCierreCajaOperationalPage = () => {
     const { addToast } = useToast();
     const [selectedBank, setSelectedBank] = useState<OperacionRutaBancaria>("bcp");
@@ -49,8 +60,13 @@ export const ReporteCierreCajaOperationalPage = () => {
     const [isLoadingDates, setIsLoadingDates] = useState(true);
     const [bankCounts, setBankCounts] = useState<Record<string, number>>({});
     const [badgeError, setBadgeError] = useState<string | null>(null);
+    const [downloadKind, setDownloadKind] = useState<"pdf" | "xlsx" | null>(null);
 
-    const { data: routeCajas, error: companiesError, isLoading: isLoadingCompanies } = useRouteCompanies(selectedBank);
+    const workspaceRoutes = useMemo<OperacionRutaBancaria[]>(
+        () => selectedBank === "interbank" ? ["interbank", "safetypay"] : [selectedBank],
+        [selectedBank],
+    );
+    const { data: routeCajas, error: companiesError, isLoading: isLoadingCompanies } = useRouteCompanies(workspaceRoutes);
     const {
         activeCompanyId,
         companies,
@@ -128,6 +144,47 @@ export const ReporteCierreCajaOperationalPage = () => {
         [dateOptions],
     );
 
+    const download = async (kind: "pdf" | "xlsx") => {
+        if (!selectedDate) {
+            addToast("error", "Selecciona una fecha de cierre antes de descargar.");
+            return;
+        }
+
+        setDownloadKind(kind);
+        try {
+            const rows = (await reporteCierreCajaService.getBandeja(selectedDate)).filter((row) =>
+                workspaceRoutes.includes(normalizeRoute(row.ruta || row.nombre_banco) as OperacionRutaBancaria) &&
+                (activeCompanyId === null || row.id_empresa === activeCompanyId) &&
+                row.tiene_cierre &&
+                row.id_caja !== null,
+            );
+
+            if (!rows.length) {
+                addToast("error", "No existe un cierre disponible para los filtros seleccionados.");
+                return;
+            }
+
+            const files = await Promise.all(rows.map(async (row) => {
+                const data = await reporteCierreCajaService.getReporte(row);
+                const name = getCierreReportFileName(row, kind);
+                const blob = kind === "pdf" ? await buildCierrePdf(data, name) : await buildCierreExcel(data);
+                return { name, blob };
+            }));
+
+            if (files.length === 1) {
+                downloadBlob(files[0].blob, files[0].name);
+            } else {
+                await downloadReportsAsZip(files, `cierres_de_caja_${selectedBank}_${selectedDate}_${kind}.zip`);
+            }
+
+            addToast("success", `${files.length} reporte${files.length === 1 ? "" : "s"} generado${files.length === 1 ? "" : "s"}.`);
+        } catch (error) {
+            addToast("error", error instanceof Error ? error.message : "No se pudo generar el reporte.");
+        } finally {
+            setDownloadKind(null);
+        }
+    };
+
     const handleBankChange = (ruta: OperacionRutaBancaria) => {
         setSelectedBank(ruta);
         setActiveCompanyId(null);
@@ -166,18 +223,42 @@ export const ReporteCierreCajaOperationalPage = () => {
                             </div>
                         </div>
 
-                        <div className="w-full shrink-0 lg:w-64">
-                            <Select
-                                label="Consulta Fechas de Cierre"
-                                placeholder="Seleccione una fecha"
-                                size="sm"
-                                items={dateItems}
-                                selectedKey={selectedDate ?? null}
-                                isDisabled={isLoadingDates}
-                                onSelectionChange={(key) => setSelectedDate(key ? String(key) : null)}
-                            >
-                                {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
-                            </Select>
+                        <div className="flex w-full shrink-0 flex-wrap items-end gap-2 lg:w-auto">
+                            <div className="min-w-0 flex-1 lg:w-64 lg:flex-none">
+                                <Select
+                                    label="Consulta Fechas de Cierre"
+                                    placeholder="Seleccione una fecha"
+                                    size="sm"
+                                    items={dateItems}
+                                    selectedKey={selectedDate ?? null}
+                                    isDisabled={isLoadingDates}
+                                    onSelectionChange={(key) => setSelectedDate(key ? String(key) : null)}
+                                >
+                                    {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                                </Select>
+                            </div>
+                            <Dropdown.Root>
+                                <Button
+                                    size="sm"
+                                    color="secondary"
+                                    iconLeading={Download01}
+                                    iconTrailing={ChevronDown}
+                                    isLoading={downloadKind !== null}
+                                    isDisabled={!selectedDate || downloadKind !== null}
+                                >
+                                    Descargar
+                                </Button>
+                                <Dropdown.Popover className="w-48">
+                                    <Dropdown.Menu>
+                                        <Dropdown.Item icon={File06} isDisabled={downloadKind !== null} onAction={() => void download("xlsx")}>
+                                            Excel
+                                        </Dropdown.Item>
+                                        <Dropdown.Item icon={File07} isDisabled={downloadKind !== null} onAction={() => void download("pdf")}>
+                                            PDF
+                                        </Dropdown.Item>
+                                    </Dropdown.Menu>
+                                </Dropdown.Popover>
+                            </Dropdown.Root>
                         </div>
                     </div>
 
@@ -227,6 +308,7 @@ export const ReporteCierreCajaOperationalPage = () => {
                     showCompanyTabs={false}
                     onCompanyChange={setActiveCompanyId}
                     ruta={selectedBank}
+                    queryRoutes={workspaceRoutes}
                     visibleTabs={["Efectivizacion", "Pago Deuda", "Derivados"]}
                 />
                 </div>

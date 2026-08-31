@@ -3204,6 +3204,7 @@ DECLARE
   v_tiene_ingreso boolean := false;
   v_tiene_salida boolean := false;
   v_es_pos boolean := false;
+  v_es_flujo_sin_salida boolean := false;
 BEGIN
   SELECT *
   INTO v_actual
@@ -3217,6 +3218,9 @@ BEGIN
   END IF;
 
   v_es_pos := UPPER(COALESCE(v_actual.tipo_servicio, '')) = 'POS';
+  v_es_flujo_sin_salida := UPPER(BTRIM(COALESCE(v_actual.tipo_flujo_pago_deuda, ''))) IN (
+    'RETORNO', 'RETORNO_DIRECTO', 'DIRECTO_CAJA'
+  );
 
   SELECT id
   INTO v_estado_retenido_id
@@ -3241,6 +3245,22 @@ BEGIN
       id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = p_id;
+
+  IF v_es_flujo_sin_salida THEN
+    v_ruta_kpi := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
+    IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
+      PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(
+        v_ruta_kpi,
+        COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario)
+      );
+    END IF;
+
+    RETURN (
+      SELECT x
+      FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
+      LIMIT 1
+    );
+  END IF;
 
   SELECT EXISTS (
     SELECT 1

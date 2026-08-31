@@ -192,6 +192,10 @@ export const operacionesRpcService = {
         return rpc<OperacionCajaMovimiento>("f_post_tb_operacion_caja", params);
     },
 
+    postMovimientoCajaConContraparte(params: Record<string, unknown>) {
+        return rpc<OperacionCajaMovimiento>("f_post_tb_operacion_caja_contraparte", params);
+    },
+
     postTransferenciaCaja(params: Record<string, unknown>) {
         return rpc<Record<string, OperacionCajaMovimiento>>("f_post_tb_operacion_caja_transferencia", params);
     },

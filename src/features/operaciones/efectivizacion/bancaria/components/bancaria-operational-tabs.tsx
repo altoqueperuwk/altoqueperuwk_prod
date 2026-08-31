@@ -175,7 +175,7 @@ const getMovementColumns = (
         label: "Empresa",
         render: (row: MovimientoMerged) => {
             const isTransfer = row.tipo_origen.trim().toUpperCase().replaceAll("_", " ") === "TRANSFERENCIA INTERNA";
-            return isTransfer ? row.nombre_empresa_relacionada || "-" : row.nombre_empresa || "-";
+            return isTransfer ? row.nombre_empresa_relacionada || "-" : row.nombre_empresa_contraparte || row.nombre_empresa || "-";
         },
     },
     {
@@ -183,7 +183,7 @@ const getMovementColumns = (
         label: "Cuenta",
         render: (row: MovimientoMerged) => {
             const isTransfer = row.tipo_origen.trim().toUpperCase().replaceAll("_", " ") === "TRANSFERENCIA INTERNA";
-            return isTransfer ? row.nombre_banco_relacionada || "-" : row.nombre_banco || "-";
+            return isTransfer ? row.nombre_banco_relacionada || "-" : row.nombre_banco_contraparte || row.nombre_banco || "-";
         },
     },
     {
@@ -1145,6 +1145,11 @@ export const BancariaOperationalTabs = ({
     const unifiedDeriveByBank = currentTab === "Unificado" && selectedRowsForAction.length > 0 && selectedRowsForAction.every((row) => getUnifiedOperationFlow(row) === "POS");
 
     const getEligibleIdsForAction = (action: string) => {
+        const isReturnOrDirectFlow = (row: OperacionProceso) =>
+            ["RETORNO", "RETORNO_DIRECTO", "DIRECTO_CAJA"].includes(
+                String(row.tipo_flujo_pago_deuda ?? "").trim().toUpperCase(),
+            );
+
         if (currentTab === "Pago Deuda") {
             const actionRows = operaciones.filter((row) => actionIds.includes(row.id));
             if (action === "Transferencia") return actionRows.filter(isPendingOperation).map((row) => row.id);
@@ -1162,6 +1167,7 @@ export const BancariaOperationalTabs = ({
                     .filter((row) => {
                         const flow = getUnifiedOperationFlow(row);
                         if (action === "Pagar" && isDerivedOriginForContext(row, activeCompanyId, activeAccountId)) return false;
+                        if (action === "Pagar" && isReturnOrDirectFlow(row)) return false;
                         return flow === "POS" ? isPosSolicitado(row) : isPendingOperation(row);
                     })
                     .map((row) => row.id);
@@ -1186,7 +1192,11 @@ export const BancariaOperationalTabs = ({
         if (!quickActionRuleTabs.includes(currentTab)) return actionIds;
 
         if (["Pagar", "Directo", "Derivar", "Reasignar", "Emp. Ingreso", "Emp. Salida", "Modalidad"].includes(action)) {
-            return operaciones.filter((row) => actionIds.includes(row.id)).filter(isPendingOperation).map((row) => row.id);
+            return operaciones
+                .filter((row) => actionIds.includes(row.id))
+                .filter(isPendingOperation)
+                .filter((row) => action !== "Pagar" || !isReturnOrDirectFlow(row))
+                .map((row) => row.id);
         }
 
         if (action === "Reiniciar") {

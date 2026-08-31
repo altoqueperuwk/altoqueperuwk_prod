@@ -245,6 +245,11 @@ export interface OperacionCajaMovimiento {
     detalle: string | null;
     nombre_empresa: string;
     nombre_banco: string;
+    id_empresa_contraparte?: number | null;
+    nombre_empresa_contraparte?: string | null;
+    id_empresa_cuenta_bancaria_contraparte?: number | null;
+    id_banco_contraparte?: number | null;
+    nombre_banco_contraparte?: string | null;
     monto_ingreso: number;
     monto_gasto: number;
     monto_ganancia: number;

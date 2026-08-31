@@ -2378,10 +2378,40 @@ BEGIN
   INTO v_op_efect
   FROM public.tb_operacion_proceso
   WHERE id = p_id_operacion_efectivizacion
-  LIMIT 1;
+  LIMIT 1
+  FOR UPDATE;
 
   IF v_op_efect.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Operacion de efectivizacion no encontrada.');
+  END IF;
+
+  IF UPPER(BTRIM(COALESCE(v_op_efect.tipo_flujo_pago_deuda, ''))) = 'RETORNO'
+     AND v_op_efect.id_operacion_match = v_op_deuda.id THEN
+    RETURN (
+      SELECT x
+      FROM public.f_get_tb_operacion_proceso(p_id := v_op_efect.id) AS x
+      LIMIT 1
+    );
+  END IF;
+
+  IF UPPER(BTRIM(COALESCE(v_op_efect.tipo_servicio, ''))) <> 'EFECTIVIZACION'
+     OR UPPER(BTRIM(COALESCE(v_op_efect.nombre_estado, ''))) <> 'PENDIENTE'
+     OR v_op_efect.id_operacion_match IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'error', 'La operacion ya no esta disponible para realizar el match de Pago Deuda.'
+    );
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja oc
+    WHERE oc.id_operacion_proceso = v_op_efect.id
+      AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'SALIDA'
+      AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) <> 'ELIMINADO'
+  ) THEN
+    RETURN jsonb_build_object(
+      'error', 'La operacion ya tiene una salida bancaria y no puede utilizarse como retorno.'
+    );
   END IF;
 
   -- El match reutiliza el ingreso de la efectivizacion. Se bloquea el
