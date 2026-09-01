@@ -5363,7 +5363,13 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  v_contraparte record;
+  -- La contraparte es opcional para el destino "Otra Empresa".
+  -- Se usan escalares anulables para evitar acceder a un RECORD sin fila asignada.
+  v_contraparte_id bigint;
+  v_contraparte_empresa_id bigint;
+  v_contraparte_banco_id bigint;
+  v_contraparte_nombre_empresa character varying;
+  v_contraparte_nombre_banco character varying;
   v_movimiento jsonb;
   v_id_movimiento bigint;
   v_tiene_contraparte boolean := false;
@@ -5379,7 +5385,12 @@ BEGIN
       ecb.id_banco,
       e.nombre AS nombre_empresa,
       b.nombre AS nombre_banco
-    INTO v_contraparte
+    INTO
+      v_contraparte_id,
+      v_contraparte_empresa_id,
+      v_contraparte_banco_id,
+      v_contraparte_nombre_empresa,
+      v_contraparte_nombre_banco
     FROM public.tb_empresa_cuenta_bancaria ecb
     JOIN public.tb_empresa e ON e.id = ecb.id_empresa
     JOIN public.tb_banco b ON b.id = ecb.id_banco
@@ -5401,8 +5412,8 @@ BEGIN
     p_tipo_origen := p_tipo_origen,
     p_tipo_movimiento := p_tipo_movimiento,
     p_detalle := p_detalle,
-    p_id_banco_tercero := CASE WHEN v_tiene_contraparte THEN v_contraparte.id_banco ELSE NULL END,
-    p_nombre_banco_tercero := CASE WHEN v_tiene_contraparte THEN v_contraparte.nombre_banco ELSE NULL END,
+    p_id_banco_tercero := CASE WHEN v_tiene_contraparte THEN v_contraparte_banco_id ELSE NULL END,
+    p_nombre_banco_tercero := CASE WHEN v_tiene_contraparte THEN v_contraparte_nombre_banco ELSE NULL END,
     p_monto_ingreso := p_monto_ingreso,
     p_monto_salida := p_monto_salida,
     p_flag_contabiliza_operacion := p_flag_contabiliza_operacion,
@@ -5419,11 +5430,11 @@ BEGIN
 
   IF v_tiene_contraparte THEN
     UPDATE public.tb_operacion_caja
-    SET id_empresa_contraparte = v_contraparte.id_empresa,
-        nombre_empresa_contraparte = v_contraparte.nombre_empresa,
-        id_empresa_cuenta_bancaria_contraparte = v_contraparte.id,
-        id_banco_contraparte = v_contraparte.id_banco,
-        nombre_banco_contraparte = v_contraparte.nombre_banco
+    SET id_empresa_contraparte = v_contraparte_empresa_id,
+        nombre_empresa_contraparte = v_contraparte_nombre_empresa,
+        id_empresa_cuenta_bancaria_contraparte = v_contraparte_id,
+        id_banco_contraparte = v_contraparte_banco_id,
+        nombre_banco_contraparte = v_contraparte_nombre_banco
     WHERE id = v_id_movimiento;
   END IF;
 
