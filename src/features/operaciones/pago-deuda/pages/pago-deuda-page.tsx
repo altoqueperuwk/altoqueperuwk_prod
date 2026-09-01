@@ -1,17 +1,17 @@
 import { useEffect, useState } from "react";
-import { createRoot } from "react-dom/client";
 import { CalendarDate } from "@internationalized/date";
+import { createRoot } from "react-dom/client";
 import ExcelJS from "exceljs";
-import { Calendar as CalendarIcon, ChevronDown, Download01, File06, File07 } from "@untitledui/icons";
+import { ChevronDown, Download01, File06, File07 } from "@untitledui/icons";
 import { AppLayout } from "@/components/application/app-layout";
-import { Calendar } from "@/components/application/date-picker/calendar";
+import { DateRangeFields } from "@/components/application/date-picker/date-range-fields";
 import { Button } from "@/components/base/buttons/button";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { OperacionConfigDropdown } from "@/features/operaciones/efectivizacion/shared/components/operacion-config-dropdown";
 import { OperacionReglasEfectivizacionModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-reglas-efectivizacion-modal";
 import { RouteKpiCard } from "@/features/operaciones/efectivizacion/shared/components/route-kpi-card";
 import { formatInteger, formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
-import { formatDateValue, getPeruDateValue } from "@/features/operaciones/efectivizacion/shared/utils/date";
+import { formatDateRangeValue, getPeruDateValue, getPeruMonthEndValue, toPeruDayEnd, toPeruDayStart, type DateRangeValue } from "@/features/operaciones/efectivizacion/shared/utils/date";
 import { PagoDeudaBoard } from "@/features/operaciones/pago-deuda/components/pago-deuda-board";
 import { PagoDeudaEmpresasComisionModal } from "@/features/operaciones/pago-deuda/components/pago-deuda-empresas-comision-modal";
 import { PagoDeudaSolicitudForm } from "@/features/operaciones/pago-deuda/components/pago-deuda-solicitud-form";
@@ -36,21 +36,17 @@ const stringToCalendarDate = (str: string) => {
     return new CalendarDate(year, month, day);
 };
 
-const formatSelectedDate = (str: string) => {
-    return formatDateValue(str);
-};
-
 export const PagoDeudaPage = () => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [refreshKey, setRefreshKey] = useState(0);
     const [isEmpresasComisionOpen, setIsEmpresasComisionOpen] = useState(false);
-    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
     const [isReglasOpen, setIsReglasOpen] = useState(false);
     const [isKpiLoading, setIsKpiLoading] = useState(false);
     const [kpi, setKpi] = useState<PagoDeudaKpi | null>(null);
     const [isDownloading, setIsDownloading] = useState(false);
-    const [selectedDate, setSelectedDate] = useState(getTodayValue);
+    const today = getTodayValue();
+    const [dateRange, setDateRange] = useState<DateRangeValue>({ start: today, end: getPeruMonthEndValue() });
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const canViewAllPagoDeuda = isAdministrator(businessUser);
     const canViewSucursalPagoDeuda = isJefeTienda(businessUser);
@@ -65,8 +61,8 @@ export const PagoDeudaPage = () => {
         setIsKpiLoading(true);
 
         const kpiParams: Record<string, unknown> = {
-            p_fecha_registro_desde: `${selectedDate}T00:00:00-05:00`,
-            p_fecha_registro_hasta: `${selectedDate}T23:59:59.999-05:00`,
+            p_fecha_desde: toPeruDayStart(dateRange.start),
+            p_fecha_hasta: toPeruDayEnd(dateRange.end),
         };
         if (canViewAllPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
         else if (canViewSucursalPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
@@ -84,17 +80,28 @@ export const PagoDeudaPage = () => {
         return () => {
             ignore = true;
         };
-    }, [canViewAllPagoDeuda, canViewSucursalPagoDeuda, refreshKey, selectedDate, userId]);
+    }, [canViewAllPagoDeuda, canViewSucursalPagoDeuda, dateRange.end, dateRange.start, refreshKey, userId]);
 
-    const handleCalendarChange = (date: any) => {
-        if (!date) return;
-        setSelectedDate(`${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`);
-        setIsCalendarOpen(false);
+    const handleFromDateChange = (value: CalendarDate) => {
+        setDateRange((current) => value.toString() <= current.end
+            ? { start: value.toString(), end: current.end }
+            : { start: current.end, end: value.toString() });
+    };
+
+    const handleToDateChange = (value: CalendarDate) => {
+        setDateRange((current) => value.toString() >= current.start
+            ? { start: current.start, end: value.toString() }
+            : { start: value.toString(), end: current.start });
     };
 
     const handleChanged = () => setRefreshKey((value) => value + 1);
 
-    const getReportFileName = (extension: "pdf" | "xlsx") => `pago_deuda_${selectedDate.replaceAll("-", "")}.${extension}`;
+    const getReportFileName = (extension: "pdf" | "xlsx") => {
+        const suffix = dateRange.start === dateRange.end
+            ? dateRange.start.replaceAll("-", "")
+            : `${dateRange.start.replaceAll("-", "")}-${dateRange.end.replaceAll("-", "")}`;
+        return `pago_deuda_${suffix}.${extension}`;
+    };
 
     const loadReportRows = async () => {
         if (!userId) {
@@ -103,16 +110,16 @@ export const PagoDeudaPage = () => {
         }
 
         const solicitudParams: Record<string, unknown> = {
-            p_fecha_desde: `${selectedDate}T00:00:00-05:00`,
-            p_fecha_hasta: `${selectedDate}T23:59:59.999-05:00`,
+            p_fecha_desde: toPeruDayStart(dateRange.start),
+            p_fecha_hasta: toPeruDayEnd(dateRange.end),
         };
         if (canViewAllPagoDeuda) solicitudParams.p_id_usuario_consulta = userId;
         else if (canViewSucursalPagoDeuda) solicitudParams.p_id_usuario_consulta = userId;
         else if (!canViewAllPagoDeuda) solicitudParams.p_id_usuario_solicitud = userId;
 
         const kpiParams: Record<string, unknown> = {
-            p_fecha_registro_desde: `${selectedDate}T00:00:00-05:00`,
-            p_fecha_registro_hasta: `${selectedDate}T23:59:59.999-05:00`,
+            p_fecha_desde: toPeruDayStart(dateRange.start),
+            p_fecha_hasta: toPeruDayEnd(dateRange.end),
         };
         if (canViewAllPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
         else if (canViewSucursalPagoDeuda) kpiParams.p_id_usuario_consulta = userId;
@@ -166,7 +173,7 @@ export const PagoDeudaPage = () => {
 
         mergeRow(1, "ALTOQUE PERU WK", { bold: true, color: colors.white, bg: colors.navy });
         mergeRow(2, "Reporte de Pago Deuda", { bold: true, color: colors.white, bg: colors.navy });
-        mergeRow(3, `Fecha: ${formatSelectedDate(selectedDate)} | Usuario: ${businessUser?.nombre ?? businessUser?.username ?? "-"}`, { color: colors.white, bg: colors.navy });
+        mergeRow(3, `Fecha: ${formatDateRangeValue(dateRange)} | Usuario: ${businessUser?.nombre ?? businessUser?.username ?? "-"}`, { color: colors.white, bg: colors.navy });
         mergeRow(5, "Indicadores", { bold: true, color: colors.white, bg: colors.navy });
         const kpiLabels = ["Total Operaciones Pendientes", "Total Operaciones Pagados", "Monto Solicitados", "Comisiones", "Monto Devueltos"];
         const kpiValues: Array<string | number> = [
@@ -266,7 +273,7 @@ export const PagoDeudaPage = () => {
             root.render(
                 <PagoDeudaReportPdf
                     rows={rows}
-                    date={selectedDate}
+                    dateLabel={formatDateRangeValue(dateRange)}
                     userName={String(businessUser?.nombre ?? businessUser?.username ?? "-")}
                     accountConfigs={accountConfigs}
                     kpi={reportKpi}
@@ -315,20 +322,12 @@ export const PagoDeudaPage = () => {
         <AppLayout>
             <div className="flex flex-col gap-5">
                 <div className="flex flex-wrap items-center justify-end gap-3">
-                    <div className="relative">
-                        <Button size="sm" color="secondary" iconLeading={CalendarIcon} onClick={() => setIsCalendarOpen(!isCalendarOpen)}>
-                            {formatSelectedDate(selectedDate)}
-                        </Button>
-                        {isCalendarOpen && (
-                            <div className="absolute right-0 top-full z-50 mt-2">
-                                <div className="rounded-lg border border-secondary bg-primary p-3 shadow-lg">
-                                    <Calendar value={stringToCalendarDate(selectedDate)} onChange={handleCalendarChange}>
-                                        <div />
-                                    </Calendar>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    <DateRangeFields
+                        from={stringToCalendarDate(dateRange.start)}
+                        to={stringToCalendarDate(dateRange.end)}
+                        onFromChange={(value) => handleFromDateChange(value as CalendarDate)}
+                        onToChange={(value) => handleToDateChange(value as CalendarDate)}
+                    />
                     <Dropdown.Root>
                         <Button
                             size="sm"
@@ -370,7 +369,7 @@ export const PagoDeudaPage = () => {
                 </div>
 
                 <PagoDeudaSolicitudForm onSaved={handleChanged} />
-                <PagoDeudaBoard refreshKey={refreshKey} selectedDate={selectedDate} onChanged={handleChanged} />
+                <PagoDeudaBoard refreshKey={refreshKey} dateFrom={dateRange.start} dateTo={dateRange.end} onChanged={handleChanged} />
             </div>
             <OperacionReglasEfectivizacionModal
                 isOpen={isReglasOpen}

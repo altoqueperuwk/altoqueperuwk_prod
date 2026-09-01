@@ -9,9 +9,7 @@ Objetivo:
 
 Reglas:
   - solo aplica para pos y linkpago;
-  - filtra por fecha_registro;
-  - POS arrastra pendientes de dias previos solo cuando se consulta el dia
-    actual; en historico solo considera operaciones Pagado;
+  - filtra estrictamente por fecha_registro cuando se recibe un intervalo;
   - suma solo operaciones Pagado;
   - comisiones refleja lo cobrado al cliente;
   - ganancia refleja comisiones menos gastos operativos;
@@ -76,31 +74,7 @@ AS $$
       AND (
         (p_fecha_registro_desde IS NULL AND p_fecha_registro_hasta IS NULL)
         OR (
-          LOWER(COALESCE(p_ruta, '')) = 'pos'
-          AND COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
-          AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date = (now() AT TIME ZONE 'America/Lima')::date
-          AND (
-            (
-              (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
-              AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
-            )
-            OR (
-              UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PAGADO'
-              AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
-            )
-          )
-        )
-        OR (
-          LOWER(COALESCE(p_ruta, '')) = 'pos'
-          AND COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
-          AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date <> (now() AT TIME ZONE 'America/Lima')::date
-          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
-          AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
-          AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
-        )
-        OR (
-          LOWER(COALESCE(p_ruta, '')) = 'linkpago'
-          AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
+          (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
           AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
         )
       )
@@ -147,9 +121,8 @@ $$;
 Funcion: f_get_tb_operacion_asistida_bandeja
 Objetivo:
   Consultar la bandeja operativa de POS y Link Pago por fecha de registro,
-  sin depender de caja, cierre o movimientos financieros. POS arrastra
-  pendientes de dias previos solo cuando se consulta el dia actual; en
-  historico solo muestra operaciones Pagado.
+  sin depender de caja, cierre o movimientos financieros. El intervalo se
+  aplica estrictamente, incluidos los estados pendientes.
 */
 DROP FUNCTION IF EXISTS public.f_get_tb_operacion_asistida_bandeja(
   character varying, timestamp with time zone, timestamp with time zone,
@@ -211,31 +184,7 @@ AS $$
     AND (
       (p_fecha_registro_desde IS NULL AND p_fecha_registro_hasta IS NULL)
       OR (
-        LOWER(COALESCE(p_ruta, '')) = 'pos'
-        AND COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
-        AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date = (now() AT TIME ZONE 'America/Lima')::date
-        AND (
-          (
-            (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
-            AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
-          )
-          OR (
-            UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PAGADO'
-            AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
-          )
-        )
-      )
-      OR (
-        LOWER(COALESCE(p_ruta, '')) = 'pos'
-        AND COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
-        AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date <> (now() AT TIME ZONE 'America/Lima')::date
-        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
-        AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
-        AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
-      )
-      OR (
-        LOWER(COALESCE(p_ruta, '')) = 'linkpago'
-        AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
+        (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
         AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
       )
     )
@@ -1570,6 +1519,7 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_tb_operacion_asistida_bandeja',
+  'f_get_tb_operacion_asistida_kpi',
   'f_post_tb_operacion_asistida',
   'f_post_tb_operacion_asistida_pos_sin_envio',
   'f_patch_tb_operacion_asistida_fecha_deposito',

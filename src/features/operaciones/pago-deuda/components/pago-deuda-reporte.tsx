@@ -62,9 +62,6 @@ const reportStyles = `
 
 const textValue = (value: unknown) => value == null || value === "" ? "-" : String(value);
 const numberValue = (value: unknown) => Number(value ?? 0);
-const dateValue = (value: string | null | undefined) => value
-    ? new Date(value).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" })
-    : "-";
 const dateTimeValue = (value: string | null | undefined) => value
     ? `${new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value))}\n${new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" }).format(new Date(value))}`
     : "-";
@@ -99,7 +96,7 @@ const ReportSteps = ({ row }: { row: OperacionProceso }) => (
 
 const Cell = ({ children }: { children: ReactNode }) => <td>{children}</td>;
 
-export const PagoDeudaReportPdf = ({ rows, date, userName, accountConfigs, kpi }: { rows: OperacionProceso[]; date: string; userName: string; accountConfigs?: Map<number, PagoDeudaReportAccountConfig>; kpi?: PagoDeudaReportKpi }) => {
+export const PagoDeudaReportPdf = ({ rows, dateLabel, userName, accountConfigs, kpi }: { rows: OperacionProceso[]; dateLabel: string; userName: string; accountConfigs?: Map<number, PagoDeudaReportAccountConfig>; kpi?: PagoDeudaReportKpi }) => {
     const totalRequested = rows.reduce((sum, row) => sum + numberValue(row.monto_deposito_cliente), 0);
     const totalCommission = rows.reduce((sum, row) => sum + numberValue(row.resultado_comision_servicio), 0);
     const totalReturned = rows.reduce((sum, row) => sum + (hasReturn(row) ? numberValue(row.monto_deposito_cliente) : numberValue(row.monto_devuelto)), 0);
@@ -111,7 +108,7 @@ export const PagoDeudaReportPdf = ({ rows, date, userName, accountConfigs, kpi }
                 <header className="cover">
                     <div className="cover-top"><div className="brand">ALTOQUE PERÚ <span>WK</span></div><div className="title">Reporte de Pago Deuda</div></div>
                     <div className="meta">
-                        <div><span className="meta-label">Fecha de consulta</span><span className="meta-value">{dateValue(`${date}T00:00:00`)}</span></div>
+                        <div><span className="meta-label">Fecha de consulta</span><span className="meta-value">{dateLabel}</span></div>
                         <div><span className="meta-label">Usuario</span><span className="meta-value">{textValue(userName)}</span></div>
                         <div><span className="meta-label">Total operaciones</span><span className="meta-value">{rows.length}</span></div>
                     </div>
