@@ -501,7 +501,7 @@ export const BancariaOperationalTabs = ({
     const [isRollbackProcessing, setIsRollbackProcessing] = useState(false);
     const [movementToDelete, setMovementToDelete] = useState<MovimientoMerged | null>(null);
     const [isDeletingMovement, setIsDeletingMovement] = useState(false);
-    const [operationToDelete, setOperationToDelete] = useState<OperacionProceso | null>(null);
+    const [operationsToDelete, setOperationsToDelete] = useState<OperacionProceso[] | null>(null);
     const [operationToRestore, setOperationToRestore] = useState<OperacionProceso | null>(null);
     const [isProcessingOperationDelete, setIsProcessingOperationDelete] = useState(false);
     const [isProcessingOperationRestore, setIsProcessingOperationRestore] = useState(false);
@@ -682,7 +682,12 @@ export const BancariaOperationalTabs = ({
         const base = tabContracts[currentTab];
 
         if (currentTab === "Unificado") {
-            return { ...base, actions: ["Pagar", "Derivar", "Reiniciar", "Directo", "Eliminar Excel"] };
+            return {
+                ...base,
+                actions: ruta === "safetypay"
+                    ? ["Pagar", "Derivar", "Reiniciar", "Directo", "Eliminar Excel"]
+                    : ["Pagar", "Derivar", "Reiniciar", "Directo", "Eliminar Operacion", "Eliminar Excel"],
+            };
         }
 
         if (currentTab === "POS") {
@@ -936,23 +941,43 @@ export const BancariaOperationalTabs = ({
     }, [addToast, movementToDelete, onChanged, onMetricsChanged, userId]);
 
     const handleDeleteOperation = useCallback(async () => {
-        if (!operationToDelete) return;
+        const targets = operationsToDelete ?? [];
+        if (!targets.length) return;
         setIsProcessingOperationDelete(true);
-        try {
-            await operacionesRpcService.deleteOperacionProceso({ p_id: operationToDelete.id, p_id_usuario: userId });
-            addToast("success", "Operacion eliminada correctamente.");
-            setOperationToDelete(null);
-            removeSelectedIds([operationToDelete.id]);
+        const deletedIds: number[] = [];
+        const errors: string[] = [];
+
+        for (const operation of targets) {
+            try {
+                await operacionesRpcService.deleteOperacionProceso({ p_id: operation.id, p_id_usuario: userId });
+                deletedIds.push(operation.id);
+            } catch (err) {
+                errors.push(err instanceof Error ? err.message : `No se pudo eliminar la operacion ${operation.id}.`);
+            }
+        }
+
+        setOperationsToDelete(null);
+        if (deletedIds.length) {
+            removeSelectedIds(deletedIds);
             setActionRefreshKey((value) => value + 1);
             setMetricsRefreshKey((value) => value + 1);
             onChanged?.();
             onMetricsChanged?.();
-        } catch (err) {
-            addToast("error", err instanceof Error ? err.message : "No se pudo eliminar la operacion.");
-        } finally {
-            setIsProcessingOperationDelete(false);
         }
-    }, [addToast, onChanged, onMetricsChanged, operationToDelete, removeSelectedIds, userId]);
+
+        if (errors.length) {
+            addToast(
+                "error",
+                deletedIds.length
+                    ? `Se eliminaron ${deletedIds.length} operacion(es), pero ${errors.length} no pudieron eliminarse.`
+                    : errors[0],
+            );
+        } else {
+            addToast("success", `Operaciones eliminadas correctamente: ${deletedIds.length}.`);
+        }
+
+        setIsProcessingOperationDelete(false);
+    }, [addToast, onChanged, onMetricsChanged, operationsToDelete, removeSelectedIds, userId]);
 
     const handleRestoreOperation = useCallback(async () => {
         if (!operationToRestore) return;
@@ -1178,6 +1203,13 @@ export const BancariaOperationalTabs = ({
 
         if (currentTab === "Unificado") {
             const actionRows = operaciones.filter((row) => actionIds.includes(row.id));
+            if (action === "Eliminar Operacion") {
+                return actionRows
+                    .filter((row) => getUnifiedOperationFlow(row) !== "POS")
+                    .filter(isPendingOperation)
+                    .filter((row) => !isDerivedOriginForContext(row, activeCompanyId, activeAccountId))
+                    .map((row) => row.id);
+            }
             if (["Pagar", "Derivar"].includes(action)) {
                 return actionRows
                     .filter((row) => {
@@ -1195,6 +1227,15 @@ export const BancariaOperationalTabs = ({
             }
             if (action === "Reiniciar") return actionRows.filter(isPaidOperation).map((row) => row.id);
             return actionIds;
+        }
+
+        if (action === "Eliminar Operacion") {
+            if (currentTab !== "Efectivizacion") return [];
+            return operaciones
+                .filter((row) => actionIds.includes(row.id))
+                .filter(isPendingOperation)
+                .filter((row) => !isDerivedOriginForContext(row, activeCompanyId, activeAccountId))
+                .map((row) => row.id);
         }
 
         if (currentTab === "POS") {
@@ -1360,6 +1401,14 @@ export const BancariaOperationalTabs = ({
             }
 
             setIsRollbackModalOpen(true);
+            return;
+        }
+
+        if (action === "Eliminar Operacion") {
+            if (readOnly || isHistoryMode || !["Efectivizacion", "Unificado"].includes(currentTab)) return;
+            const eligibleIds = getEligibleIdsOrNotify(action);
+            if (!eligibleIds.length) return;
+            setOperationsToDelete(operaciones.filter((row) => eligibleIds.includes(row.id)));
             return;
         }
 
@@ -2030,7 +2079,7 @@ export const BancariaOperationalTabs = ({
                         onChanged?.();
                     }}
                     onRowUpdated={replaceOperacion}
-                onDeleteOperation={setOperationToDelete}
+                onDeleteOperation={(row) => setOperationsToDelete([row])}
                 onDeriveRow={(row) => {
                     setIndividualActionIds([row.id]);
                     setPendingAction("Derivar");
@@ -2090,12 +2139,16 @@ export const BancariaOperationalTabs = ({
             />
             <OperacionConfirmModal
                 confirmLabel="Eliminar"
-                description="La operacion pasara a Eliminado. Se revertira su impacto abierto en caja y podra restaurarse posteriormente."
+                description={
+                    operationsToDelete && operationsToDelete.length > 1
+                        ? `Se eliminaran ${operationsToDelete.length} operaciones. Se revertira su impacto abierto en caja y podran restaurarse posteriormente.`
+                        : "La operacion pasara a Eliminado. Se revertira su impacto abierto en caja y podra restaurarse posteriormente."
+                }
                 intent="destructive"
                 isLoading={isProcessingOperationDelete}
-                isOpen={operationToDelete !== null}
+                isOpen={operationsToDelete !== null}
                 onClose={() => {
-                    if (!isProcessingOperationDelete) setOperationToDelete(null);
+                    if (!isProcessingOperationDelete) setOperationsToDelete(null);
                 }}
                 onConfirm={() => void handleDeleteOperation()}
                 title="Eliminar operacion"
