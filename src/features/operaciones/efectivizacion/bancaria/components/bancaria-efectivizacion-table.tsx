@@ -93,6 +93,8 @@ interface BancariaEfectivizacionTableProps {
 }
 
 const isPagado = (row: OperacionProceso) => (row.nombre_estado ?? "").toUpperCase() === "PAGADO";
+const isDerivedOperation = (row: OperacionProceso) =>
+    row.flag_derivado === true || String(row.flag_derivado).toLowerCase() === "true";
 const getPagoDeudaMatchFingerprint = (row: OperacionProceso) => JSON.stringify([
     row.id,
     row.dni_cliente,
@@ -205,7 +207,7 @@ const isFrozenTableOperation = (
     isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId) ||
     isFrozenPaidOperation(row, mode);
 const isDeletable = (row: OperacionProceso) => {
-    const estado = (row.nombre_estado ?? "").toUpperCase();
+    const estado = String(row.nombre_estado ?? "").trim().toUpperCase();
     return estado === "PENDIENTE" || estado === "RETENIDO" || Boolean(row.flag_retenido);
 };
 
@@ -1307,6 +1309,11 @@ export const BancariaEfectivizacionTable = ({
                                     mode === "unificado" &&
                                     rowIsEfectivizacion &&
                                     !isPagado(row);
+                                const showDerivedDeleteAction =
+                                    isDerivedOperation(row) &&
+                                    (mode === "efectivizacion" || mode === "unificado" || mode === "derivaciones") &&
+                                    isDeletable(row) &&
+                                    !frozenOrigin;
                                 const displayOperationDate = rowIsPos ? row.fecha_registro : row.fecha_deposito_cliente;
                                 const disabledIngreso =
                                     (isUnificado && rowIsDerivaciones && !isDerivedReceiverOperation(row, activeCompanyId, activeAccountId)) ||
@@ -1616,18 +1623,18 @@ export const BancariaEfectivizacionTable = ({
                                                                 onClick={() => void handleAction(row, "TransferenciaInterbancaria")}
                                                             />
                                                         )}
-                                                        {showStandardQuickActions && isDeletable(row) && (
-                                                            <ButtonUtility
-                                                                size="xs"
-                                                                color="tertiary"
-                                                                tooltip="Eliminar Operacion"
-                                                                icon={Trash01}
-                                                                className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
-                                                                isDisabled={frozenRow || rowSaving}
-                                                                onClick={() => void handleAction(row, "EliminarOperacion")}
-                                                            />
-                                                        )}
                                                     </>
+                                                )}
+                                                {showDerivedDeleteAction && (
+                                                    <ButtonUtility
+                                                        size="xs"
+                                                        color="tertiary"
+                                                        tooltip="Eliminar Operacion"
+                                                        icon={Trash01}
+                                                        className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
+                                                        isDisabled={frozenRow || rowSaving}
+                                                        onClick={() => void handleAction(row, "EliminarOperacion")}
+                                                    />
                                                 )}
                                             {!frozenRow && rowIsEfectivizacion && (mode === "efectivizacion" || mode === "unificado") && ruta !== "safetypay" && Boolean(pagoDeudaMatchFlags[row.id]) && (
                                                     <ButtonUtility
@@ -1662,7 +1669,7 @@ export const BancariaEfectivizacionTable = ({
                                                                 {!isUnificado && rowIsEfectivizacion && !isPagado(row) && !row.flag_retenido && <Dropdown.Item isDisabled={commissionState.extraRecurringDisabled} id="ComisionExtraRecurrente" icon={Coins01}>Com. Extra Recurrente</Dropdown.Item>}
                                                                 {rowIsEfectivizacion && !isPagado(row) && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo</Dropdown.Item>}
                                                                 {isUnificado && rowIsEfectivizacion && !isPagado(row) && <Dropdown.Item id="TransferenciaInterbancaria" icon={CreditCardCheck}>Transferencia Interbancaria</Dropdown.Item>}
-                                                                {rowIsEfectivizacion && isDeletable(row) && <Dropdown.Item id="EliminarOperacion" icon={Trash01}>Eliminar Operacion</Dropdown.Item>}
+                                                                {showDerivedDeleteAction && <Dropdown.Item id="EliminarOperacion" icon={Trash01}>Eliminar Operacion</Dropdown.Item>}
                                                                         </>
                                                                     );
                                                                 })()}
