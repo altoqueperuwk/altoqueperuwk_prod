@@ -768,7 +768,9 @@ DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_bandeja(
   bigint,
   character varying,
   character varying,
-  bigint
+  bigint,
+  timestamp with time zone,
+  timestamp with time zone
 );
 
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_bandeja(
@@ -787,6 +789,14 @@ STABLE
 SECURITY DEFINER
 AS $$
   SELECT to_jsonb(op) || jsonb_build_object(
+    'id_usuario_atencion_cliente',
+    COALESCE(op_solicitud.id_usuario_solicitud, op_solicitud.id_usuario),
+    'nombre_atencion_cliente',
+    usuario_atencion_cliente.username,
+    'id_sucursal_atencion_cliente',
+    usuario_atencion_cliente.id_sucursal,
+    'nombre_sucursal_atencion_cliente',
+    sucursal_atencion_cliente.nombre,
     'pd_codigo_operacion_transferencia',
     NULLIF(BTRIM(COALESCE(op.codigo_operacion_deposito_cliente, '')), ''),
     'flag_comision_registrada',
@@ -817,6 +827,10 @@ AS $$
   LEFT JOIN public.tb_operacion_proceso op_solicitud
     ON op_solicitud.id = op.id_operacion_padre
    AND UPPER(COALESCE(op_solicitud.tipo_flujo_pago_deuda, '')) = 'SOLICITUD'
+  LEFT JOIN public.tb_usuario usuario_atencion_cliente
+    ON usuario_atencion_cliente.id = COALESCE(op_solicitud.id_usuario_solicitud, op_solicitud.id_usuario)
+  LEFT JOIN public.tb_sucursal sucursal_atencion_cliente
+    ON sucursal_atencion_cliente.id = usuario_atencion_cliente.id_sucursal
   LEFT JOIN LATERAL (
     SELECT
       (ARRAY_AGG(r.id ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS id,
@@ -3290,18 +3304,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
        pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
-  WHERE p.proname IN (
-  'f_get_tb_pago_deuda',
-  'f_delete_tb_pago_deuda_solicitud',
-  'f_patch_tb_pago_deuda_derivar_banco',
-  'f_get_tb_pago_deuda_bandeja',
-  'f_get_tb_pago_deuda_match',
-  'f_get_tb_pago_deuda_match_lote',
-  'f_get_tb_pago_deuda_match_flags_lote',
-  'f_patch_tb_pago_deuda_match',
-  'f_patch_tb_pago_deuda_salida',
-  'f_patch_tb_pago_deuda_pagado',
-  'f_post_tb_pago_deuda_solicitud',
-  'f_patch_tb_pago_deuda_comision_extra'
-)
-ORDER BY n.nspname, p.proname;
+WHERE n.nspname = 'public'
+  AND p.proname IN ('f_get_tb_pago_deuda_bandeja')
+ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid);

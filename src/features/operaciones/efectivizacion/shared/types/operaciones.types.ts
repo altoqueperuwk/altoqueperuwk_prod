@@ -181,6 +181,10 @@ export interface OperacionProceso {
     nombre_usuario_gestor?: string | null;
     id_usuario_solicitud?: number | null;
     nombre_usuario_solicitud?: string | null;
+    id_usuario_atencion_cliente?: number | null;
+    nombre_atencion_cliente?: string | null;
+    id_sucursal_atencion_cliente?: number | null;
+    nombre_sucursal_atencion_cliente?: string | null;
     nombre_usuario_deriva?: string | null;
     nombre_usuario_retiene?: string | null;
     id_operacion_padre?: number | null;

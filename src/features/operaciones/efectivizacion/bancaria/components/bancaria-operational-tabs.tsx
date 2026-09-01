@@ -978,6 +978,22 @@ export const BancariaOperationalTabs = ({
         Eliminados: baseOperationColumns,
         "Pago Deuda": [
             { key: "pasos", label: "Pasos", render: (row: OperacionProceso) => presentation === "plain" ? <span className="text-sm text-secondary">{getPagoDeudaStepLabel(row)}</span> : <PagoDeudaSteps row={row} /> },
+            {
+                key: "atencion_cliente",
+                label: "Atencion Cliente",
+                headerClassName: "min-w-40",
+                cellClassName: "min-w-40 max-w-52 whitespace-normal",
+                render: (row: OperacionProceso) => (
+                    <div className="flex min-w-0 flex-col items-start gap-1">
+                        <span className="max-w-full truncate" title={row.nombre_atencion_cliente ?? undefined}>
+                            <CompactBadgeLine color="brand">{row.nombre_atencion_cliente || "-"}</CompactBadgeLine>
+                        </span>
+                        <span className="max-w-full truncate" title={row.nombre_sucursal_atencion_cliente ?? undefined}>
+                            <CompactBadgeLine>{row.nombre_sucursal_atencion_cliente || "-"}</CompactBadgeLine>
+                        </span>
+                    </div>
+                ),
+            },
             { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => presentation === "plain" ? <span className="text-sm text-secondary">{row.dni_cliente || "-"}</span> : (
                 <div className="flex items-center gap-1">
                     <CopyableDni value={row.dni_cliente} />
