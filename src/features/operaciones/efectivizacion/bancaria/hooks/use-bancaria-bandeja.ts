@@ -153,11 +153,11 @@ const mergeMovimientos = (rows: OperacionCajaMovimiento[]): MovimientoMerged[] =
 export const tabContracts: Record<BancariaTab, { filters: string[]; actions: string[] }> = {
     Efectivizacion: {
         filters: ["Todos", "Pendientes", "Pagados"],
-        actions: ["Pagar", "Derivar", "Reiniciar", "Eliminar Excel"],
+        actions: ["Pagar", "Derivar", "Reiniciar", "Eliminar Operacion", "Eliminar Excel"],
     },
     Unificado: {
         filters: ["Todos", "Pendientes", "Pagados"],
-        actions: ["Pagar", "Derivar", "Reiniciar"],
+        actions: ["Pagar", "Derivar", "Reiniciar", "Eliminar Operacion"],
     },
     "Pago Deuda": {
         filters: ["Todos", "Solicitado", "Transferido", "Devuelto", "Pagado"],

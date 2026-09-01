@@ -208,7 +208,7 @@ const isFrozenTableOperation = (
     isFrozenPaidOperation(row, mode);
 const isDeletable = (row: OperacionProceso) => {
     const estado = String(row.nombre_estado ?? "").trim().toUpperCase();
-    return estado === "PENDIENTE" || estado === "RETENIDO" || Boolean(row.flag_retenido);
+    return estado === "PENDIENTE";
 };
 
 const toNumber = (value: unknown) => Number(value ?? 0);
@@ -1309,8 +1309,10 @@ export const BancariaEfectivizacionTable = ({
                                     mode === "unificado" &&
                                     rowIsEfectivizacion &&
                                     !isPagado(row);
-                                const showDerivedDeleteAction =
-                                    isDerivedOperation(row) &&
+                                const showOperationDeleteAction =
+                                    !readOnly &&
+                                    ruta !== "safetypay" &&
+                                    (rowIsEfectivizacion || isDerivedOperation(row)) &&
                                     (mode === "efectivizacion" || mode === "unificado" || mode === "derivaciones") &&
                                     isDeletable(row) &&
                                     !frozenOrigin;
@@ -1625,7 +1627,7 @@ export const BancariaEfectivizacionTable = ({
                                                         )}
                                                     </>
                                                 )}
-                                                {showDerivedDeleteAction && (
+                                                {showOperationDeleteAction && (
                                                     <ButtonUtility
                                                         size="xs"
                                                         color="tertiary"
@@ -1669,7 +1671,7 @@ export const BancariaEfectivizacionTable = ({
                                                                 {!isUnificado && rowIsEfectivizacion && !isPagado(row) && !row.flag_retenido && <Dropdown.Item isDisabled={commissionState.extraRecurringDisabled} id="ComisionExtraRecurrente" icon={Coins01}>Com. Extra Recurrente</Dropdown.Item>}
                                                                 {rowIsEfectivizacion && !isPagado(row) && <Dropdown.Item id="DirectoCaja" icon={Coins01}>Directo</Dropdown.Item>}
                                                                 {isUnificado && rowIsEfectivizacion && !isPagado(row) && <Dropdown.Item id="TransferenciaInterbancaria" icon={CreditCardCheck}>Transferencia Interbancaria</Dropdown.Item>}
-                                                                {showDerivedDeleteAction && <Dropdown.Item id="EliminarOperacion" icon={Trash01}>Eliminar Operacion</Dropdown.Item>}
+                                                                {showOperationDeleteAction && <Dropdown.Item id="EliminarOperacion" icon={Trash01}>Eliminar Operacion</Dropdown.Item>}
                                                                         </>
                                                                     );
                                                                 })()}

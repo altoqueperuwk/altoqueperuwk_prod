@@ -47,6 +47,10 @@ export const isBancariaActionDisabled = ({
         return !["Efectivizacion", "Unificado"].includes(activeTab);
     }
 
+    if (action === "Eliminar Operacion") {
+        return !["Efectivizacion", "Unificado"].includes(activeTab) || !hasSelection;
+    }
+
     if (action === "Emp. Salida") {
         return !["Efectivizacion", "Unificado", "Pago Deuda", "Derivados", "POS"].includes(activeTab) || !hasSelection || companyCount === 0;
     }
