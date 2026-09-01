@@ -162,10 +162,8 @@ Objetivo:
   bancaria se consulta desde la fila hija en las rutas de efectivizacion.
 
 Regla de fecha:
-  - muestra solicitudes registradas dentro del dia consultado;
-  - si el dia consultado es hoy, arrastra solicitudes anteriores no pagadas
-    para que no desaparezcan de la bandeja operativa;
-  - si el dia consultado es historico, muestra solo solicitudes Pagado.
+  - muestra solicitudes registradas estrictamente dentro del intervalo
+    consultado, sin arrastrar pendientes de fechas anteriores.
 */
 DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda(
   bigint, character varying, bigint, character varying,
@@ -254,24 +252,7 @@ BEGIN
     AND (
       (p_fecha_desde IS NULL AND p_fecha_hasta IS NULL)
       OR (
-        COALESCE(p_fecha_hasta, p_fecha_desde) IS NOT NULL
-        AND (COALESCE(p_fecha_hasta, p_fecha_desde) AT TIME ZONE 'America/Lima')::date = (now() AT TIME ZONE 'America/Lima')::date
-        AND (
-          (
-            (p_fecha_desde IS NULL OR op.fecha_registro >= p_fecha_desde)
-            AND (p_fecha_hasta IS NULL OR op.fecha_registro <= p_fecha_hasta)
-          )
-          OR (
-            UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PAGADO'
-            AND (p_fecha_hasta IS NULL OR op.fecha_registro <= p_fecha_hasta)
-          )
-        )
-      )
-      OR (
-        COALESCE(p_fecha_hasta, p_fecha_desde) IS NOT NULL
-        AND (COALESCE(p_fecha_hasta, p_fecha_desde) AT TIME ZONE 'America/Lima')::date <> (now() AT TIME ZONE 'America/Lima')::date
-        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
-        AND (p_fecha_desde IS NULL OR op.fecha_registro >= p_fecha_desde)
+        (p_fecha_desde IS NULL OR op.fecha_registro >= p_fecha_desde)
         AND (p_fecha_hasta IS NULL OR op.fecha_registro <= p_fecha_hasta)
       )
     )
@@ -327,17 +308,16 @@ $$;
 Funcion: f_get_tb_pago_deuda_kpi
 Objetivo:
   Consultar KPIs informativos de Pago Deuda por fecha de registro. No depende
-  de caja operativa ni de cierre. Las solicitudes pendientes de dias previos se
-  arrastran solo cuando se consulta el dia actual. En historico solo cuenta
-  solicitudes Pagado.
+  de caja operativa ni de cierre. El intervalo recibido se aplica de forma
+  estricta a fecha_registro, incluidos los estados pendientes.
 */
 DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_kpi(
-  timestamp with time zone, timestamp with time zone, bigint
+  timestamp with time zone, timestamp with time zone, bigint, bigint
 );
 
 CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_kpi(
-  p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL,
+  p_fecha_desde timestamp with time zone DEFAULT NULL,
+  p_fecha_hasta timestamp with time zone DEFAULT NULL,
   p_id_usuario_solicitud bigint DEFAULT NULL,
   p_id_usuario_consulta bigint DEFAULT NULL
 )
@@ -421,27 +401,10 @@ AS $$
       )
     )
     AND (
-      (p_fecha_registro_desde IS NULL AND p_fecha_registro_hasta IS NULL)
+      (p_fecha_desde IS NULL AND p_fecha_hasta IS NULL)
       OR (
-        COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
-        AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date = (now() AT TIME ZONE 'America/Lima')::date
-        AND (
-          (
-            (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
-            AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
-          )
-          OR (
-            UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'PAGADO'
-            AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
-          )
-        )
-      )
-      OR (
-        COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) IS NOT NULL
-        AND (COALESCE(p_fecha_registro_hasta, p_fecha_registro_desde) AT TIME ZONE 'America/Lima')::date <> (now() AT TIME ZONE 'America/Lima')::date
-        AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
-        AND (p_fecha_registro_desde IS NULL OR op.fecha_registro >= p_fecha_registro_desde)
-        AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
+        (p_fecha_desde IS NULL OR op.fecha_registro >= p_fecha_desde)
+        AND (p_fecha_hasta IS NULL OR op.fecha_registro <= p_fecha_hasta)
       )
     );
 $$;
@@ -3305,5 +3268,9 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
-  AND p.proname IN ('f_get_tb_pago_deuda_bandeja')
+  AND p.proname IN (
+    'f_get_tb_pago_deuda',
+    'f_get_tb_pago_deuda_kpi',
+    'f_get_tb_pago_deuda_bandeja'
+  )
 ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid);

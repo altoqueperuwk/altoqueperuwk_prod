@@ -78,7 +78,7 @@ export const DateRangePicker = ({ value: valueProp, defaultValue, onChange, onAp
         <AriaDateRangePicker aria-label="Date range picker" shouldCloseOnSelect={false} {...props} value={value} onChange={setValue}>
             <AriaGroup>
                 <Button size={size} color="secondary" iconLeading={CalendarIcon}>
-                    {!value ? <span className="text-placeholder">Select dates</span> : `${formattedStartDate} – ${formattedEndDate}`}
+                    {!value ? <span className="text-placeholder">Select dates</span> : value.start && value.end && value.start.compare(value.end) === 0 ? formattedStartDate : `${formattedStartDate} - ${formattedEndDate}`}
                 </Button>
             </AriaGroup>
             <AriaPopover

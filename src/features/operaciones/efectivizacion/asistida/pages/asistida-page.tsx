@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CalendarDate } from "@internationalized/date";
 import ExcelJS from "exceljs";
-import { Calendar as CalendarIcon, ChevronDown, Download01, File06, File07 } from "@untitledui/icons";
+import { ChevronDown, Download01, File06, File07 } from "@untitledui/icons";
 import { AppLayout } from "@/components/application/app-layout";
-import { Calendar } from "@/components/application/date-picker/calendar";
+import { DateRangeFields } from "@/components/application/date-picker/date-range-fields";
 import { Button } from "@/components/base/buttons/button";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { OperacionConfigDropdown } from "@/features/operaciones/efectivizacion/shared/components/operacion-config-dropdown";
@@ -14,7 +14,7 @@ import { operacionesRpcService } from "@/features/operaciones/efectivizacion/sha
 import type { OperacionAsistidaKpi, OperacionProceso, OperacionRuta } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { isAdministrator, isJefeTienda, useAuth } from "@/providers/auth-provider";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
-import { formatDateValue, getPeruDateValue, toPeruDayEnd, toPeruDayStart } from "@/features/operaciones/efectivizacion/shared/utils/date";
+import { formatDateRangeValue, getPeruDateValue, getPeruMonthEndValue, toPeruDayEnd, toPeruDayStart, type DateRangeValue } from "@/features/operaciones/efectivizacion/shared/utils/date";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { AsistidaOperationalBoard } from "@/features/operaciones/efectivizacion/asistida/components/asistida-operational-board";
 import { AsistidaSolicitudForm } from "@/features/operaciones/efectivizacion/asistida/components/asistida-solicitud-form";
@@ -37,8 +37,8 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
     const { businessUser } = useAuth();
     const [refreshKey, setRefreshKey] = useState(0);
     const [isReglasOpen, setIsReglasOpen] = useState(false);
-    const [selectedDate, setSelectedDate] = useState(getTodayValue);
-    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+    const today = getTodayValue();
+    const [dateRange, setDateRange] = useState<DateRangeValue>({ start: today, end: getPeruMonthEndValue() });
     const [kpi, setKpi] = useState<OperacionAsistidaKpi | null>(null);
     const [isKpiLoading, setIsKpiLoading] = useState(false);
     const [isDownloadOpen, setIsDownloadOpen] = useState(false);
@@ -57,8 +57,8 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
         if (userId === null) throw new Error("No se encontro el usuario autenticado.");
         const params: Record<string, unknown> = {
             p_ruta: ruta,
-            p_fecha_registro_desde: toPeruDayStart(selectedDate),
-            p_fecha_registro_hasta: toPeruDayEnd(selectedDate),
+            p_fecha_registro_desde: toPeruDayStart(dateRange.start),
+            p_fecha_registro_hasta: toPeruDayEnd(dateRange.end),
         };
         if (canViewAllAssisted) params.p_id_usuario_consulta = userId;
         else params.p_id_usuario_solicitud = userId;
@@ -76,7 +76,10 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
 
     const getReportFileName = (extension: string) => {
         const safeRoute = ruta === "linkpago" ? "linkpago" : "pos";
-        return `${safeRoute}-${selectedDate.replaceAll("-", "")}.${extension}`;
+        const suffix = dateRange.start === dateRange.end
+            ? dateRange.start.replaceAll("-", "")
+            : `${dateRange.start.replaceAll("-", "")}-${dateRange.end.replaceAll("-", "")}`;
+        return `${safeRoute}-${suffix}.${extension}`;
     };
 
     const downloadExcel = async (rows: OperacionProceso[], deletedRows: OperacionProceso[], reportKpi: OperacionAsistidaKpi | null) => {
@@ -107,7 +110,7 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
         const userName = businessUser?.nombre ?? businessUser?.username ?? "-";
         mergeRow(1, "ALTOQUE PERU WK", { bold: true, color: colors.white, bg: colors.navy });
         mergeRow(2, `Reporte de ${ruta === "linkpago" ? "LinkPago" : "POS"}`, { bold: true, color: colors.white, bg: colors.navy });
-        mergeRow(3, `Fecha: ${selectedDate} | Usuario: ${userName}`, { color: colors.white, bg: colors.navy });
+        mergeRow(3, `Fecha: ${formatDateRangeValue(dateRange)} | Usuario: ${userName}`, { color: colors.white, bg: colors.navy });
         mergeRow(5, "Indicadores", { bold: true, color: colors.white, bg: colors.navy });
         ["Comisiones", "Gastos", "Ganancia", "Salidas"].forEach((label, index) => {
             const labelCell = sheet.getCell(6, index + 1);
@@ -189,7 +192,7 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
         document.body.appendChild(host);
         const root = createRoot(host);
         try {
-            root.render(<AsistidaReportPdf ruta={ruta} rows={rows} deletedRows={deletedRows} date={selectedDate} userName={String(businessUser?.nombre ?? businessUser?.username ?? "-")} kpi={reportKpi} />);
+            root.render(<AsistidaReportPdf ruta={ruta} rows={rows} deletedRows={deletedRows} dateLabel={formatDateRangeValue(dateRange)} userName={String(businessUser?.nombre ?? businessUser?.username ?? "-")} kpi={reportKpi} />);
             await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
             const element = host.querySelector(".asistida-report") as HTMLElement | null;
             if (!element) throw new Error("No se pudo preparar el reporte PDF.");
@@ -232,8 +235,8 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
 
         const kpiParams: Record<string, unknown> = {
             p_ruta: ruta,
-            p_fecha_registro_desde: toPeruDayStart(selectedDate),
-            p_fecha_registro_hasta: toPeruDayEnd(selectedDate),
+            p_fecha_registro_desde: toPeruDayStart(dateRange.start),
+            p_fecha_registro_hasta: toPeruDayEnd(dateRange.end),
         };
         if (canViewAllAssisted) kpiParams.p_id_usuario_consulta = userId;
         else kpiParams.p_id_usuario_solicitud = userId;
@@ -250,7 +253,7 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
         return () => {
             ignore = true;
         };
-    }, [canViewAllAssisted, refreshKey, ruta, selectedDate, userId]);
+    }, [canViewAllAssisted, dateRange.end, dateRange.start, refreshKey, ruta, userId]);
 
     const kpiCards = [
         { label: "Comisiones", value: formatMoney(kpi?.comisiones), tone: "text-concept-ingreso" },
@@ -259,11 +262,16 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
         { label: "Salidas", value: formatMoney(kpi?.salidas), tone: "text-concept-salida" },
     ];
 
-    const handleCalendarChange = (date: any) => {
-        if (date) {
-            setSelectedDate(`${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`);
-            setIsCalendarOpen(false);
-        }
+    const handleFromDateChange = (value: CalendarDate) => {
+        setDateRange((current) => value.toString() <= current.end
+            ? { start: value.toString(), end: current.end }
+            : { start: current.end, end: value.toString() });
+    };
+
+    const handleToDateChange = (value: CalendarDate) => {
+        setDateRange((current) => value.toString() >= current.start
+            ? { start: current.start, end: value.toString() }
+            : { start: value.toString(), end: current.start });
     };
 
     return (
@@ -271,20 +279,12 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
             <div className="flex flex-col gap-5">
                 <div className="flex flex-wrap items-center justify-end gap-3">
                     <div className="flex items-end gap-2">
-                        <div className="relative">
-                            <Button size="sm" color="secondary" iconLeading={CalendarIcon} onClick={() => setIsCalendarOpen(!isCalendarOpen)}>
-                                {formatDateValue(selectedDate)}
-                            </Button>
-                            {isCalendarOpen && (
-                                <div className="absolute right-0 top-full z-50 mt-2">
-                                    <div className="rounded-lg border border-secondary bg-primary p-3 shadow-lg">
-                                        <Calendar value={stringToCalendarDate(selectedDate)} onChange={handleCalendarChange}>
-                                            <div />
-                                        </Calendar>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                        <DateRangeFields
+                            from={stringToCalendarDate(dateRange.start)}
+                            to={stringToCalendarDate(dateRange.end)}
+                            onFromChange={(value) => handleFromDateChange(value as CalendarDate)}
+                            onToChange={(value) => handleToDateChange(value as CalendarDate)}
+                        />
                         <Dropdown.Root>
                             <Button size="sm" color="secondary" iconLeading={Download01} iconTrailing={ChevronDown} isLoading={isDownloading}>
                                 Descargar
@@ -334,7 +334,8 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
                     companies={cajas}
                     refreshKey={refreshKey}
                     ruta={ruta}
-                    selectedDate={selectedDate}
+                    dateFrom={dateRange.start}
+                    dateTo={dateRange.end}
                     onChanged={() => setRefreshKey((value) => value + 1)}
                 />
 

@@ -35,7 +35,8 @@ interface AsistidaOperationalBoardProps {
     onChanged?: () => void;
     refreshKey?: number;
     ruta: OperacionRuta;
-    selectedDate: string;
+    dateFrom: string;
+    dateTo: string;
 }
 
 const filters = ["Todos", "Solicitado", "Pagados"];
@@ -289,7 +290,7 @@ const buildEstadoPayload = (
     p_nombre_usuario_gestor: user.userName,
 });
 
-export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, selectedDate }: AsistidaOperationalBoardProps) => {
+export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, dateFrom, dateTo }: AsistidaOperationalBoardProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [activeFilter, setActiveFilter] = useState("Todos");
@@ -458,8 +459,8 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         );
         const values: Record<string, unknown> = { p_ruta: ruta };
         if (!hasGlobalFilter) {
-            values.p_fecha_registro_desde = toPeruDayStart(selectedDate);
-            values.p_fecha_registro_hasta = toPeruDayEnd(selectedDate);
+            values.p_fecha_registro_desde = toPeruDayStart(dateFrom);
+            values.p_fecha_registro_hasta = toPeruDayEnd(dateTo);
         }
         if (canViewAllAssisted) values.p_id_usuario_consulta = userId;
         else values.p_id_usuario_solicitud = userId;
@@ -476,7 +477,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
         }
 
         return values;
-    }, [activeFilter, canViewAllAssisted, codigo, dni, entidadTarjetaFiltro, estadoSolicitado, montoDeposito, ruta, selectedDate, tarjeta, userId]);
+    }, [activeFilter, canViewAllAssisted, codigo, dateFrom, dateTo, dni, entidadTarjetaFiltro, estadoSolicitado, montoDeposito, ruta, tarjeta, userId]);
 
     useEffect(() => {
         let ignore = false;
@@ -503,7 +504,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, sele
 
     useEffect(() => {
         setSelectedIds([]);
-    }, [activeFilter, codigo, dni, entidadTarjetaFiltro, montoDeposito, refreshKey, ruta, selectedDate, tarjeta]);
+    }, [activeFilter, codigo, dateFrom, dateTo, dni, entidadTarjetaFiltro, montoDeposito, refreshKey, ruta, tarjeta]);
 
     useEffect(() => {
         let ignore = false;

@@ -33,6 +33,7 @@ import {
 } from "@/features/operaciones/efectivizacion/shared/components/documento-input-group";
 import { sanitizeAmountInput } from "@/features/operaciones/efectivizacion/shared/utils/amount-input";
 import { formatInteger, formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
+import { toPeruDayEnd, toPeruDayStart } from "@/features/operaciones/efectivizacion/shared/utils/date";
 import { useClienteLookup } from "@/features/operaciones/efectivizacion/asistida/hooks/use-cliente-lookup";
 import type { OperacionProceso } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
@@ -43,7 +44,8 @@ import { usuarioService } from "@/services/usuario.service";
 interface PagoDeudaBoardProps {
     onChanged?: () => void;
     refreshKey?: number;
-    selectedDate: string;
+    dateFrom: string;
+    dateTo: string;
 }
 
 interface EmpresaCuentaActiva {
@@ -265,7 +267,7 @@ const CuentaComisionSelector = ({
     );
 };
 
-export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: PagoDeudaBoardProps) => {
+export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, dateFrom, dateTo }: PagoDeudaBoardProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [dni, setDni] = useState("");
@@ -326,8 +328,8 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
 
     const params = useMemo(() => {
         const values: Record<string, unknown> = {
-            p_fecha_desde: `${selectedDate}T00:00:00-05:00`,
-            p_fecha_hasta: `${selectedDate}T23:59:59.999-05:00`,
+            p_fecha_desde: toPeruDayStart(dateFrom),
+            p_fecha_hasta: toPeruDayEnd(dateTo),
         };
         if (canViewAllPagoDeuda) values.p_id_usuario_consulta = userId;
         else if (canViewSucursalPagoDeuda) values.p_id_usuario_consulta = userId;
@@ -337,7 +339,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
         }
         if (dni.trim()) values.p_dni_cliente = dni.trim();
         return values;
-    }, [canViewAllPagoDeuda, canViewSucursalPagoDeuda, dni, selectedDate, selectedUsuarioId, userId]);
+    }, [canViewAllPagoDeuda, canViewSucursalPagoDeuda, dateFrom, dateTo, dni, selectedUsuarioId, userId]);
 
     const cuentasComisionHabilitadas = useMemo(
         () => cuentasActivas.filter((cuenta) => cuenta.flag_deposito_comision),
@@ -457,7 +459,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, selectedDate }: Pago
 
     useEffect(() => {
         setSelectedIds([]);
-    }, [activeFilter, dni, refreshKey, selectedDate, selectedUsuarioId]);
+    }, [activeFilter, dateFrom, dateTo, dni, refreshKey, selectedUsuarioId]);
 
     const filterSolicitudes = (rows: OperacionProceso[], filter: string) => {
         if (filter === "Todos") return rows;

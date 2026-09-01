@@ -27,7 +27,7 @@ export interface AsistidaReportProps {
     ruta: Extract<OperacionRuta, "pos" | "linkpago">;
     rows: OperacionProceso[];
     deletedRows?: OperacionProceso[];
-    date: string;
+    dateLabel: string;
     userName: string;
     kpi?: OperacionAsistidaKpi | null;
 }
@@ -113,7 +113,7 @@ const reportStyles = `
 
 const Cell = ({ children, className = "" }: { children: ReactNode; className?: string }) => <td className={className}>{children}</td>;
 
-export const AsistidaReportPdf = ({ ruta, rows, deletedRows = [], date, userName, kpi }: AsistidaReportProps) => {
+export const AsistidaReportPdf = ({ ruta, rows, deletedRows = [], dateLabel, userName, kpi }: AsistidaReportProps) => {
     const columns = getAsistidaReportColumns(ruta);
     const title = ruta === "linkpago" ? "LinkPago" : "POS";
     const totalByKey = (key: AsistidaReportColumnKey) => rows.reduce((sum, row) => sum + numberValue(getAsistidaReportCellValue(row, key)), 0);
@@ -125,7 +125,7 @@ export const AsistidaReportPdf = ({ ruta, rows, deletedRows = [], date, userName
                 <header className="cover">
                     <div className="cover-top"><div className="brand">ALTOQUE PERÚ <span>WK</span></div><div className="title">Reporte de {title}</div></div>
                     <div className="meta">
-                        <div><span className="meta-label">Fecha de consulta</span><span className="meta-value">{new Date(`${date}T00:00:00`).toLocaleDateString("es-PE")}</span></div>
+                        <div><span className="meta-label">Fecha de consulta</span><span className="meta-value">{dateLabel}</span></div>
                         <div><span className="meta-label">Usuario</span><span className="meta-value">{textValue(userName)}</span></div>
                         <div><span className="meta-label">Total operaciones</span><span className="meta-value">{rows.length}</span></div>
                     </div>
