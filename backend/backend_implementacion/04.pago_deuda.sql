@@ -692,6 +692,71 @@ AS $$
 $$;
 
 /*
+Funcion: f_get_tb_pago_deuda_match_flags_lote
+Objetivo:
+  Indicar rapidamente si varias operaciones de efectivizacion tienen al menos
+  un candidato de Pago Deuda. El detalle completo se consulta al abrir el
+  modal de match.
+
+Reglas:
+  - conserva los mismos criterios de f_get_tb_pago_deuda_match_lote;
+  - devuelve una fila por operacion recibida, incluso cuando no hay match;
+  - no devuelve el detalle de los candidatos.
+*/
+DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_match_flags_lote(jsonb);
+
+CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_match_flags_lote(
+  p_ids_operaciones jsonb
+)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH ids AS (
+    SELECT DISTINCT item.value::bigint AS id
+    FROM jsonb_array_elements_text(
+      CASE
+        WHEN jsonb_typeof(COALESCE(p_ids_operaciones, '[]'::jsonb)) = 'array'
+          THEN p_ids_operaciones
+        ELSE '[]'::jsonb
+      END
+    ) AS item(value)
+    WHERE item.value ~ '^[0-9]+$'
+  ),
+  operaciones_efectivizacion AS (
+    SELECT
+      op.id,
+      op.dni_cliente,
+      op.fecha_deposito_cliente
+    FROM public.tb_operacion_proceso op
+    INNER JOIN ids ON ids.id = op.id
+  )
+  SELECT jsonb_build_object(
+    'id_operacion_efectivizacion', origen.id,
+    'tiene_match', EXISTS (
+      SELECT 1
+      FROM public.tb_operacion_proceso candidato
+      WHERE candidato.dni_cliente = origen.dni_cliente
+        AND UPPER(COALESCE(candidato.tipo_servicio, '')) LIKE '%PAGO%DEUDA%'
+        AND UPPER(COALESCE(candidato.tipo_flujo_pago_deuda, '')) = 'BANCO'
+        AND UPPER(COALESCE(candidato.nombre_estado, '')) = 'PROCESADO'
+        AND candidato.id_caja_cierre IS NULL
+        AND origen.fecha_deposito_cliente IS NOT NULL
+        AND candidato.monto_devuelto < candidato.monto_deposito_cliente
+        AND ABS(
+          EXTRACT(epoch FROM (
+            COALESCE(candidato.fecha_pendiente, candidato.fecha_registro)
+            - origen.fecha_deposito_cliente
+          ))
+        ) <= 86400
+    )
+  )
+  FROM operaciones_efectivizacion origen
+  ORDER BY origen.id;
+$$;
+
+/*
 Funcion: f_get_tb_pago_deuda_bandeja
 Objetivo:
   Listar solo filas BANCO para el tab Pago Deuda dentro de las rutas bancarias
@@ -3232,6 +3297,7 @@ JOIN pg_namespace n ON n.oid = p.pronamespace
   'f_get_tb_pago_deuda_bandeja',
   'f_get_tb_pago_deuda_match',
   'f_get_tb_pago_deuda_match_lote',
+  'f_get_tb_pago_deuda_match_flags_lote',
   'f_patch_tb_pago_deuda_match',
   'f_patch_tb_pago_deuda_salida',
   'f_patch_tb_pago_deuda_pagado',

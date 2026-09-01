@@ -2002,6 +2002,7 @@ export const BancariaOperationalTabs = ({
                     estadoPendiente={estadoPendiente}
                     isLoading={isInitialLoading}
                     isRefreshing={isRefreshing}
+                    matchRefreshKey={`${refreshKey}:${actionRefreshKey}:${metricsRefreshKey}`}
                     mode={currentTab === "Derivados" ? "derivaciones" : currentTab === "POS" ? "pos" : currentTab === "Unificado" ? "unificado" : currentTab === "Eliminados" ? "eliminados" : "efectivizacion"}
                     flow={currentTab === "Derivados" ? "Derivado" : currentTab === "POS" ? "POS" : "Efectivizacion"}
                     hidePagination={hidePagination}

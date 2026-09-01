@@ -6,6 +6,11 @@ export type PagoDeudaMatchBatchItem = {
     matches: OperacionProceso[];
 };
 
+export type PagoDeudaMatchFlagBatchItem = {
+    id_operacion_efectivizacion: number;
+    tiene_match: boolean;
+};
+
 const rpc = async <T>(fn: string, params: Record<string, unknown>): Promise<T> => {
     const { data, error } = await supabase.rpc(fn, params);
 
@@ -32,6 +37,10 @@ export const pagoDeudaService = {
 
     getMatchesBatch(params: Record<string, unknown>) {
         return rpc<PagoDeudaMatchBatchItem[]>("f_get_tb_pago_deuda_match_lote", params);
+    },
+
+    getMatchFlagsBatch(params: Record<string, unknown>) {
+        return rpc<PagoDeudaMatchFlagBatchItem[]>("f_get_tb_pago_deuda_match_flags_lote", params);
     },
 
     postSolicitud(params: Record<string, unknown>) {
