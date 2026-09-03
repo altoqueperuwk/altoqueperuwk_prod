@@ -98,7 +98,6 @@ export const BancariaHistoryDropdown = ({
     useEffect(() => {
         if (!activeCompany) {
             setItems([]);
-            onDateChange(null);
             onClosureChange?.(null);
             return;
         }

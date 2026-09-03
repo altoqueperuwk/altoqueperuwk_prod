@@ -956,6 +956,139 @@ BEGIN
 END;
 $$;
 
+/*
+Funcion: f_job_cerrar_cajas_operativas_2230
+Objetivo:
+  Ejecutar el cierre nocturno de las cajas operativas configuradas para el
+  job diario de las 22:30 en America/Lima.
+
+  El cron usa 03:30 UTC porque pg_cron opera por defecto en UTC y Peru no
+  aplica horario de verano. La lista se valida por id_caja e id_empresa para
+  evitar cerrar una caja reasignada a otra empresa.
+*/
+CREATE OR REPLACE FUNCTION public.f_job_cerrar_cajas_operativas_2230()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_item record;
+  v_cierre jsonb;
+  v_detalle jsonb := '[]'::jsonb;
+  v_procesadas integer := 0;
+  v_idempotentes integer := 0;
+  v_errores integer := 0;
+BEGIN
+  FOR v_item IN
+    SELECT *
+    FROM (VALUES
+      (1::bigint, 2::bigint),
+      (32::bigint, 5::bigint),
+      (4::bigint, 8::bigint),
+      (6::bigint, 5::bigint),
+      (21::bigint, 5::bigint),
+      (19::bigint, 3::bigint),
+      (18::bigint, 13::bigint),
+      (29::bigint, 3::bigint),
+      (15::bigint, 12::bigint),
+      (13::bigint, 11::bigint),
+      (36::bigint, 11::bigint),
+      (35::bigint, 12::bigint),
+      (34::bigint, 6::bigint),
+      (31::bigint, 5::bigint),
+      (9::bigint, 3::bigint)
+    ) AS cajas(id_caja, id_empresa)
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1
+      FROM public.tb_caja_operativa c
+      WHERE c.id = v_item.id_caja
+        AND c.id_empresa = v_item.id_empresa
+        AND c.id_estado = 1
+    ) THEN
+      v_errores := v_errores + 1;
+      v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
+        'id_caja', v_item.id_caja,
+        'id_empresa', v_item.id_empresa,
+        'estado', 'ERROR',
+        'motivo', 'La caja no existe, no pertenece a la empresa indicada o no esta activa.'
+      ));
+      CONTINUE;
+    END IF;
+
+    v_cierre := public.f_post_tb_caja_operativa_cierre(
+      p_id_caja := v_item.id_caja,
+      p_id_usuario := NULL,
+      p_kpi_snapshot := NULL
+    );
+
+    IF v_cierre ? 'error' THEN
+      v_errores := v_errores + 1;
+      v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
+        'id_caja', v_item.id_caja,
+        'id_empresa', v_item.id_empresa,
+        'estado', 'ERROR',
+        'motivo', v_cierre->>'error'
+      ));
+      CONTINUE;
+    END IF;
+
+    v_procesadas := v_procesadas + 1;
+    IF COALESCE((v_cierre->>'idempotente')::boolean, false) THEN
+      v_idempotentes := v_idempotentes + 1;
+    END IF;
+
+    v_detalle := v_detalle || jsonb_build_array(jsonb_build_object(
+      'id_caja', v_item.id_caja,
+      'id_empresa', v_item.id_empresa,
+      'estado', CASE
+        WHEN COALESCE((v_cierre->>'idempotente')::boolean, false) THEN 'IDEMPOTENTE'
+        ELSE 'CERRADA'
+      END,
+      'resultado', v_cierre
+    ));
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'hora_programada', '22:30 America/Lima',
+    'cajas_procesadas', v_procesadas,
+    'cajas_idempotentes', v_idempotentes,
+    'cajas_error', v_errores,
+    'detalle', v_detalle
+  );
+END;
+$$;
+
+/*
+  pg_cron usa UTC por defecto: 03:30 UTC = 22:30 America/Lima.
+  Se reemplaza el job por nombre para que el script sea re-ejecutable.
+*/
+DO $schedule$
+DECLARE
+  v_job_id bigint;
+BEGIN
+  IF to_regclass('cron.job') IS NULL THEN
+    RAISE EXCEPTION 'La extension pg_cron no esta disponible. Habilitala antes de programar el cierre nocturno.';
+  END IF;
+
+  SELECT jobid
+  INTO v_job_id
+  FROM cron.job
+  WHERE jobname = 'cerrar-cajas-operativas-2230-lima'
+  LIMIT 1;
+
+  IF v_job_id IS NOT NULL THEN
+    PERFORM cron.unschedule(v_job_id);
+  END IF;
+
+  PERFORM cron.schedule(
+    'cerrar-cajas-operativas-2230-lima',
+    '30 3 * * *',
+    'SELECT public.f_job_cerrar_cajas_operativas_2230();'
+  );
+END;
+$schedule$;
+
 SELECT 'DROP FUNCTION IF EXISTS ' ||
        n.nspname || '.' ||
        p.proname || '(' ||
@@ -965,7 +1098,8 @@ JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_tb_recaudacion_cuenta_flag_retenida',
   'f_get_tb_recaudacion_fecha_liberacion',
-  'f_sync_tb_recaudacion_lotes'
+  'f_sync_tb_recaudacion_lotes',
+  'f_job_cerrar_cajas_operativas_2230'
 )
 ORDER BY n.nspname, p.proname;
 

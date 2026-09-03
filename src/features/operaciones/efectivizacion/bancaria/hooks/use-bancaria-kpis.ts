@@ -194,27 +194,20 @@ export const useBancariaKpis = (
                         const useSpecialGain = routes.length === 1 && hasGananciaEspecial(ruta, activeCompanyId, activeAccountId);
                         if (!useSpecialGain) return { kpi: baseConGastos, gananciasBadge: null };
 
-                        const specialGroups = await Promise.all(
-                            filtered.map((row) => operacionesRpcService.getRutaGananciasEfectivizacionV2({
-                                p_ruta: ruta,
-                                p_id_empresa: activeCompanyId,
-                                p_id_empresa_cuenta_bancaria: activeAccountId,
-                                p_id_caja: activeCajaId,
-                                p_id_caja_cierre: row.id,
-                                p_historico: true,
-                            })),
-                        );
-                        const special = specialGroups.flatMap((group) => group ?? []);
-                        const specialGain = special.reduce((total, row) => total + Number(row.ganancias ?? 0), 0);
-                        const reference = special
-                            .map((row) => row.fecha_cierre_referencia)
-                            .filter((value): value is string => Boolean(value))
-                            .sort()
-                            .pop();
+                        const special = await operacionesRpcService.getRutaGananciasEfectivizacionV2({
+                            p_ruta: ruta,
+                            p_id_empresa: activeCompanyId,
+                            p_id_empresa_cuenta_bancaria: activeAccountId,
+                            p_id_caja: activeCajaId,
+                            p_historico: true,
+                            p_fecha_consulta: historyDate,
+                        });
+                        const specialRow = special?.[0];
+                        const specialGain = Number(specialRow?.ganancias ?? 0);
 
                         return {
                             kpi: baseConGastos ? { ...baseConGastos, ganancias: specialGain } : baseConGastos,
-                            gananciasBadge: formatCierreBadge(reference),
+                            gananciasBadge: formatCierreBadge(specialRow?.fecha_cierre_referencia),
                         };
                     });
             }

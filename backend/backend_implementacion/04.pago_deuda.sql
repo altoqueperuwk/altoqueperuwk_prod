@@ -284,23 +284,7 @@ BEGIN
         )
       )
     )
-  ORDER BY
-    CASE
-      WHEN LOWER(BTRIM(COALESCE(p_ruta, ''))) IN (
-        'bcp', 'bbva', 'banbif', 'scotiabank', 'interbank', 'safetypay'
-      ) THEN COALESCE(op.fecha_deposito_cliente, op.fecha_registro)
-    END ASC NULLS LAST,
-    CASE
-      WHEN LOWER(BTRIM(COALESCE(p_ruta, ''))) IN (
-        'bcp', 'bbva', 'banbif', 'scotiabank', 'interbank', 'safetypay'
-      ) THEN op.fecha_registro
-    END ASC NULLS LAST,
-    CASE
-      WHEN LOWER(BTRIM(COALESCE(p_ruta, ''))) IN (
-        'bcp', 'bbva', 'banbif', 'scotiabank', 'interbank', 'safetypay'
-      ) THEN op.id
-    END ASC NULLS LAST,
-    op.id DESC;
+  ORDER BY op.id DESC;
 END;
 $$;
 
@@ -3268,9 +3252,5 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
-  AND p.proname IN (
-    'f_get_tb_pago_deuda',
-    'f_get_tb_pago_deuda_kpi',
-    'f_get_tb_pago_deuda_bandeja'
-  )
+  AND p.proname IN ('f_get_tb_pago_deuda')
 ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid);

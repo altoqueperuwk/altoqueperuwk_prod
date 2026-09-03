@@ -122,7 +122,8 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     );
 
     useEffect(() => {
-        setSelectedHistoryDate(null);
+        // La fecha consultada pertenece al contexto de la ruta; al cambiar
+        // empresa solo debe resolverse nuevamente el cierre de esa fecha.
         setSelectedHistoryClosureId(null);
     }, [activeAccountId, activeCompanyId]);
 

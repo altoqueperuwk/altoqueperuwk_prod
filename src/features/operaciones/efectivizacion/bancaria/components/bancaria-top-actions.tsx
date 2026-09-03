@@ -1,6 +1,8 @@
 import { ChevronDown, Download01, File06, File07, RefreshCcw02, XClose } from "@untitledui/icons";
+import { Pressable } from "react-aria-components";
 import { Button } from "@/components/base/buttons/button";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { Tooltip } from "@/components/base/tooltip/tooltip";
 import { BancariaHistoryDropdown } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-history-dropdown";
 import type { RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
@@ -41,9 +43,15 @@ export const BancariaTopActions = ({
 }: BancariaTopActionsProps) => {
     return (
         <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button size="sm" color="secondary" iconLeading={XClose} isLoading={isClosing} onClick={onCloseRoute}>
-                Cierre
-            </Button>
+            <Tooltip title="El cierre de caja es automatico a las 10:30 pm" placement="bottom">
+                <Pressable>
+                    <span className="inline-flex" tabIndex={0}>
+                        <Button size="sm" color="secondary" iconLeading={XClose} isDisabled isLoading={isClosing} onClick={onCloseRoute}>
+                            Cierre
+                        </Button>
+                    </span>
+                </Pressable>
+            </Tooltip>
             {canReopenTodayClose && (
                 <Button size="sm" color="secondary" iconLeading={RefreshCcw02} isLoading={isReopening} onClick={onReopenTodayClose}>
                     Reabrir

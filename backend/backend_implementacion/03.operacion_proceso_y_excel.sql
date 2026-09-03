@@ -4717,13 +4717,13 @@ BEGIN
 
     IF LOWER(COALESCE(p_ruta_actual, '')) = 'safetypay'
        AND BTRIM(COALESCE(v_fila.estado, '')) <> ''
-       AND UPPER(TRANSLATE(BTRIM(COALESCE(v_fila.estado, '')), 'ÁÉÍÓÚÜáéíóúü', 'AEIOUUaeiouu')) <> 'PAGADO' THEN
+       AND UPPER(TRANSLATE(BTRIM(COALESCE(v_fila.estado, '')), 'ÁÉÍÓÚÜáéíóúü', 'AEIOUUaeiouu')) NOT IN ('PAGADO', 'COMPRA COMPLETADA') THEN
       v_detalle := v_detalle || jsonb_build_object(
         'fila', v_filas_procesadas + v_filas_omitidas + v_filas_error + 1,
         'codigo_operacion', v_fila.codigo_operacion,
         'estado', 'OMITIDO',
         'estado_excel', v_fila.estado,
-        'motivo', 'SafetyPay solo procesa filas con estado Pagado'
+        'motivo', 'SafetyPay solo procesa filas con estado Pagado o Compra completada'
       );
       v_filas_omitidas := v_filas_omitidas + 1;
       CONTINUE;

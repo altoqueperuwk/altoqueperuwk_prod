@@ -1,0 +1,7 @@
+interface:
+  display_name: "Crear Usuario SQL"
+  short_description: "Genera SQL seguro para crear usuarios"
+  default_prompt: "Usa $crear-usuario-sql para generar el SQL de un usuario con nombre y sede."
+
+policy:
+  allow_implicit_invocation: true
