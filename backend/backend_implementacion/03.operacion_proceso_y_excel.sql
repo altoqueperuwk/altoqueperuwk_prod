@@ -166,6 +166,15 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
 );
 
 ALTER TABLE public.tb_operacion_proceso
+  ADD COLUMN IF NOT EXISTS id_empresa_pos bigint,
+  ADD COLUMN IF NOT EXISTS nombre_empresa_pos character varying,
+  ADD COLUMN IF NOT EXISTS id_pos bigint,
+  ADD COLUMN IF NOT EXISTS nombre_pos character varying;
+
+CREATE INDEX IF NOT EXISTS idx_tb_operacion_proceso_pos
+  ON public.tb_operacion_proceso (id_pos, id_empresa_pos);
+
+ALTER TABLE public.tb_operacion_proceso
   ADD COLUMN IF NOT EXISTS comision_monto_extra_servicio numeric;
 
 ALTER TABLE public.tb_operacion_proceso

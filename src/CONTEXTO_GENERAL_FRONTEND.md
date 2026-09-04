@@ -137,10 +137,9 @@ No hay refresco automatico por volver a Firefox ni por `focus` o
 anima solo entradas/salidas. El orden es ascendente por
 `fecha_deposito_cliente`, luego `fecha_registro` e `id`.
 
-El plan de invalidacion por alcance esta en
-`backend/backend_implementacion/PLAN_OPTIMIZACION_REFRESH_FRONTEND.md`. La
-primera fase esta aplicada; el coordinador completo y la reduccion total de
-consultas N+1 quedan como trabajo futuro.
+La invalidacion por alcance esta implementada en los hooks y servicios de
+operaciones. Para el comportamiento vigente, consultar el mapa funcional de
+`backend/documentacion_funcional/36_mapa_funcional_vigente_2026-09.md`.
 
 ## KPI
 

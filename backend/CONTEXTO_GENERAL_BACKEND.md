@@ -222,10 +222,8 @@ consulta de movimientos.
 ## Concurrencia y despliegue
 
 La carga Excel mantiene el lock advisory de duplicidad y difiere KPI. Los locks
-de caja siguen siendo obligatorios para proteger el saldo. No se deben eliminar
-sin pruebas concurrentes. `REVISION_TB_OPERACION_PROCESO.md` y
-`PLAN_OPTIMIZACION_LOCKS.md` son analisis/plan y no deben asumirse como
-implementacion completa.
+de caja siguen siendo obligatorios para proteger el saldo y deben validarse
+contra las funciones SQL actuales antes de cualquier cambio de concurrencia.
 
 Al modificar SQL se debe mantener al final el generador DROP FUNCTION solo con
 las funciones realmente tocadas. Validaciones:

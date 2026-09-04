@@ -20,6 +20,7 @@ import { AsistidaOperationalBoard } from "@/features/operaciones/efectivizacion/
 import { AsistidaSolicitudForm } from "@/features/operaciones/efectivizacion/asistida/components/asistida-solicitud-form";
 import { RouteKpiCard } from "@/features/operaciones/efectivizacion/shared/components/route-kpi-card";
 import { AsistidaReportPdf, getAsistidaReportCellValue, getAsistidaReportColumns } from "@/features/operaciones/efectivizacion/asistida/components/asistida-reporte";
+import { PosConfigModal } from "@/features/operaciones/efectivizacion/asistida/components/pos-config-modal";
 import { useToast } from "@/providers/toast-provider";
 
 interface AsistidaPageProps {
@@ -37,6 +38,7 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
     const { businessUser } = useAuth();
     const [refreshKey, setRefreshKey] = useState(0);
     const [isReglasOpen, setIsReglasOpen] = useState(false);
+    const [isPosConfigOpen, setIsPosConfigOpen] = useState(false);
     const today = getTodayValue();
     const [dateRange, setDateRange] = useState<DateRangeValue>({ start: today, end: getPeruMonthEndValue() });
     const [kpi, setKpi] = useState<OperacionAsistidaKpi | null>(null);
@@ -300,7 +302,11 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
                                 </Dropdown.Menu>
                             </Dropdown.Popover>
                         </Dropdown.Root>
-                        <OperacionConfigDropdown onOpenReglas={() => setIsReglasOpen(true)} />
+                        <OperacionConfigDropdown
+                            onOpenReglas={() => setIsReglasOpen(true)}
+                            onOpenPos={() => setIsPosConfigOpen(true)}
+                            showPos={ruta === "pos"}
+                        />
                     </div>
                 </div>
 
@@ -319,6 +325,7 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
                 <AsistidaSolicitudForm
                     activeCompany={primaryCompany}
                     onSaved={() => setRefreshKey((value) => value + 1)}
+                    refreshKey={refreshKey}
                     ruta={ruta}
                 />
 
@@ -346,6 +353,14 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
                     onSaved={() => setRefreshKey((value) => value + 1)}
                     ruta={ruta}
                 />
+
+                {ruta === "pos" && (
+                    <PosConfigModal
+                        isOpen={isPosConfigOpen}
+                        onClose={() => setIsPosConfigOpen(false)}
+                        onSaved={() => setRefreshKey((value) => value + 1)}
+                    />
+                )}
             </div>
         </AppLayout>
     );

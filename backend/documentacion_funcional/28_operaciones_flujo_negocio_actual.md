@@ -1,6 +1,8 @@
 # 28. Operaciones: Flujo de Negocio Actual
 
-> **Estado vigente 22/08/2026:** Esta nota reemplaza las reglas antiguas de
+> **Estado vigente 04/09/2026:** Consultar primero
+> [`36_mapa_funcional_vigente_2026-09.md`](36_mapa_funcional_vigente_2026-09.md).
+> Esta nota reemplaza las reglas antiguas de
 > retencion, cierre y KPI que aparecen mas abajo. La fuente maestra es
 > [`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md).
 
@@ -104,17 +106,16 @@ Reglas actuales:
 
 ## Retenciones
 
-Scotiabank y Banbif retienen ingresos por cuenta bancaria.
-
-La fuente de verdad es:
-
-- `tb_empresa_cuenta_bancaria.flag_retencion` (retencion total)
-- `tb_empresa_cuenta_bancaria.flag_retencion_parcial` (retencion parcial)
+La fuente de verdad vigente es la combinacion empresa + cuenta + banco y
+`fecha_deposito_cliente` en hora de Lima. No se debe usar
+`tb_empresa_cuenta_bancaria.flag_retencion` ni
+`flag_retencion_parcial` para decidir una retencion nueva.
 
 Comportamiento:
 
-- Al cargar Excel/TXT en una cuenta con `flag_retencion = true` o `flag_retencion_parcial = true`, la operacion queda con `flag_retenido = true`.
-- Ambos flags son mutuamente excluyentes (no pueden estar `true` simultaneamente), pero ambos pueden estar `false` (sin retencion).
+- Las combinaciones vigentes estan enumeradas en `36_mapa_funcional_vigente_2026-09.md`.
+- La operacion queda con `flag_retenido = true` cuando cumple la ventana de su combinacion.
+- No existe liberacion automatica; la retencion se mantiene como informacion operativa hasta una accion autorizada.
 - La operacion sigue apareciendo en `Efectivizacion` mientras sea parte del flujo operativo.
 - Si la operacion retenida se marca como `Pagado`, no desaparece de `Efectivizacion > Todos` y tambien aparece en `Efectivizacion > Pagados`.
 - Tambien aparece en `Retenidos` hasta que se confirme manualmente.

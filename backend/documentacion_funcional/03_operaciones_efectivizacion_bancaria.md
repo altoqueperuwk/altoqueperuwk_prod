@@ -1,6 +1,8 @@
 # 03. Operaciones: Efectivizacion Bancaria
 
-> **Estado vigente 22/08/2026:** Las seis rutas bancarias comparten el flujo de
+> **Estado vigente 04/09/2026:** El detalle completo esta en
+> [`36_mapa_funcional_vigente_2026-09.md`](36_mapa_funcional_vigente_2026-09.md).
+> Las seis rutas bancarias comparten el flujo de
 > caja, pero SafetyPay puede integrarse visualmente dentro de Interbank. La tabla
 > principal es `Efectivizacion TC`, que unifica Efectivizacion, Derivados y POS y
 > diferencia cada fila mediante `Flujo`.
@@ -32,6 +34,11 @@ Estas rutas comparten:
 - reglas de efectivizacion;
 - movimientos entre cajas;
 - impacto completo en caja.
+
+El boton visual de cierre permanece deshabilitado porque existe un job
+automatico a las 22:30 hora Peru. `Eliminar Operacion` se habilita para
+operaciones pendientes, incluidos derivados elegibles, y conserva la fila en
+la bandeja de eliminados.
 
 ## Caja y flujo financiero
 

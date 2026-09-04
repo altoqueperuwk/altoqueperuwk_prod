@@ -1,6 +1,8 @@
 # 02. Operaciones: Vision General
 
-> **Estado vigente 22/08/2026:** Para el sistema implementado, consultar primero
+> **Estado vigente 04/09/2026:** Para el mapa completo consultar primero
+> [`36_mapa_funcional_vigente_2026-09.md`](36_mapa_funcional_vigente_2026-09.md),
+> y luego
 > [`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md) y
 > [`src/CONTEXTO_GENERAL_FRONTEND.md`](../../src/CONTEXTO_GENERAL_FRONTEND.md).
 > Este documento conserva la separacion conceptual de familias, pero la pantalla

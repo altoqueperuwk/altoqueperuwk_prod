@@ -14,6 +14,8 @@ import { clienteService } from "@/services/cliente.service";
 import { codigoServicioService } from "@/services/codigo-servicio.service";
 import { comunidadService } from "@/services/comunidad.service";
 import { estadoService } from "@/services/estado.service";
+import { empresaService } from "@/services/empresa.service";
+import { posService } from "@/services/pos.service";
 import { InlineFormCard } from "@/features/operaciones/efectivizacion/shared/components/inline-form-card";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { OperacionRuta, RutaOperacionCaja } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
@@ -32,6 +34,7 @@ interface AsistidaSolicitudFormProps {
     activeCompany: RutaOperacionCaja | null;
     onSaved: () => void;
     ruta: OperacionRuta;
+    refreshKey?: number;
 }
 
 interface CatalogItem {
@@ -51,6 +54,7 @@ const ASISTIDA_DEFAULT_COMMUNITY_ID = 10;
 const ASISTIDA_DEFAULT_COMMUNITY_NAME = "ATK1";
 const usesFixedCommunity = (ruta: OperacionRuta) => ruta === "pos" || ruta === "linkpago";
 const allowedBankNames = new Set(["BBVA", "BCP", "SCOTIABANK", "BANBIF", "INTERBANK"]);
+const excludedPosCompanyIds = new Set([15, 16, 10, 14]);
 
 const stringToCalendarDate = (value: string) => {
     const [year, month, day] = value.split("-").map(Number);
@@ -69,7 +73,7 @@ const getCurrentPeruTime = () => {
     return `${value("hour")}:${value("minute")}:${value("second")}-05:00`;
 };
 
-export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: AsistidaSolicitudFormProps) => {
+export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta, refreshKey = 0 }: AsistidaSolicitudFormProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [codigoOperacion, setCodigoOperacion] = useState("");
@@ -87,6 +91,10 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
     const [estadoSolicitado, setEstadoSolicitado] = useState<CatalogItem | null>(null);
     const [estadoPagado, setEstadoPagado] = useState<CatalogItem | null>(null);
     const [bancosDestino, setBancosDestino] = useState<BancoDestino[]>([]);
+    const [empresasPos, setEmpresasPos] = useState<CatalogItem[]>([]);
+    const [posList, setPosList] = useState<CatalogItem[]>([]);
+    const [empresaPosId, setEmpresaPosId] = useState("");
+    const [posId, setPosId] = useState("");
     const [bancoDestinoId, setBancoDestinoId] = useState("");
     const [entidadTarjetaId, setEntidadTarjetaId] = useState("");
     const [isSaving, setIsSaving] = useState(false);
@@ -116,6 +124,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         setIsFechaDepositoOpen(false);
         setEntidadTarjetaId("");
         setBancoDestinoId("");
+        setEmpresaPosId("");
+        setPosId("");
         setServicio(null);
         setEstadoSolicitado(null);
         setEstadoPagado(null);
@@ -192,8 +202,10 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             comunidadService.getList({ p_id_estado: 1 }),
             codigoServicioService.getList({ p_id_estado: 1 }),
             estadoService.getList({}),
+            ruta === "pos" ? empresaService.getList({ p_id_estado: 1 }) : Promise.resolve([]),
+            ruta === "pos" ? posService.getList({ p_id_estado: 1 }) : Promise.resolve([]),
         ])
-            .then(([comunidadRows, codigoRows, estadoRows]) => {
+            .then(([comunidadRows, codigoRows, estadoRows, empresaRows, posRows]) => {
                 if (ignore) return;
 
                 const comunidadItems = comunidadRows.map((row) => ({
@@ -212,6 +224,20 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 const needle = getServicioNeedle(ruta);
 
                 setComunidades(comunidadItems);
+                const empresaItems = (empresaRows as Record<string, unknown>[])
+                    .filter((row) => !excludedPosCompanyIds.has(Number(row.id)))
+                    .map((row) => ({
+                        id: Number(row.id),
+                        nombre: String(row.nombre ?? ""),
+                    }));
+                const nextPosItems = (posRows as Record<string, unknown>[]).map((row) => ({
+                    id: Number(row.id),
+                    nombre: String(row.nombre ?? ""),
+                }));
+                setEmpresasPos(empresaItems);
+                setPosList(nextPosItems);
+                setEmpresaPosId((current) => empresaItems.some((item) => String(item.id) === current) ? current : "");
+                setPosId((current) => nextPosItems.some((item) => String(item.id) === current) ? current : "");
                 setServicio(
                     codigoItems.find((item) => item.tipo?.toUpperCase().includes(needle)) ??
                         codigoItems.find((item) => item.nombre.toUpperCase().includes(needle)) ??
@@ -237,7 +263,7 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
         return () => {
             ignore = true;
         };
-    }, [addToast, comunidadId, ruta]);
+    }, [addToast, comunidadId, refreshKey, ruta]);
 
     useEffect(() => {
         let ignore = false;
@@ -312,6 +338,16 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             return;
         }
 
+        if (ruta === "pos" && !empresaPosId) {
+            addToast("error", "Selecciona la Empresa.");
+            return;
+        }
+
+        if (ruta === "pos" && !posId) {
+            addToast("error", "Selecciona el POS.");
+            return;
+        }
+
         if (!selectedEntidadTarjeta) {
             addToast("error", "Selecciona la entidad tarjeta.");
             return;
@@ -364,6 +400,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                       p_id_usuario_solicitud: userId,
                       p_nombre_usuario_solicitud: userName,
                       p_fecha_registro: `${fechaDeposito}T${getCurrentPeruTime()}`,
+                      p_id_empresa_pos: Number(empresaPosId),
+                      p_id_pos: Number(posId),
                   })
                 : await operacionesRpcService.postOperacionAsistida({
                       p_ruta: ruta,
@@ -392,6 +430,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                       p_id_banco_cliente: (ruta === "pos" || ruta === "linkpago") ? selectedEntidadTarjeta?.id : null,
                       p_fecha_deposito_cliente: (ruta === "pos" || ruta === "linkpago") ? `${fechaDeposito}T${getCurrentPeruTime()}` : null,
                       p_fecha_registro: `${fechaDeposito}T${getCurrentPeruTime()}`,
+                      p_id_empresa_pos: ruta === "pos" ? Number(empresaPosId) : null,
+                      p_id_pos: ruta === "pos" ? Number(posId) : null,
                   });
 
             if (result && "error" in result) {
@@ -409,6 +449,8 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
             setMonto("");
             setEntidadTarjetaId("");
             setBancoDestinoId("");
+            setEmpresaPosId("");
+            setPosId("");
             setClienteId(null);
             setOriginalWhatsapp("");
             setOriginalComunidadId("");
@@ -467,6 +509,30 @@ export const AsistidaSolicitudForm = ({ activeCompany, onSaved, ruta }: Asistida
                 >
                     {ruta === "pos" && (
                         <div className="contents">
+                            <NativeSelect
+                                size="sm"
+                                label="Empresa"
+                                isRequired
+                                value={empresaPosId}
+                                onChange={(event) => setEmpresaPosId(event.currentTarget.value)}
+                                options={[
+                                    { label: "Seleccionar", value: "", disabled: true },
+                                    ...empresasPos.map((item) => ({ label: item.nombre, value: String(item.id) })),
+                                ]}
+                                className="order-0 w-full min-w-0 sm:w-[18ch]"
+                            />
+                            <NativeSelect
+                                size="sm"
+                                label="POS"
+                                isRequired
+                                value={posId}
+                                onChange={(event) => setPosId(event.currentTarget.value)}
+                                options={[
+                                    { label: "Seleccionar", value: "", disabled: true },
+                                    ...posList.map((item) => ({ label: item.nombre, value: String(item.id) })),
+                                ]}
+                                className="order-0 w-full min-w-0 sm:w-[14ch]"
+                            />
                             <Input
                                 size="sm"
                                 label="Cod. Operacion"

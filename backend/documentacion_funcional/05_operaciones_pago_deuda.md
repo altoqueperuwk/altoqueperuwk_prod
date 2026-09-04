@@ -1,12 +1,18 @@
 # 05. Operaciones: Pago Deuda
 
-> **Estado vigente 22/08/2026:** En bancos se muestra como `Pago Deuda TC`. El
+> **Estado vigente 04/09/2026:** Consultar primero
+> [`36_mapa_funcional_vigente_2026-09.md`](36_mapa_funcional_vigente_2026-09.md).
+> En bancos se muestra como `Pago Deuda TC`. El
 > codigo de transferencia no es requisito para avanzar del paso 1 al paso 2.
 > La operacion de salida se valida contra el saldo de la caja destino; la bandeja
 > mantiene pasos visuales y el match con Efectivizacion se busca dentro de la
 > ventana operativa definida por el backend.
 
 ## Estado vigente
+
+La ruta global usa dos calendarios. `Desde` inicia en hoy y `Hasta` en el fin
+del mes de Lima. Cada cambio consulta nuevamente bandeja, KPI y reporte con
+`p_fecha_desde` y `p_fecha_hasta`, incluyendo los limites completos del dia.
 
 Pago Deuda se divide en cuatro pasos:
 

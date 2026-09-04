@@ -1822,6 +1822,175 @@ BEGIN
 END;
 $$;
 
+/*
+Tabla: tb_pos
+Objetivo:
+  Registrar el catalogo global de terminales/procesadores POS utilizados en
+  las solicitudes de la ruta asistida POS.
+*/
+CREATE TABLE IF NOT EXISTS public.tb_pos (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  nombre character varying NOT NULL,
+  id_estado bigint NOT NULL,
+  id_usuario bigint,
+  fecha_registro timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT tb_pos_pkey PRIMARY KEY (id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tb_pos_nombre_unico
+  ON public.tb_pos (LOWER(BTRIM(nombre)));
+
+CREATE TABLE IF NOT EXISTS public.tb_pos_his AS
+TABLE public.tb_pos
+WITH NO DATA;
+
+DROP TRIGGER IF EXISTS trg_tb_pos_his ON public.tb_pos;
+CREATE TRIGGER trg_tb_pos_his
+AFTER INSERT OR UPDATE ON public.tb_pos
+FOR EACH ROW
+EXECUTE FUNCTION public.f_private_append_snapshot_his();
+
+/*
+Funcion: f_get_tb_pos
+Objetivo:
+  Consultar el catalogo POS con filtros opcionales y estado enriquecido.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_pos(
+  p_id bigint DEFAULT NULL,
+  p_nombre character varying DEFAULT NULL,
+  p_id_estado bigint DEFAULT NULL,
+  p_id_usuario bigint DEFAULT NULL,
+  p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
+  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT jsonb_build_object(
+    'id', t.id,
+    'nombre', t.nombre,
+    'id_estado', t.id_estado,
+    'estado_nombre', e.nombre,
+    'id_usuario', t.id_usuario,
+    'usuario_nombre', u.nombre,
+    'fecha_registro', t.fecha_registro
+  )
+  FROM public.tb_pos t
+  LEFT JOIN public.tb_estado e ON e.id = t.id_estado
+  LEFT JOIN public.tb_usuario u ON u.id = t.id_usuario
+  WHERE (p_id IS NULL OR t.id = p_id)
+    AND (p_nombre IS NULL OR t.nombre ILIKE '%' || p_nombre || '%')
+    AND (p_id_estado IS NULL OR t.id_estado = p_id_estado)
+    AND (p_id_usuario IS NULL OR t.id_usuario = p_id_usuario)
+    AND (p_fecha_registro_desde IS NULL OR t.fecha_registro >= p_fecha_registro_desde)
+    AND (p_fecha_registro_hasta IS NULL OR t.fecha_registro <= p_fecha_registro_hasta)
+  ORDER BY t.id;
+$$;
+
+CREATE OR REPLACE FUNCTION public.f_get_tb_pos_his(
+  p_id bigint DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT to_jsonb(t)
+  FROM public.tb_pos_his t
+  WHERE p_id IS NULL OR t.id = p_id
+  ORDER BY t.fecha_registro DESC, t.id DESC;
+$$;
+
+CREATE OR REPLACE FUNCTION public.f_post_tb_pos(
+  p_nombre character varying,
+  p_id_estado bigint DEFAULT NULL,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_nombre character varying := NULLIF(BTRIM(COALESCE(p_nombre, '')), '');
+  v_id_estado bigint := COALESCE(
+    p_id_estado,
+    (SELECT id FROM public.tb_estado WHERE UPPER(BTRIM(COALESCE(nombre, ''))) = 'ACTIVO' ORDER BY id LIMIT 1)
+  );
+  v_id bigint;
+BEGIN
+  IF v_nombre IS NULL THEN
+    RETURN jsonb_build_object('error', 'El nombre del POS es obligatorio.');
+  END IF;
+
+  IF v_id_estado IS NULL OR NOT EXISTS (SELECT 1 FROM public.tb_estado WHERE id = v_id_estado) THEN
+    RETURN jsonb_build_object('error', 'El estado seleccionado no es valido.');
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM public.tb_pos WHERE LOWER(BTRIM(nombre)) = LOWER(v_nombre)) THEN
+    RETURN jsonb_build_object('error', 'Ya existe un POS con ese nombre.');
+  END IF;
+
+  INSERT INTO public.tb_pos (nombre, id_estado, id_usuario)
+  VALUES (v_nombre, v_id_estado, p_id_usuario)
+  RETURNING id INTO v_id;
+
+  RETURN (SELECT x FROM public.f_get_tb_pos(p_id := v_id) AS x LIMIT 1);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.f_patch_tb_pos(
+  p_id bigint,
+  p_nombre character varying DEFAULT NULL,
+  p_id_estado bigint DEFAULT NULL,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actual public.tb_pos%ROWTYPE;
+  v_nombre character varying;
+  v_id_estado bigint;
+BEGIN
+  SELECT * INTO v_actual FROM public.tb_pos WHERE id = p_id LIMIT 1;
+
+  IF v_actual.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'El POS no existe.');
+  END IF;
+
+  v_nombre := COALESCE(NULLIF(BTRIM(COALESCE(p_nombre, '')), ''), v_actual.nombre);
+  v_id_estado := COALESCE(p_id_estado, v_actual.id_estado);
+
+  IF v_nombre IS NULL THEN
+    RETURN jsonb_build_object('error', 'El nombre del POS es obligatorio.');
+  END IF;
+
+  IF v_id_estado IS NULL OR NOT EXISTS (SELECT 1 FROM public.tb_estado WHERE id = v_id_estado) THEN
+    RETURN jsonb_build_object('error', 'El estado seleccionado no es valido.');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.tb_pos
+    WHERE id <> p_id
+      AND LOWER(BTRIM(nombre)) = LOWER(v_nombre)
+  ) THEN
+    RETURN jsonb_build_object('error', 'Ya existe un POS con ese nombre.');
+  END IF;
+
+  UPDATE public.tb_pos
+  SET nombre = v_nombre,
+      id_estado = v_id_estado,
+      id_usuario = COALESCE(p_id_usuario, id_usuario)
+  WHERE id = p_id;
+
+  RETURN (SELECT x FROM public.f_get_tb_pos(p_id := p_id) AS x LIMIT 1);
+END;
+$$;
+
 SELECT 'DROP FUNCTION IF EXISTS ' ||
        n.nspname || '.' ||
        p.proname || '(' ||
@@ -1833,7 +2002,11 @@ WHERE p.proname IN (
   'f_get_tb_cliente_his',
   'f_patch_tb_cliente_comision_recurrente',
   'f_post_tb_reglas_efectivizacion',
-  'f_patch_tb_reglas_efectivizacion'
+  'f_patch_tb_reglas_efectivizacion',
+  'f_get_tb_pos',
+  'f_get_tb_pos_his',
+  'f_post_tb_pos',
+  'f_patch_tb_pos'
 )
 ORDER BY n.nspname, p.proname;
 

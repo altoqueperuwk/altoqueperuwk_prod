@@ -245,6 +245,16 @@ DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida(
   character varying, bigint, timestamp with time zone, character varying
 );
 
+DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida(
+  character varying, bigint, character varying, character varying,
+  bigint, character varying, character varying, numeric, character varying,
+  bigint, character varying, bigint, character varying, bigint,
+  character varying, bigint, character varying, bigint, bigint,
+  timestamp with time zone, bigint, character varying, character varying,
+  character varying, bigint, timestamp with time zone, character varying,
+  bigint, character varying, bigint, character varying
+);
+
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
   p_ruta character varying,
   p_id_codigo_servicio bigint,
@@ -272,7 +282,11 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida(
   p_email_cliente character varying DEFAULT NULL,
   p_id_empresa_destino bigint DEFAULT NULL,
   p_fecha_deposito_cliente timestamp with time zone DEFAULT NULL,
-  p_numero_tarjeta character varying DEFAULT NULL
+  p_numero_tarjeta character varying DEFAULT NULL,
+  p_id_empresa_pos bigint DEFAULT NULL,
+  p_nombre_empresa_pos character varying DEFAULT NULL,
+  p_id_pos bigint DEFAULT NULL,
+  p_nombre_pos character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -295,6 +309,10 @@ DECLARE
   v_nombre_banco_empresa_cuenta_salida character varying;
   v_id_empresa_ingreso bigint;
   v_nombre_empresa_ingreso character varying;
+  v_id_empresa_pos bigint;
+  v_nombre_empresa_pos character varying;
+  v_id_pos bigint;
+  v_nombre_pos character varying;
   v_id_empresa_cuenta_ingreso bigint;
   v_id_banco_empresa_cuenta_ingreso bigint;
   v_nombre_banco_empresa_cuenta_ingreso character varying;
@@ -313,6 +331,30 @@ BEGIN
 
   IF v_ruta NOT IN ('pos', 'linkpago') THEN
     RETURN jsonb_build_object('error', 'La ruta asistida no es valida.');
+  END IF;
+
+  IF v_ruta = 'pos' THEN
+    SELECT e.id, e.nombre
+    INTO v_id_empresa_pos, v_nombre_empresa_pos
+    FROM public.tb_empresa e
+    WHERE e.id = p_id_empresa_pos
+      AND e.id_estado = 1
+    LIMIT 1;
+
+    IF v_id_empresa_pos IS NULL THEN
+      RETURN jsonb_build_object('error', 'La Empresa POS seleccionada no esta activa.');
+    END IF;
+
+    SELECT p.id, p.nombre
+    INTO v_id_pos, v_nombre_pos
+    FROM public.tb_pos p
+    WHERE p.id = p_id_pos
+      AND p.id_estado = 1
+    LIMIT 1;
+
+    IF v_id_pos IS NULL THEN
+      RETURN jsonb_build_object('error', 'El POS seleccionado no esta activo.');
+    END IF;
   END IF;
 
   p_codigo_operacion_deposito_cliente := NULLIF(BTRIM(COALESCE(p_codigo_operacion_deposito_cliente, '')), '');
@@ -586,6 +628,10 @@ BEGIN
     nombre_cliente,
     email_cliente,
     numero_tarjeta,
+    id_empresa_pos,
+    nombre_empresa_pos,
+    id_pos,
+    nombre_pos,
     monto_deposito_cliente,
     codigo_operacion_deposito_cliente,
     fecha_deposito_cliente,
@@ -641,6 +687,10 @@ BEGIN
     COALESCE(NULLIF(BTRIM(COALESCE(v_cliente_nombre, '')), ''), NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''), ''),
     NULLIF(BTRIM(COALESCE(p_email_cliente, '')), ''),
     p_numero_tarjeta,
+    CASE WHEN v_ruta = 'pos' THEN v_id_empresa_pos ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_nombre_empresa_pos ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_id_pos ELSE NULL END,
+    CASE WHEN v_ruta = 'pos' THEN v_nombre_pos ELSE NULL END,
     ROUND(COALESCE(p_monto_deposito_cliente, 0)::numeric, 2),
     p_codigo_operacion_deposito_cliente,
     NULL,
@@ -724,6 +774,15 @@ DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida_pos_sin_envio(
   timestamp with time zone, character varying
 );
 
+DROP FUNCTION IF EXISTS public.f_post_tb_operacion_asistida_pos_sin_envio(
+  bigint, character varying, character varying, bigint, character varying,
+  character varying, numeric, bigint, character varying, bigint,
+  character varying, character varying, character varying, bigint,
+  character varying, bigint, character varying, bigint, character varying,
+  timestamp with time zone, character varying, bigint, character varying,
+  bigint, character varying
+);
+
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida_pos_sin_envio(
   p_id_codigo_servicio bigint,
   p_nombre_codigo_servicio character varying,
@@ -745,7 +804,11 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_asistida_pos_sin_envio(
   p_id_usuario_solicitud bigint DEFAULT NULL,
   p_nombre_usuario_solicitud character varying DEFAULT NULL,
   p_fecha_registro timestamp with time zone DEFAULT NULL,
-  p_numero_tarjeta character varying DEFAULT NULL
+  p_numero_tarjeta character varying DEFAULT NULL,
+  p_id_empresa_pos bigint DEFAULT NULL,
+  p_nombre_empresa_pos character varying DEFAULT NULL,
+  p_id_pos bigint DEFAULT NULL,
+  p_nombre_pos character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -758,6 +821,10 @@ DECLARE
   v_tipo_documento bigint;
   v_celular_cliente bigint;
   v_nombre_banco_cliente character varying;
+  v_id_empresa_pos bigint;
+  v_nombre_empresa_pos character varying;
+  v_id_pos bigint;
+  v_nombre_pos character varying;
   v_id_estado bigint;
   v_nombre_estado character varying;
   v_fecha_registro timestamp with time zone := COALESCE(p_fecha_registro, now());
@@ -777,6 +844,28 @@ BEGIN
   IF p_codigo_operacion_deposito_cliente IS NOT NULL
      AND LENGTH(p_codigo_operacion_deposito_cliente) > 30 THEN
     RETURN jsonb_build_object('error', 'El codigo de operacion POS no puede superar los 30 caracteres.');
+  END IF;
+
+  SELECT e.id, e.nombre
+  INTO v_id_empresa_pos, v_nombre_empresa_pos
+  FROM public.tb_empresa e
+  WHERE e.id = p_id_empresa_pos
+    AND e.id_estado = 1
+  LIMIT 1;
+
+  IF v_id_empresa_pos IS NULL THEN
+    RETURN jsonb_build_object('error', 'La Empresa POS seleccionada no esta activa.');
+  END IF;
+
+  SELECT p.id, p.nombre
+  INTO v_id_pos, v_nombre_pos
+  FROM public.tb_pos p
+  WHERE p.id = p_id_pos
+    AND p.id_estado = 1
+  LIMIT 1;
+
+  IF v_id_pos IS NULL THEN
+    RETURN jsonb_build_object('error', 'El POS seleccionado no esta activo.');
   END IF;
 
   SELECT b.nombre
@@ -877,6 +966,10 @@ BEGIN
     nombre_cliente,
     email_cliente,
     numero_tarjeta,
+    id_empresa_pos,
+    nombre_empresa_pos,
+    id_pos,
+    nombre_pos,
     monto_deposito_cliente,
     codigo_operacion_deposito_cliente,
     id_banco_cliente,
@@ -924,6 +1017,10 @@ BEGIN
     COALESCE(NULLIF(BTRIM(COALESCE(v_cliente_nombre, '')), ''), NULLIF(BTRIM(COALESCE(p_nombre_cliente, '')), ''), ''),
     NULLIF(BTRIM(COALESCE(p_email_cliente, '')), ''),
     p_numero_tarjeta,
+    v_id_empresa_pos,
+    v_nombre_empresa_pos,
+    v_id_pos,
+    v_nombre_pos,
     v_monto,
     p_codigo_operacion_deposito_cliente,
     p_id_banco_cliente,
@@ -1079,6 +1176,20 @@ DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
   character varying, bigint, character varying, boolean
 );
 
+DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
+  bigint, bigint, character varying, character varying, bigint,
+  character varying, numeric, bigint, character varying, bigint, bigint,
+  character varying, bigint, character varying, boolean,
+  bigint, character varying, bigint, character varying
+);
+
+DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida(
+  bigint, bigint, character varying, character varying, bigint,
+  character varying, numeric, bigint, character varying, bigint, bigint,
+  character varying, bigint, character varying, boolean,
+  bigint, character varying, bigint, character varying, character varying
+);
+
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_id bigint,
   p_id_banco_cliente bigint DEFAULT NULL,
@@ -1094,7 +1205,12 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_asistida(
   p_email_cliente character varying DEFAULT NULL,
   p_id_ruta_operacion_caja_destino bigint DEFAULT NULL,
   p_numero_tarjeta character varying DEFAULT NULL,
-  p_sin_envio_solicitud boolean DEFAULT NULL
+  p_sin_envio_solicitud boolean DEFAULT NULL,
+  p_id_empresa_pos bigint DEFAULT NULL,
+  p_nombre_empresa_pos character varying DEFAULT NULL,
+  p_id_pos bigint DEFAULT NULL,
+  p_nombre_pos character varying DEFAULT NULL,
+  p_codigo_operacion_deposito_cliente character varying DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -1109,6 +1225,10 @@ DECLARE
   v_nombre_banco_cliente_resolved character varying;
   v_id_empresa_ingreso bigint;
   v_nombre_empresa_ingreso character varying;
+  v_id_empresa_pos bigint;
+  v_nombre_empresa_pos character varying;
+  v_id_pos bigint;
+  v_nombre_pos character varying;
   v_id_empresa_cuenta_ingreso bigint;
   v_id_banco_empresa_cuenta_ingreso bigint;
   v_nombre_banco_empresa_cuenta_ingreso character varying;
@@ -1134,6 +1254,7 @@ DECLARE
   v_reactivar_solicitud boolean := false;
 BEGIN
   p_numero_tarjeta := NULLIF(BTRIM(COALESCE(p_numero_tarjeta, '')), '');
+  p_codigo_operacion_deposito_cliente := NULLIF(BTRIM(COALESCE(p_codigo_operacion_deposito_cliente, '')), '');
 
   IF p_numero_tarjeta IS NOT NULL AND p_numero_tarjeta !~ '^[0-9]{4}$' THEN
     RETURN jsonb_build_object('error', 'El numero de tarjeta debe contener exactamente 4 digitos.');
@@ -1146,6 +1267,56 @@ BEGIN
 
   IF v_actual.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Operacion no encontrada.');
+  END IF;
+
+  IF LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos' THEN
+    IF p_codigo_operacion_deposito_cliente IS NOT NULL
+       AND LENGTH(p_codigo_operacion_deposito_cliente) > 30 THEN
+      RETURN jsonb_build_object('error', 'El codigo de operacion no puede superar los 30 caracteres.');
+    END IF;
+
+    IF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) = 'PAGADO'
+       AND (
+         (p_id_empresa_pos IS NOT NULL AND p_id_empresa_pos IS DISTINCT FROM v_actual.id_empresa_pos)
+         OR (p_id_pos IS NOT NULL AND p_id_pos IS DISTINCT FROM v_actual.id_pos)
+       ) THEN
+      RETURN jsonb_build_object('error', 'No se puede modificar Empresa o POS de una solicitud atendida.');
+    END IF;
+
+    p_id_empresa_pos := COALESCE(p_id_empresa_pos, v_actual.id_empresa_pos);
+    p_id_pos := COALESCE(p_id_pos, v_actual.id_pos);
+
+    IF p_id_empresa_pos IS NULL
+       AND p_id_pos IS NULL
+       AND v_actual.id_empresa_pos IS NULL
+       AND v_actual.id_pos IS NULL THEN
+      v_id_empresa_pos := NULL;
+      v_nombre_empresa_pos := NULL;
+      v_id_pos := NULL;
+      v_nombre_pos := NULL;
+    ELSE
+      SELECT e.id, e.nombre
+      INTO v_id_empresa_pos, v_nombre_empresa_pos
+      FROM public.tb_empresa e
+      WHERE e.id = p_id_empresa_pos
+        AND e.id_estado = 1
+      LIMIT 1;
+
+      IF v_id_empresa_pos IS NULL THEN
+        RETURN jsonb_build_object('error', 'La Empresa POS seleccionada no esta activa.');
+      END IF;
+
+      SELECT p.id, p.nombre
+      INTO v_id_pos, v_nombre_pos
+      FROM public.tb_pos p
+      WHERE p.id = p_id_pos
+        AND p.id_estado = 1
+      LIMIT 1;
+
+      IF v_id_pos IS NULL THEN
+        RETURN jsonb_build_object('error', 'El POS seleccionado no esta activo.');
+      END IF;
+    END IF;
   END IF;
 
   v_reactivar_solicitud := LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos'
@@ -1354,6 +1525,7 @@ BEGIN
         dni_cliente = p_dni_cliente,
         nombre_cliente = COALESCE(v_cliente_nombre, p_nombre_cliente, ''),
         email_cliente = COALESCE(p_email_cliente, email_cliente),
+        codigo_operacion_deposito_cliente = COALESCE(p_codigo_operacion_deposito_cliente, codigo_operacion_deposito_cliente),
         numero_tarjeta = p_numero_tarjeta,
         id_comunidad = p_id_comunidad,
         nombre_comunidad = p_nombre_comunidad,
@@ -1460,6 +1632,7 @@ BEGIN
       dni_cliente = p_dni_cliente,
       nombre_cliente = COALESCE(v_cliente_nombre, p_nombre_cliente, ''),
       email_cliente = COALESCE(p_email_cliente, email_cliente),
+      codigo_operacion_deposito_cliente = COALESCE(p_codigo_operacion_deposito_cliente, codigo_operacion_deposito_cliente),
       numero_tarjeta = p_numero_tarjeta,
       id_comunidad = p_id_comunidad,
       nombre_comunidad = p_nombre_comunidad,
@@ -1496,6 +1669,10 @@ BEGIN
       fecha_pendiente = CASE WHEN v_reactivar_solicitud THEN now() ELSE fecha_pendiente END,
       id_usuario = COALESCE(p_id_usuario, id_usuario),
       nombre_usuario = COALESCE(p_nombre_usuario, nombre_usuario),
+      id_empresa_pos = COALESCE(v_id_empresa_pos, id_empresa_pos),
+      nombre_empresa_pos = COALESCE(v_nombre_empresa_pos, nombre_empresa_pos),
+      id_pos = COALESCE(v_id_pos, id_pos),
+      nombre_pos = COALESCE(v_nombre_pos, nombre_pos),
       ruta_destino = COALESCE(v_ruta_destino_resolved, ruta_destino)
   WHERE id = p_id;
 

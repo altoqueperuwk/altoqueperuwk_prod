@@ -1,6 +1,8 @@
 # 29. Operaciones: Interaccion Frontend Actual
 
-> **Estado vigente 22/08/2026:** Este documento conserva el detalle de interaccion,
+> **Estado vigente 04/09/2026:** Consultar primero
+> [`36_mapa_funcional_vigente_2026-09.md`](36_mapa_funcional_vigente_2026-09.md).
+> Este documento conserva el detalle de interaccion,
 > pero las bandejas actuales se leen como `Efectivizacion TC`, `Pago Deuda TC` y
 > `Movimientos`, con bandejas antiguas dentro del selector. Ver
 > [`src/CONTEXTO_GENERAL_FRONTEND.md`](../../src/CONTEXTO_GENERAL_FRONTEND.md).

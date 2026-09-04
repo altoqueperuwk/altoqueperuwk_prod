@@ -14,6 +14,8 @@ import { bancoService } from "@/services/banco.service";
 import { clienteService } from "@/services/cliente.service";
 import { comunidadService } from "@/services/comunidad.service";
 import { estadoService } from "@/services/estado.service";
+import { empresaService } from "@/services/empresa.service";
+import { posService } from "@/services/pos.service";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { OperacionProceso } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import type { OperacionRuta } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
@@ -49,6 +51,7 @@ interface LinkPagoEditModalProps {
 
 const inferTipoDocumentoOperacion = (documento?: string | null): TipoDocumentoOperacion =>
     documento?.replace(/\D/g, "").length === 9 ? 2 : 1;
+const excludedPosCompanyIds = new Set([15, 16, 10, 14]);
 
 const stringToCalendarDate = (value: string) => {
     const [year, month, day] = value.split("-").map(Number);
@@ -71,17 +74,24 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const [entidadTarjetaId, setEntidadTarjetaId] = useState("");
+    const [codigoOperacion, setCodigoOperacion] = useState("");
     const [numeroTarjeta, setNumeroTarjeta] = useState("");
     const [bancoDestinoId, setBancoDestinoId] = useState("");
     const [sinEnvioSolicitud, setSinEnvioSolicitud] = useState(false);
     const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoOperacion>(1);
     const [dni, setDni] = useState("");
     const [nombre, setNombre] = useState("");
+    const [email, setEmail] = useState("");
+    const [whatsapp, setWhatsapp] = useState("");
     const [comunidadId, setComunidadId] = useState("");
     const [monto, setMonto] = useState("");
     const [isSaving, setIsSaving] = useState(false);
     const [comunidades, setComunidades] = useState<CatalogItem[]>([]);
     const [bancosDestino, setBancosDestino] = useState<BancoDestino[]>([]);
+    const [empresasPos, setEmpresasPos] = useState<CatalogItem[]>([]);
+    const [posList, setPosList] = useState<CatalogItem[]>([]);
+    const [empresaPosId, setEmpresaPosId] = useState("");
+    const [posId, setPosId] = useState("");
     const [clienteId, setClienteId] = useState<number | null>(null);
     const [originalCelulares, setOriginalCelulares] = useState<string[]>([]);
     const [fechaRegistro, setFechaRegistro] = useState(getPeruDateValue);
@@ -126,12 +136,14 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
     const isPosSinEnvio = ruta === "pos" && sinEnvioSolicitud;
+    const isAttended = String(operation?.nombre_estado ?? "").trim().toUpperCase() === "PAGADO";
 
     useEffect(() => {
         if (!isOpen) return;
 
         if (operation) {
             setEntidadTarjetaId(String(operation.id_banco_cliente ?? ""));
+            setCodigoOperacion(operation.codigo_operacion_deposito_cliente ?? "");
             setNumeroTarjeta(operation.numero_tarjeta ?? "");
             setBancoDestinoId(String(operation.id_banco_cliente_transferencia ?? ""));
             setSinEnvioSolicitud(
@@ -145,8 +157,12 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
             setTipoDocumento(inferTipoDocumentoOperacion(operation.dni_cliente));
             setDni(operation.dni_cliente ?? "");
             setNombre(operation.nombre_cliente ?? "");
+            setEmail(operation.email_cliente ?? "");
+            setWhatsapp("");
             setComunidadId(String(operation.id_comunidad ?? ""));
             setMonto(String(operation.monto_deposito_cliente ?? ""));
+            setEmpresaPosId(String(operation.id_empresa_pos ?? ""));
+            setPosId(String(operation.id_pos ?? ""));
             setClienteId(operation.id_cliente ?? null);
             setOriginalCelulares([]);
             setFechaRegistro(operation.fecha_registro ? getPeruDateValue(new Date(operation.fecha_registro)) : getPeruDateValue());
@@ -158,8 +174,10 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
         Promise.all([
             bancoService.getList({ p_id_estado: 1 }),
             comunidadService.getList({ p_id_estado: 1 }),
+            ruta === "pos" ? empresaService.getList({ p_id_estado: 1 }) : Promise.resolve([]),
+            ruta === "pos" ? posService.getList({ p_id_estado: 1 }) : Promise.resolve([]),
         ])
-            .then(([bancoRows, comunidadRows]) => {
+            .then(([bancoRows, comunidadRows, empresaRows, posRows]) => {
                 if (ignore) return;
                 setBancosDestino(
                     bancoRows.map((row) => ({
@@ -174,18 +192,25 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                         nombre: String(row.nombre ?? ""),
                     })),
                 );
+                setEmpresasPos(
+                    (empresaRows as Record<string, unknown>[])
+                        .filter((row) => !excludedPosCompanyIds.has(Number(row.id)))
+                        .map((row) => ({ id: Number(row.id), nombre: String(row.nombre ?? "") })),
+                );
+                setPosList((posRows as Record<string, unknown>[]).map((row) => ({ id: Number(row.id), nombre: String(row.nombre ?? "") })));
             })
             .catch(() => addToast("error", "Error al cargar catalogos."));
 
         return () => {
             ignore = true;
         };
-    }, [addToast, isOpen, operation]);
+    }, [addToast, isOpen, operation, ruta]);
 
     useEffect(() => {
         if (!dni.trim()) {
             setClienteId(null);
             setNombre("");
+            setWhatsapp("");
             setOriginalCelulares([]);
             return;
         }
@@ -195,6 +220,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
             if (clienteLookup.id_comunidad != null) {
                 setComunidadId(String(clienteLookup.id_comunidad));
             }
+            setWhatsapp(clienteLookup.celular[0] ?? "");
             setOriginalCelulares(clienteLookup.celular);
         } else if (!getDocumentoValidationMessage(dni, tipoDocumento)) {
             setClienteId(null);
@@ -207,6 +233,18 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
 
         if (!selectedEntidadTarjeta) {
             addToast("error", "Selecciona la entidad tarjeta.");
+            return;
+        }
+
+        const hasPosData = Boolean(empresaPosId || posId || operation?.id_empresa_pos != null || operation?.id_pos != null);
+
+        if (ruta === "pos" && hasPosData && !empresaPosId) {
+            addToast("error", "Selecciona la Empresa.");
+            return;
+        }
+
+        if (ruta === "pos" && hasPosData && !posId) {
+            addToast("error", "Selecciona el POS.");
             return;
         }
 
@@ -240,9 +278,16 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
 
             if (targetClienteId) {
                 const comunidadChanged = comunidadId !== String(operation?.id_comunidad ?? "");
-                if (comunidadChanged) {
+                const whatsappChanged = ruta === "pos" && whatsapp !== (originalCelulares[0] ?? "");
+                if (comunidadChanged || whatsappChanged) {
                     await clienteService.update(targetClienteId, {
                         p_id_comunidad: Number(comunidadId),
+                        ...(ruta === "pos" && whatsappChanged
+                            ? {
+                                p_celular: whatsapp ? Number(whatsapp) : null,
+                                p_flag_limpiar_celular: !whatsapp && originalCelulares.length > 0,
+                            }
+                            : {}),
                     });
                 }
             } else {
@@ -250,6 +295,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                     p_tipo_documento: tipoDocumento,
                     p_numero_documento: cleanDni,
                     p_nombre: nombre.trim(),
+                    p_celular: ruta === "pos" && whatsapp ? Number(whatsapp) : null,
                     p_id_comunidad: Number(comunidadId),
                     p_id_estado: (await estadoService.getList({})).find((e) => String(e.nombre).toUpperCase() === "ACTIVO")?.id,
                     p_id_usuario: userId,
@@ -259,17 +305,21 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
             const result = await operacionesRpcService.patchOperacionAsistida({
                 p_id: operation!.id,
                 p_id_banco_cliente: selectedEntidadTarjeta.id,
+                p_codigo_operacion_deposito_cliente: ruta === "pos" ? codigoOperacion.trim() || null : null,
                 p_numero_tarjeta: numeroTarjeta || null,
                 p_id_banco_destino: ruta === "pos" ? Number(bancoDestinoId) : null,
                 p_tipo_documento_cliente: tipoDocumento,
                 p_dni_cliente: cleanDni,
                 p_nombre_cliente: nombre.trim() || null,
+                p_email_cliente: ruta === "pos" ? email.trim() || null : null,
                 p_id_comunidad: selectedCommunity.id,
                 p_nombre_comunidad: selectedCommunity.nombre,
                 p_monto_deposito_cliente: amount,
                 p_id_usuario: userId,
                 p_nombre_usuario: userName,
                 p_sin_envio_solicitud: ruta === "pos" ? sinEnvioSolicitud : null,
+                p_id_empresa_pos: ruta === "pos" ? Number(empresaPosId) : null,
+                p_id_pos: ruta === "pos" ? Number(posId) : null,
             });
 
             if (result && "error" in result) {
@@ -316,6 +366,39 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                         </div>
 
                         <div className="grid gap-4 sm:grid-cols-2">
+                            {ruta === "pos" && (
+                                <>
+                                    <NativeSelect
+                                        size="sm"
+                                        label="Empresa"
+                                        isRequired
+                                        disabled={isAttended}
+                                        value={empresaPosId}
+                                        onChange={(event) => setEmpresaPosId(event.currentTarget.value)}
+                                        options={[{ label: "Seleccionar", value: "", disabled: true }, ...empresasPos.map((item) => ({ label: item.nombre, value: String(item.id) }))]}
+                                    />
+                                    <NativeSelect
+                                        size="sm"
+                                        label="POS"
+                                        isRequired
+                                        disabled={isAttended}
+                                        value={posId}
+                                        onChange={(event) => setPosId(event.currentTarget.value)}
+                                        options={[{ label: "Seleccionar", value: "", disabled: true }, ...posList.map((item) => ({ label: item.nombre, value: String(item.id) }))]}
+                                    />
+                                </>
+                            )}
+                            {ruta === "pos" && (
+                                <Input
+                                    size="sm"
+                                    label="Cod. Operacion"
+                                    placeholder="Código de operación"
+                                    value={codigoOperacion}
+                                    maxLength={30}
+                                    onChange={(value) => setCodigoOperacion(value.slice(0, 30))}
+                                    className="w-full min-w-0"
+                                />
+                            )}
                             <NativeSelect
                                 size="sm"
                                 label="Entidad Tarjeta"
@@ -365,6 +448,28 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                                 onChange={setNombre}
                                 className="w-full min-w-0"
                             />
+                            {ruta === "pos" && (
+                                <>
+                                    <Input
+                                        size="sm"
+                                        label="Email"
+                                        type="email"
+                                        placeholder="Correo del cliente"
+                                        value={email}
+                                        onChange={setEmail}
+                                        className="w-full min-w-0"
+                                    />
+                                    <Input
+                                        size="sm"
+                                        label="Whatsapp"
+                                        placeholder="Número de WhatsApp"
+                                        inputMode="numeric"
+                                        value={whatsapp}
+                                        onChange={(value) => setWhatsapp(value.replace(/\D/g, "").slice(0, 9))}
+                                        className="w-full min-w-0"
+                                    />
+                                </>
+                            )}
                             <Input
                                 size="sm"
                                 label="Comunidad"

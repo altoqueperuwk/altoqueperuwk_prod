@@ -1,6 +1,8 @@
 # 30. Operaciones: Pruebas de Retenciones, Fechas y Cierres
 
-> **Estado vigente 22/08/2026:** Los casos de prueba de este documento deben
+> **Estado vigente 04/09/2026:** Consultar primero
+> [`36_mapa_funcional_vigente_2026-09.md`](36_mapa_funcional_vigente_2026-09.md).
+> Los casos de prueba de este documento deben
 > ejecutarse con retencion hardcodeada por empresa + cuenta + banco. No se debe
 > preparar una prueba cambiando `flag_retencion` ni suponiendo liberacion automatica.
 > Scotiabank/BanBif usan 21:00 y BCP usa 00:00, siempre con
@@ -34,7 +36,8 @@ Tambien aplica a:
 
 ## Preparacion
 
-1. Verificar que la cuenta bancaria tenga `flag_retencion = true`.
+1. Verificar que la empresa, cuenta y banco pertenezcan a una combinacion de
+   retencion vigente; no usar `flag_retencion` como fuente de verdad.
 2. Verificar que exista caja operativa para la empresa/cuenta.
 3. Verificar reglas activas de efectivizacion para la ruta.
 4. Cargar archivo con operaciones de deposito de ayer.
@@ -226,3 +229,6 @@ ORDER BY op.fecha_deposito_cliente, op.id;
 - Para reparar pruebas usar:
   - `backend/backend_pruebas/11.reparar_retenciones_kpi_caja.sql`
 - Mantener `ROLLBACK` por defecto en scripts de prueba.
+
+El cierre se ejecuta por `f_job_cerrar_cajas_operativas_2230` a las 22:30 hora
+Peru; el boton de la pantalla permanece deshabilitado.

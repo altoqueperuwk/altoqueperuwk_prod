@@ -1,6 +1,8 @@
 # 04. Operaciones: Efectivizacion Asistida
 
-> **Estado vigente 22/08/2026:** POS conserva su solicitud normal y adicionalmente
+> **Estado vigente 04/09/2026:** Consultar primero
+> [`36_mapa_funcional_vigente_2026-09.md`](36_mapa_funcional_vigente_2026-09.md).
+> POS conserva su solicitud normal y adicionalmente
 > permite `Sin Envio Solicitud`, que registra directamente `Pagado` sin comision,
 > transferencia ni movimiento de caja. Link Pago mantiene su flujo asistido sin
 > caja propia. Ver la fuente maestra del backend para las RPC exactas.
@@ -48,6 +50,17 @@ Estas rutas:
 - permite cambio de estado operativo;
 - permite edicion de campos (DNI, nombre, comunidad, monto, entidad tarjeta) via modal con `f_patch_tb_operacion_asistida`;
 - no crea movimientos de caja ni depende de cierre.
+
+## Fechas y KPIs asistidos
+
+La pantalla tiene dos calendarios basicos: Desde y Hasta. Por defecto usa el
+dia actual de Lima como inicio y el ultimo dia del mes como fin. La seleccion
+se cierra automaticamente y actualiza bandeja y KPI.
+
+`f_get_tb_operacion_asistida_bandeja` y `f_get_tb_operacion_asistida_kpi`
+reciben `p_fecha_registro_desde` y `p_fecha_registro_hasta`. Cuando existe una
+busqueda por codigo, DNI, tarjeta o monto, la pantalla conserva la busqueda
+global y no envia el rango.
 
 ## KPIs asistidos
 

@@ -1,6 +1,8 @@
 # 33. Manual Global: Operaciones Bancarias, SafetyPay y Pago Deuda
 
-> **Actualizacion 22/08/2026:** Este manual contiene pasos historicos de usuario.
+> **Actualizacion 04/09/2026:** Este manual contiene pasos historicos de usuario.
+> Para las reglas vigentes de rutas, cierres, rangos y reportes consultar
+> [`36_mapa_funcional_vigente_2026-09.md`](36_mapa_funcional_vigente_2026-09.md).
 > Para el comportamiento vigente, leer primero
 > [`backend/CONTEXTO_GENERAL_BACKEND.md`](../CONTEXTO_GENERAL_BACKEND.md) y
 > [`src/CONTEXTO_GENERAL_FRONTEND.md`](../../src/CONTEXTO_GENERAL_FRONTEND.md).

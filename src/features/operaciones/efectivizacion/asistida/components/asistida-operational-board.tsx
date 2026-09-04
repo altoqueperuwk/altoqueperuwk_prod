@@ -196,6 +196,20 @@ const posColumns = [
         render: (row: OperacionProceso) => <CompactBadge>{row.nombre_usuario ?? "-"}</CompactBadge>,
     },
     {
+        key: "nombre_pos",
+        label: "POS",
+        render: (row: OperacionProceso) => (
+            <CompactBadgeLine>{row.nombre_pos ?? "-"}</CompactBadgeLine>
+        ),
+    },
+    {
+        key: "nombre_empresa_pos",
+        label: "Empresa",
+        render: (row: OperacionProceso) => (
+            <CompactBadgeLine color="brand">{row.nombre_empresa_pos ?? "-"}</CompactBadgeLine>
+        ),
+    },
+    {
         key: "codigo_operacion_deposito_cliente",
         label: "Cod. Operacion",
         cellClassName: "font-medium text-primary tabular-nums",
@@ -215,17 +229,6 @@ const posColumns = [
         render: (row: OperacionProceso) => row.numero_tarjeta || "-",
     },
     { key: "dni_cliente", label: "DNI", cellClassName: "font-medium text-primary", render: (row: OperacionProceso) => <CopyableDni value={row.dni_cliente} /> },
-    {
-        key: "nombre_cliente",
-        label: "Nombre",
-        cellClassName: "w-40 max-w-40 truncate",
-        render: (row: OperacionProceso) => row.nombre_cliente?.toUpperCase() || "-",
-    },
-    {
-        key: "email_cliente",
-        label: "Email",
-        render: (row: OperacionProceso) => <CompactBadge>{row.email_cliente ?? "-"}</CompactBadge>,
-    },
     { key: "nombre_comunidad", label: "Comunidad" },
     {
         key: "monto_deposito_cliente",

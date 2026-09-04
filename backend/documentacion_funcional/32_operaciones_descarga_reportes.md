@@ -1,6 +1,8 @@
 # 32. Operaciones: Descarga de Reportes de Cierre (PDF/Excel)
 
-> **Estado vigente 22/08/2026:** PDF y Excel deben reflejar el estado de la
+> **Estado vigente 04/09/2026:** El mapa global esta en
+> [`36_mapa_funcional_vigente_2026-09.md`](36_mapa_funcional_vigente_2026-09.md).
+> PDF y Excel deben reflejar el estado de la
 > bandeja seleccionada y el snapshot del cierre. Ademas de pagadas, las secciones
 > operativas pueden incluir pendientes segun el contrato vigente de la consulta;
 > no asumir que `nombre_estado = Pagado` es un filtro global del reporte.
@@ -18,6 +20,10 @@
 ## Objetivo
 
 Documentar la feature de descarga de reportes de cierre de caja implementada en `operaciones`. El boton "Descargar" genera un PDF o Excel identico a lo que el usuario visualiza en los tabs operativos de la web, usando las mismas fuentes de datos.
+
+POS, Link Pago y Pago Deuda tienen reportes propios por rango. Consultan todas
+las filas del intervalo antes de generar el archivo y no dependen de la
+paginacion visible.
 
 ## Problema resuelto
 

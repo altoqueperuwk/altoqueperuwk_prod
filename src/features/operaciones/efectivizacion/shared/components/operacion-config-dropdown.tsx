@@ -8,12 +8,14 @@ interface OperacionConfigDropdownProps {
     onOpenEmpresasComision?: () => void;
     onOpenEmpresas?: () => void;
     onOpenReglasAbono?: () => void;
+    onOpenPos?: () => void;
     onOpenReglas: () => void;
     showCajas?: boolean;
     showEmpresaPrincipal?: boolean;
     showEmpresasComision?: boolean;
     showEmpresas?: boolean;
     showReglasAbono?: boolean;
+    showPos?: boolean;
 }
 
 export const OperacionConfigDropdown = ({
@@ -22,12 +24,14 @@ export const OperacionConfigDropdown = ({
     onOpenEmpresasComision,
     onOpenEmpresas,
     onOpenReglasAbono,
+    onOpenPos,
     onOpenReglas,
     showCajas = false,
     showEmpresaPrincipal = false,
     showEmpresasComision = false,
     showEmpresas = false,
     showReglasAbono = false,
+    showPos = false,
 }: OperacionConfigDropdownProps) => (
     <Dropdown.Root>
         <Button size="sm" color="primary" iconLeading={Settings01} iconTrailing={ChevronDown}>
@@ -46,6 +50,11 @@ export const OperacionConfigDropdown = ({
                 {showEmpresas && (
                     <Dropdown.Item icon={Building07} onAction={onOpenEmpresas}>
                         Empresas
+                    </Dropdown.Item>
+                )}
+                {showPos && onOpenPos && (
+                    <Dropdown.Item icon={CreditCard01} onAction={onOpenPos}>
+                        POS
                     </Dropdown.Item>
                 )}
                 {showEmpresasComision && (

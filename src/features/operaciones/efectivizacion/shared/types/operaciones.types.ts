@@ -158,6 +158,10 @@ export interface OperacionProceso {
     codigo_operacion_deposito_cliente: string | null;
     id_empresa_ingreso?: number | null;
     nombre_empresa_ingreso: string | null;
+    id_empresa_pos?: number | null;
+    nombre_empresa_pos?: string | null;
+    id_pos?: number | null;
+    nombre_pos?: string | null;
     id_empresa_cuenta_ingreso?: number | null;
     id_banco_empresa_cuenta_ingreso?: number | null;
     nombre_empresa_salida: string | null;

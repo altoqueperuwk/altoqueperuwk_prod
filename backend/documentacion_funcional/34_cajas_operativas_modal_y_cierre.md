@@ -1,6 +1,8 @@
 # Cajas Operativas: Opciones De Funcionamiento
 
-> **Estado vigente 22/08/2026:** El sistema usa la opcion de nueva caja en cero
+> **Estado vigente 04/09/2026:** Consultar primero
+> [`36_mapa_funcional_vigente_2026-09.md`](36_mapa_funcional_vigente_2026-09.md).
+> El sistema usa la opcion de nueva caja en cero
 > despues del cierre. El modal permite conciliar el saldo del sistema con el saldo
 > que muestra la banca; el saldo ingresado puede usar `1,000.00`, `1000` o `1,000`.
 > La conciliacion registra un ajuste administrativo y deja la Caja Inicial y Caja
@@ -9,6 +11,10 @@
 > vigente.
 
 ### Flujo vigente de caja
+
+El boton `Cierre` permanece visible pero deshabilitado. El job
+`f_job_cerrar_cajas_operativas_2230` ejecuta el cierre a las 22:30 hora Peru y
+el tooltip del boton informa esta automatizacion.
 
 - Cerrar caja conserva intacto el snapshot historico de saldo, salidas, gastos,
   ganancias y clasificaciones informativas.
