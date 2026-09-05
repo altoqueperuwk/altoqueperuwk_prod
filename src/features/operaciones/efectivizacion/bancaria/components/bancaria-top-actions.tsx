@@ -9,6 +9,7 @@ import type { RutaOperacionCaja } from "@/features/operaciones/efectivizacion/sh
 interface BancariaTopActionsProps {
     activeCajaIds?: number[];
     activeCompany: RutaOperacionCaja | null;
+    canCloseRoute?: boolean;
     canReopenTodayClose?: boolean;
     isClosing?: boolean;
     isReopening?: boolean;
@@ -27,6 +28,7 @@ interface BancariaTopActionsProps {
 export const BancariaTopActions = ({
     activeCajaIds,
     activeCompany,
+    canCloseRoute = false,
     canReopenTodayClose = false,
     isClosing,
     isReopening,
@@ -46,7 +48,7 @@ export const BancariaTopActions = ({
             <Tooltip title="El cierre de caja es automatico a las 10:30 pm" placement="bottom">
                 <Pressable>
                     <span className="inline-flex" tabIndex={0}>
-                        <Button size="sm" color="secondary" iconLeading={XClose} isDisabled isLoading={isClosing} onClick={onCloseRoute}>
+                        <Button size="sm" color="secondary" iconLeading={XClose} isDisabled={!canCloseRoute} isLoading={isClosing} onClick={onCloseRoute}>
                             Cierre
                         </Button>
                     </span>

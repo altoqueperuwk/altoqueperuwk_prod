@@ -31,6 +31,7 @@ export interface SeguimientoPaginado {
     tiempo_entre_una_y_dos_horas: number;
     tiempo_mayor_igual_dos_horas: number;
     total_pendientes: number;
+    total_cerradas?: number;
 }
 
 export interface SeguimientoOperacionesUnificado extends SeguimientoPaginado {}
@@ -42,6 +43,7 @@ export const seguimientosService = {
         dni?: string;
         codigo?: string;
         filtroTiempo?: string;
+        filtroCierre?: string;
         page: number;
         pageSize: number;
     }) {
@@ -53,6 +55,7 @@ export const seguimientosService = {
             p_filtro_tiempo: params.filtroTiempo ?? "Todos",
             p_page: params.page,
             p_page_size: params.pageSize,
+            p_filtro_cierre: params.filtroCierre ?? "ABIERTAS",
         });
     },
     getEfectivizacionPaginado(params: { tab: string; ruta?: string | null; filtroEstado?: string; dni?: string; codigo?: string; filtroTiempo?: string; page: number; pageSize: number }) {
@@ -67,7 +70,7 @@ export const seguimientosService = {
             p_page_size: params.pageSize,
         });
     },
-    getPagoDeudaPaginado(params: { ruta?: string | null; filtroEstado?: string; dni?: string; codigo?: string; filtroTiempo?: string; page: number; pageSize: number }) {
+    getPagoDeudaPaginado(params: { ruta?: string | null; filtroEstado?: string; dni?: string; codigo?: string; filtroTiempo?: string; filtroCierre?: string; page: number; pageSize: number }) {
         return rpc<SeguimientoPaginado>("f_get_tb_seguimiento_pago_deuda_paginado", {
             p_tab: "Pago Deuda",
             p_ruta: params.ruta ?? null,
@@ -77,6 +80,7 @@ export const seguimientosService = {
             p_filtro_tiempo: params.filtroTiempo ?? "Todos",
             p_page: params.page,
             p_page_size: params.pageSize,
+            p_filtro_cierre: params.filtroCierre ?? "ABIERTAS",
         });
     },
     getEfectivizacionKpi() {

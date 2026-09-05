@@ -345,6 +345,17 @@ AS $$
   FROM filtered;
 $$;
 
+DROP FUNCTION IF EXISTS public.f_get_tb_seguimiento_pago_deuda_paginado(
+  character varying,
+  character varying,
+  character varying,
+  character varying,
+  character varying,
+  character varying,
+  integer,
+  integer
+);
+
 CREATE OR REPLACE FUNCTION public.f_get_tb_seguimiento_pago_deuda_paginado(
   p_tab character varying DEFAULT 'Pago Deuda',
   p_ruta character varying DEFAULT NULL,
@@ -353,7 +364,8 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_seguimiento_pago_deuda_paginado(
   p_codigo_operacion character varying DEFAULT NULL,
   p_filtro_tiempo character varying DEFAULT 'Todos',
   p_page integer DEFAULT 1,
-  p_page_size integer DEFAULT 20
+  p_page_size integer DEFAULT 20,
+  p_filtro_cierre character varying DEFAULT 'ABIERTAS'
 )
 RETURNS jsonb
 LANGUAGE sql
@@ -363,7 +375,37 @@ AS $$
   WITH solicitudes AS (
     SELECT op.*,
       EXISTS (SELECT 1 FROM public.tb_operacion_caja c WHERE c.id_operacion_proceso = op.id AND c.tipo_origen = 'PAGO_DEUDA_COMISION') AS flag_comision,
-      (COALESCE(op.id_operacion_match, 0) <> 0 OR COALESCE(op.monto_devuelto, 0) >= COALESCE(op.monto_deposito_cliente, 0)) AS flag_devolucion
+      (COALESCE(op.id_operacion_match, 0) <> 0 OR COALESCE(op.monto_devuelto, 0) >= COALESCE(op.monto_deposito_cliente, 0)) AS flag_devolucion,
+      (
+        EXISTS (
+          SELECT 1
+          FROM public.tb_operacion_proceso relacionada
+          WHERE (
+            relacionada.id = op.id
+            OR relacionada.id_operacion_padre = op.id
+            OR relacionada.id_operacion_match = op.id
+          )
+          AND (
+            relacionada.id_caja_cierre IS NOT NULL
+            OR relacionada.id_caja_cierre_ingreso IS NOT NULL
+            OR relacionada.id_caja_cierre_salida IS NOT NULL
+          )
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM public.tb_operacion_caja movimiento
+          WHERE movimiento.id_caja_cierre IS NOT NULL
+            AND (
+              movimiento.id_operacion_proceso = op.id
+              OR movimiento.id_operacion_proceso IN (
+                SELECT relacionada.id
+                FROM public.tb_operacion_proceso relacionada
+                WHERE relacionada.id_operacion_padre = op.id
+                   OR relacionada.id_operacion_match = op.id
+              )
+            )
+        )
+      ) AS flag_cerrada_caja
     FROM public.tb_operacion_proceso op
     WHERE op.id_operacion_padre IS NULL
       AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'SOLICITUD'
@@ -393,17 +435,34 @@ AS $$
   ), filtered AS (
     SELECT * FROM base
     WHERE (
-      -- Filtro de estado original conservado para reactivar otros estados:
-      -- UPPER(COALESCE(p_filtro_estado, 'TODOS')) = 'TODOS'
-      -- OR UPPER(seguimiento_estado) = UPPER(COALESCE(p_filtro_estado, ''))
-      UPPER(seguimiento_estado) <> 'PAGADO'
+      UPPER(COALESCE(p_filtro_cierre, 'ABIERTAS')) = 'TODAS'
+      OR (UPPER(COALESCE(p_filtro_cierre, 'ABIERTAS')) = 'CERRADAS' AND flag_cerrada_caja)
+      OR (UPPER(COALESCE(p_filtro_cierre, 'ABIERTAS')) = 'ABIERTAS' AND NOT flag_cerrada_caja)
     )
+      AND (
+        UPPER(COALESCE(p_filtro_estado, 'TODOS')) = 'TODOS'
+        OR UPPER(seguimiento_estado) = UPPER(COALESCE(p_filtro_estado, ''))
+      )
       AND (UPPER(COALESCE(p_filtro_tiempo, 'TODOS')) = 'TODOS'
         OR (UPPER(p_filtro_tiempo) = 'MENOR_1_HORA' AND tiempo_atencion_segundos < 3600)
         OR (UPPER(p_filtro_tiempo) = 'ENTRE_1_Y_2_HORAS' AND tiempo_atencion_segundos >= 3600 AND tiempo_atencion_segundos < 7200)
         OR (UPPER(p_filtro_tiempo) = 'MAYOR_IGUAL_2_HORAS' AND tiempo_atencion_segundos >= 7200))
   ), page_rows AS (
-    SELECT COALESCE(payload, to_jsonb(filtered)) || jsonb_build_object('seguimiento_estado', seguimiento_estado, 'seguimiento_flag_devolucion', flag_devolucion, 'flag_comision_registrada', flag_comision, 'seguimiento_tiempo_atencion_segundos', tiempo_atencion_segundos) AS payload
+    SELECT COALESCE(payload, to_jsonb(filtered)) || jsonb_build_object(
+      'seguimiento_flujo', 'Pago Deuda',
+      'seguimiento_pasos', CASE
+        WHEN flag_comision THEN 4
+        WHEN flag_devolucion AND UPPER(COALESCE(nombre_estado, '')) IN ('PROCESADO', 'PAGADO') THEN 3
+        WHEN UPPER(COALESCE(nombre_estado, '')) IN ('PROCESADO', 'PAGADO') THEN 2
+        ELSE 1
+      END,
+      'seguimiento_definicion_pasos', jsonb_build_array('SOLICITUD', 'BANCO', 'RETORNO / RETORNO_DIRECTO', 'PAGO_DEUDA_COMISION'),
+      'seguimiento_estado', seguimiento_estado,
+      'seguimiento_flag_devolucion', flag_devolucion,
+      'flag_comision_registrada', flag_comision,
+      'flag_cerrada_caja', flag_cerrada_caja,
+      'seguimiento_tiempo_atencion_segundos', tiempo_atencion_segundos
+    ) AS payload
     FROM filtered
     ORDER BY fecha_registro DESC, id DESC
     LIMIT LEAST(GREATEST(COALESCE(p_page_size, 20), 1), 100)
@@ -416,10 +475,21 @@ AS $$
     'tiempo_menor_una_hora', COUNT(*) FILTER (WHERE tiempo_atencion_segundos < 3600)::integer,
     'tiempo_entre_una_y_dos_horas', COUNT(*) FILTER (WHERE tiempo_atencion_segundos >= 3600 AND tiempo_atencion_segundos < 7200)::integer,
     'tiempo_mayor_igual_dos_horas', COUNT(*) FILTER (WHERE tiempo_atencion_segundos >= 7200)::integer,
-    'total_pendientes', COUNT(*) FILTER (WHERE UPPER(seguimiento_estado) <> 'PAGADO')::integer
+    'total_pendientes', COUNT(*) FILTER (WHERE UPPER(seguimiento_estado) <> 'PAGADO' AND NOT flag_cerrada_caja)::integer,
+    'total_cerradas', COUNT(*) FILTER (WHERE flag_cerrada_caja)::integer
   )
   FROM filtered;
 $$;
+
+DROP FUNCTION IF EXISTS public.f_get_tb_seguimiento_operaciones_paginado(
+  character varying,
+  character varying,
+  character varying,
+  character varying,
+  character varying,
+  integer,
+  integer
+);
 
 CREATE OR REPLACE FUNCTION public.f_get_tb_seguimiento_operaciones_paginado(
   p_ruta character varying DEFAULT NULL,
@@ -428,7 +498,8 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_seguimiento_operaciones_paginado(
   p_codigo_operacion character varying DEFAULT NULL,
   p_filtro_tiempo character varying DEFAULT 'Todos',
   p_page integer DEFAULT 1,
-  p_page_size integer DEFAULT 20
+  p_page_size integer DEFAULT 20,
+  p_filtro_cierre character varying DEFAULT 'ABIERTAS'
 )
 RETURNS jsonb
 LANGUAGE sql
@@ -460,7 +531,8 @@ AS $$
       NULL::text AS cuenta_comision_cuenta,
       op.nombre_estado::text AS estado,
       op.fecha_registro,
-      NULL::jsonb AS retorno_datos
+      NULL::jsonb AS retorno_datos,
+      NULL::boolean AS cerrada_caja
     FROM public.tb_operacion_proceso op
     WHERE UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
       AND COALESCE(op.flag_derivado, false) = false
@@ -496,7 +568,8 @@ AS $$
       NULL::text,
       op.nombre_estado::text,
       op.fecha_registro,
-      NULL::jsonb
+      NULL::jsonb,
+      NULL::boolean
     FROM public.tb_operacion_proceso op
     WHERE UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
       AND COALESCE(op.flag_derivado, false) = true
@@ -532,7 +605,8 @@ AS $$
       NULL::text,
       op.nombre_estado::text,
       op.fecha_registro,
-      NULL::jsonb
+      NULL::jsonb,
+      NULL::boolean
     FROM public.tb_operacion_proceso op
     WHERE LOWER(COALESCE(op.ruta_origen, '')) = 'pos'
       AND COALESCE(op.flag_retenido, false) = false
@@ -571,12 +645,43 @@ AS $$
       comision.nombre_empresa::text,
       comision.nombre_banco::text,
       CASE
+        WHEN flag_comision THEN 'Pagado'
         WHEN flag_devolucion AND UPPER(COALESCE(op.nombre_estado, '')) IN ('PROCESADO', 'PAGADO') THEN 'Pendiente Comision'
         WHEN UPPER(COALESCE(op.nombre_estado, '')) IN ('PROCESADO', 'PAGADO') THEN 'Pendiente Devolucion'
         ELSE 'Pendiente Transferencia'
       END,
       op.fecha_registro,
-      NULL::jsonb
+      NULL::jsonb,
+      (
+        EXISTS (
+          SELECT 1
+          FROM public.tb_operacion_proceso relacionada
+          WHERE (
+            relacionada.id = op.id
+            OR relacionada.id_operacion_padre = op.id
+            OR relacionada.id_operacion_match = op.id
+          )
+          AND (
+            relacionada.id_caja_cierre IS NOT NULL
+            OR relacionada.id_caja_cierre_ingreso IS NOT NULL
+            OR relacionada.id_caja_cierre_salida IS NOT NULL
+          )
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM public.tb_operacion_caja movimiento
+          WHERE movimiento.id_caja_cierre IS NOT NULL
+            AND (
+              movimiento.id_operacion_proceso = op.id
+              OR movimiento.id_operacion_proceso IN (
+                SELECT relacionada.id
+                FROM public.tb_operacion_proceso relacionada
+                WHERE relacionada.id_operacion_padre = op.id
+                   OR relacionada.id_operacion_match = op.id
+              )
+            )
+        )
+      )
     FROM public.tb_operacion_proceso op
     LEFT JOIN LATERAL (
       SELECT b.*
@@ -591,7 +696,7 @@ AS $$
         SUM(COALESCE(r.monto_deposito_cliente, r.monto_transferencia_cliente, 0)) AS monto_devolucion,
         STRING_AGG(NULLIF(BTRIM(COALESCE(r.codigo_operacion_deposito_cliente, '')), ''), E'\n' ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id) AS codigos_operacion
       FROM public.tb_operacion_proceso r
-      WHERE UPPER(COALESCE(r.tipo_flujo_pago_deuda, '')) = 'RETORNO'
+      WHERE UPPER(COALESCE(r.tipo_flujo_pago_deuda, '')) IN ('RETORNO', 'RETORNO_DIRECTO')
         AND (r.id = op.id_operacion_match OR r.id_operacion_match = op.id OR r.id_operacion_padre = op.id)
     ) retorno ON true
     LEFT JOIN LATERAL (
@@ -616,8 +721,13 @@ AS $$
       AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'SOLICITUD'
       AND COALESCE(op.flag_retenido, false) = false
       AND COALESCE(op.id_estado, 0) <> 10
-      AND UPPER(COALESCE(op.nombre_estado, '')) <> 'PAGADO'
-      AND NOT flags.flag_comision
+      AND (
+        UPPER(COALESCE(p_filtro_cierre, 'ABIERTAS')) <> 'ABIERTAS'
+        OR (
+          UPPER(COALESCE(op.nombre_estado, '')) <> 'PAGADO'
+          AND NOT flags.flag_comision
+        )
+      )
       AND (p_ruta IS NULL OR LOWER(COALESCE(banco.ruta_destino, op.ruta_destino, '')) = LOWER(p_ruta))
   ), base AS (
     SELECT source_rows.*, EXTRACT(EPOCH FROM (now() - fecha_registro))::bigint AS tiempo_atencion_segundos
@@ -632,6 +742,12 @@ AS $$
         OR codigo_operacion ILIKE '%' || p_codigo_operacion || '%'
         OR codigo_devolucion ILIKE '%' || p_codigo_operacion || '%'
         OR codigo_comision ILIKE '%' || p_codigo_operacion || '%'
+      )
+      AND (
+        UPPER(flujo) <> 'PAGO DEUDA'
+        OR UPPER(COALESCE(p_filtro_cierre, 'ABIERTAS')) = 'TODAS'
+        OR (UPPER(COALESCE(p_filtro_cierre, 'ABIERTAS')) = 'CERRADAS' AND cerrada_caja)
+        OR (UPPER(COALESCE(p_filtro_cierre, 'ABIERTAS')) = 'ABIERTAS' AND NOT COALESCE(cerrada_caja, false))
       )
       AND (
         UPPER(COALESCE(p_filtro_tiempo, 'TODOS')) = 'TODOS'
@@ -663,6 +779,7 @@ AS $$
       'seguimiento_cuenta_comision_empresa', cuenta_comision_empresa,
       'seguimiento_cuenta_comision_cuenta', cuenta_comision_cuenta,
       'seguimiento_estado', estado,
+      'flag_cerrada_caja', COALESCE(cerrada_caja, false),
       'fecha_registro', fecha_registro,
       'seguimiento_tiempo_atencion_segundos', tiempo_atencion_segundos
     ) AS payload
@@ -690,8 +807,7 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-    'f_get_tb_seguimiento_operaciones_paginado',
-    'f_get_tb_seguimiento_efectivizacion_paginado',
-    'f_get_tb_seguimiento_pago_deuda_paginado'
+    'f_get_tb_seguimiento_pago_deuda_paginado',
+    'f_get_tb_seguimiento_operaciones_paginado'
 )
 ORDER BY n.nspname, p.proname;

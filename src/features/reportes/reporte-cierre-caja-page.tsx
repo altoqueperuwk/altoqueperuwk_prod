@@ -309,9 +309,9 @@ export const ReporteCierreCajaPage = () => {
                                 {isLoading || isReportsLoading ? (
                                     <tr><td colSpan={flowHeaders[selectedFlow].length} className="px-4 py-14 text-center text-tertiary">Cargando cierre...</td></tr>
                                 ) : !selectedDate ? (
-                                    <tr><td colSpan={flowHeaders[selectedFlow].length} className="px-4 py-14 text-center text-tertiary">Selecciona una fecha de cierre para consultar operaciones pagadas.</td></tr>
+                                    <tr><td colSpan={flowHeaders[selectedFlow].length} className="px-4 py-14 text-center text-tertiary">Selecciona una fecha de cierre para consultar operaciones del ciclo.</td></tr>
                                 ) : tableRows.length === 0 ? (
-                                    <tr><td colSpan={flowHeaders[selectedFlow].length} className="px-4 py-14 text-center text-tertiary">No hay operaciones pagadas para este flujo.</td></tr>
+                                    <tr><td colSpan={flowHeaders[selectedFlow].length} className="px-4 py-14 text-center text-tertiary">No hay operaciones para este flujo.</td></tr>
                                 ) : tableRows.map((row) => (
                                     <tr key={row.id} className="hover:bg-primary_hover">
                                         {row.values.map((value, index) => <td key={`${row.id}-${index}`} className="whitespace-nowrap px-4 py-3 text-primary">{value}</td>)}

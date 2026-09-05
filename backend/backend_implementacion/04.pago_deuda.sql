@@ -156,6 +156,60 @@ END;
 $$;
 
 /*
+Funcion: f_get_tb_pago_deuda_tiene_cierre
+Objetivo:
+  Resolver si una operacion Pago Deuda o cualquiera de sus operaciones
+  relacionadas ya pertenece a un cierre. Se utiliza como guardia comun para
+  impedir modificaciones posteriores al cierre.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_tiene_cierre(
+  p_id_operacion bigint
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  WITH raiz AS (
+    SELECT COALESCE(op.id_operacion_padre, op.id) AS id
+    FROM public.tb_operacion_proceso op
+    WHERE op.id = p_id_operacion
+  ), relacionadas AS (
+    SELECT id FROM raiz
+    UNION
+    SELECT op.id
+    FROM public.tb_operacion_proceso op
+    JOIN raiz r ON op.id_operacion_padre = r.id
+    UNION
+    SELECT op.id
+    FROM public.tb_operacion_proceso op
+    JOIN raiz r ON op.id_operacion_match = r.id
+    UNION
+    SELECT op.id
+    FROM public.tb_operacion_proceso op
+    WHERE op.id_operacion_match IN (
+      SELECT id
+      FROM public.tb_operacion_proceso
+      WHERE id_operacion_padre IN (SELECT id FROM raiz)
+    )
+  )
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_proceso op
+    JOIN relacionadas r ON r.id = op.id
+    WHERE op.id_caja_cierre IS NOT NULL
+       OR op.id_caja_cierre_ingreso IS NOT NULL
+       OR op.id_caja_cierre_salida IS NOT NULL
+  )
+  OR EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_caja oc
+    JOIN relacionadas r ON r.id = oc.id_operacion_proceso
+    WHERE oc.id_caja_cierre IS NOT NULL
+  );
+$$;
+
+/*
 Funcion: f_get_tb_pago_deuda
 Objetivo:
   Listar solo solicitudes raiz para `/operaciones/pagodeuda`. La atencion
@@ -233,6 +287,42 @@ BEGIN
     ),
     'pd_codigo_operacion_comision',
     NULLIF(BTRIM(COALESCE(op.codigo_operacion_deposito_cliente, '')), ''),
+    'flag_cerrada_caja',
+    (
+      op.id_caja_cierre IS NOT NULL
+      OR op.id_caja_cierre_ingreso IS NOT NULL
+      OR op.id_caja_cierre_salida IS NOT NULL
+      OR EXISTS (
+        SELECT 1
+        FROM public.tb_operacion_caja c
+        WHERE c.id_operacion_proceso = op.id
+          AND c.id_caja_cierre IS NOT NULL
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM public.tb_operacion_proceso relacionada
+        WHERE (
+          relacionada.id_operacion_padre = op.id
+          OR relacionada.id_operacion_match = op.id
+        )
+        AND (
+          relacionada.id_caja_cierre IS NOT NULL
+          OR relacionada.id_caja_cierre_ingreso IS NOT NULL
+          OR relacionada.id_caja_cierre_salida IS NOT NULL
+        )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM public.tb_operacion_caja c
+        JOIN public.tb_operacion_proceso relacionada
+          ON relacionada.id = c.id_operacion_proceso
+        WHERE c.id_caja_cierre IS NOT NULL
+          AND (
+            relacionada.id_operacion_padre = op.id
+            OR relacionada.id_operacion_match = op.id
+          )
+      )
+    ),
     'flag_comision_registrada',
     EXISTS (
       SELECT 1
@@ -479,6 +569,8 @@ BEGIN
       AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, '')) = 'BANCO'
       AND UPPER(COALESCE(op.nombre_estado, '')) = 'PROCESADO'
       AND op.id_caja_cierre IS NULL
+      AND op.id_caja_cierre_ingreso IS NULL
+      AND op.id_caja_cierre_salida IS NULL
       AND v_fecha_operacion IS NOT NULL
       AND op.monto_devuelto < op.monto_deposito_cliente
       AND ABS(
@@ -511,6 +603,8 @@ BEGIN
     AND UPPER(COALESCE(e.nombre, '')) = 'PENDIENTE'
     AND op.id_empresa_ingreso IS NOT NULL
     AND op.id_caja_cierre IS NULL
+    AND op.id_caja_cierre_ingreso IS NULL
+    AND op.id_caja_cierre_salida IS NULL
     AND (
       p_id_operacion_pago_deuda IS NULL
       OR op.fecha_deposito_cliente::date = (
@@ -596,6 +690,8 @@ AS $$
       AND UPPER(COALESCE(candidato.tipo_flujo_pago_deuda, '')) = 'BANCO'
       AND UPPER(COALESCE(candidato.nombre_estado, '')) = 'PROCESADO'
       AND candidato.id_caja_cierre IS NULL
+      AND candidato.id_caja_cierre_ingreso IS NULL
+      AND candidato.id_caja_cierre_salida IS NULL
       AND origen.fecha_deposito_cliente IS NOT NULL
       AND candidato.monto_devuelto < candidato.monto_deposito_cliente
       AND ABS(
@@ -689,6 +785,8 @@ AS $$
         AND UPPER(COALESCE(candidato.tipo_flujo_pago_deuda, '')) = 'BANCO'
         AND UPPER(COALESCE(candidato.nombre_estado, '')) = 'PROCESADO'
         AND candidato.id_caja_cierre IS NULL
+        AND candidato.id_caja_cierre_ingreso IS NULL
+        AND candidato.id_caja_cierre_salida IS NULL
         AND origen.fecha_deposito_cliente IS NOT NULL
         AND candidato.monto_devuelto < candidato.monto_deposito_cliente
         AND ABS(
@@ -797,7 +895,7 @@ AS $$
         ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id
       ) AS empresas_cuentas
     FROM public.tb_operacion_proceso r
-    WHERE UPPER(COALESCE(r.tipo_flujo_pago_deuda, '')) = 'RETORNO'
+    WHERE UPPER(COALESCE(r.tipo_flujo_pago_deuda, '')) IN ('RETORNO', 'RETORNO_DIRECTO')
       AND (
         r.id = op.id_operacion_match
         OR r.id_operacion_match = op.id
@@ -813,28 +911,18 @@ AS $$
         p_fecha_caja_cierre_desde IS NULL
         AND p_fecha_caja_cierre_hasta IS NULL
         AND op.id_caja_cierre IS NULL
+        AND op.id_caja_cierre_ingreso IS NULL
+        AND op.id_caja_cierre_salida IS NULL
       )
       OR (
         (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
-        AND op.id_caja_cierre IS NOT NULL
         AND (
-          UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN ('SOLICITADO', 'PROCESADO')
-          OR (
-            UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PROCESADO'
-            AND (
-              op.id_operacion_match IS NOT NULL
-              OR COALESCE(op.monto_devuelto, 0) >= COALESCE(op.monto_deposito_cliente, 0)
-              OR EXISTS (
-                SELECT 1
-                FROM public.tb_operacion_caja c
-                WHERE c.id_operacion_proceso = op.id_operacion_padre
-                  AND UPPER(BTRIM(COALESCE(c.tipo_origen, ''))) = 'PAGO_DEUDA_COMISION'
-              )
-            )
-          )
+          op.id_caja_cierre IS NOT NULL
+          OR op.id_caja_cierre_ingreso IS NOT NULL
+          OR op.id_caja_cierre_salida IS NOT NULL
         )
-        AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
-        AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+        AND (p_fecha_caja_cierre_desde IS NULL OR COALESCE(op.fecha_caja_cierre, op.fecha_registro) >= p_fecha_caja_cierre_desde)
+        AND (p_fecha_caja_cierre_hasta IS NULL OR COALESCE(op.fecha_caja_cierre, op.fecha_registro) <= p_fecha_caja_cierre_hasta)
       )
     )
     AND (p_dni_cliente IS NULL OR op.dni_cliente ILIKE '%' || p_dni_cliente || '%')
@@ -907,6 +995,10 @@ BEGIN
 
   IF v_banco.id IS NULL OR v_root.id IS NULL THEN
     RETURN jsonb_build_object('error', 'No se encontraron las operaciones relacionadas de Pago Deuda.');
+  END IF;
+
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_root.id) THEN
+    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
   END IF;
 
   IF v_banco.id_estado = 10 OR v_root.id_estado = 10 THEN
@@ -992,6 +1084,10 @@ BEGIN
 
   IF v_op.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Operacion de Pago Deuda no encontrada.');
+  END IF;
+
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_op.id) THEN
+    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
   END IF;
 
   v_monto_comision := COALESCE(p_monto_comision, v_op.resultado_comision_servicio, 0);
@@ -1519,6 +1615,10 @@ BEGIN
       RETURN jsonb_build_object('error', 'Solicitud de Pago Deuda no encontrada.');
     END IF;
 
+    IF public.f_get_tb_pago_deuda_tiene_cierre(v_root_id) THEN
+      RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
+    END IF;
+
     IF EXISTS (
       SELECT 1
       FROM public.tb_operacion_proceso h
@@ -1794,6 +1894,10 @@ BEGIN
     RETURN jsonb_build_object('error', 'Solicitud raiz de Pago Deuda no encontrada.');
   END IF;
 
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_root.id) THEN
+    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
+  END IF;
+
   IF EXISTS (
     SELECT 1
     FROM public.tb_operacion_caja c
@@ -1888,6 +1992,10 @@ BEGIN
      OR v_root.id_operacion_padre IS NOT NULL
      OR UPPER(COALESCE(v_root.tipo_flujo_pago_deuda, '')) <> 'SOLICITUD' THEN
     RETURN jsonb_build_object('error', 'Solicitud raiz de Pago Deuda no encontrada.');
+  END IF;
+
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_root.id) THEN
+    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
   END IF;
 
   SELECT *
@@ -2021,6 +2129,10 @@ BEGIN
 
   IF v_op.id IS NULL THEN
     RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de Pago Deuda.');
+  END IF;
+
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_op.id) THEN
+    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
   END IF;
 
   v_ruta_kpi_actual := COALESCE(v_op.ruta_destino, v_op.ruta_origen);
@@ -2298,6 +2410,10 @@ BEGIN
     RETURN jsonb_build_object('error', 'Solicitud raiz de Pago Deuda no encontrada.');
   END IF;
 
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_root.id) THEN
+    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
+  END IF;
+
   SELECT
     ecb.id,
     ecb.id_banco,
@@ -2400,6 +2516,10 @@ BEGIN
     RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de Pago Deuda.');
   END IF;
 
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_op_deuda.id) THEN
+    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
+  END IF;
+
   SELECT *
   INTO v_op_efect
   FROM public.tb_operacion_proceso
@@ -2409,6 +2529,10 @@ BEGIN
 
   IF v_op_efect.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Operacion de efectivizacion no encontrada.');
+  END IF;
+
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_op_efect.id) THEN
+    RETURN jsonb_build_object('error', 'La operacion de retorno ya pertenece a un cierre de caja.');
   END IF;
 
   IF UPPER(BTRIM(COALESCE(v_op_efect.tipo_flujo_pago_deuda, ''))) = 'RETORNO'
@@ -2651,6 +2775,10 @@ BEGIN
     RETURN jsonb_build_object('error', 'No se encontro la solicitud raiz de Pago Deuda.');
   END IF;
 
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_root.id) THEN
+    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
+  END IF;
+
   IF v_op.id_empresa_salida IS NULL OR v_op.id_empresa_cuenta_salida IS NULL THEN
     RETURN jsonb_build_object('error', 'Selecciona la empresa y cuenta de salida antes de finalizar Pago Deuda.');
   END IF;
@@ -2834,6 +2962,10 @@ BEGIN
     RETURN jsonb_build_object('error', 'Operacion de efectivizacion no encontrada.');
   END IF;
 
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_op.id) THEN
+    RETURN jsonb_build_object('error', 'La operacion de retorno ya pertenece a un cierre de caja.');
+  END IF;
+
   SELECT id, nombre
   INTO v_estado_pagado_id, v_estado_pagado_nombre
   FROM public.tb_estado
@@ -2903,6 +3035,10 @@ BEGIN
 
   IF v_op.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Operacion de Pago Deuda no encontrada.');
+  END IF;
+
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_op.id) THEN
+    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
   END IF;
 
   SELECT id
@@ -2977,6 +3113,10 @@ BEGIN
 
   IF v_op.id IS NULL THEN
     RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de Pago Deuda.');
+  END IF;
+
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_op.id) THEN
+    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
   END IF;
 
   IF v_op.id_operacion_match IS NOT NULL THEN
@@ -3112,6 +3252,10 @@ BEGIN
 
   IF v_op.id IS NULL THEN
     RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de Pago Deuda.');
+  END IF;
+
+  IF public.f_get_tb_pago_deuda_tiene_cierre(v_op.id) THEN
+    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
   END IF;
 
   IF UPPER(COALESCE(v_op.nombre_estado, '')) NOT IN ('SOLICITADO', 'PENDIENTE')
@@ -3252,5 +3396,27 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
-  AND p.proname IN ('f_get_tb_pago_deuda')
+  AND p.proname IN (
+    'f_get_tb_pago_deuda_tiene_cierre',
+    'f_get_tb_pago_deuda',
+    'f_get_tb_pago_deuda_match',
+    'f_get_tb_pago_deuda_match_lote',
+    'f_get_tb_pago_deuda_match_flags_lote',
+    'f_get_tb_pago_deuda_bandeja',
+    'f_patch_tb_pago_deuda_codigo_operacion',
+    'f_sync_tb_pago_deuda_comision_caja',
+    'f_post_tb_pago_deuda_solicitud',
+    'f_patch_tb_pago_deuda_comision_especial',
+    'f_patch_tb_pago_deuda_comision_extra',
+    'f_delete_tb_pago_deuda_solicitud',
+    'f_patch_tb_pago_deuda_salida',
+    'f_patch_tb_pago_deuda_empresa',
+    'f_patch_tb_pago_deuda_comision_cuenta',
+    'f_patch_tb_pago_deuda_match',
+    'f_patch_tb_pago_deuda_pagado',
+    'f_patch_tb_pago_deuda_directo',
+    'f_post_tb_pago_deuda_comision',
+    'f_patch_tb_pago_deuda_reiniciar_transferencia',
+    'f_patch_tb_pago_deuda_derivar_banco'
+  )
 ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid);
