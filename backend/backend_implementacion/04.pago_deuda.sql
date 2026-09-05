@@ -329,9 +329,60 @@ BEGIN
       FROM public.tb_operacion_caja c
       WHERE c.id_operacion_proceso = op.id
         AND c.tipo_origen = 'PAGO_DEUDA_COMISION'
-    )
+    ),
+    'pd_retorno_id',
+    op_retorno.id,
+    'pd_retorno_id_empresa_ingreso',
+    op_retorno.id_empresa_ingreso,
+    'pd_retorno_id_empresa_cuenta_ingreso',
+    op_retorno.id_empresa_cuenta_ingreso,
+    'pd_retorno_nombre_empresa_ingreso',
+    op_retorno.nombre_empresa_ingreso,
+    'pd_retorno_nombre_banco_empresa_cuenta_ingreso',
+    op_retorno.nombre_banco_empresa_cuenta_ingreso,
+    'pd_retorno_monto_devolucion',
+    op_retorno.monto_devolucion,
+    'pd_retorno_empresas_cuentas',
+    op_retorno.empresas_cuentas
   )
   FROM public.tb_operacion_proceso op
+  LEFT JOIN LATERAL (
+    SELECT
+      (ARRAY_AGG(r.id ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS id,
+      (ARRAY_AGG(r.id_empresa_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS id_empresa_ingreso,
+      (ARRAY_AGG(r.id_empresa_cuenta_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS id_empresa_cuenta_ingreso,
+      (ARRAY_AGG(r.nombre_empresa_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS nombre_empresa_ingreso,
+      (ARRAY_AGG(r.nombre_banco_empresa_cuenta_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS nombre_banco_empresa_cuenta_ingreso,
+      SUM(GREATEST(
+        COALESCE(r.monto_deposito_cliente, 0),
+        COALESCE(r.monto_transferencia_cliente, 0)
+      )) AS monto_devolucion,
+      JSONB_AGG(
+        jsonb_build_object(
+          'empresa', r.nombre_empresa_ingreso,
+          'cuenta', r.nombre_banco_empresa_cuenta_ingreso,
+          'codigo', r.codigo_operacion_deposito_cliente,
+          'monto', GREATEST(
+            COALESCE(r.monto_deposito_cliente, 0),
+            COALESCE(r.monto_transferencia_cliente, 0)
+          )
+        )
+        ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id
+      ) AS empresas_cuentas
+    FROM public.tb_operacion_proceso r
+    WHERE UPPER(COALESCE(r.tipo_flujo_pago_deuda, '')) IN ('RETORNO', 'RETORNO_DIRECTO')
+      AND (
+        r.id = op.id_operacion_match
+        OR r.id_operacion_match = op.id
+        OR r.id_operacion_padre = op.id
+        OR r.id_operacion_match IN (
+          SELECT h.id
+          FROM public.tb_operacion_proceso h
+          WHERE h.id_operacion_padre = op.id
+            AND UPPER(COALESCE(h.tipo_flujo_pago_deuda, '')) = 'BANCO'
+        )
+      )
+  ) op_retorno ON TRUE
   WHERE op.id_codigo_servicio = v_id_codigo_servicio_pago_deuda
     AND op.id_operacion_padre IS NULL
     AND UPPER(COALESCE(op.tipo_flujo_pago_deuda, 'SOLICITUD')) = 'SOLICITUD'
@@ -2489,6 +2540,7 @@ DECLARE
   v_estado_retenido_nombre character varying;
   v_movimiento_efect record;
   v_ingreso_result jsonb;
+  v_monto_devuelto numeric;
 BEGIN
   SELECT *
   INTO v_input
@@ -2606,11 +2658,14 @@ BEGIN
   WHERE UPPER(nombre) = 'RETENIDO'
   LIMIT 1;
 
+  v_monto_devuelto :=
+    COALESCE(v_op_deuda.monto_devuelto, 0) + COALESCE(v_op_efect.monto_deposito_cliente, 0);
+
   UPDATE public.tb_operacion_proceso
   SET fecha_deposito_cliente = v_op_efect.fecha_deposito_cliente,
-      monto_devuelto = COALESCE(v_op_deuda.monto_devuelto, 0) + COALESCE(v_op_efect.monto_deposito_cliente, 0),
+      monto_devuelto = v_monto_devuelto,
       id_operacion_match = CASE
-        WHEN (COALESCE(v_op_deuda.monto_devuelto, 0) + COALESCE(v_op_efect.monto_deposito_cliente, 0)) >= COALESCE(v_op_deuda.monto_deposito_cliente, 0)
+        WHEN v_monto_devuelto >= COALESCE(v_op_deuda.monto_deposito_cliente, 0)
         THEN COALESCE(id_operacion_match, v_op_efect.id)
         ELSE id_operacion_match
       END,
@@ -2618,12 +2673,26 @@ BEGIN
       nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
   WHERE id = v_op_deuda.id;
 
-  IF (COALESCE(v_op_deuda.monto_devuelto, 0) + COALESCE(v_op_efect.monto_deposito_cliente, 0)) >= COALESCE(v_op_deuda.monto_deposito_cliente, 0) THEN
+  IF v_monto_devuelto >= COALESCE(v_op_deuda.monto_deposito_cliente, 0) THEN
     UPDATE public.tb_operacion_proceso
     SET id_operacion_match = v_op_efect.id,
         id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
         nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
     WHERE id = v_op_deuda.id_operacion_padre AND id_operacion_match IS NULL;
+  END IF;
+
+  IF v_op_deuda.id_operacion_padre IS NOT NULL THEN
+    UPDATE public.tb_operacion_proceso
+    SET fecha_deposito_cliente = v_op_efect.fecha_deposito_cliente,
+        monto_devuelto = v_monto_devuelto,
+        id_operacion_match = CASE
+          WHEN v_monto_devuelto >= COALESCE(v_op_deuda.monto_deposito_cliente, 0)
+            THEN COALESCE(id_operacion_match, v_op_efect.id)
+          ELSE id_operacion_match
+        END,
+        id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+        nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+    WHERE id = v_op_deuda.id_operacion_padre;
   END IF;
 
   UPDATE public.tb_operacion_proceso
@@ -2783,9 +2852,8 @@ BEGIN
     RETURN jsonb_build_object('error', 'Selecciona la empresa y cuenta de salida antes de finalizar Pago Deuda.');
   END IF;
 
-  IF v_op.id_operacion_match IS NULL
-     AND COALESCE(v_op.monto_devuelto, 0) < COALESCE(v_op.monto_deposito_cliente, 0) THEN
-    RETURN jsonb_build_object('error', 'Primero realiza el match con la efectivizacion de retorno.');
+  IF COALESCE(v_op.monto_devuelto, 0) <= 0 THEN
+    RETURN jsonb_build_object('error', 'Primero registra el monto devuelto mediante el match con la efectivizacion de retorno.');
   END IF;
 
   IF NOT EXISTS (
@@ -3417,5 +3485,9 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
-  AND p.proname IN ('f_patch_tb_pago_deuda_pagado')
+  AND p.proname IN (
+    'f_get_tb_pago_deuda',
+    'f_patch_tb_pago_deuda_match',
+    'f_patch_tb_pago_deuda_pagado'
+  )
 ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid);

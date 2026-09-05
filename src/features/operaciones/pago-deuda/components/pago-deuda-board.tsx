@@ -1012,7 +1012,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, dateFrom, dateTo }: 
             label: "Monto Devuelto",
             render: (row: OperacionProceso) => (
                 <CompactMoneyCell
-                    value={hasDevolucionConfirmada(row) ? row.monto_deposito_cliente : row.monto_devuelto}
+                    value={row.pd_retorno_monto_devolucion ?? row.monto_devuelto}
                     valueClassName="text-concept-transferencia"
                 />
             ),

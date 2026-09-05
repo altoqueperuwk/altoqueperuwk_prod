@@ -875,30 +875,6 @@ export const BancariaOperationalTabs = ({
         }
     }, [addToast, onMetricsChanged, replaceOperacion, ruta, userId, userName]);
 
-    const handlePagoDeudaFinalizarRow = useCallback(async (row: OperacionProceso) => {
-        if (!hasDevolucionConfirmada(row)) {
-            addToast("error", "No se puede avanzar: registra un monto de devolucion con empresa y cuenta de ingreso.");
-            return;
-        }
-
-        setSavingPagoDeudaEstadoIds((current) => [...current, row.id]);
-        try {
-            await pagoDeudaService.patchPagado({
-                p_id_operacion: row.id,
-                p_id_usuario_gestor: userId,
-                p_nombre_usuario_gestor: userName,
-            });
-            refreshBandeja();
-            setMetricsRefreshKey((value) => value + 1);
-            onMetricsChanged?.();
-            addToast("success", "Pago Deuda finalizado correctamente.");
-        } catch (err) {
-            addToast("error", err instanceof Error ? err.message : "No se pudo finalizar Pago Deuda.");
-        } finally {
-            setSavingPagoDeudaEstadoIds((current) => current.filter((id) => id !== row.id));
-        }
-    }, [addToast, onMetricsChanged, refreshBandeja, userId, userName]);
-
     const handleCodigoOperacionSave = useCallback(async () => {
         if (!codigoOperacionEdit) return;
 
@@ -1079,7 +1055,6 @@ export const BancariaOperationalTabs = ({
                 <PagoDeudaEstadoButton
                     row={row}
                     isLoading={savingPagoDeudaEstadoIds.includes(row.id)}
-                    onFinalizar={isHistoryMode || readOnly ? undefined : handlePagoDeudaFinalizarRow}
                     onTransferencia={isHistoryMode ? undefined : handlePagoDeudaTransferenciaRow}
                 />
             ) },
@@ -1158,7 +1133,7 @@ export const BancariaOperationalTabs = ({
                 ),
             },
         ],
-    } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [codigoOperacionEdit, handleCodigoOperacionSave, handlePagoDeudaFinalizarRow, handlePagoDeudaTransferenciaRow, handlePosEstadoRow, isHistoryMode, isSavingCodigoOperacion, presentation, readOnly, savingPagoDeudaEstadoIds, savingPosEstadoIds]);
+    } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [codigoOperacionEdit, handleCodigoOperacionSave, handlePagoDeudaTransferenciaRow, handlePosEstadoRow, isHistoryMode, isSavingCodigoOperacion, presentation, readOnly, savingPagoDeudaEstadoIds, savingPosEstadoIds]);
     const currentOperationColumns = currentTab === "Movimientos" || currentTab === "Unificado" ? baseOperationColumns : operationColumnsByTab[currentTab];
     const currentMovementColumns = useMemo(
         () => getMovementColumns(ruta === "safetypay", isHistoryMode ? undefined : setMovementToDelete),
