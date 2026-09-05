@@ -289,13 +289,17 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             Number(data.id_banco ?? 0),
             Number(data.id_empresa_cuenta_bancaria ?? 0),
         );
-        const { pagadas: efectivizacion, pendientes: efectivizacionPendientes } = getReporteEfectivizacionUnificada(data);
-        const pagoDeuda = ((data.pago_deuda as Record<string, unknown>[]) ?? []);
-        const pagoDeudaPendientes = ((data.pago_deuda_pendientes as Record<string, unknown>[]) ?? []);
-        const pos = ((data.pos as Record<string, unknown>[]) ?? []);
-        const posPendientes = ((data.pos_pendientes as Record<string, unknown>[]) ?? []);
+        const { efectivizacion, derivadosAtendidos, derivadosEnviados } = getReporteEfectivizacionUnificada(data);
+        const pagoDeuda = [
+            ...(((data.pago_deuda as Record<string, unknown>[]) ?? [])),
+            ...(((data.pago_deuda_pendientes as Record<string, unknown>[]) ?? [])),
+        ];
+        const pos = [
+            ...(((data.pos as Record<string, unknown>[]) ?? [])),
+            ...(((data.pos_pendientes as Record<string, unknown>[]) ?? [])),
+        ];
         const movimientos = ((data.movimientos as Record<string, unknown>[]) ?? []);
-        const totalRows = efectivizacion.length + efectivizacionPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length + movimientos.length;
+        const totalRows = efectivizacion.length + derivadosAtendidos.length + derivadosEnviados.length + pagoDeuda.length + pos.length + movimientos.length;
 
         worksheet.columns = [
             { width: 13 }, { width: 18 }, { width: 14 }, { width: 12 },
@@ -428,10 +432,8 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             nextRow += 2;
         };
 
-        addSection(
-            "Efectivizacion",
-            ["Facturacion", "Empresa", "Cuenta", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"],
-            efectivizacion.map((row) => [
+        const efectivizacionHeaders = ["Facturacion", "Empresa", "Cuenta", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"];
+        const efectivizacionRows = (rows: typeof efectivizacion) => rows.map((row) => [
                 text(row.facturacion),
                 text(row.empresa),
                 text(row.cuenta),
@@ -446,37 +448,16 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 money(row.transferencia),
                 text(row.estado),
                 date(row.fecha),
-            ]),
-            [6, 8, 9, 10, 11],
-        );
+            ]);
 
-        addSection(
-            "Efectivizacion - Pendientes",
-            ["Facturacion", "Empresa", "Cuenta", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"],
-            efectivizacionPendientes.map((row) => [
-                text(row.facturacion),
-                text(row.empresa),
-                text(row.cuenta),
-                text(row.operacion),
-                text(row.dni),
-                text(row.comunidad),
-                money(row.deposito),
-                percent(row.porcentaje_comision),
-                money(row.soles_comision),
-                money(row.gastos),
-                money(row.ganancia),
-                money(row.transferencia),
-                text(row.estado),
-                date(row.fecha),
-            ]),
-            [6, 8, 9, 10, 11],
-        );
+        addSection("Efectivizacion", efectivizacionHeaders, efectivizacionRows(efectivizacion), [6, 8, 9, 10, 11]);
+        addSection("Derivados atendidos", efectivizacionHeaders, efectivizacionRows(derivadosAtendidos), [6, 8, 9, 10, 11]);
+        addSection("Derivados enviados", efectivizacionHeaders, efectivizacionRows(derivadosEnviados), [6, 8, 9, 10, 11]);
 
         addSection(
             "Pago de Deuda",
-            ["Operacion", "DNI", "Empresa", "Cuenta", "Transferencia", "Empresa", "Cuenta", "Deposito", "% Comision", "S/ Comision", "Estado", "Fecha"],
+            ["DNI", "Empresa Salida", "Cuenta Salida", "Transferencia", "Empresa Ingreso", "Cuenta Ingreso", "Deposito", "% Comision", "S/ Comision", "Fecha"],
             pagoDeuda.map((row) => [
-                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
                 text(row.dni ?? row.dni_cliente),
                 text(row.empresa_salida ?? row.nombre_empresa_salida),
                 text(row.cuenta_salida ?? row.cuenta),
@@ -486,54 +467,15 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 money(row.deposito ?? row.monto_devolucion),
                 percent(row.porcentaje_comision ?? row.comision_servicio),
                 money(row.soles_comision),
-                text(row.estado ?? row.nombre_estado),
                 date(row.fecha ?? row.fecha_registro),
             ]),
-            [4, 7],
-        );
-
-        addSection(
-            "Pago de Deuda - Pendientes",
-            ["Operacion", "DNI", "Empresa", "Cuenta", "Transferencia", "Empresa", "Cuenta", "Deposito", "% Comision", "S/ Comision", "Estado", "Fecha"],
-            pagoDeudaPendientes.map((row) => [
-                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
-                text(row.dni ?? row.dni_cliente),
-                text(row.empresa_salida ?? row.nombre_empresa_salida),
-                text(row.cuenta_salida ?? row.cuenta),
-                money(row.transferencia ?? row.monto_transferencia),
-                text(row.empresa_ingreso ?? row.nombre_empresa_ingreso),
-                text(row.cuenta_ingreso),
-                money(row.deposito ?? row.monto_devolucion),
-                percent(row.porcentaje_comision ?? row.comision_servicio),
-                money(row.soles_comision),
-                text(row.estado ?? row.nombre_estado),
-                date(row.fecha ?? row.fecha_registro),
-            ]),
-            [4, 7],
+            [3, 6],
         );
 
         addSection(
             "POS",
             ["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"],
             pos.map((row) => [
-                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
-                text(row.dni ?? row.dni_cliente),
-                money(row.deposito),
-                percent(row.porcentaje_comision),
-                money(row.soles_comision),
-                text(row.empresa),
-                text(row.cuenta),
-                money(row.transferencia),
-                text(row.estado ?? row.nombre_estado),
-                date(row.fecha ?? row.fecha_registro),
-            ]),
-            [7],
-        );
-
-        addSection(
-            "POS - Pendientes",
-            ["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"],
-            posPendientes.map((row) => [
                 text(row.operacion ?? row.codigo_operacion_deposito_cliente),
                 text(row.dni ?? row.dni_cliente),
                 money(row.deposito),

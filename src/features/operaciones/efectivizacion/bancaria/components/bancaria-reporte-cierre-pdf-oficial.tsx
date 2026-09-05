@@ -489,11 +489,9 @@ const movementDateTime = (value?: string | null) => {
 export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierrePdfOficialProps) => {
     if (!data) return null;
 
-    const { pagadas: efectivizacion, pendientes: efectivizacionPendientes } = getReporteEfectivizacionUnificada(data);
-    const pagoDeuda = data.pago_deuda ?? [];
-    const pagoDeudaPendientes = data.pago_deuda_pendientes ?? [];
-    const pos = data.pos ?? [];
-    const posPendientes = data.pos_pendientes ?? [];
+    const { efectivizacion, derivadosAtendidos, derivadosEnviados } = getReporteEfectivizacionUnificada(data);
+    const pagoDeuda = [...(data.pago_deuda ?? []), ...(data.pago_deuda_pendientes ?? [])];
+    const pos = [...(data.pos ?? []), ...(data.pos_pendientes ?? [])];
     const movimientos = data.movimientos ?? [];
     const kpi = data.kpi ?? {};
     const saldoBanco = calcularSaldoBanco(
@@ -502,10 +500,18 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
         data.id_banco,
         data.id_empresa_cuenta_bancaria,
     );
-    const totalOperations = efectivizacion.length + efectivizacionPendientes.length + pagoDeuda.length + pagoDeudaPendientes.length + pos.length + posPendientes.length;
+    const totalOperations = efectivizacion.length + derivadosAtendidos.length + derivadosEnviados.length + pagoDeuda.length + pos.length;
     const totalRows = totalOperations + movimientos.length;
     const hasRows = totalRows > 0;
     const sum = <T,>(rows: T[], selector: (row: T) => number | null | undefined) => rows.reduce((acc, row) => acc + numberValue(selector(row)), 0);
+    const renderEfectivizacionSection = (title: string, rows: ReturnType<typeof getReporteEfectivizacionUnificada>["efectivizacion"]) => rows.length > 0 && (
+        <section>
+            <SectionHeader title={title} count={rows.length} />
+            <Table headers={["Facturacion", "Empresa", "Cuenta", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={6}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(rows, (row) => row.deposito))}</FooterCell><FooterCell /><FooterCell numeric>{formatMoney(sum(rows, (row) => row.soles_comision))}</FooterCell><FooterCell numeric>{formatMoney(sum(rows, (row) => row.gastos))}</FooterCell><FooterCell numeric>{formatMoney(sum(rows, (row) => row.ganancia))}</FooterCell><FooterCell numeric>{formatMoney(sum(rows, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
+                {rows.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.facturacion)}</Cell><Cell>{valueOrDash(row.empresa)}</Cell><Cell>{valueOrDash(row.cuenta)}</Cell><Cell><span className="code-cell">{valueOrDash(row.operacion)}</span></Cell><Cell>{valueOrDash(row.dni)}</Cell><Cell>{valueOrDash(row.comunidad)}</Cell><Cell numeric>{formatMoney(row.deposito)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell numeric>{formatMoney(row.gastos)}</Cell><Cell numeric>{formatMoney(row.ganancia)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado} /></Cell><Cell>{formatDate(row.fecha)}</Cell></tr>)}
+            </Table>
+        </section>
+    );
 
     return (
         <>
@@ -525,38 +531,15 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
                     <KpiCard label="Pendiente Transferencia" tags={["Efectivización", "Pago Deuda"]} value={kpi.pendiente_transferencia ?? kpi.pendiente_depositar} />
                 </div>
 
-                {efectivizacion.length > 0 && (
-                    <section>
-                        <SectionHeader title="Efectivizacion" count={efectivizacion.length} />
-                        <Table headers={["Facturacion", "Empresa", "Cuenta", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={6}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.deposito))}</FooterCell><FooterCell /><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.soles_comision))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.gastos))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.ganancia))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacion, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
-                            {efectivizacion.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.facturacion)}</Cell><Cell>{valueOrDash(row.empresa)}</Cell><Cell>{valueOrDash(row.cuenta)}</Cell><Cell><span className="code-cell">{valueOrDash(row.operacion)}</span></Cell><Cell>{valueOrDash(row.dni)}</Cell><Cell>{valueOrDash(row.comunidad)}</Cell><Cell numeric>{formatMoney(row.deposito)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell numeric>{formatMoney(row.gastos)}</Cell><Cell numeric>{formatMoney(row.ganancia)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado} /></Cell><Cell>{formatDate(row.fecha)}</Cell></tr>)}
-                        </Table>
-                    </section>
-                )}
-
-                {efectivizacionPendientes.length > 0 && (
-                    <section>
-                        <SectionHeader title="Efectivizacion - Pendientes" count={efectivizacionPendientes.length} />
-                        <Table headers={["Facturacion", "Empresa", "Cuenta", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={6}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.deposito))}</FooterCell><FooterCell /><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.soles_comision))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.gastos))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.ganancia))}</FooterCell><FooterCell numeric>{formatMoney(sum(efectivizacionPendientes, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
-                            {efectivizacionPendientes.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.facturacion)}</Cell><Cell>{valueOrDash(row.empresa)}</Cell><Cell>{valueOrDash(row.cuenta)}</Cell><Cell><span className="code-cell">{valueOrDash(row.operacion)}</span></Cell><Cell>{valueOrDash(row.dni)}</Cell><Cell>{valueOrDash(row.comunidad)}</Cell><Cell numeric>{formatMoney(row.deposito)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell numeric>{formatMoney(row.gastos)}</Cell><Cell numeric>{formatMoney(row.ganancia)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado} /></Cell><Cell>{formatDate(row.fecha)}</Cell></tr>)}
-                        </Table>
-                    </section>
-                )}
+                {renderEfectivizacionSection("Efectivizacion", efectivizacion)}
+                {renderEfectivizacionSection("Derivados atendidos", derivadosAtendidos)}
+                {renderEfectivizacionSection("Derivados enviados", derivadosEnviados)}
 
                 {pagoDeuda.length > 0 && (
                     <section>
                         <SectionHeader title="Pago Deuda" count={pagoDeuda.length} />
-                        <Table headers={["Operacion", "DNI", "Empresa", "Cuenta", "Transferencia", "Empresa", "Cuenta", "Deposito", "% Comision", "S/ Comision", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={4}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(pagoDeuda, (row) => row.transferencia ?? row.monto_transferencia))}</FooterCell><FooterCell colSpan={2} /><FooterCell numeric>{formatMoney(sum(pagoDeuda, (row) => row.deposito ?? row.monto_devolucion))}</FooterCell><FooterCell colSpan={4} /></tr>}>
-                            {pagoDeuda.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.operacion ?? row.codigo_operacion_deposito_cliente)}</Cell><Cell>{valueOrDash(row.dni ?? row.dni_cliente)}</Cell><Cell>{valueOrDash(row.empresa_salida ?? row.nombre_empresa_salida)}</Cell><Cell>{valueOrDash(row.cuenta_salida ?? row.cuenta)}</Cell><Cell numeric>{formatMoney(row.transferencia ?? row.monto_transferencia)}</Cell><Cell>{valueOrDash(row.empresa_ingreso ?? row.nombre_empresa_ingreso)}</Cell><Cell>{valueOrDash(row.cuenta_ingreso)}</Cell><Cell numeric>{formatMoney(row.deposito ?? row.monto_devolucion)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision ?? row.comision_servicio)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell><StatusPill value={row.estado ?? row.nombre_estado} /></Cell><Cell>{formatDate(row.fecha ?? row.fecha_registro)}</Cell></tr>)}
-                        </Table>
-                    </section>
-                )}
-
-                {pagoDeudaPendientes.length > 0 && (
-                    <section>
-                        <SectionHeader title="Pago Deuda - Pendientes" count={pagoDeudaPendientes.length} />
-                        <Table headers={["Operacion", "DNI", "Empresa", "Cuenta", "Transferencia", "Empresa", "Cuenta", "Deposito", "% Comision", "S/ Comision", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={4}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(pagoDeudaPendientes, (row) => row.transferencia ?? row.monto_transferencia))}</FooterCell><FooterCell colSpan={2} /><FooterCell numeric>{formatMoney(sum(pagoDeudaPendientes, (row) => row.deposito ?? row.monto_devolucion))}</FooterCell><FooterCell colSpan={4} /></tr>}>
-                            {pagoDeudaPendientes.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.operacion ?? row.codigo_operacion_deposito_cliente)}</Cell><Cell>{valueOrDash(row.dni ?? row.dni_cliente)}</Cell><Cell>{valueOrDash(row.empresa_salida ?? row.nombre_empresa_salida)}</Cell><Cell>{valueOrDash(row.cuenta_salida ?? row.cuenta)}</Cell><Cell numeric>{formatMoney(row.transferencia ?? row.monto_transferencia)}</Cell><Cell>{valueOrDash(row.empresa_ingreso ?? row.nombre_empresa_ingreso)}</Cell><Cell>{valueOrDash(row.cuenta_ingreso)}</Cell><Cell numeric>{formatMoney(row.deposito ?? row.monto_devolucion)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision ?? row.comision_servicio)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell><StatusPill value={row.estado ?? row.nombre_estado} /></Cell><Cell>{formatDate(row.fecha ?? row.fecha_registro)}</Cell></tr>)}
+                        <Table headers={["DNI", "Empresa Salida", "Cuenta Salida", "Transferencia", "Empresa Ingreso", "Cuenta Ingreso", "Deposito", "% Comision", "S/ Comision", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={3}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(pagoDeuda, (row) => row.transferencia ?? row.monto_transferencia))}</FooterCell><FooterCell colSpan={2} /><FooterCell numeric>{formatMoney(sum(pagoDeuda, (row) => row.deposito ?? row.monto_devolucion))}</FooterCell><FooterCell colSpan={3} /> </tr>}>
+                            {pagoDeuda.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.dni ?? row.dni_cliente)}</Cell><Cell>{valueOrDash(row.empresa_salida ?? row.nombre_empresa_salida)}</Cell><Cell>{valueOrDash(row.cuenta_salida ?? row.cuenta)}</Cell><Cell numeric>{formatMoney(row.transferencia ?? row.monto_transferencia)}</Cell><Cell>{valueOrDash(row.empresa_ingreso ?? row.nombre_empresa_ingreso)}</Cell><Cell>{valueOrDash(row.cuenta_ingreso)}</Cell><Cell numeric>{formatMoney(row.deposito ?? row.monto_devolucion)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision ?? row.comision_servicio)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell>{formatDate(row.fecha ?? row.fecha_registro)}</Cell></tr>)}
                         </Table>
                     </section>
                 )}
@@ -566,15 +549,6 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
                         <SectionHeader title="POS" count={pos.length} />
                         <Table headers={["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={7}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(pos, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
                             {pos.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.operacion ?? row.codigo_operacion_deposito_cliente)}</Cell><Cell>{valueOrDash(row.dni ?? row.dni_cliente)}</Cell><Cell numeric>{formatMoney(row.deposito)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell>{valueOrDash(row.empresa)}</Cell><Cell>{valueOrDash(row.cuenta)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado ?? row.nombre_estado} /></Cell><Cell>{formatDate(row.fecha ?? row.fecha_registro)}</Cell></tr>)}
-                        </Table>
-                    </section>
-                )}
-
-                {posPendientes.length > 0 && (
-                    <section>
-                        <SectionHeader title="POS - Pendientes" count={posPendientes.length} />
-                        <Table headers={["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={7}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(posPendientes, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
-                            {posPendientes.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.operacion ?? row.codigo_operacion_deposito_cliente)}</Cell><Cell>{valueOrDash(row.dni ?? row.dni_cliente)}</Cell><Cell numeric>{formatMoney(row.deposito)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell>{valueOrDash(row.empresa)}</Cell><Cell>{valueOrDash(row.cuenta)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado ?? row.nombre_estado} /></Cell><Cell>{formatDate(row.fecha ?? row.fecha_registro)}</Cell></tr>)}
                         </Table>
                     </section>
                 )}

@@ -96,9 +96,34 @@ const allowedBankNames = new Set(["BCP", "BBVA", "INTERBANK", "BANBIF", "SCOTIAB
 
 const sanitizeWhatsapp = (value: string) => value.replace(/\D/g, "").slice(0, 9);
 
-export const hasDevolucionConfirmada = (row: OperacionProceso) =>
-    Boolean(row.id_operacion_match) ||
-    Number(row.monto_devuelto ?? 0) >= Number(row.monto_deposito_cliente ?? 0);
+export const hasDevolucionConfirmada = (row: OperacionProceso) => {
+    const montoDevolucion = Number(row.pd_retorno_monto_devolucion ?? row.monto_devuelto ?? 0);
+    if (!Number.isFinite(montoDevolucion) || montoDevolucion <= 0) return false;
+
+    const tieneEmpresaCuentaPorId =
+        row.pd_retorno_id_empresa_ingreso != null &&
+        row.pd_retorno_id_empresa_cuenta_ingreso != null;
+    if (tieneEmpresaCuentaPorId) return true;
+
+    const tieneEmpresaCuentaEnDetalle = row.pd_retorno_empresas_cuentas?.some((item) =>
+        Number(item.monto ?? 0) > 0 &&
+        Boolean(String(item.empresa ?? "").trim()) &&
+        Boolean(String(item.cuenta ?? "").trim()),
+    );
+    if (tieneEmpresaCuentaEnDetalle) return true;
+
+    // Las consultas antiguas de Pago Deuda no traen el detalle enriquecido
+    // del retorno. Conservamos su compatibilidad sin relajar la validacion
+    // de la bandeja bancaria, que siempre recibe esos campos.
+    const tieneDetalleRetorno =
+        row.pd_retorno_id !== undefined ||
+        row.pd_retorno_id_empresa_ingreso !== undefined ||
+        row.pd_retorno_id_empresa_cuenta_ingreso !== undefined ||
+        row.pd_retorno_monto_devolucion !== undefined ||
+        row.pd_retorno_empresas_cuentas !== undefined;
+
+    return !tieneDetalleRetorno && Boolean(row.id_operacion_match);
+};
 
 const formatDate = (value?: string | null) => {
     if (!value) return "";

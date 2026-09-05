@@ -17,6 +17,7 @@ export interface ReporteEfectivizacionUnificadaRow {
     transferencia: ReportNumber;
     estado: ReportText;
     fecha: ReportText;
+    derivada_congelada: boolean;
 }
 
 interface ReporteEfectivizacionSource {
@@ -57,12 +58,14 @@ const normalizeRow = (
 ): ReporteEfectivizacionUnificadaRow => ({
     facturacion: firstText(row.facturacion, row.tipo_facturacion),
     empresa: firstText(
+        row.empresa_derivada,
         row.empresa,
         isDerived ? row.nombre_empresa_salida_origen : row.nombre_empresa_salida,
         row.nombre_empresa_ingreso,
         data.empresa,
     ),
     cuenta: firstText(
+        row.cuenta_derivada,
         row.cuenta,
         isDerived ? row.nombre_banco_empresa_cuenta_salida_origen : row.nombre_banco_empresa_cuenta_salida,
         row.cuenta_cliente,
@@ -80,15 +83,32 @@ const normalizeRow = (
     transferencia: firstNumber(row.transferencia, 0),
     estado: firstText(row.estado, row.nombre_estado),
     fecha: firstText(row.fecha, row.fecha_deposito_cliente, row.fecha_registro),
+    derivada_congelada: row.derivada_congelada === true || String(row.derivada_congelada ?? "").trim().toLowerCase() === "true",
 });
 
-export const getReporteEfectivizacionUnificada = (data: ReporteEfectivizacionSource) => ({
-    pagadas: [
-        ...toRows(data.efectivizacion).map((row) => normalizeRow(row, data, false)),
-        ...toRows(data.derivados).map((row) => normalizeRow(row, data, true)),
-    ],
-    pendientes: [
-        ...toRows(data.efectivizacion_pendientes).map((row) => normalizeRow(row, data, false)),
-        ...toRows(data.derivados_pendientes).map((row) => normalizeRow(row, data, true)),
-    ],
-});
+const isPaid = (row: ReporteEfectivizacionUnificadaRow) => row.estado?.trim().toLowerCase() === "pagado";
+
+export const getReporteEfectivizacionUnificada = (data: ReporteEfectivizacionSource) => {
+    const efectivizacionRows = [
+        ...toRows(data.efectivizacion),
+        ...toRows(data.efectivizacion_pendientes),
+    ].map((row) => normalizeRow(row, data, false));
+    const derivadosAtendidos = [
+        ...toRows(data.derivados),
+        ...toRows(data.derivados_pendientes),
+    ].map((row) => normalizeRow(row, data, true));
+
+    // El backend marca como derivada_congelada la operación derivada enviada
+    // por la ruta actual. Las demás operaciones de efectivización son normales.
+    const efectivizacion = efectivizacionRows.filter((row) => !row.derivada_congelada);
+    const derivadosEnviados = efectivizacionRows.filter((row) => row.derivada_congelada);
+
+    return {
+        efectivizacion,
+        derivadosAtendidos,
+        derivadosEnviados,
+        // Compatibilidad para consumidores existentes que aún requieran separar por estado.
+        pagadas: efectivizacion.filter(isPaid),
+        pendientes: efectivizacion.filter((row) => !isPaid(row)),
+    };
+};

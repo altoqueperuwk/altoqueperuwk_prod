@@ -4313,6 +4313,18 @@ BEGIN
         THEN COALESCE(op.nombre_banco_empresa_cuenta_salida, v_nombre_banco)
         ELSE COALESCE(op.nombre_banco_empresa_cuenta_ingreso, v_nombre_banco)
       END AS cuenta,
+      CASE
+        WHEN op.flag_derivado = true
+         AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(COALESCE(p_ruta, v_ruta))
+        THEN COALESCE(op.nombre_empresa_salida_origen, op.nombre_empresa_salida, v_nombre_empresa)
+        ELSE NULL
+      END AS empresa_derivada,
+      CASE
+        WHEN op.flag_derivado = true
+         AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(COALESCE(p_ruta, v_ruta))
+        THEN COALESCE(op.nombre_banco_empresa_cuenta_salida_origen, op.nombre_banco_empresa_cuenta_salida, v_nombre_banco)
+        ELSE NULL
+      END AS cuenta_derivada,
       (
         op.flag_derivado = true
         AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(COALESCE(p_ruta, v_ruta))
@@ -8154,9 +8166,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_reporte_cierre',
-  'f_get_tb_ruta_operacion_kpi',
-  'f_sync_tb_operacion_cierre_atribucion_v2',
-  'f_post_tb_caja_operativa_cierre'
+  'f_get_reporte_cierre'
 )
 ORDER BY n.nspname, p.proname;

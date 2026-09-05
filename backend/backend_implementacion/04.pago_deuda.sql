@@ -2788,6 +2788,27 @@ BEGIN
     RETURN jsonb_build_object('error', 'Primero realiza el match con la efectivizacion de retorno.');
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.tb_operacion_proceso retorno
+    WHERE (
+      retorno.id = v_op.id_operacion_match
+      OR retorno.id_operacion_match = v_op.id
+      OR retorno.id_operacion_padre = v_op.id
+    )
+      AND UPPER(BTRIM(COALESCE(retorno.tipo_flujo_pago_deuda, ''))) IN ('RETORNO', 'RETORNO_DIRECTO')
+      AND GREATEST(
+        COALESCE(retorno.monto_deposito_cliente, 0),
+        COALESCE(retorno.monto_transferencia_cliente, 0)
+      ) > 0
+      AND retorno.id_empresa_ingreso IS NOT NULL
+      AND retorno.id_empresa_cuenta_ingreso IS NOT NULL
+  ) THEN
+    RETURN jsonb_build_object(
+      'error', 'La devolucion debe tener un monto y una empresa/cuenta de ingreso configuradas.'
+    );
+  END IF;
+
   IF v_root.id_empresa_ingreso IS NULL OR v_root.id_empresa_cuenta_ingreso IS NULL THEN
     RETURN jsonb_build_object('error', 'La operacion de Pago Deuda no tiene empresa y cuenta de ingreso configuradas.');
   END IF;
@@ -3396,27 +3417,5 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
-  AND p.proname IN (
-    'f_get_tb_pago_deuda_tiene_cierre',
-    'f_get_tb_pago_deuda',
-    'f_get_tb_pago_deuda_match',
-    'f_get_tb_pago_deuda_match_lote',
-    'f_get_tb_pago_deuda_match_flags_lote',
-    'f_get_tb_pago_deuda_bandeja',
-    'f_patch_tb_pago_deuda_codigo_operacion',
-    'f_sync_tb_pago_deuda_comision_caja',
-    'f_post_tb_pago_deuda_solicitud',
-    'f_patch_tb_pago_deuda_comision_especial',
-    'f_patch_tb_pago_deuda_comision_extra',
-    'f_delete_tb_pago_deuda_solicitud',
-    'f_patch_tb_pago_deuda_salida',
-    'f_patch_tb_pago_deuda_empresa',
-    'f_patch_tb_pago_deuda_comision_cuenta',
-    'f_patch_tb_pago_deuda_match',
-    'f_patch_tb_pago_deuda_pagado',
-    'f_patch_tb_pago_deuda_directo',
-    'f_post_tb_pago_deuda_comision',
-    'f_patch_tb_pago_deuda_reiniciar_transferencia',
-    'f_patch_tb_pago_deuda_derivar_banco'
-  )
+  AND p.proname IN ('f_patch_tb_pago_deuda_pagado')
 ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid);
