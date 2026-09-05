@@ -63,7 +63,9 @@ const reportRows = (data: ReporteCierreCajaData, key: string) => {
 const isPaid = (row: Record<string, unknown>) => String(row.estado ?? row.nombre_estado ?? "").trim().toLowerCase() === "pagado";
 
 export const getPaidTableRows = (data: ReporteCierreCajaData, flow: ReporteCierreCajaFlow): ReporteCierreCajaTableRow[] => {
-    const rows = reportRows(data, flow).filter(isPaid);
+    const rows = flow === "pago_deuda"
+        ? [...reportRows(data, "pago_deuda"), ...reportRows(data, "pago_deuda_pendientes")]
+        : reportRows(data, flow).filter(isPaid);
 
     if (flow === "efectivizacion") {
         return rows.map((row, index) => ({

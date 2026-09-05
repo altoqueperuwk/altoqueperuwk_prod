@@ -112,10 +112,11 @@ const paymentValue = (row: OperacionProceso, key: string) => String((row as unkn
 const paymentSteps = (row: OperacionProceso) => {
     const state = String((row as unknown as Record<string, unknown>).seguimiento_estado ?? "").toUpperCase();
     const completed = state === "PAGADO" ? 4 : state === "PENDIENTE COMISION" ? 3 : state === "PENDIENTE DEVOLUCION" ? 2 : 1;
+    const definitions = ["Solicitud", "Banco", "Retorno / Retorno directo", "Comisión Pago Deuda"];
     return (
         <div className="flex items-center gap-1">
             {[1, 2, 3, 4].map((step) => (
-                <span key={step} className={`flex size-5 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-inset ${step <= completed ? "bg-success-primary text-white ring-success-primary" : "bg-primary text-tertiary ring-secondary"}`}>
+                <span key={step} title={`${step}. ${definitions[step - 1]}`} className={`flex size-5 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-inset ${step <= completed ? "bg-success-primary text-white ring-success-primary" : "bg-primary text-tertiary ring-secondary"}`}>
                     {step <= completed ? "✓" : step}
                 </span>
             ))}
@@ -137,7 +138,7 @@ export const SeguimientoPagoDeudaTable = ({ data, isLoading, now = Date.now(), p
             { key: "resultado_comision_servicio", label: "Comision", render: commissionCell },
             { key: "monto_devuelto", label: "Monto Devuelto", render: (row: OperacionProceso) => formatMoney(row.monto_devuelto) },
             { key: "cuenta_comision", label: "Cuenta Comision", render: (row: OperacionProceso) => <div className="flex flex-wrap gap-1"><CompactBadgeLine color="brand">{paymentValue(row, "nombre_empresa_ingreso")}</CompactBadgeLine><CompactBadgeLine>{paymentValue(row, "nombre_banco_empresa_cuenta_ingreso")}</CompactBadgeLine></div> },
-            { key: "seguimiento_estado", label: "Estado", render: (row: OperacionProceso) => <CompactBadgeLine color={paymentValue(row, "seguimiento_estado") === "Pagado" ? "success" : "brand"}>{paymentValue(row, "seguimiento_estado")}</CompactBadgeLine> },
+            { key: "seguimiento_estado", label: "Estado", render: (row: OperacionProceso) => <div className="flex flex-wrap gap-1"><CompactBadgeLine color={paymentValue(row, "seguimiento_estado") === "Pagado" ? "success" : "brand"}>{paymentValue(row, "seguimiento_estado")}</CompactBadgeLine>{Boolean((row as unknown as Record<string, unknown>).flag_cerrada_caja) && <CompactBadgeLine color="slate">Cerrada</CompactBadgeLine>}</div> },
             { key: "fecha_registro", label: "Fecha Hora", render: dateCell },
             { key: "tiempo_atencion", label: "Tiempo Atencion", render: (row: OperacionProceso) => <AttentionTimeCell row={row} now={now} paymentMode /> },
         ]}
@@ -225,6 +226,7 @@ const unifiedReturnCell = (row: OperacionProceso) => {
 const unifiedStepsCell = (row: OperacionProceso) => {
     const flow = unifiedValue(row, "seguimiento_flujo");
     const steps = unifiedAmount(row, "seguimiento_pasos");
+    const definitions = ["Solicitud", "Banco", "Retorno / Retorno directo", "Comisión Pago Deuda"];
 
     if (flow !== "Pago Deuda" || steps === null || !Number.isFinite(steps)) return "-";
 
@@ -232,6 +234,7 @@ const unifiedStepsCell = (row: OperacionProceso) => {
         {[1, 2, 3, 4].map((step) => (
             <span
                 key={step}
+                title={`${step}. ${definitions[step - 1]}`}
                 className={`flex size-5 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-inset ${step <= steps ? "bg-success-primary text-white ring-success-primary" : "bg-primary text-tertiary ring-secondary"}`}
             >
                 {step <= steps ? "✓" : step}
@@ -242,7 +245,7 @@ const unifiedStepsCell = (row: OperacionProceso) => {
 
 const unifiedStatusCell = (row: OperacionProceso) => {
     const status = unifiedValue(row, "seguimiento_estado");
-    return <CompactBadgeLine color="error">{status}</CompactBadgeLine>;
+    return <div className="flex flex-wrap gap-1"><CompactBadgeLine color="error">{status}</CompactBadgeLine>{Boolean((row as unknown as Record<string, unknown>).flag_cerrada_caja) && <CompactBadgeLine color="slate">Cerrada</CompactBadgeLine>}</div>;
 };
 
 export const SeguimientoUnifiedTable = ({

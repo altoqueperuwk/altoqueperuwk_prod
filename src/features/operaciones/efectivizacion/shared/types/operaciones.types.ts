@@ -216,6 +216,10 @@ export interface OperacionProceso {
     ruta_destino: string | null;
     flag_derivado: boolean;
     id_caja_cierre?: number | null;
+    id_caja_cierre_ingreso?: number | null;
+    id_caja_cierre_salida?: number | null;
+    fecha_caja_cierre?: string | null;
+    flag_cerrada_caja?: boolean | null;
     flag_retenido: boolean;
     flag_fuera_horario?: boolean | null;
     fecha_deposito_cliente?: string | null;

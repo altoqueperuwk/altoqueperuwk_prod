@@ -963,8 +963,8 @@ Objetivo:
   job diario de las 22:30 en America/Lima.
 
   El cron usa 03:30 UTC porque pg_cron opera por defecto en UTC y Peru no
-  aplica horario de verano. La lista se valida por id_caja e id_empresa para
-  evitar cerrar una caja reasignada a otra empresa.
+  aplica horario de verano. Las cajas se obtienen dinamicamente desde la
+  configuracion activa de rutas, empresas y cuentas bancarias.
 */
 CREATE OR REPLACE FUNCTION public.f_job_cerrar_cajas_operativas_2230()
 RETURNS jsonb
@@ -981,23 +981,32 @@ DECLARE
 BEGIN
   FOR v_item IN
     SELECT *
-    FROM (VALUES
-      (1::bigint, 2::bigint),
-      (32::bigint, 5::bigint),
-      (4::bigint, 8::bigint),
-      (6::bigint, 5::bigint),
-      (21::bigint, 5::bigint),
-      (19::bigint, 3::bigint),
-      (18::bigint, 13::bigint),
-      (29::bigint, 3::bigint),
-      (15::bigint, 12::bigint),
-      (13::bigint, 11::bigint),
-      (36::bigint, 11::bigint),
-      (35::bigint, 12::bigint),
-      (34::bigint, 6::bigint),
-      (31::bigint, 5::bigint),
-      (9::bigint, 3::bigint)
-    ) AS cajas(id_caja, id_empresa)
+    FROM (
+      SELECT DISTINCT
+        c.id AS id_caja,
+        c.id_empresa
+      FROM public.tb_caja_operativa c
+      JOIN public.tb_empresa e
+        ON e.id = c.id_empresa
+       AND e.id_estado = 1
+      JOIN public.tb_empresa_cuenta_bancaria ecb
+        ON ecb.id = c.id_empresa_cuenta_bancaria
+       AND ecb.id_empresa = c.id_empresa
+       AND ecb.id_estado = 1
+      JOIN public.tb_ruta_operacion_caja rc
+        ON rc.id_empresa = c.id_empresa
+       AND rc.id_empresa_cuenta_bancaria = c.id_empresa_cuenta_bancaria
+       AND rc.id_estado = 1
+      WHERE c.id_estado = 1
+        AND LOWER(BTRIM(rc.ruta)) IN (
+          'bcp',
+          'bbva',
+          'scotiabank',
+          'banbif',
+          'interbank'
+        )
+    ) AS cajas
+    ORDER BY id_caja
   LOOP
     IF NOT EXISTS (
       SELECT 1

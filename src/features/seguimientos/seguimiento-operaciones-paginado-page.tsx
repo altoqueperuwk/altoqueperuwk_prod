@@ -77,6 +77,7 @@ const MinimalKpiCard = ({ label, value, color, badge }: { label: string; value: 
 export const SeguimientoOperacionesPaginadoPage = () => {
     const [selectedBank, setSelectedBank] = useState<OperacionRutaBancaria | "todos">("todos");
     const [selectedFlow, setSelectedFlow] = useState<(typeof flowFilters)[number]>("Todos");
+    const [closureFilter, setClosureFilter] = useState("ABIERTAS");
     const [timeFilter, setTimeFilter] = useState("Todos");
     const [dni, setDni] = useState("");
     const [codigo, setCodigo] = useState("");
@@ -97,6 +98,7 @@ export const SeguimientoOperacionesPaginadoPage = () => {
                 dni,
                 codigo,
                 filtroTiempo: timeFilter,
+                filtroCierre: closureFilter,
             };
             const currentRequest = seguimientosService.getOperacionesUnificadoPaginado({
                 ...request,
@@ -120,7 +122,7 @@ export const SeguimientoOperacionesPaginadoPage = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [codigo, dni, page, pageSize, selectedBank, selectedFlow, timeFilter]);
+    }, [closureFilter, codigo, dni, page, pageSize, selectedBank, selectedFlow, timeFilter]);
 
     useEffect(() => {
         void load();
@@ -153,7 +155,7 @@ export const SeguimientoOperacionesPaginadoPage = () => {
                 <section className="rounded-lg border border-secondary bg-primary p-3 shadow-xs">
                     <div className="grid gap-1.5">
                         {flowFilters.map((flow) => (
-                            <Button key={flow} size="sm" className="w-full" color={selectedFlow === flow ? "primary" : "secondary"} onClick={() => { setSelectedFlow(flow); resetPage(); }}>
+                            <Button key={flow} size="sm" className="w-full" color={selectedFlow === flow ? "primary" : "secondary"} onClick={() => { setSelectedFlow(flow); setClosureFilter("ABIERTAS"); resetPage(); }}>
                                 <span className="relative flex w-full items-center justify-center pr-8">
                                     <span className="whitespace-nowrap">{flow}</span>
                                     <span className="absolute right-0 -my-px size-max rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-primary ring-inset shadow-xs-skeuomorphic tabular-nums">
@@ -179,6 +181,11 @@ export const SeguimientoOperacionesPaginadoPage = () => {
                 <div className="flex flex-wrap items-center gap-2 border-b border-secondary p-3 sm:px-5">
                     <Input size="sm" aria-label="DNI" className="w-full sm:w-44" placeholder="DNI" value={dni} onChange={(value) => { setDni(value); resetPage(); }} />
                     <Input size="sm" aria-label="Código de operación" className="w-full sm:w-48" placeholder="Código de operación" value={codigo} onChange={(value) => { setCodigo(value); resetPage(); }} />
+                    {selectedFlow === "Pago Deuda" && [
+                        { value: "ABIERTAS", label: "Abiertas" },
+                        { value: "CERRADAS", label: "Cerradas" },
+                        { value: "TODAS", label: "Todas" },
+                    ].map((filter) => <Button key={filter.value} size="sm" color={closureFilter === filter.value ? "primary" : "secondary"} onClick={() => { setClosureFilter(filter.value); resetPage(); }}>{filter.label}</Button>)}
                     <div className="flex flex-wrap gap-1 rounded-lg bg-primary p-1">
                         {timeFilters.map((filter) => <Button key={filter.value} size="sm" color={timeFilter === filter.value ? "primary" : "secondary"} onClick={() => { setTimeFilter(filter.value); resetPage(); }}>{filter.label}</Button>)}
                     </div>
@@ -457,6 +464,7 @@ const LegacySeguimientoOperacionesPaginadoPage = ({ initialTab = "Efectivizacion
     const [selectedBank, setSelectedBank] = useState<OperacionRutaBancaria>("bcp");
     const [activeTab, setActiveTab] = useState<SeguimientoTab>(initialTab);
     const [stateFilter, setStateFilter] = useState(initialTab === "Pago Deuda" ? "Todos" : "Pendiente");
+    const [closureFilter, setClosureFilter] = useState("ABIERTAS");
     const [timeFilter, setTimeFilter] = useState("Todos");
     const [dni, setDni] = useState("");
     const [codigo, setCodigo] = useState("");
@@ -487,6 +495,7 @@ const LegacySeguimientoOperacionesPaginadoPage = ({ initialTab = "Efectivizacion
                 dni,
                 codigo,
                 filtroTiempo: timeFilter,
+                filtroCierre: closureFilter,
                 page: activeTab === "Pago Deuda" ? page : 1,
                 pageSize: activeTab === "Pago Deuda" ? pageSize : 1,
             });
@@ -497,7 +506,7 @@ const LegacySeguimientoOperacionesPaginadoPage = ({ initialTab = "Efectivizacion
         } finally {
             setIsLoading(false);
         }
-    }, [activeTab, codigo, dni, page, pageSize, selectedBank, stateFilter, timeFilter]);
+    }, [activeTab, closureFilter, codigo, dni, page, pageSize, selectedBank, stateFilter, timeFilter]);
 
     useEffect(() => {
         void load();
@@ -518,12 +527,17 @@ const LegacySeguimientoOperacionesPaginadoPage = ({ initialTab = "Efectivizacion
     ], [current]);
 
     const resetPage = () => setPage(1);
-    const changeBank = (value: string) => { setSelectedBank(value as OperacionRutaBancaria); setStateFilter(activeTab === "Pago Deuda" ? "Todos" : "Pendiente"); setTimeFilter("Todos"); setPage(1); };
-    const changeTab = (tab: SeguimientoTab) => { setActiveTab(tab); setStateFilter(tab === "Pago Deuda" ? "Todos" : "Pendiente"); setTimeFilter("Todos"); setPage(1); };
+    const changeBank = (value: string) => { setSelectedBank(value as OperacionRutaBancaria); setStateFilter(activeTab === "Pago Deuda" ? "Todos" : "Pendiente"); setClosureFilter("ABIERTAS"); setTimeFilter("Todos"); setPage(1); };
+    const changeTab = (tab: SeguimientoTab) => { setActiveTab(tab); setStateFilter(tab === "Pago Deuda" ? "Todos" : "Pendiente"); setClosureFilter("ABIERTAS"); setTimeFilter("Todos"); setPage(1); };
     const changePageSize = (size: number) => { setPageSize(size); setPage(1); };
     // Filtros anteriores conservados para reactivar operaciones pagadas si el alcance cambia:
     // const stateFilters = activeTab === "Pago Deuda" ? ["Todos", "Pendiente Transferencia", "Pendiente Devolucion", "Pendiente Comision", "Pagado"] : ["Todos", "Pendiente", "Pagado"];
-    const stateFilters = activeTab === "Pago Deuda" ? ["Todos", "Pendiente Transferencia", "Pendiente Devolucion", "Pendiente Comision"] : ["Pendiente"];
+    const stateFilters = activeTab === "Pago Deuda" ? ["Todos", "Pendiente Transferencia", "Pendiente Devolucion", "Pendiente Comision", "Pagado"] : ["Pendiente"];
+    const closureFilters = [
+        { value: "ABIERTAS", label: "Abiertas" },
+        { value: "CERRADAS", label: "Cerradas" },
+        { value: "TODAS", label: "Todas" },
+    ];
     const serverPagination = { page, totalPages: Math.max(1, current.total_paginas), pageSize, onPageChange: setPage, onPageSizeChange: changePageSize };
 
     return <AppLayout><div className="flex flex-col gap-4">
@@ -552,6 +566,7 @@ const LegacySeguimientoOperacionesPaginadoPage = ({ initialTab = "Efectivizacion
             <div className="flex flex-wrap items-center gap-2 border-b border-secondary p-3">
                 <Input aria-label="DNI" className="w-48" placeholder="DNI" value={dni} onChange={(value) => { setDni(value); resetPage(); }} />
                 <Input aria-label="Cod. Op." className="w-48" placeholder="Cod. Op." value={codigo} onChange={(value) => { setCodigo(value); resetPage(); }} />
+                {activeTab === "Pago Deuda" && closureFilters.map((filter) => <Button key={filter.value} size="sm" color={closureFilter === filter.value ? "primary" : "tertiary"} onClick={() => { setClosureFilter(filter.value); setStateFilter("Todos"); resetPage(); }}>{filter.label}</Button>)}
                 {stateFilters.map((filter) => <Button key={filter} size="sm" color={stateFilter === filter ? "primary" : "tertiary"} onClick={() => { setStateFilter(filter); resetPage(); }}>{filter}</Button>)}
                 {timeFilters.map((filter) => <Button key={filter.value} size="sm" color={timeFilter === filter.value ? "primary" : "tertiary"} onClick={() => { setTimeFilter(filter.value); resetPage(); }}>{filter.label}</Button>)}
             </div>

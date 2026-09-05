@@ -5,7 +5,7 @@ import { AppLayout } from "@/components/application/app-layout";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
-import { useAuth } from "@/providers/auth-provider";
+import { isAdministrator, useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { File06, File07 } from "@untitledui/icons";
 import { cajaOperativaService } from "@/services/caja-operativa.service";
@@ -54,6 +54,14 @@ const toLimaDateKey = (value: string | Date) => {
     return `${year}-${month}-${day}`;
 };
 
+const administratorCloseRoutes: OperacionRutaBancaria[] = [
+    "bcp",
+    "bbva",
+    "scotiabank",
+    "banbif",
+    "interbank",
+];
+
 export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const [refreshKey, setRefreshKey] = useState(0);
     const [metricsRefreshKey, setMetricsRefreshKey] = useState(0);
@@ -81,6 +89,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
     const { businessUser } = useAuth();
     const { addToast } = useToast();
     const routeLabel = getRutaLabel(ruta);
+    const canCloseRoute = isAdministrator(businessUser) && administratorCloseRoutes.includes(ruta);
     const workspaceRoutes = useMemo<OperacionRutaBancaria[]>(
         () => ruta === "interbank" ? ["interbank", "safetypay"] : [ruta],
         [ruta],
@@ -833,6 +842,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     <BancariaTopActions
                         activeCajaIds={activeCajaIds}
                         activeCompany={activeCompanyCaja ?? activeCompany}
+                        canCloseRoute={canCloseRoute}
                         canReopenTodayClose={Boolean(activeCompanyCaja?.id_caja && selectedHistoryDate && selectedHistoryDate === todayCloseDateKey)}
                         isClosing={isClosing}
                         isReopening={isReopeningClose}

@@ -681,7 +681,15 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, dateFrom, dateTo }: 
         }
     };
 
-    const canEditSolicitud = (row: OperacionProceso) => getPagoDeudaEstadoVisual(row).action === "transferencia";
+    const isCerradaEnCaja = (row: OperacionProceso) => Boolean(
+        row.flag_cerrada_caja
+        || row.id_caja_cierre != null
+        || row.id_caja_cierre_ingreso != null
+        || row.id_caja_cierre_salida != null,
+    );
+
+    const canEditSolicitud = (row: OperacionProceso) =>
+        !isCerradaEnCaja(row) && getPagoDeudaEstadoVisual(row).action === "transferencia";
 
     const openEditSolicitud = (row: OperacionProceso) => {
         if (!canEditSolicitud(row)) return;
@@ -1040,7 +1048,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, dateFrom, dateTo }: 
             label: "Acciones",
             render: (row: OperacionProceso) => {
                 const canEdit = canEditSolicitud(row);
-                const canEditExtra = !Boolean(row.flag_comision_registrada);
+                const canEditExtra = !isCerradaEnCaja(row) && !Boolean(row.flag_comision_registrada);
 
                 return (
                     <div className="flex items-center justify-center gap-1">
