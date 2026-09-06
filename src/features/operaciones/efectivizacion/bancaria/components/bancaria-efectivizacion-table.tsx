@@ -28,6 +28,7 @@ import { formatInteger, formatMoney } from "@/features/operaciones/efectivizacio
 import { isInteractiveElement } from "@/features/operaciones/efectivizacion/shared/utils/row-selection";
 import { buildOperacionPagadoPayload, buildOperacionReanudarPayload } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
 import { cx } from "@/utils/cx";
+import { getUnifiedFlowLabel } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
 
 interface EstadoRef {
     id: number;
@@ -71,6 +72,7 @@ interface BancariaEfectivizacionTableProps {
     isRefreshing?: boolean;
     mode?: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados";
     flow?: "Efectivizacion" | "POS" | "Derivado";
+    unifiedFlowLabels?: boolean;
     presentation?: "operational" | "plain";
     readOnly?: boolean;
     onMetricsChanged: () => void;
@@ -300,6 +302,8 @@ const flowBadgeColors: Record<string, "brand" | "blue" | "orange" | "gray"> = {
     Efectivizacion: "brand",
     POS: "blue",
     Derivado: "orange",
+    "Derivados Atendidos": "orange",
+    "Derivados Enviados": "orange",
 };
 
 export const BancariaEfectivizacionTable = ({
@@ -314,6 +318,7 @@ export const BancariaEfectivizacionTable = ({
     isRefreshing = false,
     mode = "efectivizacion",
     flow,
+    unifiedFlowLabels = false,
     presentation = "operational",
     readOnly = false,
     onMetricsChanged,
@@ -425,6 +430,7 @@ export const BancariaEfectivizacionTable = ({
     const showFueraHorario = false;
     const getRowFlow = (row: OperacionProceso) => {
         if (isUnificado) {
+            if (unifiedFlowLabels) return getUnifiedFlowLabel(row, ruta);
             if (row.flag_derivado) return "Derivado";
             if (String(row.ruta_origen ?? "").toLowerCase() === "pos") return "POS";
             return "Efectivizacion";
@@ -1297,7 +1303,7 @@ export const BancariaEfectivizacionTable = ({
                                 const frozenPaid = isFrozenPaidOperation(row, mode);
                                 const frozenRow = frozenOrigin || frozenPaid;
                                 const rowFlow = getRowFlow(row);
-                                const rowIsDerivaciones = isUnificado ? rowFlow === "Derivado" : isDerivaciones;
+                                const rowIsDerivaciones = isUnificado ? rowFlow === "Derivado" || rowFlow.startsWith("Derivados ") : isDerivaciones;
                                 const rowIsPos = isUnificado ? rowFlow === "POS" : mode === "pos";
                                 const rowIsEfectivizacion = !isUnificado || rowFlow === "Efectivizacion";
                                 const derivedReceiver = isDerivedReceiverOperation(row, activeCompanyId, activeAccountId);
@@ -1357,7 +1363,11 @@ export const BancariaEfectivizacionTable = ({
                                             </td>
                                         )}
                                         {isUnificado && <td className="px-2 py-2 align-top">
-                                            <CompactBadgeLine color={flowBadgeColors[rowFlow] ?? "gray"}>{rowFlow}</CompactBadgeLine>
+                                            {unifiedFlowLabels ? (
+                                                <span className="text-sm text-secondary">{rowFlow}</span>
+                                            ) : (
+                                                <CompactBadgeLine color={flowBadgeColors[rowFlow] ?? "gray"}>{rowFlow}</CompactBadgeLine>
+                                            )}
                                         </td>}
                                         {showBanca && (
                                             <td className="px-2 py-2 align-top">

@@ -73,6 +73,7 @@ interface DerivadoRow extends ReportRowBase {
 interface MovimientoRow {
     tipo_origen?: string | null;
     tipo_movimiento?: string | null;
+    movimientos?: string[] | null;
     dni_cliente?: string | null;
     codigo_operacion?: string | null;
     nombre_empresa?: string | null;
@@ -459,14 +460,20 @@ const StatusPill = ({ value }: { value?: string | null }) => <span className="st
 const movementOrigin = (value?: string | null) => {
     const key = String(value ?? "").trim().toUpperCase().replaceAll("_", " ");
     return ({
+        "PAGO DEUDA": "Pago Deuda",
         "PAGO DEUDA COMISION": "Pago Deuda Comision",
+        "EFECTIVIZACION": "Efectivizacion",
         "OTROS": "Otros",
         "TRANSFERENCIA INTERNA": "Movimiento Saldo",
     } as Record<string, string>)[key] ?? valueOrDash(value);
 };
-const movementType = (value?: string | null) => {
-    const normalized = String(value ?? "").trim().toLowerCase();
-    return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "-";
+const movementType = (value?: string | string[] | null) => {
+    const values = Array.isArray(value) ? value : [value];
+    return values
+        .map((item) => String(item ?? "").trim().toLowerCase())
+        .filter(Boolean)
+        .map((item) => item.charAt(0).toUpperCase() + item.slice(1))
+        .join(" / ") || "-";
 };
 const movementRelatedCompany = (row: MovimientoRow) => {
     const origin = String(row.tipo_origen ?? "").trim().toUpperCase().replaceAll("_", " ");
@@ -557,7 +564,7 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
                     <section>
                         <SectionHeader title="Movimientos" count={movimientos.length} />
                         <Table headers={["Origen", "Movimiento", "DNI", "Empresa", "Cuenta", "Ingreso", "Salida", "Facturacion", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={5}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(movimientos, (row) => row.monto_ingreso))}</FooterCell><FooterCell numeric>{formatMoney(sum(movimientos, (row) => row.monto_salida))}</FooterCell><FooterCell colSpan={2} /></tr>}>
-                            {movimientos.map((row, index) => <tr key={index}><Cell>{movementOrigin(row.tipo_origen)}</Cell><Cell>{movementType(row.tipo_movimiento)}</Cell><Cell>{valueOrDash(row.dni_cliente)}</Cell><Cell>{movementRelatedCompany(row)}</Cell><Cell>{movementRelatedBank(row)}</Cell><Cell numeric>{formatMoney(row.monto_ingreso)}</Cell><Cell numeric>{formatMoney(row.monto_salida)}</Cell><Cell>{valueOrDash(row.tipo_facturacion)}</Cell><Cell>{formatDate(row.fecha_registro)}</Cell></tr>)}
+                            {movimientos.map((row, index) => <tr key={index}><Cell>{movementOrigin(row.tipo_origen)}</Cell><Cell>{movementType(row.movimientos ?? row.tipo_movimiento)}</Cell><Cell>{valueOrDash(row.dni_cliente)}</Cell><Cell>{movementRelatedCompany(row)}</Cell><Cell>{movementRelatedBank(row)}</Cell><Cell numeric>{formatMoney(row.monto_ingreso)}</Cell><Cell numeric>{formatMoney(row.monto_salida)}</Cell><Cell>{valueOrDash(row.tipo_facturacion)}</Cell><Cell>{formatDate(row.fecha_registro)}</Cell></tr>)}
                         </Table>
                     </section>
                 )}

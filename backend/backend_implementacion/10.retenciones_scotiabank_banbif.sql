@@ -304,15 +304,10 @@ AS $$
       OR (
         a.historico
         AND (
-          (
-            op.id_caja_cierre IS NOT NULL
-            AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
-            AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
-          )
-          OR EXISTS (
+          EXISTS (
             SELECT 1
             FROM public.tb_caja_operativa_cierre ch
-            WHERE ch.id IN (op.id_caja_cierre_ingreso, op.id_caja_cierre_salida)
+            WHERE ch.id = COALESCE(op.id_caja_cierre_salida, op.id_caja_cierre)
               AND (p_fecha_caja_cierre_desde IS NULL OR ch.fecha_cierre >= p_fecha_caja_cierre_desde)
               AND (p_fecha_caja_cierre_hasta IS NULL OR ch.fecha_cierre <= p_fecha_caja_cierre_hasta)
           )

@@ -34,6 +34,7 @@ import { BancariaTopActions } from "@/features/operaciones/efectivizacion/bancar
 import { useBancariaKpis } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-kpis";
 import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
 import { getReporteEfectivizacionUnificada } from "@/features/operaciones/efectivizacion/bancaria/utils/reporte-efectivizacion";
+import { getReporteCierreHistorico } from "@/features/reportes/services/reporte-cierre-caja.service";
 
 interface BancariaPageProps {
     ruta: OperacionRutaBancaria;
@@ -190,6 +191,30 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
 
         setIsLoadingReporte(true);
         try {
+            if (selectedHistoryDate && activeCompanyCaja) {
+                const historyClosureId = selectedHistoryClosureId ?? (
+                    await operacionesRpcService.getCajaCierres({ p_id_caja: cajaId })
+                ).find((row) => toLimaDateKey(row.fecha_cierre) === selectedHistoryDate)?.id;
+
+                if (!historyClosureId) {
+                    throw new Error("No se encontró el cierre seleccionado para la caja activa.");
+                }
+
+                const historicalData = await getReporteCierreHistorico({
+                    idCaja: cajaId,
+                    idCajaCierre: historyClosureId,
+                    idEmpresa: activeCompanyCaja.id_empresa,
+                    idEmpresaCuentaBancaria: activeCompanyCaja.id_empresa_cuenta_bancaria,
+                    idBanco: activeCompanyCaja.id_banco,
+                    ruta: activeOperationRoute,
+                    nombreEmpresa: activeCompanyCaja.nombre_empresa,
+                    nombreBanco: activeCompanyCaja.nombre_banco,
+                    fechaCierre: selectedHistoryDate,
+                });
+                setReporteData(historicalData);
+                return historicalData as Record<string, unknown>;
+            }
+
             const data = await operacionesRpcService.getReporteCierre({
                 p_id_caja: cajaId,
                 p_id_empresa: activeCompanyId,
@@ -520,7 +545,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             ["Origen", "Movimiento", "DNI", "Empresa", "Cuenta", "Ingreso", "Salida", "Facturacion", "Fecha"],
             movimientos.map((row) => [
                 movementOrigin(row.tipo_origen),
-                movementType(row.tipo_movimiento),
+                movementType(row.movimientos ?? row.tipo_movimiento),
                 text(row.dni_cliente),
                 movementRelatedCompany(row),
                 movementRelatedBank(row),

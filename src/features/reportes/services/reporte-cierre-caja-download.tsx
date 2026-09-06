@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import { BancariaReporteCierrePdfOficial } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-reporte-cierre-pdf-oficial";
 import { getReporteEfectivizacionUnificada } from "@/features/operaciones/efectivizacion/bancaria/utils/reporte-efectivizacion";
+import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
 import type { ReporteCierreCajaData, ReporteCierreCajaRow } from "./reporte-cierre-caja.service";
 
 const text = (value: unknown) => value === null || value === undefined || value === "" ? "-" : String(value);
@@ -94,7 +95,13 @@ export const buildCierreExcel = async (data: ReporteCierreCajaData) => {
         ...((data.pos as Record<string, unknown>[]) ?? []),
         ...((data.pos_pendientes as Record<string, unknown>[]) ?? []),
     ];
-    const saldoBanco = money(kpi.caja_inicial) + money(kpi.ingresos) - money(kpi.salidas);
+    const movimientos = (data.movimientos as Record<string, unknown>[]) ?? [];
+    const saldoBanco = calcularSaldoBanco(
+        kpi,
+        Number(data.id_empresa ?? 0),
+        Number(data.id_banco ?? 0),
+        Number(data.id_empresa_cuenta_bancaria ?? 0),
+    );
     worksheet.columns = [
         { width: 13 }, { width: 18 }, { width: 14 }, { width: 12 },
         { width: 12 }, { width: 13 }, { width: 13 }, { width: 11 },
@@ -156,6 +163,48 @@ export const buildCierreExcel = async (data: ReporteCierreCajaData) => {
     addSection("Derivados enviados", efectivizacionHeaders, efectivizacionRows(derivadosEnviados), [6, 8, 9, 10, 11]);
     addSection("Pago Deuda", ["DNI", "Empresa Salida", "Cuenta Salida", "Transferencia", "Empresa Ingreso", "Cuenta Ingreso", "Deposito", "% Comision", "S/ Comision", "Fecha"], pagoDeuda.map((row) => [text(row.dni ?? row.dni_cliente), text(row.empresa_salida ?? row.nombre_empresa_salida), text(row.cuenta_salida ?? row.cuenta), money(row.transferencia ?? row.monto_transferencia), text(row.empresa_ingreso ?? row.nombre_empresa_ingreso), text(row.cuenta_ingreso), money(row.deposito ?? row.monto_devolucion), percent(row.porcentaje_comision ?? row.comision_servicio), money(row.soles_comision), date(row.fecha ?? row.fecha_registro)]), [3, 6]);
     addSection("POS", ["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"], pos.map((row) => [text(row.operacion ?? row.codigo_operacion_deposito_cliente), text(row.dni ?? row.dni_cliente), money(row.deposito), percent(row.porcentaje_comision), money(row.soles_comision), text(row.empresa), text(row.cuenta), money(row.transferencia), text(row.estado ?? row.nombre_estado), date(row.fecha ?? row.fecha_registro)]), [7]);
+    const movementOrigin = (value: unknown) => {
+        const key = String(value ?? "").trim().toUpperCase().replaceAll("_", " ");
+        return ({
+            "PAGO DEUDA": "Pago Deuda",
+            "PAGO DEUDA COMISION": "Pago Deuda Comision",
+            "EFECTIVIZACION": "Efectivizacion",
+            "OTROS": "Otros",
+            "TRANSFERENCIA INTERNA": "Movimiento Saldo",
+        } as Record<string, string>)[key] ?? text(value);
+    };
+    const movementTypes = (value: unknown) => {
+        const values = Array.isArray(value) ? value : [value];
+        return values
+            .map((item) => String(item ?? "").trim().toLowerCase())
+            .filter(Boolean)
+            .map((item) => item.charAt(0).toUpperCase() + item.slice(1))
+            .join(" / ") || "-";
+    };
+    const movementRelatedCompany = (row: Record<string, unknown>) =>
+        String(row.tipo_origen ?? "").trim().toUpperCase().replaceAll("_", " ") === "TRANSFERENCIA INTERNA"
+            ? text(row.nombre_empresa_relacionada)
+            : text(row.nombre_empresa_contraparte ?? row.nombre_empresa);
+    const movementRelatedBank = (row: Record<string, unknown>) =>
+        String(row.tipo_origen ?? "").trim().toUpperCase().replaceAll("_", " ") === "TRANSFERENCIA INTERNA"
+            ? text(row.nombre_banco_relacionada)
+            : text(row.nombre_banco_contraparte ?? row.nombre_banco);
+    addSection(
+        "Movimientos",
+        ["Origen", "Movimiento", "DNI", "Empresa", "Cuenta", "Ingreso", "Salida", "Facturacion", "Fecha"],
+        movimientos.map((row) => [
+            movementOrigin(row.tipo_origen),
+            movementTypes(row.movimientos ?? row.tipo_movimiento),
+            text(row.dni_cliente),
+            movementRelatedCompany(row),
+            movementRelatedBank(row),
+            money(row.monto_ingreso),
+            money(row.monto_salida),
+            text(row.tipo_facturacion),
+            date(row.fecha_registro),
+        ]),
+        [5, 6],
+    );
     merge(nextRow, 1, 14, `${data.empresa ?? "Empresa"} - Altoque Peru WK - Reporte de Cierre de Caja`, { size: 8, color: "64748B", bg: colors.paper });
     const buffer = await workbook.xlsx.writeBuffer();
     return new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });

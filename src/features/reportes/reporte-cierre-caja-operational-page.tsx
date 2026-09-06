@@ -20,8 +20,8 @@ import {
 } from "./services/reporte-cierre-caja-download";
 import { formatCierreDate, reporteCierreCajaService } from "./services/reporte-cierre-caja.service";
 
-const visibleTabs = ["Efectivizacion", "Pago Deuda", "Derivados"] as const;
-const visibleTabNames = new Set<string>(visibleTabs);
+const visibleTabs = ["Unificado", "Pago Deuda"] as const;
+const badgeTabNames = new Set<string>(["Efectivizacion", "Pago Deuda", "Derivados", "POS"]);
 const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
 
 const normalizeDateKey = (value: string | null | undefined) => {
@@ -47,7 +47,7 @@ const getHistoricalParams = (date: string) => ({
 
 const getVisibleFlowCount = (rows: Array<{ tab?: string | null; cantidad?: number | null }>) =>
     rows
-        .filter((row) => visibleTabNames.has(String(row.tab ?? "")))
+        .filter((row) => badgeTabNames.has(String(row.tab ?? "")))
         .reduce((total, row) => total + Number(row.cantidad ?? 0), 0);
 
 const normalizeRoute = (value: string | null | undefined) => String(value ?? "").trim().toLowerCase().replace(/\s+/g, "");
@@ -306,10 +306,11 @@ export const ReporteCierreCajaOperationalPage = () => {
                     presentation="plain"
                     readOnly
                     showCompanyTabs={false}
+                    unifiedFlowFilter
                     onCompanyChange={setActiveCompanyId}
                     ruta={selectedBank}
                     queryRoutes={workspaceRoutes}
-                    visibleTabs={["Efectivizacion", "Pago Deuda", "Derivados"]}
+                    visibleTabs={[...visibleTabs]}
                 />
                 </div>
             </div>

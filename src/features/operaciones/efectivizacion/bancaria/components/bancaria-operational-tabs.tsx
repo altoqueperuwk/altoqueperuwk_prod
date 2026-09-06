@@ -50,6 +50,7 @@ import {
     type BancariaTab,
     type MovimientoMerged,
     tabContracts,
+    type UnifiedFlowFilter,
     useBancariaBandeja,
 } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
 import {
@@ -74,6 +75,13 @@ const tabLabels: Partial<Record<BancariaTab, string>> = {
     "Pago Deuda": "Pago Deuda TC",
 };
 const getTabLabel = (tab: BancariaTab) => tabLabels[tab] ?? tab;
+const unifiedFlowFilters: UnifiedFlowFilter[] = [
+    "Todos",
+    "Efectivizacion",
+    "Derivados Atendidos",
+    "Derivados Enviados",
+    "POS",
+];
 const isPagado = (row: Pick<OperacionProceso, "nombre_estado">) =>
     (row.nombre_estado ?? "").trim().toUpperCase() === "PAGADO";
 
@@ -109,6 +117,7 @@ interface BancariaOperationalTabsProps {
     showCompanyTabs?: boolean;
     flowTabsAsButtons?: boolean;
     hidePagination?: boolean;
+    unifiedFlowFilter?: boolean;
     onChanged?: () => void;
     onMetricsChanged?: () => void;
     onCompanyChange: (id: number) => void;
@@ -459,6 +468,7 @@ export const BancariaOperationalTabs = ({
     showCompanyTabs = true,
     flowTabsAsButtons = false,
     hidePagination = false,
+    unifiedFlowFilter = false,
     onChanged,
     onMetricsChanged,
     onCompanyChange,
@@ -707,6 +717,9 @@ export const BancariaOperationalTabs = ({
 
         return base;
     }, [currentTab, ruta]);
+    const currentFilters = unifiedFlowFilter && currentTab === "Unificado"
+        ? unifiedFlowFilters
+        : contract.filters;
     const scopedRoutes = useMemo(
         () => Array.from(new Set([ruta, ...queryRoutes])),
         [queryRoutes, ruta],
@@ -724,6 +737,7 @@ export const BancariaOperationalTabs = ({
         dni,
         historyDate,
         enabled,
+        unifiedFlowFilter,
         refreshKey: refreshKey + actionRefreshKey,
         ruta,
         tab: currentTab,
@@ -739,6 +753,7 @@ export const BancariaOperationalTabs = ({
         dni,
         enabled: enabled && Boolean(secondaryRuta),
         historyDate,
+        unifiedFlowFilter,
         refreshKey: refreshKey + actionRefreshKey,
         ruta: secondaryRuta ?? ruta,
         tab: currentTab,
@@ -1002,8 +1017,10 @@ export const BancariaOperationalTabs = ({
         Efectivizacion: baseOperationColumns,
         Eliminados: baseOperationColumns,
         "Pago Deuda": [
-            { key: "pasos", label: "Pasos", render: (row: OperacionProceso) => presentation === "plain" ? <span className="text-sm text-secondary">{getPagoDeudaStepLabel(row)}</span> : <PagoDeudaSteps row={row} /> },
-            {
+            ...(presentation === "plain" ? [] : [
+                { key: "pasos", label: "Pasos", render: (row: OperacionProceso) => <PagoDeudaSteps row={row} /> },
+            ]),
+            ...(presentation === "plain" ? [] : [{
                 key: "atencion_cliente",
                 label: "Atencion Cliente",
                 headerClassName: "min-w-40",
@@ -1018,7 +1035,7 @@ export const BancariaOperationalTabs = ({
                         </span>
                     </div>
                 ),
-            },
+            }]),
             { key: "dni_cliente", label: "DNI", render: (row: OperacionProceso) => presentation === "plain" ? <span className="text-sm text-secondary">{row.dni_cliente || "-"}</span> : (
                 <div className="flex items-center gap-1">
                     <CopyableDni value={row.dni_cliente} />
@@ -1041,7 +1058,7 @@ export const BancariaOperationalTabs = ({
                 headerClassName: "min-w-28",
                 render: (row: OperacionProceso) => presentation === "plain" ? <span className="text-sm text-secondary">{row.nombre_banco_cliente || "-"}</span> : <CompactBadgeLine>{row.nombre_banco_cliente || "-"}</CompactBadgeLine>,
             },
-            { key: "monto_transferencia_cliente", label: "Monto\nTransferencia", headerClassName: "min-w-32 whitespace-pre-line", cellClassName: "font-semibold text-concept-transferencia tabular-nums", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
+            { key: "monto_transferencia_cliente", label: "Monto\nTransferencia", headerClassName: "min-w-32 whitespace-pre-line", cellClassName: presentation === "plain" ? "tabular-nums" : "font-semibold text-concept-transferencia tabular-nums", render: (row: OperacionProceso) => formatMoney(row.monto_transferencia_cliente ?? row.monto_deposito_cliente) },
             { key: "codigo_operacion_devolucion", label: "Cod. Op.\nDevolucion", headerClassName: "min-w-32 whitespace-pre-line", render: (row: OperacionProceso) => <PagoDeudaCodigosRetorno row={row} /> },
             {
                 key: "empresa_cuenta_ingreso",
@@ -1051,20 +1068,22 @@ export const BancariaOperationalTabs = ({
                 cellClassName: "min-w-48 max-w-56 whitespace-normal",
             },
             { key: "monto_devuelto", label: "Monto\nDevolucion", headerClassName: "min-w-32 whitespace-pre-line", render: (row: OperacionProceso) => formatMoney(row.pd_retorno_monto_devolucion ?? row.monto_devuelto ?? 0) },
-            { key: "estado_visual", label: "Estado", render: (row: OperacionProceso) => presentation === "plain" ? <span className="text-sm text-secondary">{row.nombre_estado || "-"}</span> : (
-                <PagoDeudaEstadoButton
-                    row={row}
-                    isLoading={savingPagoDeudaEstadoIds.includes(row.id)}
-                    onTransferencia={isHistoryMode ? undefined : handlePagoDeudaTransferenciaRow}
-                />
-            ) },
+            ...(presentation === "plain" ? [] : [
+                { key: "estado_visual", label: "Estado", render: (row: OperacionProceso) => (
+                    <PagoDeudaEstadoButton
+                        row={row}
+                        isLoading={savingPagoDeudaEstadoIds.includes(row.id)}
+                        onTransferencia={isHistoryMode ? undefined : handlePagoDeudaTransferenciaRow}
+                    />
+                ) },
+            ]),
             {
                 key: "fecha_registro",
                 label: "Hora",
                 render: (row: OperacionProceso) => (
                     <div className="flex flex-col leading-tight">
                         <span>{formatOperationTime(row.fecha_registro)}</span>
-                        <span className="text-xs text-tertiary">{formatOperationDate(row.fecha_registro)}</span>
+                        <span className={presentation === "plain" ? "text-xs text-secondary" : "text-xs text-tertiary"}>{formatOperationDate(row.fecha_registro)}</span>
                     </div>
                 ),
             },
@@ -1936,7 +1955,7 @@ export const BancariaOperationalTabs = ({
                                         aria-selected={currentTab === tab}
                                         onClick={() => setActiveTab(tab)}
                                     >
-                                        <span>{compactTabMenu ? getTabLabel(tab) : tab}</span>
+                                        <span>{getTabLabel(tab)}</span>
                                         {tabBadges[tab] ? (
                                             <span className="rounded-md bg-primary px-1.5 py-0.5 text-xs font-medium text-secondary ring-1 ring-primary ring-inset">
                                                 {tabBadges[tab]}
@@ -2037,7 +2056,7 @@ export const BancariaOperationalTabs = ({
                 dateTo={dateTo}
                 dateRangeLabel={currentTab === "Retenidos" ? "Fecha Deposito" : undefined}
                 dni={dni}
-                filters={contract.filters}
+                filters={currentFilters}
                 showDateRange={currentTab === "Retenidos"}
                 onDateFromChange={setDateFrom}
                 onDateToChange={setDateTo}
@@ -2070,6 +2089,7 @@ export const BancariaOperationalTabs = ({
                     matchRefreshKey={`${refreshKey}:${actionRefreshKey}:${metricsRefreshKey}`}
                     mode={currentTab === "Derivados" ? "derivaciones" : currentTab === "POS" ? "pos" : currentTab === "Unificado" ? "unificado" : currentTab === "Eliminados" ? "eliminados" : "efectivizacion"}
                     flow={currentTab === "Derivados" ? "Derivado" : currentTab === "POS" ? "POS" : "Efectivizacion"}
+                    unifiedFlowLabels={unifiedFlowFilter}
                     hidePagination={hidePagination}
                     presentation={presentation}
                     readOnly={readOnly}
