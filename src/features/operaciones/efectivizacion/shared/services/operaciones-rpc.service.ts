@@ -13,6 +13,7 @@ import type {
     RutaGananciaEspecial,
     RutaOperacionCaja,
     RutaOperacionKpi,
+    SafetyPayKpi,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
 const formatMoney = (value: unknown) => {
@@ -381,5 +382,9 @@ export const operacionesRpcService = {
 
     getReporteCierre(params: Record<string, unknown>) {
         return rpc<Record<string, unknown>>("f_get_reporte_cierre", params);
+    },
+
+    getSafetyPayKpi(params: Record<string, unknown>) {
+        return rpc<SafetyPayKpi>("f_get_tb_ruta_operacion_kpi_safetypay", params);
     },
 };

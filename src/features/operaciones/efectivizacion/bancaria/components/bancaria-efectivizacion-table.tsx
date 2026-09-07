@@ -1331,7 +1331,7 @@ export const BancariaEfectivizacionTable = ({
                                 const tipoOptions = tipoDepositoOptions(row);
                                 const commissionState = commissionActionState(row);
                                 const pdDisabled = rowSaving || isPagado(row) || !pagoDeudaMatchFlags[row.id];
-                                const displayedTransferAmount = frozenOrigin ? 0 : row.monto_transferencia_cliente;
+                                const displayedTransferAmount = frozenOrigin && ruta !== "safetypay" ? 0 : row.monto_transferencia_cliente;
                                 const derivationDisplay = getDerivationDisplay(row, mode, activeCompanyId, activeAccountId);
 
                                 return (

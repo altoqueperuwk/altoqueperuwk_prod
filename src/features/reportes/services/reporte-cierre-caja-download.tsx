@@ -87,6 +87,16 @@ export const buildCierreExcel = async (data: ReporteCierreCajaData) => {
     const worksheet = workbook.addWorksheet("Cierre de Caja", { pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 }, properties: { defaultRowHeight: 18 } });
     const colors = { navySoft: "2D3F52", paper: "F4F6F9", line: "E5E7EB", row: "F8FAFC", white: "FFFFFF", green: "10B981", coral: "F0654B" };
     const kpi = (data.kpi ?? {}) as Record<string, number>;
+    const isSafetyPay = String(data.ruta ?? "").trim().toLowerCase() === "safetypay";
+    const safetyPayKpi = data.safetypay_kpi ?? {
+        caja_recaudacion: 0,
+        ganancias: 0,
+        salidas: 0,
+        gastos_operacionales: 0,
+        pendiente_transferencia: 0,
+        empresas_derivadas: [],
+        total_transferencia: 0,
+    };
     const { efectivizacion, derivadosAtendidos, derivadosEnviados } = getReporteEfectivizacionUnificada(data);
     const pagoDeuda = [
         ...((data.pago_deuda as Record<string, unknown>[]) ?? []),
@@ -131,16 +141,23 @@ export const buildCierreExcel = async (data: ReporteCierreCajaData) => {
     merge(5, 1, 14, `Cuenta: ${String(data.banco ?? "Cuenta").toUpperCase()}`, { bold: true, color: colors.white, bg: colors.navySoft });
 
     let nextRow = 7;
-    const kpiRows: Array<Array<[string, unknown]>> = [
-        [["Caja Inicial", kpi.caja_inicial], ["Saldo Banco", saldoBanco], ["Caja Recaudacion", kpi.total_recaudado], ["Ingresos", kpi.ingresos]],
-        [["Salidas", kpi.salidas], ["Gastos Operacionales", kpi.gastos_operacionales], ["Ganancias", kpi.ganancias], ["Pendiente Transferencia", kpi.pendiente_transferencia ?? kpi.pendiente_depositar]],
-    ];
+    const kpiRows: Array<Array<[string, unknown]>> = isSafetyPay
+        ? [
+            [["Caja Recaudacion", safetyPayKpi.caja_recaudacion], ["Ganancias", safetyPayKpi.ganancias], ["Salidas", safetyPayKpi.salidas], ["Gastos Operacionales", safetyPayKpi.gastos_operacionales]],
+            [["Pendiente Transferencia", safetyPayKpi.pendiente_transferencia], ["Total Transferencia", safetyPayKpi.total_transferencia], ["", ""], ["", ""]],
+        ]
+        : [
+            [["Caja Inicial", kpi.caja_inicial], ["Saldo Banco", saldoBanco], ["Caja Recaudacion", kpi.total_recaudado], ["Ingresos", kpi.ingresos]],
+            [["Salidas", kpi.salidas], ["Gastos Operacionales", kpi.gastos_operacionales], ["Ganancias", kpi.ganancias], ["Pendiente Transferencia", kpi.pendiente_transferencia ?? kpi.pendiente_depositar]],
+        ];
     kpiRows.forEach((group, groupIndex) => group.forEach(([label, value], columnIndex) => {
+        if (!label) return;
         const row = nextRow + groupIndex * 2;
         const column = columnIndex * 3 + 1;
         merge(row, column, column + 2, label, { bold: true, color: colors.white, bg: colors.navySoft });
-        merge(row + 1, column, column + 2, money(value), { bold: true, color: ["Salidas", "Gastos Operacionales"].includes(label) ? colors.coral : colors.green, bg: colors.white });
-        worksheet.getCell(row + 1, column).numFmt = '"S/ "#,##0.00';
+        const isCount = isSafetyPay && label === "Total Transferencia";
+        merge(row + 1, column, column + 2, isCount ? Number(value ?? 0) : money(value), { bold: true, color: ["Salidas", "Gastos Operacionales"].includes(label) ? colors.coral : colors.green, bg: colors.white });
+        if (!isCount) worksheet.getCell(row + 1, column).numFmt = '"S/ "#,##0.00';
     }));
     nextRow += 7;
 
@@ -188,6 +205,12 @@ export const buildCierreExcel = async (data: ReporteCierreCajaData) => {
 
     const efectivizacionHeaders = ["Facturacion", "Empresa", "Cuenta", "Cod. Op.", "DNI", "Comunidad", "Deposito", "% Comision", "S/ Comision", "Gastos", "Ganancia", "Transferencia", "Estado", "Fecha"];
     const efectivizacionRows = (rows: typeof efectivizacion) => rows.map((row) => [text(row.facturacion), text(row.empresa), text(row.cuenta), text(row.operacion), text(row.dni), text(row.comunidad), money(row.deposito), percent(row.porcentaje_comision), money(row.soles_comision), money(row.gastos), money(row.ganancia), money(row.transferencia), text(row.estado), date(row.fecha)]);
+    addSection(
+        "Empresas Derivadas",
+        ["Empresa", "Cuenta", "Transferencia"],
+        isSafetyPay ? safetyPayKpi.empresas_derivadas.map((row) => [row.empresa, row.cuenta, money(row.monto)]) : [],
+        [2],
+    );
     addSection("Efectivizacion", efectivizacionHeaders, efectivizacionRows(efectivizacion), [6, 8, 9, 10, 11]);
     addSection("Derivados atendidos", efectivizacionHeaders, efectivizacionRows(derivadosAtendidos), [6, 8, 9, 10, 11]);
     addSection("Derivados enviados", efectivizacionHeaders, efectivizacionRows(derivadosEnviados), [6, 8, 9, 10, 11]);

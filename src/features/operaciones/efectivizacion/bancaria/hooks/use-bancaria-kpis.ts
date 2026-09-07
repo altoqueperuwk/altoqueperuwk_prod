@@ -152,6 +152,11 @@ export const useBancariaKpis = (
         setIsLoading(true);
         setError(null);
 
+        if (ruta === "safetypay") {
+            setIsLoading(false);
+            return;
+        }
+
         const request = (() => {
             if (historyDate && !activeCajaId && !activeCompanyId) return Promise.resolve({ kpi: null, gananciasBadge: null });
             if (historyDate) {

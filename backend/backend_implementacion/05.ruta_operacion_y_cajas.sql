@@ -4175,6 +4175,162 @@ END;
 $$;
 
 /*
+Funcion: f_get_tb_ruta_operacion_kpi_safetypay
+Objetivo:
+  Calcular los KPI exclusivos de SafetyPay a partir de las operaciones cuyo
+  ingreso pertenece a la caja activa. La misma funcion soporta el ciclo vivo
+  y un cierre historico sin insertar movimientos ni alterar saldos.
+*/
+CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_kpi_safetypay(
+  p_id_caja bigint,
+  p_id_caja_cierre bigint DEFAULT NULL,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+WITH caja AS (
+  SELECT
+    c.id,
+    c.id_empresa,
+    c.id_empresa_cuenta_bancaria
+  FROM public.tb_caja_operativa c
+  WHERE c.id = p_id_caja
+    AND (p_id_empresa IS NULL OR c.id_empresa = p_id_empresa)
+    AND (
+      p_id_empresa_cuenta_bancaria IS NULL
+      OR c.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria
+    )
+), operaciones AS (
+  SELECT op.*
+  FROM public.tb_operacion_proceso op
+  JOIN caja c
+    ON c.id_empresa = op.id_empresa_ingreso
+   AND c.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_ingreso
+  WHERE COALESCE(op.id_estado, 0) <> 10
+    AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+    AND UPPER(BTRIM(COALESCE(op.tipo_servicio, ''))) = 'EFECTIVIZACION'
+    AND COALESCE(op.flag_retenido, false) = false
+    AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN (
+      'DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO'
+    )
+    AND (
+      (
+        p_id_caja_cierre IS NULL
+        AND op.id_caja_cierre IS NULL
+        AND op.id_caja_cierre_ingreso IS NULL
+        AND op.id_caja_cierre_salida IS NULL
+      )
+      OR (
+        p_id_caja_cierre IS NOT NULL
+        AND (
+          op.id_caja_cierre = p_id_caja_cierre
+          OR op.id_caja_cierre_ingreso = p_id_caja_cierre
+          OR op.id_caja_cierre_salida = p_id_caja_cierre
+          -- A reintento/reapertura puede dejar la operacion con el ID de
+          -- otro cierre del mismo dia. La consulta historica del frontend
+          -- es por fecha, por lo que conservamos esas operaciones.
+          OR EXISTS (
+            SELECT 1
+            FROM public.tb_caja_operativa_cierre ch
+            WHERE ch.id = p_id_caja_cierre
+              AND ch.id_caja = p_id_caja
+              AND op.fecha_caja_cierre IS NOT NULL
+              AND (op.fecha_caja_cierre AT TIME ZONE 'America/Lima')::date =
+                  (ch.fecha_cierre AT TIME ZONE 'America/Lima')::date
+          )
+        )
+      )
+    )
+), metricas AS (
+  SELECT
+    COALESCE(SUM(CASE
+      WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+      THEN COALESCE(op.monto_deposito_cliente, 0)
+      ELSE 0
+    END), 0)::numeric AS caja_recaudacion,
+    COALESCE(SUM(CASE
+      WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+      THEN COALESCE(op.monto_deposito_cliente, 0)
+        - COALESCE(op.monto_transferencia_cliente, 0)
+        - COALESCE(op.resultado_comision_banco_ingreso, 0)
+        - COALESCE(op.resultado_comision_banco_salida, 0)
+      ELSE 0
+    END), 0)::numeric AS ganancias,
+    COALESCE(SUM(CASE
+      WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+       AND COALESCE(op.monto_transferencia_cliente, 0) > 0
+      THEN COALESCE(op.monto_transferencia_cliente, 0)
+      ELSE 0
+    END), 0)::numeric AS salidas,
+    (
+      COALESCE(SUM(CASE
+        WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+        THEN COALESCE(op.resultado_comision_banco_ingreso, 0)
+        ELSE 0
+      END), 0)
+      + COALESCE(SUM(CASE
+        WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+        THEN COALESCE(op.resultado_comision_banco_salida, 0)
+        ELSE 0
+      END), 0)
+    )::numeric AS gastos_operacionales,
+    COALESCE(SUM(CASE
+      WHEN UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN (
+        'ELIMINADO', 'PAGADO', 'PROCESADO', 'DEVUELTO', 'RECHAZADO'
+      )
+       AND COALESCE(op.monto_transferencia_cliente, 0) > 0
+      THEN COALESCE(op.monto_transferencia_cliente, 0)
+      ELSE 0
+    END), 0)::numeric AS pendiente_transferencia,
+    COUNT(*) FILTER (
+      WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+        AND COALESCE(op.monto_transferencia_cliente, 0) > 0
+    )::integer AS total_transferencia
+  FROM operaciones op
+), empresas AS (
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'empresa', empresa,
+        'cuenta', cuenta,
+        'monto', monto
+      )
+      ORDER BY empresa, cuenta
+    ),
+    '[]'::jsonb
+  ) AS empresas_derivadas
+  FROM (
+    SELECT
+      COALESCE(NULLIF(BTRIM(op.nombre_empresa_salida), ''), '-') AS empresa,
+      COALESCE(NULLIF(BTRIM(op.nombre_banco_empresa_cuenta_salida), ''), '-') AS cuenta,
+      SUM(COALESCE(op.monto_transferencia_cliente, 0))::numeric AS monto
+    FROM operaciones op
+    WHERE op.flag_derivado = true
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+      AND COALESCE(op.monto_transferencia_cliente, 0) > 0
+    GROUP BY
+      COALESCE(NULLIF(BTRIM(op.nombre_empresa_salida), ''), '-'),
+      COALESCE(NULLIF(BTRIM(op.nombre_banco_empresa_cuenta_salida), ''), '-')
+  ) grouped
+)
+SELECT jsonb_build_object(
+  'caja_recaudacion', metricas.caja_recaudacion,
+  'ganancias', metricas.ganancias,
+  'salidas', metricas.salidas,
+  'gastos_operacionales', metricas.gastos_operacionales,
+  'pendiente_transferencia', metricas.pendiente_transferencia,
+  'empresas_derivadas', empresas.empresas_derivadas,
+  'total_transferencia', metricas.total_transferencia
+)
+FROM metricas
+CROSS JOIN empresas;
+$$;
+
+/*
 Funcion: f_get_reporte_cierre
 Objetivo:
   Devolver todos los datos necesarios para generar el reporte de cierre en
@@ -4221,6 +4377,7 @@ DECLARE
   v_retenciones_pagadas jsonb;
   v_retenciones_pendientes jsonb;
   v_kpi jsonb;
+  v_safetypay_kpi jsonb;
   v_fecha_cierre_ts timestamp with time zone;
   v_cierre_id bigint;
   v_reporte_desde timestamp with time zone;
@@ -4308,6 +4465,7 @@ BEGIN
       CASE
         WHEN op.flag_derivado = true
          AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(COALESCE(p_ruta, v_ruta))
+         AND LOWER(COALESCE(p_ruta, v_ruta)) <> 'safetypay'
         THEN 0
         ELSE COALESCE(op.monto_transferencia_cliente, 0)
       END AS transferencia,
@@ -4797,15 +4955,27 @@ BEGIN
     ) AS k;
   END IF;
 
+  IF LOWER(COALESCE(p_ruta, v_ruta, '')) = 'safetypay' THEN
+    SELECT public.f_get_tb_ruta_operacion_kpi_safetypay(
+      p_id_caja := p_id_caja,
+      p_id_caja_cierre := v_cierre_id,
+      p_id_empresa := COALESCE(p_id_empresa, v_caja.id_empresa),
+      p_id_empresa_cuenta_bancaria := v_caja.id_empresa_cuenta_bancaria
+    )
+    INTO v_safetypay_kpi;
+  END IF;
+
   v_result := jsonb_build_object(
     'empresa', v_nombre_empresa,
     'banco', v_nombre_banco,
+    'ruta', COALESCE(p_ruta, v_ruta),
     'fecha_cierre', COALESCE(
       v_fecha_cierre_ts,
       (SELECT fecha_cierre FROM public.tb_caja_operativa_cierre WHERE id = p_id_caja_cierre LIMIT 1),
       v_caja.fecha_apertura
     ),
     'kpi', COALESCE(v_kpi, '{}'::jsonb),
+    'safetypay_kpi', v_safetypay_kpi,
     'efectivizacion', v_efectivizacion,
     'efectivizacion_pendientes', COALESCE(v_efectivizacion_pendientes, '[]'::jsonb),
     'derivados', v_derivados,
@@ -8333,6 +8503,7 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_reporte_cierre',
+  'f_get_tb_ruta_operacion_kpi_safetypay',
   'f_get_tb_operacion_caja',
   'f_get_tb_operacion_empresa_badges'
 )

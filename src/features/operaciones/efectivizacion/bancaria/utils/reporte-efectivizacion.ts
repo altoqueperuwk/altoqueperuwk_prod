@@ -23,6 +23,7 @@ export interface ReporteEfectivizacionUnificadaRow {
 interface ReporteEfectivizacionSource {
     empresa?: unknown;
     banco?: unknown;
+    ruta?: unknown;
     efectivizacion?: unknown;
     efectivizacion_pendientes?: unknown;
     derivados?: unknown;
@@ -58,6 +59,7 @@ const normalizeRow = (
 ): ReporteEfectivizacionUnificadaRow => {
     const derivadaCongelada = row.derivada_congelada === true
         || String(row.derivada_congelada ?? "").trim().toLowerCase() === "true";
+    const isSafetyPay = String(data.ruta ?? "").trim().toLowerCase() === "safetypay";
 
     // En el reporte del flujo enviado, empresa/cuenta son el destino actual.
     // empresa_derivada/cuenta_derivada representan el origen y no deben
@@ -94,7 +96,7 @@ const normalizeRow = (
         soles_comision: firstNumber(row.soles_comision, row.comision),
         gastos: firstNumber(row.gastos, 0),
         ganancia: firstNumber(row.ganancia, 0),
-        transferencia: firstNumber(row.transferencia, 0),
+        transferencia: derivadaCongelada && !isSafetyPay ? 0 : firstNumber(row.transferencia, 0),
         estado: firstText(row.estado, row.nombre_estado),
         fecha: firstText(row.fecha, row.fecha_deposito_cliente, row.fecha_registro),
         derivada_congelada: derivadaCongelada,

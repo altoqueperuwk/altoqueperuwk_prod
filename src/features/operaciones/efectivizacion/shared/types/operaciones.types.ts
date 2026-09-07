@@ -53,6 +53,22 @@ export interface RutaOperacionKpi {
     gastos_banco_salida?: number | null;
 }
 
+export interface SafetyPayDerivedCompany {
+    empresa: string;
+    cuenta: string;
+    monto: number;
+}
+
+export interface SafetyPayKpi {
+    caja_recaudacion: number;
+    ganancias: number;
+    salidas: number;
+    gastos_operacionales: number;
+    pendiente_transferencia: number;
+    empresas_derivadas: SafetyPayDerivedCompany[];
+    total_transferencia: number;
+}
+
 export interface RutaGananciaEspecial {
     ganancias: number;
     id_caja_cierre_referencia: number | null;

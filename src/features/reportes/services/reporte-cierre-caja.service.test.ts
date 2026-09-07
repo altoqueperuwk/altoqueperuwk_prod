@@ -136,4 +136,62 @@ describe("getReporteCierreHistorico", () => {
         expect(report.kpi).toMatchObject({ ganancias: 25, gastos_banco_salida: 2 });
         expect(report.retenciones).toEqual([]);
     });
+
+    it("conserva la transferencia real de los derivados enviados de SafetyPay", async () => {
+        const safetyOperation = operation({
+            id: 5564045,
+            monto_deposito_cliente: 4000,
+            monto_transferencia_cliente: 3920,
+            nombre_empresa_ingreso: "SafetyPay",
+            nombre_banco_empresa_cuenta_ingreso: "Interbank",
+            nombre_empresa_salida: "TwoService (1) S.A.",
+            nombre_banco_empresa_cuenta_salida: "Interbank",
+            ruta_origen: "safetypay",
+            ruta_destino: "interbank",
+            flag_derivado: true,
+        });
+
+        rpcMock.mockImplementation((functionName: string) => {
+            const dataByFunction: Record<string, unknown> = {
+                f_get_tb_operacion_bandeja_unificada: [safetyOperation],
+                f_get_tb_pago_deuda_bandeja: [],
+                f_get_tb_operacion_caja: [],
+                f_get_tb_ruta_operacion_kpi_cierre_operaciones_v2: [],
+                f_get_tb_ruta_operacion_gastos_salida_v2: 0,
+                f_get_tb_ruta_operacion_kpi_safetypay: {
+                    caja_recaudacion: 4000,
+                    ganancias: 0,
+                    salidas: 3920,
+                    gastos_operacionales: 0,
+                    pendiente_transferencia: 0,
+                    empresas_derivadas: [{ empresa: "TwoService (1) S.A.", cuenta: "Interbank", monto: 3920 }],
+                    total_transferencia: 1,
+                },
+            };
+
+            return Promise.resolve({ data: dataByFunction[functionName] ?? [], error: null });
+        });
+
+        const report = await getReporteCierreHistorico({
+            idCaja: 32,
+            idCajaCierre: 366,
+            idEmpresa: 14,
+            idEmpresaCuentaBancaria: 24,
+            idBanco: 5,
+            ruta: "safetypay",
+            nombreEmpresa: "SafetyPay",
+            nombreBanco: "Interbank",
+            fechaCierre: "2026-09-05",
+        });
+
+        expect(report.safetypay_kpi).toMatchObject({
+            salidas: 3920,
+            total_transferencia: 1,
+        });
+        const effectRows = report.efectivizacion as Array<Record<string, unknown>>;
+        expect(effectRows[0]).toMatchObject({
+            flujo: "Derivados Enviados",
+            transferencia: 3920,
+        });
+    });
 });

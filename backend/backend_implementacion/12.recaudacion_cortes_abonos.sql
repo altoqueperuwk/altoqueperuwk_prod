@@ -1003,7 +1003,8 @@ BEGIN
           'bbva',
           'scotiabank',
           'banbif',
-          'interbank'
+          'interbank',
+          'safetypay'
         )
     ) AS cajas
     ORDER BY id_caja

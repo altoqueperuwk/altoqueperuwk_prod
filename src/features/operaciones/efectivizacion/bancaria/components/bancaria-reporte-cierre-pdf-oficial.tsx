@@ -3,6 +3,7 @@ import { formatInteger, formatMoney as formatCurrency } from "@/features/operaci
 import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
 import { getReporteEfectivizacionUnificada } from "@/features/operaciones/efectivizacion/bancaria/utils/reporte-efectivizacion";
 import { getReporteCierreEmpresaSummary } from "@/features/reportes/services/reporte-cierre-caja-summary";
+import type { SafetyPayKpi } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
 interface ReportRowBase {
     operacion?: string | null;
@@ -102,6 +103,7 @@ interface RetencionRow extends ReportRowBase {
 }
 
 interface ReporteCierreData {
+    ruta?: string;
     id_empresa?: number;
     id_banco?: number;
     id_empresa_cuenta_bancaria?: number;
@@ -121,6 +123,7 @@ interface ReporteCierreData {
     retenciones?: RetencionRow[];
     retenciones_pagadas?: RetencionRow[];
     retenciones_pendientes?: RetencionRow[];
+    safetypay_kpi?: SafetyPayKpi;
 }
 
 interface BancariaReporteCierrePdfOficialProps {
@@ -130,6 +133,7 @@ interface BancariaReporteCierrePdfOficialProps {
 const reportStyles = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 .report-container, .report-container * { box-sizing:border-box; }
+.report-container .hidden { display:none; }
 .report-container {
     width:794px;
     max-width:794px;
@@ -281,6 +285,10 @@ const reportStyles = `
 .report-container .kpi-value.green { color:#10B981; }
 .report-container .kpi-value.coral { color:#F0654B; }
 .report-container .kpi-tags { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
+.report-container .safety-derived-list { display:flex; flex-direction:column; gap:3px; margin-top:5px; }
+.report-container .safety-derived-item { display:flex; justify-content:space-between; gap:6px; font-size:7px; line-height:1.25; }
+.report-container .safety-derived-company { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#475569; }
+.report-container .safety-derived-amount { flex-shrink:0; color:#10B981; font-weight:700; font-variant-numeric:tabular-nums; }
 .report-container .kpi-tag {
     color:#64748B;
     font-size:6.8px;
@@ -425,6 +433,29 @@ const KpiCard = ({ label, value, tags, tone = "neutral" }: { label: string; valu
     </div>
 );
 
+const KpiCountCard = ({ label, value }: { label: string; value: number }) => (
+    <div className="kpi-card">
+        <div className="kpi-label">{label}</div>
+        <div className="kpi-value neutral">{formatInteger(value)}</div>
+    </div>
+);
+
+const SafetyPayDerivedKpiCard = ({ kpi }: { kpi: SafetyPayKpi }) => (
+    <div className="kpi-card" style={{ gridColumn: "span 2" }}>
+        <div className="kpi-label">Empresas Derivadas</div>
+        {kpi.empresas_derivadas.length ? (
+            <div className="safety-derived-list">
+                {kpi.empresas_derivadas.map((item) => (
+                    <div className="safety-derived-item" key={`${item.empresa}-${item.cuenta}`}>
+                        <span className="safety-derived-company">{item.empresa} · {item.cuenta}</span>
+                        <span className="safety-derived-amount">{formatMoney(item.monto)}</span>
+                    </div>
+                ))}
+            </div>
+        ) : <div className="kpi-value neutral">-</div>}
+    </div>
+);
+
 const SectionHeader = ({ title, count, badge }: { title: string; count?: number; badge?: string }) => (
     <div className="section-header">
         <div className="section-header-left">
@@ -504,6 +535,16 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
     const pos = [...(data.pos ?? []), ...(data.pos_pendientes ?? [])];
     const movimientos = data.movimientos ?? [];
     const kpi = data.kpi ?? {};
+    const isSafetyPay = String(data.ruta ?? "").trim().toLowerCase() === "safetypay";
+    const safetyPayKpi: SafetyPayKpi = data.safetypay_kpi ?? {
+        caja_recaudacion: 0,
+        ganancias: 0,
+        salidas: 0,
+        gastos_operacionales: 0,
+        pendiente_transferencia: 0,
+        empresas_derivadas: [],
+        total_transferencia: 0,
+    };
     const saldoBanco = calcularSaldoBanco(
         kpi,
         data.id_empresa,
@@ -530,6 +571,20 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
             </Table>
         </section>
     );
+    const renderSafetyPayDerivedSection = isSafetyPay && safetyPayKpi.empresas_derivadas.length > 0 && (
+        <section>
+            <SectionHeader title="Empresas Derivadas" count={safetyPayKpi.empresas_derivadas.length} />
+            <Table headers={["Empresa", "Cuenta", "Transferencia"]}>
+                {safetyPayKpi.empresas_derivadas.map((row, index) => (
+                    <tr key={`safetypay-derived-${index}`}>
+                        <Cell>{row.empresa}</Cell>
+                        <Cell>{row.cuenta}</Cell>
+                        <Cell numeric>{formatMoney(row.monto)}</Cell>
+                    </tr>
+                ))}
+            </Table>
+        </section>
+    );
 
     return (
         <>
@@ -537,7 +592,16 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
             <div className="report-container">
                 <ReportHeader data={data} totalRows={totalOperations} />
                 <SectionHeader title={data.empresa ?? "Empresa"} badge={data.banco ?? "Banco"} />
-                <div className="kpi-grid">
+                {isSafetyPay && <div className="kpi-grid">
+                    <KpiCard label="Caja Recaudación" tags={[]} value={safetyPayKpi.caja_recaudacion} tone="green" />
+                    <KpiCard label="Ganancias" tags={[]} value={safetyPayKpi.ganancias} tone="green" />
+                    <KpiCard label="Salidas" tags={[]} value={safetyPayKpi.salidas} tone="coral" />
+                    <KpiCard label="Gastos Operacionales" tags={[]} value={safetyPayKpi.gastos_operacionales} tone="coral" />
+                    <KpiCard label="Pendiente Transferencia" tags={[]} value={safetyPayKpi.pendiente_transferencia} />
+                    <KpiCountCard label="Total Transferencia" value={safetyPayKpi.total_transferencia} />
+                    <SafetyPayDerivedKpiCard kpi={safetyPayKpi} />
+                </div>}
+                <div className={isSafetyPay ? "hidden" : "kpi-grid"}>
                     <KpiCard label="Caja Inicial" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_inicial} />
                     <KpiCard label="Saldo Banco" tags={["Saldo conciliado"]} value={saldoBanco} />
                     <KpiCard label="Caja Recaudación" tags={["Efectivización", "Pago Deuda"]} value={kpi.caja_recaudacion ?? kpi.total_recaudado} tone="green" />
@@ -550,6 +614,7 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
 
                 {renderCompanySummarySection("Ingresos por Empresas", ingresos)}
                 {renderCompanySummarySection("Salidas por Empresas", salidas)}
+                {renderSafetyPayDerivedSection}
 
                 {renderEfectivizacionSection("Efectivizacion", efectivizacion)}
                 {renderEfectivizacionSection("Derivados atendidos", derivadosAtendidos)}

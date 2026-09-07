@@ -10,6 +10,7 @@ import type {
     OperacionRutaBancaria,
     RutaGananciaEspecial,
     RutaOperacionKpi,
+    SafetyPayKpi,
 } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
 export interface ReporteCierreCajaRow {
@@ -36,6 +37,7 @@ export type ReporteCierreCajaData = Record<string, unknown> & {
     empresa?: string;
     banco?: string;
     fecha_cierre?: string;
+    safetypay_kpi?: SafetyPayKpi;
 };
 
 export interface ReporteCierreHistoricoContext {
@@ -144,7 +146,7 @@ const toReportEfectivizacionRow = (
                 - transferenciaReal
                 - gastoIngreso
                 - toNumber(row.resultado_comision_banco_salida),
-        transferencia: isDerivedSent ? 0 : transferenciaReal,
+        transferencia: isDerivedSent && context.ruta !== "safetypay" ? 0 : transferenciaReal,
         fuera_horario: Boolean(row.flag_fuera_horario),
         estado: row.nombre_estado,
         fecha: row.fecha_deposito_cliente ?? row.fecha_registro,
@@ -314,7 +316,7 @@ export const getReporteCierreHistorico = async (
     const fechaDesde = `${dateKey}T00:00:00-05:00`;
     const fechaHasta = `${dateKey}T23:59:59-05:00`;
 
-    const [unifiedRows, pagoDeudaRows, movementRows, kpiRows, gastosSalida, specialGainRows] = await Promise.all([
+    const [unifiedRows, pagoDeudaRows, movementRows, kpiRows, gastosSalida, specialGainRows, safetyPayKpi] = await Promise.all([
         rpc<OperacionProceso[]>("f_get_tb_operacion_bandeja_unificada", {
             p_tab: "UNIFICADO",
             p_ruta: context.ruta,
@@ -359,6 +361,14 @@ export const getReporteCierreHistorico = async (
                   p_fecha_consulta: dateKey,
               })
             : Promise.resolve([]),
+        context.ruta === "safetypay"
+            ? rpc<SafetyPayKpi>("f_get_tb_ruta_operacion_kpi_safetypay", {
+                  p_id_caja: context.idCaja,
+                  p_id_caja_cierre: context.idCajaCierre,
+                  p_id_empresa: context.idEmpresa,
+                  p_id_empresa_cuenta_bancaria: context.idEmpresaCuentaBancaria,
+              })
+            : Promise.resolve(null as SafetyPayKpi | null),
     ]);
 
     const uniqueUnifiedRows = sortOperacionesChronologically(
@@ -406,6 +416,7 @@ export const getReporteCierreHistorico = async (
         empresa: context.nombreEmpresa,
         banco: context.nombreBanco,
         fecha_cierre: context.fechaCierre,
+        safetypay_kpi: safetyPayKpi ?? undefined,
         kpi,
         efectivizacion: effect.paid,
         efectivizacion_pendientes: effect.pending,

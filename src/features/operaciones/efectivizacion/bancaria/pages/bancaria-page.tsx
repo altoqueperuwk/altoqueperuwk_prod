@@ -21,7 +21,7 @@ import { OperacionReglasEfectivizacionModal } from "@/features/operaciones/efect
 import { useActiveCompany } from "@/features/operaciones/efectivizacion/shared/hooks/use-active-company";
 import { useRouteCompanies } from "@/features/operaciones/efectivizacion/shared/hooks/use-route-companies";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
-import type { CajaOperativa, OperacionRutaBancaria } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import type { CajaOperativa, OperacionRutaBancaria, SafetyPayKpi } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import { isDigitalWalletBank } from "@/features/operaciones/efectivizacion/shared/utils/digital-wallet";
 import { getRutaLabel } from "@/features/operaciones/efectivizacion/shared/utils/route-config";
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
@@ -32,6 +32,7 @@ import { BancariaOperationalTabs } from "@/features/operaciones/efectivizacion/b
 import { BancariaReporteCierrePdfOficial } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-reporte-cierre-pdf-oficial";
 import { BancariaTopActions } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-top-actions";
 import { useBancariaKpis } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-kpis";
+import { useBancariaSafetyPayKpi } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-safetypay-kpi";
 import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
 import { getReporteEfectivizacionUnificada } from "@/features/operaciones/efectivizacion/bancaria/utils/reporte-efectivizacion";
 import { getReporteCierreHistorico } from "@/features/reportes/services/reporte-cierre-caja.service";
@@ -130,6 +131,20 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         selectedHistoryDate,
         refreshKey + metricsRefreshKey,
         workspaceRoutes,
+    );
+    const isSafetyPay = activeOperationRoute === "safetypay";
+    const {
+        data: safetyPayKpi,
+        error: safetyPayKpiError,
+        isLoading: isLoadingSafetyPayKpi,
+    } = useBancariaSafetyPayKpi(
+        activeOperationRoute,
+        activeCompanyId,
+        activeAccountId,
+        activeCajaId,
+        selectedHistoryDate,
+        selectedHistoryClosureId,
+        refreshKey + metricsRefreshKey,
     );
 
     useEffect(() => {
@@ -259,6 +274,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 id_empresa: activeCompanyCaja?.id_empresa ?? activeCompanyId,
                 id_banco: activeCompanyCaja?.id_banco ?? null,
                 id_empresa_cuenta_bancaria: activeCompanyCaja?.id_empresa_cuenta_bancaria ?? activeAccountId,
+                ruta: activeOperationRoute,
                 kpi: {
                     ...((data.kpi ?? {}) as Record<string, unknown>),
                     gastos_banco_salida: Number(gastosBancoSalida ?? 0),
@@ -310,6 +326,16 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         };
         const reportFileName = getReportFileName(data).replace(/\.pdf$/i, ".xlsx");
         const kpi = (data.kpi ?? {}) as Record<string, number>;
+        const isSafetyPayReport = String(data.ruta ?? activeOperationRoute).trim().toLowerCase() === "safetypay";
+        const safetyPayKpi: SafetyPayKpi = (data.safetypay_kpi as SafetyPayKpi | undefined) ?? {
+            caja_recaudacion: 0,
+            ganancias: 0,
+            salidas: 0,
+            gastos_operacionales: 0,
+            pendiente_transferencia: 0,
+            empresas_derivadas: [],
+            total_transferencia: 0,
+        };
         const saldoBanco = calcularSaldoBanco(
             kpi,
             Number(data.id_empresa ?? 0),
@@ -379,22 +405,29 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         mergeAndStyle(5, 1, 14, `Cuenta: ${String(data.banco ?? routeLabel).toUpperCase()}`, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
 
         let nextRow = 7;
-        const kpiRows: Array<Array<[string, unknown]>> = [
-            [["Caja Inicial", kpi.caja_inicial], ["Saldo Banco", saldoBanco], ["Caja Recaudacion", kpi.caja_recaudacion ?? kpi.total_recaudado], ["Ingresos", kpi.ingresos]],
-            [["Salidas", kpi.salidas], ["Gastos Operacionales", kpi.gastos_operacionales], ["Ganancias", kpi.ganancias], ["Pendiente Transferencia", kpi.pendiente_transferencia ?? kpi.pendiente_depositar]],
-        ];
+        const kpiRows: Array<Array<[string, unknown]>> = isSafetyPayReport
+            ? [
+                [["Caja Recaudacion", safetyPayKpi.caja_recaudacion], ["Ganancias", safetyPayKpi.ganancias], ["Salidas", safetyPayKpi.salidas], ["Gastos Operacionales", safetyPayKpi.gastos_operacionales]],
+                [["Pendiente Transferencia", safetyPayKpi.pendiente_transferencia], ["Total Transferencia", safetyPayKpi.total_transferencia], ["", ""], ["", ""]],
+            ]
+            : [
+                [["Caja Inicial", kpi.caja_inicial], ["Saldo Banco", saldoBanco], ["Caja Recaudacion", kpi.caja_recaudacion ?? kpi.total_recaudado], ["Ingresos", kpi.ingresos]],
+                [["Salidas", kpi.salidas], ["Gastos Operacionales", kpi.gastos_operacionales], ["Ganancias", kpi.ganancias], ["Pendiente Transferencia", kpi.pendiente_transferencia ?? kpi.pendiente_depositar]],
+            ];
         kpiRows.forEach((group, groupIndex) => group.forEach(([label, value], columnIndex) => {
+            if (!label) return;
             const rowIndex = nextRow + groupIndex * 2;
             const colIndex = columnIndex * 3 + 1;
             mergeAndStyle(rowIndex, colIndex, colIndex + 2, label, {
                 bold: true, size: 8, color: colors.white, bg: colors.navySoft,
             });
-            mergeAndStyle(rowIndex + 1, colIndex, colIndex + 2, money(value), {
+            const isCount = isSafetyPayReport && label === "Total Transferencia";
+            mergeAndStyle(rowIndex + 1, colIndex, colIndex + 2, isCount ? Number(value ?? 0) : money(value), {
                 bold: true,
                 size: 8,
                 bg: colors.white,
                 color: ["Salidas", "Gastos Operacionales"].includes(label) ? colors.coral : colors.green,
-                numFmt: '"S/ "#,##0.00',
+                ...(isCount ? {} : { numFmt: '"S/ "#,##0.00' }),
             });
         }));
         nextRow += 7;
@@ -494,6 +527,12 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 date(row.fecha),
             ]);
 
+        addSection(
+            "Empresas Derivadas",
+            ["Empresa", "Cuenta", "Transferencia"],
+            isSafetyPayReport ? safetyPayKpi.empresas_derivadas.map((row) => [row.empresa, row.cuenta, money(row.monto)]) : [],
+            [2],
+        );
         addSection("Efectivizacion", efectivizacionHeaders, efectivizacionRows(efectivizacion), [6, 8, 9, 10, 11]);
         addSection("Derivados atendidos", efectivizacionHeaders, efectivizacionRows(derivadosAtendidos), [6, 8, 9, 10, 11]);
         addSection("Derivados enviados", efectivizacionHeaders, efectivizacionRows(derivadosEnviados), [6, 8, 9, 10, 11]);
@@ -865,9 +904,9 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     {isLoadingCompanies && <span className="text-sm text-tertiary">Cargando empresas...</span>}
                 </div>
 
-                {(companiesError || kpiError) && (
+                {(companiesError || kpiError || safetyPayKpiError) && (
                     <div className="rounded-lg border border-error_subtle bg-error-primary px-4 py-3 text-sm text-error-primary">
-                        {companiesError || kpiError}
+                        {companiesError || kpiError || safetyPayKpiError}
                     </div>
                 )}
 
@@ -883,10 +922,12 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                             activeAccountId={activeCompanyCaja?.id_empresa_cuenta_bancaria}
                             activeBankId={activeCompanyCaja?.id_banco}
                             activeCompanyId={activeCompanyCaja?.id_empresa}
-                            hasRetentionRule={activeCompanyCaja?.flag_retencion_cuenta === true}
-                            gananciasBadge={gananciasBadge}
-                            isLoading={isLoadingKpis}
+                        hasRetentionRule={activeCompanyCaja?.flag_retencion_cuenta === true}
+                        gananciasBadge={gananciasBadge}
+                            isLoading={isSafetyPay ? isLoadingSafetyPayKpi : isLoadingKpis}
+                            isSafetyPay={isSafetyPay}
                             kpi={kpi}
+                            safetyPayKpi={safetyPayKpi}
                         />
                     </div>
 
