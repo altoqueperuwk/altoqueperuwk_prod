@@ -21,6 +21,7 @@ interface OperationTableProps<T extends { id: number }> {
     emptyText: string;
     isLoading?: boolean;
     isRefreshing?: boolean;
+    hidePagination?: boolean;
     onToggleRow?: (id: number) => void;
     renderActions?: (row: T) => ReactNode;
     selectedIds?: number[];
@@ -68,6 +69,7 @@ export const OperationTable = <T extends { id: number }>({
     emptyText,
     isLoading = false,
     isRefreshing = false,
+    hidePagination = false,
     onToggleRow,
     renderActions,
     selectedIds = [],
@@ -78,21 +80,21 @@ export const OperationTable = <T extends { id: number }>({
     const hasSelection = Boolean(onToggleRow);
     const activePage = serverPagination?.page ?? page;
     const activePageSize = serverPagination?.pageSize ?? pageSize;
-    const totalPages = serverPagination?.totalPages ?? Math.max(1, Math.ceil(data.length / activePageSize));
+    const totalPages = hidePagination ? 1 : serverPagination?.totalPages ?? Math.max(1, Math.ceil(data.length / activePageSize));
     const paginatedData = useMemo(() => {
-        if (serverPagination) return data;
+        if (serverPagination || hidePagination) return data;
         const start = (activePage - 1) * activePageSize;
         return data.slice(start, start + activePageSize);
-    }, [activePage, activePageSize, data, serverPagination]);
+    }, [activePage, activePageSize, data, hidePagination, serverPagination]);
     const skeletonRows = Array.from({ length: Math.min(activePageSize, 5) });
 
     useEffect(() => {
-        if (!serverPagination) setPage((current) => Math.min(current, totalPages));
-    }, [serverPagination, totalPages]);
+        if (!serverPagination && !hidePagination) setPage((current) => Math.min(current, totalPages));
+    }, [hidePagination, serverPagination, totalPages]);
 
     useEffect(() => {
-        if (!serverPagination) setPage(1);
-    }, [data, pageSize, serverPagination]);
+        if (!serverPagination && !hidePagination) setPage(1);
+    }, [data, hidePagination, pageSize, serverPagination]);
 
     const visibleIds = paginatedData.map((row) => row.id);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
@@ -211,7 +213,7 @@ export const OperationTable = <T extends { id: number }>({
                     </tbody>
                 </table>
             </div>
-            <div className="flex flex-wrap items-center justify-center gap-3 border-t border-secondary px-4 py-3">
+            {!hidePagination && <div className="flex flex-wrap items-center justify-center gap-3 border-t border-secondary px-4 py-3">
                 <Button
                     aria-label="Pagina anterior"
                     size="sm"
@@ -244,7 +246,7 @@ export const OperationTable = <T extends { id: number }>({
                         { label: "100", value: "100" },
                     ]}
                 />
-            </div>
+            </div>}
         </div>
     );
 };

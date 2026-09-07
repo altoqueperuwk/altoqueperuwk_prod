@@ -3667,6 +3667,179 @@ END;
 $$;
 
 /*
+Funcion: f_patch_tb_operacion_proceso_revertir_directo_caja
+Objetivo:
+  Devolver una operacion de Efectivizacion clasificada como DIRECTO_CAJA al
+  flujo operativo pendiente, para corregir una clasificacion accidental.
+
+Reglas:
+  - solo aplica a operaciones de Efectivizacion en estado Pagado;
+  - no permite revertir operaciones que ya pertenecen a un cierre de caja;
+  - no revierte movimientos contables porque DIRECTO_CAJA no crea filas en
+    tb_operacion_caja;
+  - restaura los importes calculados para que la operacion pueda pagarse de
+    nuevo desde Efectivizacion.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_revertir_directo_caja(
+  p_id bigint,
+  p_id_estado bigint DEFAULT NULL,
+  p_nombre_estado character varying DEFAULT NULL,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_actual record;
+  v_regla record;
+  v_calc_serv jsonb;
+  v_calc jsonb;
+  v_id_estado_pendiente bigint;
+  v_nombre_estado_pendiente character varying;
+  v_itf_cuenta numeric := 0;
+  v_ruta character varying;
+  v_usuario bigint;
+BEGIN
+  SELECT *
+  INTO v_actual
+  FROM public.tb_operacion_proceso
+  WHERE id = p_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('error', 'La operacion no existe.');
+  END IF;
+
+  IF UPPER(BTRIM(COALESCE(v_actual.tipo_servicio, ''))) <> 'EFECTIVIZACION'
+     OR UPPER(BTRIM(COALESCE(v_actual.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA' THEN
+    RETURN jsonb_build_object('error', 'La operacion no esta clasificada como Directo.');
+  END IF;
+
+  IF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) <> 'PAGADO' THEN
+    RETURN jsonb_build_object('error', 'La operacion no se encuentra en estado Pagado.');
+  END IF;
+
+  IF v_actual.id_caja_cierre IS NOT NULL
+     OR v_actual.id_caja_cierre_ingreso IS NOT NULL
+     OR v_actual.id_caja_cierre_salida IS NOT NULL THEN
+    RETURN jsonb_build_object('error', 'No se puede revertir una operacion que ya pertenece a un cierre de caja.');
+  END IF;
+
+  SELECT id, nombre
+  INTO v_id_estado_pendiente, v_nombre_estado_pendiente
+  FROM public.tb_estado
+  WHERE UPPER(BTRIM(nombre)) = 'PENDIENTE'
+  LIMIT 1;
+
+  IF v_id_estado_pendiente IS NULL OR v_nombre_estado_pendiente IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro el estado Pendiente.');
+  END IF;
+
+  p_id_estado := v_id_estado_pendiente;
+  p_nombre_estado := v_nombre_estado_pendiente;
+
+  SELECT r.*
+  INTO v_regla
+  FROM public.tb_reglas_efectivizacion r
+  WHERE r.id_codigo_servicio = v_actual.id_codigo_servicio
+    AND r.id_banco = v_actual.id_banco_empresa_cuenta_ingreso
+    AND r.id_comunidad = v_actual.id_comunidad
+    AND (v_actual.nombre_tipo_deposito IS NULL OR r.tipo_deposito = v_actual.nombre_tipo_deposito)
+    AND r.id_estado = (SELECT id FROM public.tb_estado WHERE UPPER(nombre) = 'ACTIVO' LIMIT 1)
+  LIMIT 1;
+
+  IF v_regla.id IS NULL THEN
+    RETURN jsonb_build_object('error', 'No se encontro una regla activa para reconstruir la operacion.');
+  END IF;
+
+  IF v_actual.id_cliente IS NOT NULL
+     AND LOWER(BTRIM(COALESCE(v_actual.ruta_destino, v_actual.ruta_origen, ''))) IN ('bcp', 'bbva', 'scotiabank', 'banbif', 'interbank', 'safetypay') THEN
+    v_calc_serv := public.f_get_tb_operacion_comision_efectivizacion_cliente(
+      v_actual.id_cliente,
+      COALESCE(v_actual.monto_deposito_cliente, 0),
+      v_regla.comision_servicio,
+      v_regla.monto_minimo_deposito_servicio,
+      v_regla.comision_minima_servicio
+    );
+  ELSE
+    v_calc_serv := public.f_get_tb_operacion_calculo_comision_servicio(
+      COALESCE(v_actual.monto_deposito_cliente, 0),
+      v_regla.comision_servicio,
+      v_regla.monto_minimo_deposito_servicio,
+      v_regla.comision_minima_servicio,
+      0
+    ) || jsonb_build_object(
+      'comision_servicio', v_regla.comision_servicio,
+      'monto_minimo_deposito_servicio', v_regla.monto_minimo_deposito_servicio,
+      'comision_minima_servicio', v_regla.comision_minima_servicio,
+      'comision_monto_extra_servicio', 0
+    );
+  END IF;
+
+  SELECT COALESCE(c.comision_itf_ingreso_salida, 0)
+  INTO v_itf_cuenta
+  FROM public.tb_empresa_cuenta_bancaria c
+  WHERE c.id = v_actual.id_empresa_cuenta_ingreso
+    AND (v_actual.id_empresa_ingreso IS NULL OR c.id_empresa = v_actual.id_empresa_ingreso)
+  LIMIT 1;
+
+  v_calc := public.f_get_tb_operacion_proceso_calculo(
+    v_actual.monto_deposito_cliente,
+    (v_calc_serv->>'comision_servicio')::numeric,
+    (v_calc_serv->>'monto_minimo_deposito_servicio')::numeric,
+    (v_calc_serv->>'comision_minima_servicio')::numeric,
+    (v_calc_serv->>'comision_monto_extra_servicio')::numeric,
+    COALESCE(v_actual.flag_por_sol_comision_banco_ingreso, false),
+    v_actual.comision_banco_ingreso,
+    v_actual.comision_minimo_banco_ingreso,
+    v_actual.comision_igv_banco_ingreso,
+    v_itf_cuenta,
+    v_actual.comision_transf_banco_salida,
+    v_actual.comision_transf_inter_banco_salida,
+    v_itf_cuenta,
+    v_actual.id_empresa_salida,
+    v_actual.id_empresa_cuenta_salida,
+    v_actual.id_banco_empresa_cuenta_salida,
+    v_actual.id_banco_cliente_transferencia
+  );
+
+  v_usuario := COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario);
+  v_ruta := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
+
+  UPDATE public.tb_operacion_proceso
+  SET tipo_flujo_pago_deuda = NULL,
+      id_estado = p_id_estado,
+      nombre_estado = p_nombre_estado,
+      fecha_pendiente = now(),
+      fecha_pagado = NULL,
+      comision_servicio = (v_calc_serv->>'comision_servicio')::numeric,
+      monto_minimo_deposito_servicio = (v_calc_serv->>'monto_minimo_deposito_servicio')::numeric,
+      comision_minima_servicio = (v_calc_serv->>'comision_minima_servicio')::numeric,
+      comision_monto_extra_servicio = (v_calc_serv->>'comision_monto_extra_servicio')::numeric,
+      monto_transferencia_cliente = (v_calc->>'monto_transferencia_cliente')::numeric,
+      resultado_comision_servicio = (v_calc->>'resultado_comision_servicio')::numeric,
+      resultado_comision_banco_ingreso = (v_calc->>'resultado_comision_banco_ingreso')::numeric,
+      resultado_comision_banco_salida = (v_calc->>'resultado_comision_banco_salida')::numeric,
+      monto_itf_ingreso = v_itf_cuenta,
+      monto_itf_salida = v_itf_cuenta,
+      id_usuario_gestor = COALESCE(p_id_usuario_gestor, id_usuario_gestor),
+      nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor, nombre_usuario_gestor)
+  WHERE id = p_id;
+
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta, v_usuario);
+  PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta, v_usuario);
+
+  RETURN (
+    SELECT x
+    FROM public.f_get_tb_operacion_proceso(p_id := p_id) AS x
+    LIMIT 1
+  );
+END;
+$$;
+
+/*
 Funcion: f_patch_tb_operacion_proceso_reanudar
 Objetivo:
   Devolver una operacion pagada al flujo pendiente, revirtiendo el impacto de
@@ -6282,6 +6455,7 @@ WHERE p.proname IN (
   'f_patch_tb_operacion_proceso_pagado_lote',
   'f_patch_tb_operacion_proceso_directo_caja',
   'f_patch_tb_operacion_proceso_directo_caja_lote',
+  'f_patch_tb_operacion_proceso_revertir_directo_caja',
   'f_patch_tb_operacion_proceso_reanudar_lote',
   'f_patch_tb_operacion_proceso_reanudar_post_cierre'
 )

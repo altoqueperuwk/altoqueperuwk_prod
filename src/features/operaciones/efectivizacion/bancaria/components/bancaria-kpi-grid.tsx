@@ -28,9 +28,6 @@ export const BancariaKpiGrid = ({
         {
             label: "Saldo Banco",
             value: formatMoney(saldoBanco),
-            secondaryLabel: "Caja Actual",
-            secondaryValue: formatMoney(kpi?.caja_actual),
-            secondaryValueHidden: true,
             valueClassName: "text-primary",
             badges: ["Efectivizacion", "Pago Deuda", "Otros"],
         },
@@ -55,9 +52,6 @@ export const BancariaKpiGrid = ({
                     isLoading={isLoading}
                     key={card.label}
                     label={card.label}
-                    secondaryLabel={"secondaryLabel" in card ? card.secondaryLabel : undefined}
-                    secondaryValue={"secondaryValue" in card ? card.secondaryValue : undefined}
-                    secondaryValueHidden={"secondaryValueHidden" in card ? card.secondaryValueHidden : undefined}
                     value={card.value}
                     valueClassName={card.valueClassName}
                 />

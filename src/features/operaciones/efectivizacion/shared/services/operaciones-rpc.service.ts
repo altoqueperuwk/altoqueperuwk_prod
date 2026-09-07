@@ -303,6 +303,10 @@ export const operacionesRpcService = {
         return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_directo_caja", params);
     },
 
+    revertirOperacionDirectoCaja(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_operacion_proceso_revertir_directo_caja", params);
+    },
+
     patchOperacionDirectoCajaLote(params: Record<string, unknown>) {
         return rpc<OperacionDirectoLoteResult>("f_patch_tb_operacion_proceso_directo_caja_lote", params);
     },

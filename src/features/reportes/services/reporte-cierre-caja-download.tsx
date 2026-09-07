@@ -5,6 +5,7 @@ import { BancariaReporteCierrePdfOficial } from "@/features/operaciones/efectivi
 import { getReporteEfectivizacionUnificada } from "@/features/operaciones/efectivizacion/bancaria/utils/reporte-efectivizacion";
 import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
 import type { ReporteCierreCajaData, ReporteCierreCajaRow } from "./reporte-cierre-caja.service";
+import { getReporteCierreEmpresaSummary } from "./reporte-cierre-caja-summary";
 
 const text = (value: unknown) => value === null || value === undefined || value === "" ? "-" : String(value);
 const money = (value: unknown) => Number(value ?? 0);
@@ -103,7 +104,7 @@ export const buildCierreExcel = async (data: ReporteCierreCajaData) => {
         Number(data.id_empresa_cuenta_bancaria ?? 0),
     );
     worksheet.columns = [
-        { width: 13 }, { width: 18 }, { width: 14 }, { width: 12 },
+        { width: 18.43 }, { width: 13.71 }, { width: 13.14 }, { width: 12 },
         { width: 12 }, { width: 13 }, { width: 13 }, { width: 11 },
         { width: 13 }, { width: 12 }, { width: 12 }, { width: 14 },
         { width: 11 }, { width: 11 },
@@ -130,14 +131,43 @@ export const buildCierreExcel = async (data: ReporteCierreCajaData) => {
     merge(5, 1, 14, `Cuenta: ${String(data.banco ?? "Cuenta").toUpperCase()}`, { bold: true, color: colors.white, bg: colors.navySoft });
 
     let nextRow = 7;
-    [["Caja Inicial", kpi.caja_inicial], ["Caja Actual", kpi.caja_actual], ["Saldo Banco", saldoBanco], ["Caja Recaudacion", kpi.total_recaudado], ["Ingresos", kpi.ingresos], ["Salidas", kpi.salidas], ["Gastos Operacionales", kpi.gastos_operacionales], ["Ganancias", kpi.ganancias], ["Fuera de Horario", kpi.fuera_horario]].forEach(([label, value], index) => {
-        const row = nextRow + Math.floor(index / 4) * 2;
-        const column = (index % 4) * 3 + 1;
-        merge(row, column, column + 2, String(label), { bold: true, color: colors.white, bg: colors.navySoft });
-        merge(row + 1, column, column + 2, money(value), { bold: true, color: ["Salidas", "Gastos Operacionales"].includes(String(label)) ? colors.coral : colors.green, bg: colors.white });
+    const kpiRows: Array<Array<[string, unknown]>> = [
+        [["Caja Inicial", kpi.caja_inicial], ["Saldo Banco", saldoBanco], ["Caja Recaudacion", kpi.total_recaudado], ["Ingresos", kpi.ingresos]],
+        [["Salidas", kpi.salidas], ["Gastos Operacionales", kpi.gastos_operacionales], ["Ganancias", kpi.ganancias], ["Pendiente Transferencia", kpi.pendiente_transferencia ?? kpi.pendiente_depositar]],
+    ];
+    kpiRows.forEach((group, groupIndex) => group.forEach(([label, value], columnIndex) => {
+        const row = nextRow + groupIndex * 2;
+        const column = columnIndex * 3 + 1;
+        merge(row, column, column + 2, label, { bold: true, color: colors.white, bg: colors.navySoft });
+        merge(row + 1, column, column + 2, money(value), { bold: true, color: ["Salidas", "Gastos Operacionales"].includes(label) ? colors.coral : colors.green, bg: colors.white });
         worksheet.getCell(row + 1, column).numFmt = '"S/ "#,##0.00';
-    });
+    }));
     nextRow += 7;
+
+    const { ingresos, salidas } = getReporteCierreEmpresaSummary(data);
+    const addSummarySection = (title: string, rows: typeof ingresos, color: string) => {
+        if (!rows.length) return;
+        worksheet.mergeCells(nextRow, 1, nextRow, 3);
+        const titleCell = worksheet.getCell(nextRow, 1);
+        titleCell.value = title;
+        styleCell(titleCell, { bold: true, color: colors.white, bg: colors.navySoft, align: "center" });
+        nextRow += 1;
+        rows.forEach((row) => {
+            const values: Array<string | number> = [row.empresa, row.cuenta, row.monto];
+            worksheet.getRow(nextRow).height = 15;
+            values.forEach((value, index) => {
+                const cell = worksheet.getRow(nextRow).getCell(index + 1);
+                cell.value = value;
+                if (index === 2) cell.numFmt = '"S/ "#,##0.00';
+                styleCell(cell, { bold: index === 2, color: index === 2 ? color : "1E2A38", bg: colors.white });
+            });
+            nextRow += 1;
+        });
+        nextRow += 1;
+    };
+
+    addSummarySection("Ingresos por Empresas", ingresos, colors.green);
+    addSummarySection("Salidas por Empresas", salidas, colors.coral);
 
     const addSection = (title: string, headers: string[], rows: Array<Array<string | number>>, totalIndexes: number[]) => {
         if (!rows.length) return;
@@ -169,6 +199,7 @@ export const buildCierreExcel = async (data: ReporteCierreCajaData) => {
             "PAGO DEUDA": "Pago Deuda",
             "PAGO DEUDA COMISION": "Pago Deuda Comision",
             "EFECTIVIZACION": "Efectivizacion",
+            "DIRECTO CAJA": "Directo",
             "OTROS": "Otros",
             "TRANSFERENCIA INTERNA": "Movimiento Saldo",
         } as Record<string, string>)[key] ?? text(value);

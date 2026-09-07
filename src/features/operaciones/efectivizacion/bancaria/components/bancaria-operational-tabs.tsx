@@ -7,9 +7,8 @@ import { estadoService } from "@/services/estado.service";
 import { clienteService } from "@/services/cliente.service";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
-import { NativeSelect } from "@/components/base/select/select-native";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Edit03, Send01, Trash01 } from "@untitledui/icons";
+import { Edit03, RefreshCcw02, Send01, Trash01 } from "@untitledui/icons";
 import { EmpresaTabs } from "@/features/operaciones/efectivizacion/shared/components/empresa-tabs";
 import { OperacionConfirmModal } from "@/features/operaciones/efectivizacion/shared/components/operacion-confirm-modal";
 import { OperationTable } from "@/features/operaciones/efectivizacion/shared/components/operation-table";
@@ -67,7 +66,7 @@ import {
 import { pagoDeudaService } from "@/features/operaciones/pago-deuda/services/pago-deuda.service";
 
 const tabs: BancariaTab[] = ["Unificado", "Pago Deuda", "Movimientos", "Eliminados", "Efectivizacion", "Derivados", "POS", "Retenidos"];
-const primaryTabs: BancariaTab[] = ["Unificado", "Pago Deuda", "Movimientos"];
+const primaryTabs: BancariaTab[] = ["Unificado", "Pago Deuda", "Movimientos", "Eliminados"];
 const retentionRoutes = new Set<OperacionRutaBancaria>(["bcp", "scotiabank", "banbif", "safetypay"]);
 const softDeleteRoutes = new Set<OperacionRutaBancaria>(["bcp", "bbva", "scotiabank", "banbif", "interbank", "safetypay"]);
 const tabLabels: Partial<Record<BancariaTab, string>> = {
@@ -151,9 +150,15 @@ const isDeletableMovement = (row: MovimientoMerged) => {
     return origen === "OTROS" || origen === "TRANSFERENCIA INTERNA";
 };
 
+const isRollbackableDirectMovement = (row: MovimientoMerged) => {
+    const origen = (row.tipo_origen ?? "").trim().toUpperCase().replaceAll("_", " ");
+    return row.id_operacion_proceso != null && origen === "DIRECTO CAJA";
+};
+
 const getMovementColumns = (
     showModalidad: boolean,
     onDelete?: (row: MovimientoMerged) => void,
+    onRollback?: (row: MovimientoMerged) => void,
 ) => [
     { key: "tipo_origen", label: "Origen", render: (row: MovimientoMerged) => <CompactBadgeLine color="brand">{formatMovimientoOrigen(row.tipo_origen)}</CompactBadgeLine> },
     ...(showModalidad ? [{
@@ -226,11 +231,21 @@ const getMovementColumns = (
         const date = new Date(row.fecha_registro);
         return <span className="whitespace-pre-line">{date.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}{"\n"}{date.toLocaleDateString("es-PE")}</span>;
     } },
-    ...(onDelete ? [{
+    ...(onDelete || onRollback ? [{
         key: "acciones",
         label: "Acciones",
         render: (row: MovimientoMerged) => (
             <div className="flex items-center gap-1">
+                {onRollback && isRollbackableDirectMovement(row) && (
+                    <Button
+                        size="xs"
+                        color="tertiary"
+                        iconLeading={RefreshCcw02}
+                        aria-label="Devolver a Efectivizacion"
+                        title="Devolver a Efectivizacion"
+                        onClick={() => onRollback(row)}
+                    />
+                )}
                 {onDelete && isDeletableMovement(row) && (
                     <Button
                         size="xs"
@@ -511,6 +526,8 @@ export const BancariaOperationalTabs = ({
     const [isRollbackProcessing, setIsRollbackProcessing] = useState(false);
     const [movementToDelete, setMovementToDelete] = useState<MovimientoMerged | null>(null);
     const [isDeletingMovement, setIsDeletingMovement] = useState(false);
+    const [directMovementToRollback, setDirectMovementToRollback] = useState<MovimientoMerged | null>(null);
+    const [isRollingBackDirectMovement, setIsRollingBackDirectMovement] = useState(false);
     const [operationsToDelete, setOperationsToDelete] = useState<OperacionProceso[] | null>(null);
     const [operationToRestore, setOperationToRestore] = useState<OperacionProceso | null>(null);
     const [isProcessingOperationDelete, setIsProcessingOperationDelete] = useState(false);
@@ -582,17 +599,6 @@ export const BancariaOperationalTabs = ({
     const currentTab = activeTab;
     const compactTabMenu = !requestedTabs;
     const primaryVisibleTabs = visibleTabs.filter((tab) => primaryTabs.includes(tab));
-    const secondaryVisibleTabs = visibleTabs.filter((tab) => !primaryTabs.includes(tab));
-    const selectedSecondaryTab = secondaryVisibleTabs.includes(currentTab) ? currentTab : "";
-
-    const secondaryTabOptions = [
-        { label: "Seleccionar", value: "" },
-        ...secondaryVisibleTabs.map((tab) => ({ label: tab, value: tab })),
-    ];
-
-    const handleSecondaryTabChange = (value: string) => {
-        if (value) setActiveTab(value as BancariaTab);
-    };
 
     useEffect(() => {
         if (currentTab !== "POS" && currentTab !== "Pago Deuda") {
@@ -955,6 +961,32 @@ export const BancariaOperationalTabs = ({
         }
     }, [addToast, movementToDelete, onChanged, onMetricsChanged, userId]);
 
+    const handleRollbackDirectMovement = useCallback(async () => {
+        const idOperacionProceso = directMovementToRollback?.id_operacion_proceso;
+        if (idOperacionProceso == null) return;
+
+        setIsRollingBackDirectMovement(true);
+        try {
+            await operacionesRpcService.revertirOperacionDirectoCaja({
+                p_id: idOperacionProceso,
+                p_id_estado: estadoPendiente?.id ?? null,
+                p_nombre_estado: estadoPendiente?.nombre ?? null,
+                p_id_usuario_gestor: userId,
+                p_nombre_usuario_gestor: userName,
+            });
+            addToast("success", "Operacion devuelta a Efectivizacion correctamente.");
+            setDirectMovementToRollback(null);
+            setActionRefreshKey((value) => value + 1);
+            setMetricsRefreshKey((value) => value + 1);
+            onChanged?.();
+            onMetricsChanged?.();
+        } catch (err) {
+            addToast("error", err instanceof Error ? err.message : "No se pudo devolver la operacion a Efectivizacion.");
+        } finally {
+            setIsRollingBackDirectMovement(false);
+        }
+    }, [addToast, directMovementToRollback, estadoPendiente, onChanged, onMetricsChanged, userId, userName]);
+
     const handleDeleteOperation = useCallback(async () => {
         const targets = operationsToDelete ?? [];
         if (!targets.length) return;
@@ -1155,7 +1187,11 @@ export const BancariaOperationalTabs = ({
     } as Record<string, { key: string; label: string; render?: (row: OperacionProceso) => React.ReactNode }[]>), [codigoOperacionEdit, handleCodigoOperacionSave, handlePagoDeudaTransferenciaRow, handlePosEstadoRow, isHistoryMode, isSavingCodigoOperacion, presentation, readOnly, savingPagoDeudaEstadoIds, savingPosEstadoIds]);
     const currentOperationColumns = currentTab === "Movimientos" || currentTab === "Unificado" ? baseOperationColumns : operationColumnsByTab[currentTab];
     const currentMovementColumns = useMemo(
-        () => getMovementColumns(ruta === "safetypay", isHistoryMode ? undefined : setMovementToDelete),
+        () => getMovementColumns(
+            ruta === "safetypay",
+            isHistoryMode ? undefined : setMovementToDelete,
+            isHistoryMode ? undefined : setDirectMovementToRollback,
+        ),
         [isHistoryMode, ruta],
     );
     const selectedOperations = selectedIds
@@ -1963,17 +1999,6 @@ export const BancariaOperationalTabs = ({
                                         ) : null}
                                     </Button>
                                 ))}
-                                {compactTabMenu && secondaryVisibleTabs.length > 0 ? (
-                                    <NativeSelect
-                                        aria-label="Seleccionar bandeja"
-                                        className="w-auto min-w-44"
-                                        selectClassName="h-9 min-w-44 rounded-lg bg-primary pr-8 text-sm font-semibold text-primary ring-secondary"
-                                        options={secondaryTabOptions}
-                                        size="sm"
-                                        value={selectedSecondaryTab}
-                                        onChange={(event) => handleSecondaryTabChange(event.target.value)}
-                                    />
-                                ) : null}
                             </div>
                             {selectedTransferSummaryView}
                         </div>
@@ -2004,17 +2029,6 @@ export const BancariaOperationalTabs = ({
                                         ))}
                                     </Tabs.List>
                                 </Tabs>
-                                {secondaryVisibleTabs.length > 0 ? (
-                                    <NativeSelect
-                                        aria-label="Seleccionar bandeja"
-                                        className="w-auto min-w-44"
-                                        selectClassName="h-9 min-w-44 rounded-lg bg-primary pr-8 text-sm font-semibold text-primary ring-secondary"
-                                        options={secondaryTabOptions}
-                                        size="sm"
-                                        value={selectedSecondaryTab}
-                                        onChange={(event) => handleSecondaryTabChange(event.target.value)}
-                                    />
-                                ) : null}
                             </div>
                             {selectedTransferSummaryView}
                         </div>
@@ -2074,7 +2088,7 @@ export const BancariaOperationalTabs = ({
             )}
 
             {currentTab === "Movimientos" ? (
-                <OperationTable columns={currentMovementColumns} data={movimientos} emptyText={emptyText} isLoading={isInitialLoading} isRefreshing={isRefreshing} />
+                <OperationTable columns={currentMovementColumns} data={movimientos} emptyText={emptyText} hidePagination isLoading={isInitialLoading} isRefreshing={isRefreshing} />
             ) : currentTab === "Efectivizacion" || currentTab === "Unificado" || currentTab === "Derivados" || currentTab === "POS" || currentTab === "Eliminados" ? (
             <BancariaEfectivizacionTable
                     activeAccountId={activeAccountId}
@@ -2199,6 +2213,17 @@ export const BancariaOperationalTabs = ({
                 }}
                 onConfirm={() => void handleDeleteMovement()}
                 title="Eliminar movimiento"
+            />
+            <OperacionConfirmModal
+                confirmLabel="Devolver"
+                description="La operacion volvera a Efectivizacion y quedara pendiente para ser atendida nuevamente."
+                isLoading={isRollingBackDirectMovement}
+                isOpen={directMovementToRollback !== null}
+                onClose={() => {
+                    if (!isRollingBackDirectMovement) setDirectMovementToRollback(null);
+                }}
+                onConfirm={() => void handleRollbackDirectMovement()}
+                title="Devolver a Efectivizacion"
             />
             <BancariaActionModal
                 action={pendingAction === "Match" ? null : pendingAction}

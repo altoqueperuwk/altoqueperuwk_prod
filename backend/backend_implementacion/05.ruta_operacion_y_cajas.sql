@@ -1888,6 +1888,8 @@ Reglas:
   - en historial cuenta solo operaciones congeladas dentro del rango de cierre;
   - derivados se agrupa por empresa de salida porque la ruta destino atiende
     la operacion.
+  - Pago Deuda reutiliza la fila BANCO de f_get_tb_pago_deuda_bandeja para
+    evitar contar la solicitud raiz y respetar sus reglas de cierre.
   - Retenidos de Scotiabank/Banbif se consultan en 10.retenciones_scotiabank_banbif.sql.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_empresa_badges(
@@ -1927,6 +1929,21 @@ AS $$
         )
       )
   ),
+  pago_deuda_rows AS (
+    SELECT
+      'Pago Deuda'::character varying AS tab,
+      NULLIF(pago.row_data ->> 'id_empresa_salida', '')::bigint AS id_empresa
+    FROM public.f_get_tb_pago_deuda_bandeja(
+      p_ruta := LOWER(BTRIM(COALESCE(p_ruta, ''))),
+      p_id_empresa_cuenta_salida := p_id_empresa_cuenta_bancaria,
+      p_fecha_caja_cierre_desde := p_fecha_caja_cierre_desde,
+      p_fecha_caja_cierre_hasta := p_fecha_caja_cierre_hasta
+    ) AS pago(row_data)
+    WHERE COALESCE(NULLIF(pago.row_data ->> 'id_estado', '')::bigint, 0) <> 10
+      AND UPPER(BTRIM(COALESCE(pago.row_data ->> 'nombre_estado', ''))) IN ('PENDIENTE', 'SOLICITADO')
+      AND COALESCE((pago.row_data ->> 'flag_retenido')::boolean, false) = false
+      AND NULLIF(pago.row_data ->> 'id_empresa_salida', '') IS NOT NULL
+  ),
   empresa_rows AS (
     SELECT
       'Efectivizacion'::character varying AS tab,
@@ -1940,15 +1957,8 @@ AS $$
 
     UNION ALL
 
-    SELECT
-      'Pago Deuda'::character varying AS tab,
-      id_empresa_salida AS id_empresa
-    FROM base
-    WHERE UPPER(COALESCE(tipo_servicio, '')) = 'PAGO DEUDA'
-      AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
-      AND COALESCE(flag_retenido, false) = false
-      AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
-      AND id_empresa_salida IS NOT NULL
+    SELECT tab, id_empresa
+    FROM pago_deuda_rows
 
     UNION ALL
 
@@ -4353,6 +4363,7 @@ BEGIN
         AND UPPER(COALESCE(oc.tipo_origen, '')) <> 'PAGO_DEUDA_COMISION'
     ) caja ON true
     WHERE UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
+      AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA'
       -- Una derivacion recibida pertenece al bloque unificado de Derivados.
       -- La dejamos fuera de este conjunto para no duplicarla en el reporte.
       AND NOT (
@@ -4644,6 +4655,8 @@ BEGIN
       oc.tipo_facturacion,
       oc.nombre_empresa,
       oc.nombre_banco,
+      oc.nombre_empresa_contraparte,
+      oc.nombre_banco_contraparte,
       related.nombre_empresa AS nombre_empresa_relacionada,
       related.nombre_banco AS nombre_banco_relacionada,
       oc.fecha_registro
@@ -4665,6 +4678,49 @@ BEGIN
           WHERE id_caja = p_id_caja
             AND (fecha_cierre AT TIME ZONE 'America/Lima')::date = p_fecha_cierre
         ))
+      )
+
+    UNION ALL
+
+    SELECT
+      'DIRECTO_CAJA'::character varying AS tipo_origen,
+      'INGRESO'::character varying AS tipo_movimiento,
+      op.dni_cliente,
+      op.codigo_operacion_deposito_cliente AS codigo_operacion,
+      COALESCE(op.monto_deposito_cliente, 0) AS monto_ingreso,
+      0::numeric AS monto_salida,
+      0::numeric AS monto_gasto,
+      0::numeric AS monto_ganancia,
+      'Ingreso directo a caja'::character varying AS detalle,
+      op.tipo_facturacion,
+      e.nombre AS nombre_empresa,
+      b.nombre AS nombre_banco,
+      NULL::character varying AS nombre_empresa_contraparte,
+      NULL::character varying AS nombre_banco_contraparte,
+      NULL::character varying AS nombre_empresa_relacionada,
+      NULL::character varying AS nombre_banco_relacionada,
+      op.fecha_registro
+    FROM public.tb_operacion_proceso op
+    JOIN public.tb_caja_operativa c
+      ON c.id_empresa = op.id_empresa_ingreso
+     AND c.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_ingreso
+    JOIN public.tb_empresa e ON e.id = c.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = c.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
+    WHERE c.id = p_id_caja
+      AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) = 'DIRECTO_CAJA'
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.tb_operacion_caja legacy
+        WHERE legacy.id_operacion_proceso = op.id
+      )
+      AND (
+        (p_fecha_cierre IS NULL AND p_id_caja_cierre IS NULL AND COALESCE(op.id_caja_cierre, op.id_caja_cierre_ingreso, op.id_caja_cierre_salida) IS NULL)
+        OR (
+          v_cierre_id IS NOT NULL
+          AND COALESCE(op.id_caja_cierre, op.id_caja_cierre_ingreso, op.id_caja_cierre_salida) = v_cierre_id
+        )
       )
   ) x;
 
@@ -5075,100 +5131,210 @@ LANGUAGE sql
 SECURITY DEFINER
 STABLE
 AS $$
-  SELECT jsonb_build_object(
-    'id', t.id,
-    'id_caja', t.id_caja,
-    'id_operacion_caja_relacionada', t.id_operacion_caja_relacionada,
-    'nombre_empresa_relacionada', related.nombre_empresa,
-    'nombre_banco_relacionada', related.nombre_banco,
-    'id_operacion_proceso', t.id_operacion_proceso,
-    'fecha_deposito_cliente', op.fecha_deposito_cliente,
-    'tipo_origen', t.tipo_origen,
-    'tipo_movimiento', t.tipo_movimiento,
-    'tipo_servicio', op.tipo_servicio,
-    'tipo_recaudacion_sf', op.tipo_recaudacion_sf,
-    'id_codigo_servicio', t.id_codigo_servicio,
-    'nombre_codigo_servicio', t.nombre_codigo_servicio,
-    'dni_cliente', t.dni_cliente,
-    'nombre_cliente', t.nombre_cliente,
-    'codigo_operacion', t.codigo_operacion,
-    'id_categoria_movimiento', t.id_categoria_movimiento,
-    'nombre_categoria_movimiento', t.nombre_categoria_movimiento,
-    'detalle', t.detalle,
-    'id_empresa', t.id_empresa,
-    'nombre_empresa', t.nombre_empresa,
-    'id_empresa_cuenta_bancaria', t.id_empresa_cuenta_bancaria,
-    'id_banco', t.id_banco,
-    'nombre_banco', t.nombre_banco,
-    'id_banco_tercero', t.id_banco_tercero,
-    'nombre_banco_tercero', t.nombre_banco_tercero,
-    'id_empresa_contraparte', t.id_empresa_contraparte,
-    'nombre_empresa_contraparte', t.nombre_empresa_contraparte,
-    'id_empresa_cuenta_bancaria_contraparte', t.id_empresa_cuenta_bancaria_contraparte,
-    'id_banco_contraparte', t.id_banco_contraparte,
-    'nombre_banco_contraparte', t.nombre_banco_contraparte,
-    'monto_ingreso', t.monto_ingreso,
-    'monto_gasto', t.monto_gasto,
-    'monto_ganancia', t.monto_ganancia,
-    'monto_salida', t.monto_salida,
-    'flag_contabiliza_operacion', t.flag_contabiliza_operacion,
-    'saldo_anterior', t.saldo_anterior,
-    'saldo_actual', t.saldo_actual,
-    'id_estado', t.id_estado,
-    'nombre_estado', t.nombre_estado,
-    'id_usuario', t.id_usuario,
-    'nombre_usuario', t.nombre_usuario,
-    'tipo_facturacion', t.tipo_facturacion,
-    'id_caja_cierre', t.id_caja_cierre,
-    'fecha_caja_cierre', t.fecha_caja_cierre,
-    'fecha_registro', t.fecha_registro,
-    'flag_paso_retencion', (op.fecha_retencion IS NOT NULL)
+  WITH movimientos AS (
+    SELECT
+      jsonb_build_object(
+        'id', t.id,
+        'id_caja', t.id_caja,
+        'id_operacion_caja_relacionada', t.id_operacion_caja_relacionada,
+        'nombre_empresa_relacionada', related.nombre_empresa,
+        'nombre_banco_relacionada', related.nombre_banco,
+        'id_operacion_proceso', t.id_operacion_proceso,
+        'fecha_deposito_cliente', op.fecha_deposito_cliente,
+        'tipo_origen', t.tipo_origen,
+        'tipo_movimiento', t.tipo_movimiento,
+        'tipo_servicio', op.tipo_servicio,
+        'tipo_recaudacion_sf', op.tipo_recaudacion_sf,
+        'id_codigo_servicio', t.id_codigo_servicio,
+        'nombre_codigo_servicio', t.nombre_codigo_servicio,
+        'dni_cliente', t.dni_cliente,
+        'nombre_cliente', t.nombre_cliente,
+        'codigo_operacion', t.codigo_operacion,
+        'id_categoria_movimiento', t.id_categoria_movimiento,
+        'nombre_categoria_movimiento', t.nombre_categoria_movimiento,
+        'detalle', t.detalle,
+        'id_empresa', t.id_empresa,
+        'nombre_empresa', t.nombre_empresa,
+        'id_empresa_cuenta_bancaria', t.id_empresa_cuenta_bancaria,
+        'id_banco', t.id_banco,
+        'nombre_banco', t.nombre_banco,
+        'id_banco_tercero', t.id_banco_tercero,
+        'nombre_banco_tercero', t.nombre_banco_tercero,
+        'id_empresa_contraparte', t.id_empresa_contraparte,
+        'nombre_empresa_contraparte', t.nombre_empresa_contraparte,
+        'id_empresa_cuenta_bancaria_contraparte', t.id_empresa_cuenta_bancaria_contraparte,
+        'id_banco_contraparte', t.id_banco_contraparte,
+        'nombre_banco_contraparte', t.nombre_banco_contraparte,
+        'monto_ingreso', t.monto_ingreso,
+        'monto_gasto', t.monto_gasto,
+        'monto_ganancia', t.monto_ganancia,
+        'monto_salida', t.monto_salida,
+        'flag_contabiliza_operacion', t.flag_contabiliza_operacion,
+        'saldo_anterior', t.saldo_anterior,
+        'saldo_actual', t.saldo_actual,
+        'id_estado', t.id_estado,
+        'nombre_estado', t.nombre_estado,
+        'id_usuario', t.id_usuario,
+        'nombre_usuario', t.nombre_usuario,
+        'tipo_facturacion', t.tipo_facturacion,
+        'id_caja_cierre', t.id_caja_cierre,
+        'fecha_caja_cierre', t.fecha_caja_cierre,
+        'fecha_registro', t.fecha_registro,
+        'flag_paso_retencion', (op.fecha_retencion IS NOT NULL)
+      ) AS movimiento,
+      COALESCE(op.fecha_deposito_cliente, t.fecha_registro) AS fecha_orden,
+      t.fecha_registro,
+      t.id AS orden_id
+    FROM public.tb_operacion_caja t
+    LEFT JOIN public.tb_operacion_caja related ON related.id = t.id_operacion_caja_relacionada
+    LEFT JOIN public.tb_operacion_proceso op ON op.id = t.id_operacion_proceso
+    WHERE (p_id IS NULL OR t.id = p_id)
+      AND (p_id_caja IS NULL OR t.id_caja = p_id_caja)
+      AND (p_id_empresa IS NULL OR t.id_empresa = p_id_empresa)
+      AND (p_id_operacion_proceso IS NULL OR t.id_operacion_proceso = p_id_operacion_proceso)
+      AND (p_tipo_origen IS NULL OR t.tipo_origen = p_tipo_origen)
+      AND (p_tipo_movimiento IS NULL OR t.tipo_movimiento = p_tipo_movimiento)
+      AND (p_id_categoria_movimiento IS NULL OR t.id_categoria_movimiento = p_id_categoria_movimiento)
+      AND (p_id_estado IS NULL OR t.id_estado = p_id_estado)
+      AND (p_codigo_operacion IS NULL OR COALESCE(t.codigo_operacion, '') ILIKE '%' || p_codigo_operacion || '%')
+      AND (p_dni_cliente IS NULL OR COALESCE(t.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
+      AND (p_fecha_desde IS NULL OR t.fecha_registro >= p_fecha_desde)
+      AND (p_fecha_hasta IS NULL OR t.fecha_registro <= p_fecha_hasta)
+      AND (p_fecha_caja_cierre_desde IS NULL OR t.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+      AND (p_fecha_caja_cierre_hasta IS NULL OR t.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+      AND (
+        p_id IS NOT NULL
+        OR p_id_operacion_proceso IS NOT NULL
+        OR p_id_estado IS NOT NULL
+        OR NOT (
+          UPPER(COALESCE(t.tipo_movimiento, '')) = 'INGRESO'
+          AND COALESCE(op.flag_retenido, false) = true
+        )
+      )
+      AND (
+        p_id IS NOT NULL
+        OR
+        (p_id_caja_cierre IS NOT NULL AND t.id_caja_cierre = p_id_caja_cierre)
+        OR (
+          (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
+          AND t.id_caja_cierre IS NOT NULL
+        )
+        OR (
+          p_id_caja_cierre IS NULL
+          AND p_fecha_caja_cierre_desde IS NULL
+          AND p_fecha_caja_cierre_hasta IS NULL
+          AND (COALESCE(p_incluir_cerradas, false) OR t.id_caja_cierre IS NULL)
+        )
+      )
+
+    UNION ALL
+
+    SELECT
+      jsonb_build_object(
+        'id', -op.id,
+        'id_caja', c.id,
+        'id_operacion_caja_relacionada', NULL,
+        'nombre_empresa_relacionada', NULL,
+        'nombre_banco_relacionada', NULL,
+        'id_operacion_proceso', op.id,
+        'fecha_deposito_cliente', op.fecha_deposito_cliente,
+        'tipo_origen', 'DIRECTO_CAJA',
+        'tipo_movimiento', 'INGRESO',
+        'tipo_servicio', op.tipo_servicio,
+        'tipo_recaudacion_sf', op.tipo_recaudacion_sf,
+        'id_codigo_servicio', op.id_codigo_servicio,
+        'nombre_codigo_servicio', op.nombre_codigo_servicio,
+        'dni_cliente', op.dni_cliente,
+        'nombre_cliente', op.nombre_cliente,
+        'codigo_operacion', op.codigo_operacion_deposito_cliente,
+        'id_categoria_movimiento', NULL,
+        'nombre_categoria_movimiento', NULL,
+        'detalle', 'Ingreso directo a caja',
+        'id_empresa', c.id_empresa,
+        'nombre_empresa', e.nombre,
+        'id_empresa_cuenta_bancaria', c.id_empresa_cuenta_bancaria,
+        'id_banco', ecb.id_banco,
+        'nombre_banco', b.nombre,
+        'id_banco_tercero', COALESCE(op.id_banco_cliente_transferencia, op.id_banco_cliente),
+        'nombre_banco_tercero', COALESCE(op.nombre_banco_cliente_transferencia, op.nombre_banco_cliente),
+        'id_empresa_contraparte', NULL,
+        'nombre_empresa_contraparte', NULL,
+        'id_empresa_cuenta_bancaria_contraparte', NULL,
+        'id_banco_contraparte', NULL,
+        'nombre_banco_contraparte', NULL,
+        'monto_ingreso', COALESCE(op.monto_deposito_cliente, 0),
+        'monto_gasto', 0,
+        'monto_ganancia', 0,
+        'monto_salida', 0,
+        'flag_contabiliza_operacion', false,
+        'saldo_anterior', NULL,
+        'saldo_actual', NULL,
+        'id_estado', op.id_estado,
+        'nombre_estado', op.nombre_estado,
+        'id_usuario', COALESCE(op.id_usuario_gestor, op.id_usuario),
+        'nombre_usuario', COALESCE(op.nombre_usuario_gestor, op.nombre_usuario),
+        'tipo_facturacion', op.tipo_facturacion,
+        'id_caja_cierre', COALESCE(op.id_caja_cierre, op.id_caja_cierre_ingreso, op.id_caja_cierre_salida),
+        'fecha_caja_cierre', op.fecha_caja_cierre,
+        'fecha_registro', op.fecha_registro,
+        'flag_paso_retencion', (op.fecha_retencion IS NOT NULL)
+      ) AS movimiento,
+      COALESCE(op.fecha_deposito_cliente, op.fecha_registro) AS fecha_orden,
+      op.fecha_registro,
+      -op.id AS orden_id
+    FROM public.tb_operacion_proceso op
+    JOIN public.tb_caja_operativa c
+      ON c.id_empresa = op.id_empresa_ingreso
+     AND c.id_empresa_cuenta_bancaria = op.id_empresa_cuenta_ingreso
+    JOIN public.tb_empresa e ON e.id = c.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = c.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
+    WHERE UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) = 'DIRECTO_CAJA'
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.tb_operacion_caja legacy
+        WHERE legacy.id_operacion_proceso = op.id
+      )
+      AND (p_id IS NULL OR p_id = -op.id)
+      AND (p_id_caja IS NULL OR c.id = p_id_caja)
+      AND (p_id_empresa IS NULL OR c.id_empresa = p_id_empresa)
+      AND (p_id_operacion_proceso IS NULL OR op.id = p_id_operacion_proceso)
+      AND (p_tipo_origen IS NULL OR UPPER(BTRIM(p_tipo_origen)) = 'DIRECTO_CAJA')
+      AND (p_tipo_movimiento IS NULL OR UPPER(BTRIM(p_tipo_movimiento)) = 'INGRESO')
+      AND p_id_categoria_movimiento IS NULL
+      AND (p_id_estado IS NULL OR op.id_estado = p_id_estado)
+      AND (p_codigo_operacion IS NULL OR COALESCE(op.codigo_operacion_deposito_cliente, '') ILIKE '%' || p_codigo_operacion || '%')
+      AND (p_dni_cliente IS NULL OR COALESCE(op.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
+      AND (p_fecha_desde IS NULL OR op.fecha_registro >= p_fecha_desde)
+      AND (p_fecha_hasta IS NULL OR op.fecha_registro <= p_fecha_hasta)
+      AND (p_fecha_caja_cierre_desde IS NULL OR op.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
+      AND (p_fecha_caja_cierre_hasta IS NULL OR op.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
+      AND (
+        p_id IS NOT NULL
+        OR p_id_operacion_proceso IS NOT NULL
+        OR p_id_estado IS NOT NULL
+        OR NOT COALESCE(op.flag_retenido, false)
+      )
+      AND (
+        p_id IS NOT NULL
+        OR
+        (p_id_caja_cierre IS NOT NULL AND COALESCE(op.id_caja_cierre, op.id_caja_cierre_ingreso, op.id_caja_cierre_salida) = p_id_caja_cierre)
+        OR (
+          (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
+          AND COALESCE(op.id_caja_cierre, op.id_caja_cierre_ingreso, op.id_caja_cierre_salida) IS NOT NULL
+        )
+        OR (
+          p_id_caja_cierre IS NULL
+          AND p_fecha_caja_cierre_desde IS NULL
+          AND p_fecha_caja_cierre_hasta IS NULL
+          AND (COALESCE(p_incluir_cerradas, false) OR COALESCE(op.id_caja_cierre, op.id_caja_cierre_ingreso, op.id_caja_cierre_salida) IS NULL)
+        )
+      )
   )
-  FROM public.tb_operacion_caja t
-  LEFT JOIN public.tb_operacion_caja related ON related.id = t.id_operacion_caja_relacionada
-  LEFT JOIN public.tb_operacion_proceso op ON op.id = t.id_operacion_proceso
-  WHERE (p_id IS NULL OR t.id = p_id)
-    AND (p_id_caja IS NULL OR t.id_caja = p_id_caja)
-    AND (p_id_empresa IS NULL OR t.id_empresa = p_id_empresa)
-    AND (p_id_operacion_proceso IS NULL OR t.id_operacion_proceso = p_id_operacion_proceso)
-    AND (p_tipo_origen IS NULL OR t.tipo_origen = p_tipo_origen)
-    AND (p_tipo_movimiento IS NULL OR t.tipo_movimiento = p_tipo_movimiento)
-    AND (p_id_categoria_movimiento IS NULL OR t.id_categoria_movimiento = p_id_categoria_movimiento)
-    AND (p_id_estado IS NULL OR t.id_estado = p_id_estado)
-    AND (p_codigo_operacion IS NULL OR COALESCE(t.codigo_operacion, '') ILIKE '%' || p_codigo_operacion || '%')
-    AND (p_dni_cliente IS NULL OR COALESCE(t.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
-    AND (p_fecha_desde IS NULL OR t.fecha_registro >= p_fecha_desde)
-    AND (p_fecha_hasta IS NULL OR t.fecha_registro <= p_fecha_hasta)
-    AND (p_fecha_caja_cierre_desde IS NULL OR t.fecha_caja_cierre >= p_fecha_caja_cierre_desde)
-    AND (p_fecha_caja_cierre_hasta IS NULL OR t.fecha_caja_cierre <= p_fecha_caja_cierre_hasta)
-    AND (
-      p_id IS NOT NULL
-      OR p_id_operacion_proceso IS NOT NULL
-      OR p_id_estado IS NOT NULL
-      OR NOT (
-        UPPER(COALESCE(t.tipo_movimiento, '')) = 'INGRESO'
-        AND COALESCE(op.flag_retenido, false) = true
-      )
-    )
-    AND (
-      p_id IS NOT NULL
-      OR
-      (p_id_caja_cierre IS NOT NULL AND t.id_caja_cierre = p_id_caja_cierre)
-      OR (
-        (p_fecha_caja_cierre_desde IS NOT NULL OR p_fecha_caja_cierre_hasta IS NOT NULL)
-        AND t.id_caja_cierre IS NOT NULL
-      )
-      OR (
-        p_id_caja_cierre IS NULL
-        AND p_fecha_caja_cierre_desde IS NULL
-        AND p_fecha_caja_cierre_hasta IS NULL
-        AND (COALESCE(p_incluir_cerradas, false) OR t.id_caja_cierre IS NULL)
-      )
-    )
-  ORDER BY
-    COALESCE(op.fecha_deposito_cliente, t.fecha_registro) ASC,
-    t.fecha_registro ASC,
-    t.id ASC;
+  SELECT movimiento
+  FROM movimientos
+  ORDER BY fecha_orden ASC, fecha_registro ASC, orden_id ASC;
 $$;
 
 /*
@@ -8166,6 +8332,8 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_reporte_cierre'
+  'f_get_reporte_cierre',
+  'f_get_tb_operacion_caja',
+  'f_get_tb_operacion_empresa_badges'
 )
 ORDER BY n.nspname, p.proname;

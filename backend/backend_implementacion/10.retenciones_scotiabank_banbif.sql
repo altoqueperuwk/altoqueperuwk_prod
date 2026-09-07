@@ -327,6 +327,7 @@ AS $$
     )
     AND (p_fecha_deposito_desde IS NULL OR op.fecha_deposito_cliente >= p_fecha_deposito_desde)
     AND (p_fecha_deposito_hasta IS NULL OR op.fecha_deposito_cliente <= p_fecha_deposito_hasta)
+    AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA'
     AND (
       a.filtro_estado = 'TODOS'
       OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = a.filtro_estado
@@ -521,6 +522,9 @@ $$;
 Funcion: f_get_tb_operacion_retencion_empresa_badges
 Objetivo:
   Distribuir conteos de la bandeja activa por empresa para rutas con retencion.
+
+  Pago Deuda reutiliza la fila BANCO de f_get_tb_pago_deuda_bandeja para
+  mantener el mismo universo que la bandeja operativa.
 */
 CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_retencion_empresa_badges(
   p_ruta character varying,
@@ -610,6 +614,21 @@ AS $$
         )
       )
   ),
+  pago_deuda_rows AS (
+    SELECT
+      'Pago Deuda'::character varying AS tab,
+      NULLIF(pago.row_data ->> 'id_empresa_salida', '')::bigint AS id_empresa
+    FROM public.f_get_tb_pago_deuda_bandeja(
+      p_ruta := LOWER(BTRIM(COALESCE(p_ruta, ''))),
+      p_id_empresa_cuenta_salida := p_id_empresa_cuenta_bancaria,
+      p_fecha_caja_cierre_desde := p_fecha_caja_cierre_desde,
+      p_fecha_caja_cierre_hasta := p_fecha_caja_cierre_hasta
+    ) AS pago(row_data)
+    WHERE COALESCE(NULLIF(pago.row_data ->> 'id_estado', '')::bigint, 0) <> 10
+      AND UPPER(BTRIM(COALESCE(pago.row_data ->> 'nombre_estado', ''))) IN ('PENDIENTE', 'SOLICITADO')
+      AND COALESCE((pago.row_data ->> 'flag_retenido')::boolean, false) = false
+      AND NULLIF(pago.row_data ->> 'id_empresa_salida', '') IS NOT NULL
+  ),
   empresa_rows AS (
     SELECT 'Efectivizacion'::character varying AS tab, id_empresa_salida AS id_empresa
     FROM base
@@ -620,12 +639,8 @@ AS $$
       AND id_empresa_salida IS NOT NULL
 
     UNION ALL
-    SELECT 'Pago Deuda'::character varying AS tab, id_empresa_salida AS id_empresa
-    FROM base
-    WHERE UPPER(COALESCE(tipo_servicio, '')) = 'PAGO DEUDA'
-      AND UPPER(BTRIM(COALESCE(nombre_estado, ''))) IN ('PENDIENTE', 'SOLICITADO')
-      AND (p_id_empresa_cuenta_bancaria IS NULL OR id_empresa_cuenta_salida = p_id_empresa_cuenta_bancaria)
-      AND id_empresa_salida IS NOT NULL
+    SELECT tab, id_empresa
+    FROM pago_deuda_rows
 
     UNION ALL
     SELECT 'Derivados'::character varying AS tab, id_empresa_salida AS id_empresa
@@ -678,6 +693,7 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_operacion_bandeja_unificada'
+  'f_get_tb_operacion_bandeja_unificada',
+  'f_get_tb_operacion_retencion_empresa_badges'
 )
 ORDER BY n.nspname, p.proname;

@@ -35,6 +35,7 @@ import { useBancariaKpis } from "@/features/operaciones/efectivizacion/bancaria/
 import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
 import { getReporteEfectivizacionUnificada } from "@/features/operaciones/efectivizacion/bancaria/utils/reporte-efectivizacion";
 import { getReporteCierreHistorico } from "@/features/reportes/services/reporte-cierre-caja.service";
+import { getReporteCierreEmpresaSummary } from "@/features/reportes/services/reporte-cierre-caja-summary";
 
 interface BancariaPageProps {
     ruta: OperacionRutaBancaria;
@@ -235,6 +236,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 "PAGO DEUDA COMISION",
                 "OTROS",
                 "TRANSFERENCIA INTERNA",
+                "DIRECTO CAJA",
             ].includes(normalizeMovementOrigin(row.tipo_origen));
             const reportMovimientos = Array.isArray(data.movimientos)
                 ? (data.movimientos as Record<string, unknown>[]).filter(isReportMovement)
@@ -327,7 +329,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         const totalRows = efectivizacion.length + derivadosAtendidos.length + derivadosEnviados.length + pagoDeuda.length + pos.length + movimientos.length;
 
         worksheet.columns = [
-            { width: 13 }, { width: 18 }, { width: 14 }, { width: 12 },
+            { width: 18.43 }, { width: 13.71 }, { width: 13.14 }, { width: 12 },
             { width: 12 }, { width: 13 }, { width: 13 }, { width: 11 },
             { width: 13 }, { width: 12 }, { width: 12 }, { width: 14 },
             { width: 11 }, { width: 11 },
@@ -377,30 +379,47 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         mergeAndStyle(5, 1, 14, `Cuenta: ${String(data.banco ?? routeLabel).toUpperCase()}`, { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
 
         let nextRow = 7;
-        const kpiRows = [
-            ["Caja Inicial", kpi.caja_inicial],
-            ["Caja Actual", kpi.caja_actual],
-            ["Saldo Banco", saldoBanco],
-            ["Caja Recaudacion", kpi.caja_recaudacion ?? kpi.total_recaudado],
-            ["Ingresos", kpi.ingresos],
-            ["Salidas", kpi.salidas],
-            ["Gastos Operacionales", kpi.gastos_operacionales],
-            ["Ganancias", kpi.ganancias],
-            ["Pendiente Transferencia", kpi.pendiente_transferencia ?? kpi.pendiente_depositar],
+        const kpiRows: Array<Array<[string, unknown]>> = [
+            [["Caja Inicial", kpi.caja_inicial], ["Saldo Banco", saldoBanco], ["Caja Recaudacion", kpi.caja_recaudacion ?? kpi.total_recaudado], ["Ingresos", kpi.ingresos]],
+            [["Salidas", kpi.salidas], ["Gastos Operacionales", kpi.gastos_operacionales], ["Ganancias", kpi.ganancias], ["Pendiente Transferencia", kpi.pendiente_transferencia ?? kpi.pendiente_depositar]],
         ];
-        kpiRows.forEach(([label, value], index) => {
-            const rowIndex = nextRow + Math.floor(index / 4) * 2;
-            const colIndex = (index % 4) * 3 + 1;
-            mergeAndStyle(rowIndex, colIndex, colIndex + 2, String(label), { bold: true, size: 8, color: colors.white, bg: colors.navySoft });
+        kpiRows.forEach((group, groupIndex) => group.forEach(([label, value], columnIndex) => {
+            const rowIndex = nextRow + groupIndex * 2;
+            const colIndex = columnIndex * 3 + 1;
+            mergeAndStyle(rowIndex, colIndex, colIndex + 2, label, {
+                bold: true, size: 8, color: colors.white, bg: colors.navySoft,
+            });
             mergeAndStyle(rowIndex + 1, colIndex, colIndex + 2, money(value), {
                 bold: true,
                 size: 8,
                 bg: colors.white,
-                color: ["Salidas", "Gastos Operacionales"].includes(String(label)) ? colors.coral : colors.green,
+                color: ["Salidas", "Gastos Operacionales"].includes(label) ? colors.coral : colors.green,
                 numFmt: '"S/ "#,##0.00',
             });
-        });
+        }));
         nextRow += 7;
+
+        const { ingresos, salidas } = getReporteCierreEmpresaSummary(data);
+        const addSummarySection = (title: string, rows: typeof ingresos, color: string) => {
+            if (!rows.length) return;
+            mergeAndStyle(nextRow, 1, 3, title, { bold: true, size: 8, color: colors.white, bg: colors.navySoft, align: "center" });
+            nextRow += 1;
+            rows.forEach((row) => {
+                const values: Array<string | number> = [row.empresa, row.cuenta, row.monto];
+                worksheet.getRow(nextRow).height = 15;
+                values.forEach((value, index) => {
+                    const cell = worksheet.getRow(nextRow).getCell(index + 1);
+                    cell.value = value;
+                    if (index === 2) cell.numFmt = '"S/ "#,##0.00';
+                    styleCell(cell, { bold: index === 2, color: index === 2 ? color : colors.ink, bg: colors.white });
+                });
+                nextRow += 1;
+            });
+            nextRow += 1;
+        };
+
+        addSummarySection("Ingresos por Empresas", ingresos, colors.green);
+        addSummarySection("Salidas por Empresas", salidas, colors.coral);
 
         const addSection = (
             sectionTitle: string,
@@ -519,6 +538,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
             const key = String(value ?? "").trim().toUpperCase().replaceAll("_", " ");
             return ({
                 "PAGO DEUDA COMISION": "Pago Deuda Comision",
+                "DIRECTO CAJA": "Directo",
                 "OTROS": "Otros",
                 "TRANSFERENCIA INTERNA": "Movimiento Saldo",
             } as Record<string, string>)[key] ?? text(value);

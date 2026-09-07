@@ -2,6 +2,7 @@ const MOVEMENT_ORIGIN_LABELS: Record<string, string> = {
     PAGO_DEUDA_COMISION: "Pago Deuda Comision",
     PAGO_DEUDA_DEVOLUCION: "Pago Deuda Devolucion",
     PAGO_DEUDA: "Pago Deuda Transferido",
+    DIRECTO_CAJA: "Directo",
     EFECTIVIZACION: "Efectivización",
     OTROS: "Otros",
     "TRANSFERENCIA INTERNA": "Movimiento Saldo",

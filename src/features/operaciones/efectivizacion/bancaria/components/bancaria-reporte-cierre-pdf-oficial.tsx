@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { formatInteger, formatMoney as formatCurrency } from "@/features/operaciones/efectivizacion/shared/utils/money";
 import { calcularSaldoBanco } from "@/features/operaciones/efectivizacion/bancaria/utils/saldo-banco";
 import { getReporteEfectivizacionUnificada } from "@/features/operaciones/efectivizacion/bancaria/utils/reporte-efectivizacion";
+import { getReporteCierreEmpresaSummary } from "@/features/reportes/services/reporte-cierre-caja-summary";
 
 interface ReportRowBase {
     operacion?: string | null;
@@ -463,6 +464,7 @@ const movementOrigin = (value?: string | null) => {
         "PAGO DEUDA": "Pago Deuda",
         "PAGO DEUDA COMISION": "Pago Deuda Comision",
         "EFECTIVIZACION": "Efectivizacion",
+        "DIRECTO CAJA": "Directo",
         "OTROS": "Otros",
         "TRANSFERENCIA INTERNA": "Movimiento Saldo",
     } as Record<string, string>)[key] ?? valueOrDash(value);
@@ -497,6 +499,7 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
     if (!data) return null;
 
     const { efectivizacion, derivadosAtendidos, derivadosEnviados } = getReporteEfectivizacionUnificada(data);
+    const { ingresos, salidas } = getReporteCierreEmpresaSummary(data);
     const pagoDeuda = [...(data.pago_deuda ?? []), ...(data.pago_deuda_pendientes ?? [])];
     const pos = [...(data.pos ?? []), ...(data.pos_pendientes ?? [])];
     const movimientos = data.movimientos ?? [];
@@ -519,6 +522,14 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
             </Table>
         </section>
     );
+    const renderCompanySummarySection = (title: string, rows: typeof ingresos) => rows.length > 0 && (
+        <section>
+            <SectionHeader title={title} />
+            <Table headers={["Empresa", "Cuenta", "Monto"]}>
+                {rows.map((row, index) => <tr key={`${title}-${index}`}><Cell>{row.empresa}</Cell><Cell>{row.cuenta}</Cell><Cell numeric>{formatMoney(row.monto)}</Cell></tr>)}
+            </Table>
+        </section>
+    );
 
     return (
         <>
@@ -527,16 +538,18 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
                 <ReportHeader data={data} totalRows={totalOperations} />
                 <SectionHeader title={data.empresa ?? "Empresa"} badge={data.banco ?? "Banco"} />
                 <div className="kpi-grid">
-                    <KpiCard label="Saldo Banco" tags={["Saldo conciliado"]} value={saldoBanco} />
                     <KpiCard label="Caja Inicial" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_inicial} />
-                    <KpiCard label="Caja Actual" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.caja_actual} />
+                    <KpiCard label="Saldo Banco" tags={["Saldo conciliado"]} value={saldoBanco} />
                     <KpiCard label="Caja Recaudación" tags={["Efectivización", "Pago Deuda"]} value={kpi.caja_recaudacion ?? kpi.total_recaudado} tone="green" />
                     <KpiCard label="Ingresos" tags={["Movimientos"]} value={kpi.ingresos} tone="green" />
-                    <KpiCard label="Ganancias" tags={["Efectivización", "Pago Deuda"]} value={kpi.ganancias} tone="green" />
                     <KpiCard label="Salidas" tags={["Efectivización", "Pago Deuda", "Movimientos"]} value={kpi.salidas} tone="coral" />
                     <KpiCard label="Gastos Operacionales" tags={["Efectivización", "Pago Deuda"]} value={kpi.gastos_operacionales} tone="coral" />
+                    <KpiCard label="Ganancias" tags={["Efectivización", "Pago Deuda"]} value={kpi.ganancias} tone="green" />
                     <KpiCard label="Pendiente Transferencia" tags={["Efectivización", "Pago Deuda"]} value={kpi.pendiente_transferencia ?? kpi.pendiente_depositar} />
                 </div>
+
+                {renderCompanySummarySection("Ingresos por Empresas", ingresos)}
+                {renderCompanySummarySection("Salidas por Empresas", salidas)}
 
                 {renderEfectivizacionSection("Efectivizacion", efectivizacion)}
                 {renderEfectivizacionSection("Derivados atendidos", derivadosAtendidos)}

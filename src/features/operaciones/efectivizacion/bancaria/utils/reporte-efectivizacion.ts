@@ -55,36 +55,51 @@ const normalizeRow = (
     row: RawReportRow,
     data: ReporteEfectivizacionSource,
     isDerived: boolean,
-): ReporteEfectivizacionUnificadaRow => ({
-    facturacion: firstText(row.facturacion, row.tipo_facturacion),
-    empresa: firstText(
-        row.empresa_derivada,
-        row.empresa,
-        isDerived ? row.nombre_empresa_salida_origen : row.nombre_empresa_salida,
-        row.nombre_empresa_ingreso,
-        data.empresa,
-    ),
-    cuenta: firstText(
-        row.cuenta_derivada,
-        row.cuenta,
-        isDerived ? row.nombre_banco_empresa_cuenta_salida_origen : row.nombre_banco_empresa_cuenta_salida,
-        row.cuenta_cliente,
-        row.nombre_banco_empresa_cuenta_ingreso,
-        data.banco,
-    ),
-    operacion: firstText(row.operacion, row.codigo_operacion_deposito_cliente),
-    dni: firstText(row.dni, row.dni_cliente),
-    comunidad: firstText(row.comunidad, row.nombre_comunidad),
-    deposito: firstNumber(row.deposito, row.monto),
-    porcentaje_comision: firstNumber(row.porcentaje_comision, row.comision_servicio),
-    soles_comision: firstNumber(row.soles_comision, row.comision),
-    gastos: firstNumber(row.gastos, 0),
-    ganancia: firstNumber(row.ganancia, 0),
-    transferencia: firstNumber(row.transferencia, 0),
-    estado: firstText(row.estado, row.nombre_estado),
-    fecha: firstText(row.fecha, row.fecha_deposito_cliente, row.fecha_registro),
-    derivada_congelada: row.derivada_congelada === true || String(row.derivada_congelada ?? "").trim().toLowerCase() === "true",
-});
+): ReporteEfectivizacionUnificadaRow => {
+    const derivadaCongelada = row.derivada_congelada === true
+        || String(row.derivada_congelada ?? "").trim().toLowerCase() === "true";
+
+    // En el reporte del flujo enviado, empresa/cuenta son el destino actual.
+    // empresa_derivada/cuenta_derivada representan el origen y no deben
+    // reemplazar al destino en Excel ni PDF.
+    const empresa = derivadaCongelada
+        ? firstText(row.empresa, row.nombre_empresa_salida, row.nombre_empresa_ingreso, data.empresa)
+        : firstText(
+            row.empresa_derivada,
+            row.empresa,
+            isDerived ? row.nombre_empresa_salida_origen : row.nombre_empresa_salida,
+            row.nombre_empresa_ingreso,
+            data.empresa,
+        );
+    const cuenta = derivadaCongelada
+        ? firstText(row.cuenta, row.nombre_banco_empresa_cuenta_salida, row.nombre_banco_empresa_cuenta_ingreso, data.banco)
+        : firstText(
+            row.cuenta_derivada,
+            row.cuenta,
+            isDerived ? row.nombre_banco_empresa_cuenta_salida_origen : row.nombre_banco_empresa_cuenta_salida,
+            row.cuenta_cliente,
+            row.nombre_banco_empresa_cuenta_ingreso,
+            data.banco,
+        );
+
+    return {
+        facturacion: firstText(row.facturacion, row.tipo_facturacion),
+        empresa,
+        cuenta,
+        operacion: firstText(row.operacion, row.codigo_operacion_deposito_cliente),
+        dni: firstText(row.dni, row.dni_cliente),
+        comunidad: firstText(row.comunidad, row.nombre_comunidad),
+        deposito: firstNumber(row.deposito, row.monto),
+        porcentaje_comision: firstNumber(row.porcentaje_comision, row.comision_servicio),
+        soles_comision: firstNumber(row.soles_comision, row.comision),
+        gastos: firstNumber(row.gastos, 0),
+        ganancia: firstNumber(row.ganancia, 0),
+        transferencia: firstNumber(row.transferencia, 0),
+        estado: firstText(row.estado, row.nombre_estado),
+        fecha: firstText(row.fecha, row.fecha_deposito_cliente, row.fecha_registro),
+        derivada_congelada: derivadaCongelada,
+    };
+};
 
 const isPaid = (row: ReporteEfectivizacionUnificadaRow) => row.estado?.trim().toLowerCase() === "pagado";
 

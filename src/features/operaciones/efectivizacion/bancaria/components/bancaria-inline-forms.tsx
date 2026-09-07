@@ -670,11 +670,6 @@ export const BancariaInlineForms = ({
             return;
         }
 
-        if (!movementConcept.trim()) {
-            addToast("error", "El concepto es obligatorio.");
-            return;
-        }
-
         setIsSavingMovement(true);
 
         try {

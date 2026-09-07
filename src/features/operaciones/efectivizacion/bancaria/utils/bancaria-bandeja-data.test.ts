@@ -7,6 +7,7 @@ import {
     getUnifiedFlowLabel,
     mergeMovimientos,
 } from "./bancaria-bandeja-data";
+import { formatMovimientoOrigen } from "@/features/operaciones/efectivizacion/shared/utils/movement-labels";
 
 const operation = (patch: Partial<OperacionProceso>): OperacionProceso => ({
     id: 1,
@@ -64,7 +65,14 @@ describe("bancaria-bandeja-data", () => {
 
     it("agrupa ingreso y salida igual que el datatable de movimientos", () => {
         const rows = mergeMovimientos([
-            movement({ id: 1, tipo_movimiento: "INGRESO", monto_ingreso: 100, monto_gasto: 2 }),
+            movement({
+                id: 1,
+                tipo_movimiento: "INGRESO",
+                monto_ingreso: 100,
+                monto_gasto: 2,
+                nombre_empresa_contraparte: "Capital Nova S.A.",
+                nombre_banco_contraparte: "BCP",
+            }),
             movement({ id: 2, tipo_movimiento: "SALIDA", monto_ingreso: 0, monto_salida: 90, monto_gasto: 1 }),
         ]);
 
@@ -75,6 +83,12 @@ describe("bancaria-bandeja-data", () => {
             monto_ingreso: 100,
             monto_salida: 90,
             monto_gasto: 3,
+            nombre_empresa_contraparte: "Capital Nova S.A.",
+            nombre_banco_contraparte: "BCP",
         });
+    });
+
+    it("identifica el ingreso directo a caja como movimiento informativo", () => {
+        expect(formatMovimientoOrigen("DIRECTO_CAJA")).toBe("Directo");
     });
 });
