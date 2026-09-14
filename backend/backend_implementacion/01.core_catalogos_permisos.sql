@@ -685,9 +685,10 @@ Detalle:
 CREATE TABLE IF NOT EXISTS public.tb_usuario (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   username character varying NOT NULL UNIQUE,
-  password character varying NOT NULL,
+  password character varying,
   email character varying NOT NULL UNIQUE,
   nombre character varying NOT NULL,
+  auth_user_id uuid,
   flag_super_admin boolean NOT NULL DEFAULT false,
   id_rol bigint NOT NULL,
   id_estado bigint NOT NULL,
@@ -702,8 +703,33 @@ WITH NO DATA;
 ALTER TABLE public.tb_usuario
   ADD COLUMN IF NOT EXISTS id_sucursal bigint;
 
+ALTER TABLE public.tb_usuario
+  ADD COLUMN IF NOT EXISTS auth_user_id uuid;
+
+ALTER TABLE public.tb_usuario
+  ALTER COLUMN password DROP NOT NULL;
+
 ALTER TABLE public.tb_usuario_his
   ADD COLUMN IF NOT EXISTS id_sucursal bigint;
+
+ALTER TABLE public.tb_usuario_his
+  ADD COLUMN IF NOT EXISTS auth_user_id uuid;
+
+CREATE UNIQUE INDEX IF NOT EXISTS tb_usuario_auth_user_id_uidx
+  ON public.tb_usuario (auth_user_id)
+  WHERE auth_user_id IS NOT NULL;
+
+-- Vinculacion inicial para usuarios que ya existen en ambas fuentes.
+UPDATE public.tb_usuario u
+SET auth_user_id = a.id
+FROM auth.users a
+WHERE u.auth_user_id IS NULL
+  AND LOWER(u.email) = LOWER(a.email)
+  AND 1 = (
+    SELECT COUNT(*)
+    FROM public.tb_usuario candidate
+    WHERE LOWER(candidate.email) = LOWER(a.email)
+  );
 
 DO $$
 BEGIN
@@ -744,6 +770,11 @@ DROP FUNCTION IF EXISTS public.f_get_tb_usuario(
   character varying, boolean, bigint, bigint,
   timestamp with time zone, timestamp with time zone
 );
+DROP FUNCTION IF EXISTS public.f_get_tb_usuario(
+  bigint, character varying, character varying, character varying,
+  character varying, boolean, bigint, bigint,
+  timestamp with time zone, timestamp with time zone, bigint
+);
 
 CREATE OR REPLACE FUNCTION public.f_get_tb_usuario(
   p_id bigint DEFAULT NULL,
@@ -766,9 +797,9 @@ AS $$
   SELECT jsonb_build_object(
     'id', t.id,
     'username', t.username,
-    'password', t.password,
     'email', t.email,
     'nombre', t.nombre,
+    'auth_user_id', t.auth_user_id,
     'flag_super_admin', t.flag_super_admin,
     'id_rol', t.id_rol,
     'rol_nombre', r.nombre,
@@ -801,6 +832,11 @@ DROP FUNCTION IF EXISTS public.f_get_tb_usuario_his(
   character varying, boolean, bigint, bigint,
   timestamp with time zone, timestamp with time zone
 );
+DROP FUNCTION IF EXISTS public.f_get_tb_usuario_his(
+  bigint, character varying, character varying, character varying,
+  character varying, boolean, bigint, bigint,
+  timestamp with time zone, timestamp with time zone, bigint
+);
 
 CREATE OR REPLACE FUNCTION public.f_get_tb_usuario_his(
   p_id bigint DEFAULT NULL,
@@ -820,7 +856,7 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 AS $$
-  SELECT to_jsonb(t)
+  SELECT to_jsonb(t) - 'password'
   FROM public.tb_usuario_his t
   WHERE (p_id IS NULL OR t.id = p_id)
     AND (p_username IS NULL OR t.username ILIKE '%' || p_username || '%')
@@ -837,6 +873,274 @@ AS $$
 $$;
 
 /*
+Funcion: f_post_tb_usuario_auth
+Objetivo:
+  Registrar el perfil operativo de una identidad previamente invitada en
+  Supabase Auth. Solo la Edge Function (service_role) puede ejecutarla.
+*/
+CREATE OR REPLACE FUNCTION public.f_post_tb_usuario_auth(
+  p_auth_user_id_creador uuid,
+  p_email_creador character varying,
+  p_auth_user_id uuid,
+  p_username character varying,
+  p_email character varying,
+  p_nombre character varying,
+  p_id_rol bigint,
+  p_id_estado bigint,
+  p_id_sucursal bigint,
+  p_flag_super_admin boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_creador public.tb_usuario%ROWTYPE;
+  v_es_administrador boolean;
+  v_es_jefe_tienda boolean;
+  v_id bigint;
+BEGIN
+  SELECT u.* INTO v_creador
+  FROM public.tb_usuario u
+  JOIN public.tb_estado eu ON eu.id = u.id_estado
+  WHERE UPPER(eu.nombre) = 'ACTIVO'
+    AND (
+      u.auth_user_id = p_auth_user_id_creador
+      OR (u.auth_user_id IS NULL AND LOWER(u.email) = LOWER(TRIM(p_email_creador)))
+    )
+  ORDER BY (u.auth_user_id = p_auth_user_id_creador) DESC
+  LIMIT 1;
+
+  IF v_creador.id IS NULL THEN
+    RAISE EXCEPTION 'El usuario autenticado no tiene un perfil operativo activo';
+  END IF;
+
+  v_es_administrador := COALESCE(v_creador.flag_super_admin, false) OR v_creador.id_rol = 1;
+  v_es_jefe_tienda := v_creador.id_rol = 3 AND NOT v_es_administrador;
+
+  IF NOT v_es_administrador AND NOT EXISTS (
+    SELECT 1
+    FROM public.tb_permiso_usuario pu
+    JOIN public.tb_permiso_menu pm ON pm.id = pu.id_permiso_menu
+    JOIN public.tb_estado ep ON ep.id = pu.id_estado
+    JOIN public.tb_estado em ON em.id = pm.id_estado
+    WHERE pu.id_usuario = v_creador.id
+      AND pm.ruta = '/sistema/usuario'
+      AND UPPER(ep.nombre) = 'ACTIVO'
+      AND UPPER(em.nombre) = 'ACTIVO'
+  ) THEN
+    RAISE EXCEPTION 'No tiene permiso para gestionar usuarios';
+  END IF;
+
+  IF NOT v_es_administrador
+     AND (p_id_rol NOT IN (2, 3, 4) OR COALESCE(p_flag_super_admin, false)) THEN
+    RAISE EXCEPTION 'Solo puede crear usuarios de Area de Pagos, Jefe de Tienda o Atencion al Cliente';
+  END IF;
+
+  IF v_es_jefe_tienda
+     AND (p_id_rol <> 4 OR p_id_sucursal IS DISTINCT FROM v_creador.id_sucursal) THEN
+    RAISE EXCEPTION 'El Jefe de Tienda solo puede crear usuarios de Atencion al Cliente de su propia sucursal';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.tb_rol r
+    JOIN public.tb_estado e ON e.id = r.id_estado
+    WHERE r.id = p_id_rol AND UPPER(e.nombre) = 'ACTIVO'
+  ) THEN
+    RAISE EXCEPTION 'El rol seleccionado no existe o esta inactivo';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.tb_estado e WHERE e.id = p_id_estado) THEN
+    RAISE EXCEPTION 'El estado seleccionado no existe';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.tb_sucursal s
+    JOIN public.tb_estado e ON e.id = s.id_estado
+    WHERE s.id = p_id_sucursal AND UPPER(e.nombre) = 'ACTIVO'
+  ) THEN
+    RAISE EXCEPTION 'La sucursal seleccionada no existe o esta inactiva';
+  END IF;
+
+  IF NULLIF(TRIM(p_username), '') IS NULL
+     OR NULLIF(TRIM(p_email), '') IS NULL
+     OR NULLIF(TRIM(p_nombre), '') IS NULL THEN
+    RAISE EXCEPTION 'Username, email y nombre son obligatorios';
+  END IF;
+
+  UPDATE public.tb_usuario SET auth_user_id = p_auth_user_id_creador
+  WHERE id = v_creador.id AND auth_user_id IS NULL;
+
+  INSERT INTO public.tb_usuario (
+    auth_user_id, username, password, email, nombre, flag_super_admin,
+    id_rol, id_estado, id_sucursal
+  ) VALUES (
+    p_auth_user_id, TRIM(p_username), NULL, LOWER(TRIM(p_email)), TRIM(p_nombre),
+    CASE WHEN v_es_administrador THEN COALESCE(p_flag_super_admin, false) ELSE false END,
+    p_id_rol, p_id_estado, p_id_sucursal
+  ) RETURNING id INTO v_id;
+
+  RETURN (SELECT x FROM public.f_get_tb_usuario(p_id := v_id) AS x LIMIT 1);
+EXCEPTION
+  WHEN unique_violation THEN
+    RAISE EXCEPTION 'El email, username o usuario de Auth ya se encuentra registrado';
+END;
+$$;
+
+/*
+Funcion: f_patch_tb_usuario_auth
+Objetivo:
+  Actualizar un perfil desde la Edge Function y revalidar permisos, rol y sede.
+*/
+CREATE OR REPLACE FUNCTION public.f_patch_tb_usuario_auth(
+  p_auth_user_id_creador uuid,
+  p_email_creador character varying,
+  p_id bigint,
+  p_username character varying DEFAULT NULL,
+  p_email character varying DEFAULT NULL,
+  p_nombre character varying DEFAULT NULL,
+  p_flag_super_admin boolean DEFAULT NULL,
+  p_id_rol bigint DEFAULT NULL,
+  p_id_estado bigint DEFAULT NULL,
+  p_id_sucursal bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_creador public.tb_usuario%ROWTYPE;
+  v_objetivo public.tb_usuario%ROWTYPE;
+  v_es_administrador boolean;
+  v_es_jefe_tienda boolean;
+  v_rol_final bigint;
+  v_super_final boolean;
+  v_sucursal_final bigint;
+BEGIN
+  SELECT u.* INTO v_creador
+  FROM public.tb_usuario u
+  JOIN public.tb_estado eu ON eu.id = u.id_estado
+  WHERE UPPER(eu.nombre) = 'ACTIVO'
+    AND (
+      u.auth_user_id = p_auth_user_id_creador
+      OR (u.auth_user_id IS NULL AND LOWER(u.email) = LOWER(TRIM(p_email_creador)))
+    )
+  ORDER BY (u.auth_user_id = p_auth_user_id_creador) DESC
+  LIMIT 1;
+
+  IF v_creador.id IS NULL THEN
+    RAISE EXCEPTION 'El usuario autenticado no tiene un perfil operativo activo';
+  END IF;
+
+  v_es_administrador := COALESCE(v_creador.flag_super_admin, false) OR v_creador.id_rol = 1;
+  v_es_jefe_tienda := v_creador.id_rol = 3 AND NOT v_es_administrador;
+
+  IF NOT v_es_administrador AND NOT EXISTS (
+    SELECT 1
+    FROM public.tb_permiso_usuario pu
+    JOIN public.tb_permiso_menu pm ON pm.id = pu.id_permiso_menu
+    JOIN public.tb_estado ep ON ep.id = pu.id_estado
+    JOIN public.tb_estado em ON em.id = pm.id_estado
+    WHERE pu.id_usuario = v_creador.id
+      AND pm.ruta = '/sistema/usuario'
+      AND UPPER(ep.nombre) = 'ACTIVO'
+      AND UPPER(em.nombre) = 'ACTIVO'
+  ) THEN
+    RAISE EXCEPTION 'No tiene permiso para gestionar usuarios';
+  END IF;
+
+  SELECT * INTO v_objetivo FROM public.tb_usuario WHERE id = p_id;
+  IF v_objetivo.id IS NULL THEN
+    RAISE EXCEPTION 'El usuario a actualizar no existe';
+  END IF;
+
+  v_rol_final := COALESCE(p_id_rol, v_objetivo.id_rol);
+  v_super_final := COALESCE(p_flag_super_admin, v_objetivo.flag_super_admin);
+  v_sucursal_final := COALESCE(p_id_sucursal, v_objetivo.id_sucursal);
+
+  IF NOT v_es_administrador
+     AND (v_objetivo.id_rol NOT IN (2, 3, 4)
+          OR COALESCE(v_objetivo.flag_super_admin, false)
+          OR v_rol_final NOT IN (2, 3, 4)
+          OR v_super_final) THEN
+    RAISE EXCEPTION 'No puede administrar usuarios con privilegios elevados';
+  END IF;
+
+  IF v_es_jefe_tienda
+     AND (
+       v_objetivo.id_rol <> 4
+       OR v_objetivo.id_sucursal IS DISTINCT FROM v_creador.id_sucursal
+       OR v_rol_final <> 4
+       OR v_sucursal_final IS DISTINCT FROM v_creador.id_sucursal
+     ) THEN
+    RAISE EXCEPTION 'El Jefe de Tienda solo puede administrar usuarios de Atencion al Cliente de su propia sucursal';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.tb_rol r
+    JOIN public.tb_estado e ON e.id = r.id_estado
+    WHERE r.id = v_rol_final AND UPPER(e.nombre) = 'ACTIVO'
+  ) THEN
+    RAISE EXCEPTION 'El rol seleccionado no existe o esta inactivo';
+  END IF;
+
+  IF p_id_estado IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM public.tb_estado e WHERE e.id = p_id_estado) THEN
+    RAISE EXCEPTION 'El estado seleccionado no existe';
+  END IF;
+
+  IF v_sucursal_final IS NULL OR NOT EXISTS (
+    SELECT 1 FROM public.tb_sucursal s
+    JOIN public.tb_estado e ON e.id = s.id_estado
+    WHERE s.id = v_sucursal_final AND UPPER(e.nombre) = 'ACTIVO'
+  ) THEN
+    RAISE EXCEPTION 'La sucursal seleccionada no existe o esta inactiva';
+  END IF;
+
+  UPDATE public.tb_usuario
+  SET username = COALESCE(NULLIF(TRIM(p_username), ''), username),
+      email = COALESCE(NULLIF(LOWER(TRIM(p_email)), ''), email),
+      nombre = COALESCE(NULLIF(TRIM(p_nombre), ''), nombre),
+      flag_super_admin = CASE
+        WHEN v_es_administrador THEN COALESCE(p_flag_super_admin, flag_super_admin)
+        ELSE false
+      END,
+      id_rol = v_rol_final,
+      id_estado = COALESCE(p_id_estado, id_estado),
+      id_sucursal = v_sucursal_final
+  WHERE id = p_id;
+
+  UPDATE public.tb_usuario SET auth_user_id = p_auth_user_id_creador
+  WHERE id = v_creador.id AND auth_user_id IS NULL;
+
+  RETURN (SELECT x FROM public.f_get_tb_usuario(p_id := p_id) AS x LIMIT 1);
+EXCEPTION
+  WHEN unique_violation THEN
+    RAISE EXCEPTION 'El email o username ya se encuentra registrado';
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.f_post_tb_usuario_auth(
+  uuid, character varying, uuid, character varying, character varying,
+  character varying, bigint, bigint, bigint, boolean
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.f_post_tb_usuario_auth(
+  uuid, character varying, uuid, character varying, character varying,
+  character varying, bigint, bigint, bigint, boolean
+) TO service_role;
+
+REVOKE ALL ON FUNCTION public.f_patch_tb_usuario_auth(
+  uuid, character varying, bigint, character varying, character varying,
+  character varying, boolean, bigint, bigint, bigint
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.f_patch_tb_usuario_auth(
+  uuid, character varying, bigint, character varying, character varying,
+  character varying, boolean, bigint, bigint, bigint
+) TO service_role;
+
+/*
 Funcion: f_post_tb_usuario
 Objetivo:
   Crear un usuario nuevo incluyendo su condicion administrativa.
@@ -844,6 +1148,10 @@ Objetivo:
 DROP FUNCTION IF EXISTS public.f_post_tb_usuario(
   character varying, character varying, character varying, character varying,
   bigint, bigint, boolean
+);
+DROP FUNCTION IF EXISTS public.f_post_tb_usuario(
+  character varying, character varying, character varying, character varying,
+  bigint, bigint, boolean, bigint
 );
 
 CREATE OR REPLACE FUNCTION public.f_post_tb_usuario(
@@ -883,6 +1191,10 @@ Objetivo:
 DROP FUNCTION IF EXISTS public.f_patch_tb_usuario(
   bigint, character varying, character varying, character varying,
   character varying, boolean, bigint, bigint
+);
+DROP FUNCTION IF EXISTS public.f_patch_tb_usuario(
+  bigint, character varying, character varying, character varying,
+  character varying, boolean, bigint, bigint, bigint
 );
 
 CREATE OR REPLACE FUNCTION public.f_patch_tb_usuario(
@@ -1019,6 +1331,24 @@ AS $$
     AND (p_fecha_registro_hasta IS NULL OR t.fecha_registro <= p_fecha_registro_hasta)
   ORDER BY t.orden, t.id;
 $$;
+
+REVOKE ALL ON FUNCTION public.f_post_tb_usuario(
+  character varying, character varying, character varying, character varying,
+  bigint, bigint, boolean, bigint
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.f_post_tb_usuario(
+  character varying, character varying, character varying, character varying,
+  bigint, bigint, boolean, bigint
+) TO service_role;
+
+REVOKE ALL ON FUNCTION public.f_patch_tb_usuario(
+  bigint, character varying, character varying, character varying,
+  character varying, boolean, bigint, bigint, bigint
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.f_patch_tb_usuario(
+  bigint, character varying, character varying, character varying,
+  character varying, boolean, bigint, bigint, bigint
+) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.f_get_tb_permiso_menu_his(
   p_id bigint DEFAULT NULL,
@@ -1234,10 +1564,59 @@ CREATE OR REPLACE FUNCTION public.f_post_tb_permiso_usuario(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, auth
 AS $$
 DECLARE
   v_id bigint;
+  v_actor public.tb_usuario%ROWTYPE;
+  v_target public.tb_usuario%ROWTYPE;
+  v_usuario_registra bigint := p_id_usuario_registra;
 BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    SELECT u.* INTO v_actor
+    FROM public.tb_usuario u
+    JOIN public.tb_estado e ON e.id = u.id_estado
+    WHERE UPPER(e.nombre) = 'ACTIVO'
+      AND (
+        u.auth_user_id = auth.uid()
+        OR (u.auth_user_id IS NULL AND LOWER(u.email) = LOWER(auth.jwt() ->> 'email'))
+      )
+    ORDER BY (u.auth_user_id = auth.uid()) DESC
+    LIMIT 1;
+
+    IF v_actor.id IS NULL THEN
+      RAISE EXCEPTION 'No se pudo validar el usuario autenticado';
+    END IF;
+    IF p_id_usuario_registra IS NOT NULL AND p_id_usuario_registra <> v_actor.id THEN
+      RAISE EXCEPTION 'El usuario que registra el permiso no coincide con la sesion';
+    END IF;
+    v_usuario_registra := v_actor.id;
+
+    IF v_actor.id_rol = 3 AND NOT COALESCE(v_actor.flag_super_admin, false) THEN
+      SELECT * INTO v_target FROM public.tb_usuario WHERE id = p_id_usuario;
+      IF v_target.id IS NULL
+         OR v_target.id_rol <> 4
+         OR v_target.id_sucursal IS DISTINCT FROM v_actor.id_sucursal THEN
+        RAISE EXCEPTION 'El Jefe de Tienda solo puede asignar permisos a usuarios de Atencion al Cliente de su propia sucursal';
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1
+        FROM public.tb_permiso_menu pm
+        JOIN public.tb_estado em ON em.id = pm.id_estado
+        WHERE pm.id = p_id_permiso_menu
+          AND UPPER(em.nombre) = 'ACTIVO'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM public.tb_permiso_menu child
+            JOIN public.tb_estado ec ON ec.id = child.id_estado
+            WHERE child.id_padre = pm.id AND UPPER(ec.nombre) = 'ACTIVO'
+          )
+      ) THEN
+        RAISE EXCEPTION 'Solo puede asignar permisos de menus activos';
+      END IF;
+    END IF;
+  END IF;
+
   INSERT INTO public.tb_permiso_usuario (
     id_usuario, id_permiso_menu, id_estado, id_usuario_registra
   )
@@ -1245,7 +1624,7 @@ BEGIN
     p_id_usuario,
     p_id_permiso_menu,
     COALESCE(p_id_estado, (SELECT id FROM public.tb_estado WHERE nombre ILIKE 'activo' LIMIT 1)),
-    p_id_usuario_registra
+    v_usuario_registra
   )
   RETURNING id INTO v_id;
 
@@ -1267,13 +1646,77 @@ CREATE OR REPLACE FUNCTION public.f_patch_tb_permiso_usuario(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, auth
 AS $$
+DECLARE
+  v_actor public.tb_usuario%ROWTYPE;
+  v_current public.tb_permiso_usuario%ROWTYPE;
+  v_current_target public.tb_usuario%ROWTYPE;
+  v_target public.tb_usuario%ROWTYPE;
+  v_target_id bigint;
+  v_usuario_registra bigint := p_id_usuario_registra;
 BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    SELECT u.* INTO v_actor
+    FROM public.tb_usuario u
+    JOIN public.tb_estado e ON e.id = u.id_estado
+    WHERE UPPER(e.nombre) = 'ACTIVO'
+      AND (
+        u.auth_user_id = auth.uid()
+        OR (u.auth_user_id IS NULL AND LOWER(u.email) = LOWER(auth.jwt() ->> 'email'))
+      )
+    ORDER BY (u.auth_user_id = auth.uid()) DESC
+    LIMIT 1;
+
+    IF v_actor.id IS NULL THEN
+      RAISE EXCEPTION 'No se pudo validar el usuario autenticado';
+    END IF;
+    IF p_id_usuario_registra IS NOT NULL AND p_id_usuario_registra <> v_actor.id THEN
+      RAISE EXCEPTION 'El usuario que registra el permiso no coincide con la sesion';
+    END IF;
+    v_usuario_registra := v_actor.id;
+
+    IF v_actor.id_rol = 3 AND NOT COALESCE(v_actor.flag_super_admin, false) THEN
+      SELECT * INTO v_current FROM public.tb_permiso_usuario WHERE id = p_id;
+      IF v_current.id IS NULL THEN
+        RAISE EXCEPTION 'El permiso de usuario no existe';
+      END IF;
+      SELECT * INTO v_current_target FROM public.tb_usuario WHERE id = v_current.id_usuario;
+      IF v_current_target.id IS NULL
+         OR v_current_target.id_rol <> 4
+         OR v_current_target.id_sucursal IS DISTINCT FROM v_actor.id_sucursal THEN
+        RAISE EXCEPTION 'El Jefe de Tienda solo puede modificar permisos de usuarios de su propia sucursal';
+      END IF;
+      v_target_id := COALESCE(p_id_usuario, v_current.id_usuario);
+      SELECT * INTO v_target FROM public.tb_usuario WHERE id = v_target_id;
+      IF v_target.id IS NULL
+         OR v_target.id_rol <> 4
+         OR v_target.id_sucursal IS DISTINCT FROM v_actor.id_sucursal THEN
+        RAISE EXCEPTION 'El Jefe de Tienda solo puede actualizar permisos de usuarios de Atencion al Cliente de su propia sucursal';
+      END IF;
+      IF p_id_permiso_menu IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+        FROM public.tb_permiso_menu pm
+        JOIN public.tb_estado em ON em.id = pm.id_estado
+        WHERE pm.id = p_id_permiso_menu
+          AND UPPER(em.nombre) = 'ACTIVO'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM public.tb_permiso_menu child
+            JOIN public.tb_estado ec ON ec.id = child.id_estado
+            WHERE child.id_padre = pm.id AND UPPER(ec.nombre) = 'ACTIVO'
+          )
+      ) THEN
+        RAISE EXCEPTION 'Solo puede asignar permisos de menus activos';
+      END IF;
+    END IF;
+  END IF;
+
   UPDATE public.tb_permiso_usuario
   SET id_usuario = COALESCE(p_id_usuario, id_usuario),
       id_permiso_menu = COALESCE(p_id_permiso_menu, id_permiso_menu),
       id_estado = COALESCE(p_id_estado, id_estado),
-      id_usuario_registra = COALESCE(p_id_usuario_registra, id_usuario_registra)
+      id_usuario_registra = COALESCE(v_usuario_registra, id_usuario_registra)
   WHERE id = p_id;
 
   RETURN (
@@ -1301,11 +1744,45 @@ CREATE OR REPLACE FUNCTION public.f_put_tb_permiso_usuario_lote(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, auth
 AS $$
 DECLARE
   v_count integer := 0;
   v_estado_activo_id bigint;
+  v_actor public.tb_usuario%ROWTYPE;
+  v_target public.tb_usuario%ROWTYPE;
+  v_usuario_registra bigint := p_id_usuario_registra;
 BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    SELECT u.* INTO v_actor
+    FROM public.tb_usuario u
+    JOIN public.tb_estado e ON e.id = u.id_estado
+    WHERE UPPER(e.nombre) = 'ACTIVO'
+      AND (
+        u.auth_user_id = auth.uid()
+        OR (u.auth_user_id IS NULL AND LOWER(u.email) = LOWER(auth.jwt() ->> 'email'))
+      )
+    ORDER BY (u.auth_user_id = auth.uid()) DESC
+    LIMIT 1;
+
+    IF v_actor.id IS NULL THEN
+      RAISE EXCEPTION 'No se pudo validar el usuario autenticado';
+    END IF;
+    IF p_id_usuario_registra IS NOT NULL AND p_id_usuario_registra <> v_actor.id THEN
+      RAISE EXCEPTION 'El usuario que registra los permisos no coincide con la sesion';
+    END IF;
+    v_usuario_registra := v_actor.id;
+
+    IF v_actor.id_rol = 3 AND NOT COALESCE(v_actor.flag_super_admin, false) THEN
+      SELECT * INTO v_target FROM public.tb_usuario WHERE id = p_id_usuario;
+      IF v_target.id IS NULL
+         OR v_target.id_rol <> 4
+         OR v_target.id_sucursal IS DISTINCT FROM v_actor.id_sucursal THEN
+        RAISE EXCEPTION 'El Jefe de Tienda solo puede administrar permisos de usuarios de Atencion al Cliente de su propia sucursal';
+      END IF;
+    END IF;
+  END IF;
+
   SELECT id
   INTO v_estado_activo_id
   FROM public.tb_estado
@@ -1328,7 +1805,7 @@ BEGIN
       p_id_usuario,
       pm.id,
       v_estado_activo_id,
-      p_id_usuario_registra
+      v_usuario_registra
     FROM public.tb_permiso_menu pm
     WHERE pm.id = ANY(p_ids_permiso_menu)
       AND pm.id_estado = v_estado_activo_id
@@ -1348,6 +1825,27 @@ BEGIN
   );
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.f_post_tb_permiso_usuario(
+  bigint, bigint, bigint, bigint
+) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.f_post_tb_permiso_usuario(
+  bigint, bigint, bigint, bigint
+) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.f_patch_tb_permiso_usuario(
+  bigint, bigint, bigint, bigint, bigint
+) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.f_patch_tb_permiso_usuario(
+  bigint, bigint, bigint, bigint, bigint
+) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.f_put_tb_permiso_usuario_lote(
+  bigint, bigint[], bigint
+) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.f_put_tb_permiso_usuario_lote(
+  bigint, bigint[], bigint
+) TO authenticated, service_role;
 
 /*
 Funcion: f_get_tb_navegacion_x_usuario
@@ -1379,6 +1877,7 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_es_super_admin boolean := false;
+  v_es_jefe_tienda boolean := false;
   v_usuario jsonb := '{}'::jsonb;
   v_nombres text[];
   v_rutas text[];
@@ -1390,8 +1889,9 @@ BEGIN
            'email', u.email,
            'flag_super_admin', u.flag_super_admin
          ),
-         COALESCE(u.flag_super_admin, false)
-  INTO v_usuario, v_es_super_admin
+         COALESCE(u.flag_super_admin, false),
+         (u.id_rol = 3 AND NOT COALESCE(u.flag_super_admin, false))
+  INTO v_usuario, v_es_super_admin, v_es_jefe_tienda
   FROM public.tb_usuario u
   WHERE u.id = p_id_usuario;
 
@@ -1414,10 +1914,16 @@ BEGIN
     SELECT array_remove(array_agg(pm.nombre ORDER BY pm.orden, pm.id), NULL),
            array_remove(array_agg(pm.ruta ORDER BY pm.orden, pm.id), NULL)
     INTO v_nombres, v_rutas
-    FROM public.tb_permiso_usuario pu
-    JOIN public.tb_permiso_menu pm ON pu.id_permiso_menu = pm.id
-    WHERE pu.id_usuario = p_id_usuario
-      AND pm.id_estado = (SELECT e.id FROM public.tb_estado e WHERE UPPER(e.nombre) = 'ACTIVO');
+    FROM public.tb_permiso_menu pm
+    LEFT JOIN public.tb_permiso_usuario pu
+      ON pu.id_permiso_menu = pm.id
+     AND pu.id_usuario = p_id_usuario
+     AND pu.id_estado = (SELECT e.id FROM public.tb_estado e WHERE UPPER(e.nombre) = 'ACTIVO')
+    WHERE pm.id_estado = (SELECT e.id FROM public.tb_estado e WHERE UPPER(e.nombre) = 'ACTIVO')
+      AND (
+        pu.id IS NOT NULL
+        OR (v_es_jefe_tienda AND pm.ruta = '/sistema/permiso-usuario')
+      );
   END IF;
 
   WITH permitted AS (
@@ -1491,7 +1997,12 @@ WHERE p.proname IN (
     'f_get_tb_usuario_his',
     'f_post_tb_usuario',
     'f_patch_tb_usuario',
-    'f_put_tb_permiso_usuario_lote'
+    'f_post_tb_usuario_auth',
+    'f_patch_tb_usuario_auth',
+    'f_post_tb_permiso_usuario',
+    'f_patch_tb_permiso_usuario',
+    'f_put_tb_permiso_usuario_lote',
+    'f_get_tb_navegacion_x_usuario'
 )
 ORDER BY n.nspname, p.proname;
 

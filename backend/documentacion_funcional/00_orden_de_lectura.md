@@ -24,6 +24,8 @@ en archivos nuevos y agregarse a este indice cuando corresponda.
 11. `33_manual_global_operaciones_pago_deuda_safetypay.md`: guia operativa de
     Pago Deuda y SafetyPay.
 12. `34_cajas_operativas_modal_y_cierre.md`: caja, cierre y reapertura.
+13. `38_creacion_usuarios_supabase_auth.md`: creacion de usuarios,
+    invitaciones por correo, roles, sucursales y autenticacion.
 
 ## Fuentes tecnicas
 

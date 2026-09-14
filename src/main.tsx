@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router";
 import { ToastContainer } from "@/components/application/toast-container";
+import { AcceptInvitePage } from "@/pages/accept-invite-page";
 import { LoginPage } from "@/pages/login-page";
 import { NotFound } from "@/pages/not-found";
 import { ForbiddenPage } from "@/pages/forbidden-page";
@@ -61,6 +62,7 @@ function AppRoutes() {
     return (
         <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/auth/accept-invite" element={<AcceptInvitePage />} />
             <Route path="/403" element={<ForbiddenPage />} />
 
             <Route element={<ProtectedRoute><Outlet /></ProtectedRoute>}>
