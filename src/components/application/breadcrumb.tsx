@@ -31,6 +31,9 @@ const routeLabels: Record<string, string> = {
     "/operaciones/deuda": "Pago Deuda",
     "/operaciones/pago-deuda": "Pago Deuda",
     "/operaciones/pagodeuda": "Pago Deuda",
+    "/reportes": "Reportes",
+    "/reportes/cierre-caja": "Cierre de Caja",
+    "/reportes/metricas-bancarias": "Métricas Bancarias",
     "/": "Home",
 };
 

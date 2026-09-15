@@ -26,6 +26,15 @@ en archivos nuevos y agregarse a este indice cuando corresponda.
 12. `34_cajas_operativas_modal_y_cierre.md`: caja, cierre y reapertura.
 13. `38_creacion_usuarios_supabase_auth.md`: creacion de usuarios,
     invitaciones por correo, roles, sucursales y autenticacion.
+14. `39_sistema_compensaciones_bonos_penalidades.md`: levantamiento de
+    ESQUEMA 9, reutilizacion de evidencia operativa y plan para un sistema
+    separado de compensaciones, bonos y penalidades.
+15. `40_metricas_kpi_operaciones_bancarias.md`: propuesta para un dashboard de
+    métricas históricas y comparativas de rutas bancarias, basado en los KPIs
+    existentes y en las referencias visuales recibidas.
+16. `41_propuesta_dashboard_historicos_estadisticas_bancarias.md`: definición
+    funcional de la nueva pantalla de métricas, sus KPI, filtros, gráficos,
+    contratos de consulta, entregas y criterios de aceptación.
 
 ## Fuentes tecnicas
 
