@@ -126,7 +126,7 @@ export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) 
             const isReportsGroup = String(group.nombre ?? "").trim().toLowerCase() === "reportes";
             if (isReportsGroup && !items.some((item) => item.href === "/reportes/metricas-bancarias")) {
                 items.push({
-                    label: "Métricas (Demo)",
+                    label: "Métricas Bancarias",
                     href: "/reportes/metricas-bancarias",
                     icon: BarChart03,
                     accentColor: undefined,

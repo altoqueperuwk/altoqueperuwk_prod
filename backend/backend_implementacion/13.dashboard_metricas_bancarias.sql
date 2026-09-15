@@ -210,6 +210,18 @@ hechos_pago AS (
       OR 'PAGADO' IN (SELECT UPPER(BTRIM(value)) FROM unnest(p_estados) AS value)
     )
 ),
+movimientos_pago_deuda AS (
+  SELECT
+    oc.id_operacion_proceso,
+    MIN(oc.fecha_registro) AS fecha_movimiento,
+    SUM(COALESCE(oc.monto_salida, 0))::numeric AS monto_salida
+  FROM public.tb_operacion_caja oc
+  WHERE oc.id_operacion_proceso IS NOT NULL
+    AND UPPER(BTRIM(COALESCE(oc.tipo_origen, ''))) = 'PAGO_DEUDA'
+    AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'SALIDA'
+    AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) <> 'ELIMINADO'
+  GROUP BY oc.id_operacion_proceso
+),
 salidas_base AS (
   SELECT
     c.ruta, c.id_empresa, c.empresa, c.id_empresa_cuenta_bancaria,
@@ -228,15 +240,7 @@ salidas_base AS (
       ELSE 'EFECTIVIZACION'
     END::character varying AS familia_dashboard
   FROM public.tb_operacion_proceso op
-  LEFT JOIN LATERAL (
-    SELECT MIN(oc.fecha_registro) AS fecha_movimiento,
-           SUM(COALESCE(oc.monto_salida, 0))::numeric AS monto_salida
-    FROM public.tb_operacion_caja oc
-    WHERE oc.id_operacion_proceso = op.id
-      AND UPPER(BTRIM(COALESCE(oc.tipo_origen, ''))) = 'PAGO_DEUDA'
-      AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'SALIDA'
-      AND UPPER(BTRIM(COALESCE(oc.nombre_estado, ''))) <> 'ELIMINADO'
-  ) mov ON true
+  LEFT JOIN movimientos_pago_deuda mov ON mov.id_operacion_proceso = op.id
   JOIN cuentas c ON (
     (
       c.ruta = 'safetypay'
@@ -617,6 +621,43 @@ BEGIN
 END;
 $$;
 
+/* Distribucion de operaciones por familia para el grafico del dashboard. */
+CREATE OR REPLACE FUNCTION public.f_get_dashboard_metricas_bancarias_distribucion(
+  p_fecha_desde date,
+  p_fecha_hasta date,
+  p_rutas character varying[] DEFAULT NULL,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_estados character varying[] DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+SELECT jsonb_build_object(
+  'familia', h.familia,
+  'operaciones', SUM(
+    CASE WHEN h.tipo_evento = 'MOVIMIENTO' THEN 1 ELSE h.operaciones_registradas END
+  )::bigint
+)
+FROM public.f_get_dashboard_metricas_bancarias_hechos(
+  p_fecha_desde,
+  p_fecha_hasta,
+  p_rutas,
+  p_id_empresa,
+  p_id_empresa_cuenta_bancaria,
+  NULL,
+  p_estados
+) h
+WHERE h.tipo_evento IN ('INGRESO_OPERACION', 'MOVIMIENTO')
+  AND h.familia IN ('EFECTIVIZACION', 'PAGO DEUDA', 'MOVIMIENTOS', 'DIRECTO')
+GROUP BY h.familia
+HAVING SUM(CASE WHEN h.tipo_evento = 'MOVIMIENTO' THEN 1 ELSE h.operaciones_registradas END) > 0
+ORDER BY SUM(CASE WHEN h.tipo_evento = 'MOVIMIENTO' THEN 1 ELSE h.operaciones_registradas END) DESC, h.familia;
+$$;
+
 /* Serie temporal por DIA, SEMANA o MES. */
 CREATE OR REPLACE FUNCTION public.f_get_dashboard_metricas_bancarias_serie(
   p_fecha_desde date,
@@ -754,8 +795,6 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_dashboard_metricas_bancarias_hechos',
-  'f_get_dashboard_metricas_bancarias_resumen',
-  'f_get_dashboard_metricas_bancarias_serie',
-  'f_get_dashboard_metricas_bancarias_desglose'
+  'f_get_dashboard_metricas_bancarias_distribucion'
 )
 ORDER BY n.nspname, p.proname;
