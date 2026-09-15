@@ -391,6 +391,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.tb_permiso_menu WHERE ruta = '/reportes/cierre-caja') THEN
     PERFORM public.f_post_tb_permiso_menu('Cierre de Caja', v_menu_reportes_id, '/reportes/cierre-caja', 'file-text', 52, v_estado_activo_id, v_usuario_admin_id);
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.tb_permiso_menu WHERE ruta = '/reportes/metricas-bancarias') THEN
+    PERFORM public.f_post_tb_permiso_menu('Metricas Bancarias', v_menu_reportes_id, '/reportes/metricas-bancarias', 'bar-chart', 53, v_estado_activo_id, v_usuario_admin_id);
+  END IF;
 END;
 $$;
 

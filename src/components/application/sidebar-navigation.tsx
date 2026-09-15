@@ -115,16 +115,30 @@ export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) 
 
     const menuItems: NavItemType[] = useMemo(() => {
         if (!navegacion?.menus) return [];
-        return navegacion.menus.map((group) => ({
-            label: group.nombre as string,
-            icon: resolveIcon(group.icono as string || ""),
-            items: group.children?.map((child) => ({
+        return navegacion.menus.map((group) => {
+            const items = group.children?.map((child) => ({
                 label: resolveNavLabel(child.nombre as string, child.ruta as string | null),
                 href: child.ruta || "#",
                 icon: resolveIcon(child.icono as string || ""),
                 accentColor: resolveNavAccent(child.ruta as string | null),
-            })) || [],
-        }));
+            })) || [];
+
+            const isReportsGroup = String(group.nombre ?? "").trim().toLowerCase() === "reportes";
+            if (isReportsGroup && !items.some((item) => item.href === "/reportes/metricas-bancarias")) {
+                items.push({
+                    label: "Métricas (Demo)",
+                    href: "/reportes/metricas-bancarias",
+                    icon: BarChart03,
+                    accentColor: undefined,
+                });
+            }
+
+            return {
+                label: group.nombre as string,
+                icon: resolveIcon(group.icono as string || ""),
+                items,
+            };
+        });
     }, [navegacion]);
 
     if (isLoading && !navegacion) {
