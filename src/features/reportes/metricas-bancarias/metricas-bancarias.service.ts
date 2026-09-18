@@ -45,6 +45,7 @@ const mapValores = (value: unknown): MetricasValores => {
         operacionesRegistradas: numberValue(row.operaciones_registradas),
         operacionesPagadas: numberValue(row.operaciones_pagadas),
         operacionesPendientes: numberValue(row.operaciones_pendientes),
+        clientesNuevos: numberValue(row.clientes_nuevos),
         tasaPago: numberValue(row.tasa_pago),
         ticketPromedio: numberValue(row.ticket_promedio),
     };
@@ -60,6 +61,7 @@ const mapVariacion = (value: unknown): MetricasVariacion | null => {
         ganancias: nullableNumber(row.ganancias),
         operacionesRegistradas: nullableNumber(row.operaciones_registradas),
         operacionesPagadas: nullableNumber(row.operaciones_pagadas),
+        clientesNuevos: nullableNumber(row.clientes_nuevos),
     };
 };
 
@@ -70,16 +72,16 @@ const mapPeriodo = (value: unknown) => {
 
 const mapResumen = (value: unknown): MetricasResumen => {
     const row = recordValue(value);
-    const safetypay = recordValue(row.safetypay);
+    const derivaciones = recordValue(row.derivaciones);
     return {
         periodo: mapPeriodo(row.periodo),
         comparacionPeriodo: row.comparacion_periodo ? mapPeriodo(row.comparacion_periodo) : null,
         actual: mapValores(row.actual),
         anterior: row.anterior ? mapValores(row.anterior) : null,
         variacion: mapVariacion(row.variacion_porcentual),
-        safetypay: {
-            totalTransferencia: numberValue(safetypay.total_transferencia),
-            empresasDerivadas: arrayValue(safetypay.empresas_derivadas).map((item): EmpresaDerivada => ({
+        derivaciones: {
+            totalTransferencia: numberValue(derivaciones.total_transferencia),
+            empresasDerivadas: arrayValue(derivaciones.empresas_derivadas).map((item): EmpresaDerivada => ({
                 empresa: String(item.empresa ?? "-"),
                 cuenta: String(item.cuenta ?? "-"),
                 operaciones: numberValue(item.operaciones),
@@ -92,9 +94,9 @@ const mapResumen = (value: unknown): MetricasResumen => {
 const serviceFamilies: Record<Exclude<MetricasServicio, "all">, string> = {
     efectivizacion: "EFECTIVIZACION",
     "pago-deuda": "PAGO DEUDA",
-    movimientos: "MOVIMIENTOS",
-    directo: "DIRECTO",
 };
+
+const recaudacionFamilies = ["EFECTIVIZACION", "PAGO DEUDA"];
 
 const familyParams = (consulta: MetricasConsulta, servicio = consulta.servicio, comparison = true) => ({
     p_fecha_desde: consulta.fechaDesde,
@@ -102,7 +104,8 @@ const familyParams = (consulta: MetricasConsulta, servicio = consulta.servicio, 
     p_rutas: consulta.ruta ? [consulta.ruta] : null,
     p_id_empresa: consulta.idEmpresa,
     p_id_empresa_cuenta_bancaria: consulta.idCuenta,
-    p_familias: servicio === "all" ? null : [serviceFamilies[servicio]],
+    p_id_banco: consulta.idBanco,
+    p_familias: servicio === "all" ? recaudacionFamilies : [serviceFamilies[servicio]],
     p_estados: null,
     p_incluir_comparacion: comparison,
 });
@@ -110,8 +113,6 @@ const familyParams = (consulta: MetricasConsulta, servicio = consulta.servicio, 
 const distributionMeta: Array<{ key: Exclude<MetricasServicio, "all">; name: string; color: string }> = [
     { key: "efectivizacion", name: "Efectivización", color: "var(--color-utility-brand-500)" },
     { key: "pago-deuda", name: "Pago Deuda", color: "var(--color-utility-blue-500)" },
-    { key: "movimientos", name: "Movimientos", color: "var(--color-utility-green-500)" },
-    { key: "directo", name: "Directo", color: "var(--color-utility-orange-500)" },
 ];
 
 export const metricasBancariasService = {
@@ -122,8 +123,9 @@ export const metricasBancariasService = {
             idEmpresa: numberValue(row.id_empresa),
             empresa: String(row.nombre_empresa ?? "-"),
             idCuenta: numberValue(row.id_empresa_cuenta_bancaria),
+            idBanco: numberValue(row.id_banco),
             cuenta: String(row.nombre_banco ?? "-"),
-        })).filter((row) => row.ruta && row.idEmpresa && row.idCuenta);
+        })).filter((row) => row.ruta && row.idEmpresa && row.idCuenta && row.idBanco);
     },
 
     async getDashboard(consulta: MetricasConsulta) {
@@ -143,6 +145,7 @@ export const metricasBancariasService = {
                 p_rutas: consulta.ruta ? [consulta.ruta] : null,
                 p_id_empresa: consulta.idEmpresa,
                 p_id_empresa_cuenta_bancaria: consulta.idCuenta,
+                p_id_banco: consulta.idBanco,
                 p_estados: null,
             }),
         ]);
@@ -159,6 +162,7 @@ export const metricasBancariasService = {
             margenGanancia: numberValue(row.margen_ganancia),
             operacionesRegistradas: numberValue(row.operaciones_registradas),
             operacionesPagadas: numberValue(row.operaciones_pagadas),
+            clientesNuevos: numberValue(row.clientes_nuevos),
         }));
 
         const breakdown: MetricasDesglose[] = arrayValue(breakdownRaw).map((row) => ({
@@ -166,6 +170,7 @@ export const metricasBancariasService = {
             idEmpresa: numberValue(row.id_empresa),
             empresa: String(row.empresa ?? "-"),
             idCuenta: numberValue(row.id_empresa_cuenta_bancaria),
+            idBanco: numberValue(row.id_banco),
             cuenta: String(row.cuenta ?? "-"),
             operaciones: numberValue(row.operaciones),
             pagadas: numberValue(row.pagadas),

@@ -49,6 +49,10 @@ export const useMetricasBancarias = (consulta: MetricasConsulta) => {
         let active = true;
         setIsLoading(true);
         setError(null);
+        setSummary(null);
+        setSeries([]);
+        setBreakdown([]);
+        setDistribution([]);
 
         metricasBancariasService.getDashboard(consulta)
             .then((result) => {

@@ -12,9 +12,10 @@ const highlightedDates = [today(getLocalTimeZone())];
 
 interface BasicDatePickerProps extends AriaDatePickerProps<DateValue> {
     size?: ButtonProps["size"];
+    buttonClassName?: string;
 }
 
-export const BasicDatePicker = ({ value: valueProp, defaultValue, onChange, size = "sm", ...props }: BasicDatePickerProps) => {
+export const BasicDatePicker = ({ value: valueProp, defaultValue, onChange, size = "sm", buttonClassName, ...props }: BasicDatePickerProps) => {
     const formatter = useDateFormatter({
         month: "short",
         day: "numeric",
@@ -26,7 +27,7 @@ export const BasicDatePicker = ({ value: valueProp, defaultValue, onChange, size
     return (
         <AriaDatePicker aria-label="Date picker" shouldCloseOnSelect {...props} value={value} onChange={setValue}>
             <AriaGroup>
-                <Button size={size} color="secondary" iconLeading={CalendarIcon}>
+                <Button size={size} color="secondary" iconLeading={CalendarIcon} className={buttonClassName}>
                     {formattedDate}
                 </Button>
             </AriaGroup>
