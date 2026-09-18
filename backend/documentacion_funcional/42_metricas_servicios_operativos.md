@@ -88,24 +88,27 @@ Hasta: 23:59:59.999 -05:00
 
 - `Banco solicitado`: usa `nombre_banco_cliente`.
 - `Sede solicitante`.
-- `Estado del flujo`.
 - Opcional: `Usuario solicitante`, solo si el permiso del usuario permite
   analizar el detalle por colaborador.
+
+El filtro `Estado` permanece oculto en la vista de métricas Pago Deuda.
 
 #### POS
 
 - `Entidad tarjeta`: usa `nombre_banco_cliente`.
-- `Banco de transferencia`: usa `nombre_banco_cliente_transferencia`.
 - `POS`: usa `nombre_pos`.
 - `Sede solicitante`.
-- `Estado`.
 - Opcional: empresa/cuenta de salida, para analizar el destino financiero.
+
+Los filtros `Estado` y `Banco de transferencia` permanecen ocultos en la vista
+de métricas POS; esas dimensiones continúan disponibles en el detalle.
 
 #### Link Pago
 
 - `Entidad tarjeta`: usa `nombre_banco_cliente`.
 - `Sede solicitante`.
-- `Estado`.
+
+El filtro `Estado` permanece oculto en la vista de métricas Link Pago.
 - Opcional: empresa/cuenta de salida.
 
 Los filtros específicos no deben llamarse simplemente `Banco` cuando el dato
@@ -163,13 +166,12 @@ hija asociada.
 | KPI | Definición | Campo/base |
 |---|---|---|
 | Solicitudes | Cantidad de solicitudes raíz en el periodo | `COUNT(*)`, excluyendo eliminadas |
-| Solicitudes pagadas | Solicitudes con estado `Pagado` | `nombre_estado` |
-| Solicitudes pendientes | Solicitudes que aún no están `Pagado` | `nombre_estado` |
+| Solicitudes sin empresa de comisión | Solicitudes con devolución confirmada cuya comisión todavía no fue registrada/finalizada | devolución confirmada y ausencia de `PAGO_DEUDA_COMISION` |
+| Solicitudes pendientes | Solicitudes en las etapas previas a confirmar la devolución: solicitud creada o transferencia procesada | sin devolución confirmada |
 | Monto solicitado | Suma del monto solicitado por los clientes | `monto_deposito_cliente` |
 | Monto devuelto/atendido | Importe efectivamente devuelto según el flujo actual | `monto_devuelto`, con la misma regla de `f_get_tb_pago_deuda_kpi` |
 | Comisión | Comisión cobrada en solicitudes pagadas | `resultado_comision_servicio` |
-| Paso 4 completado | Solicitudes con comisión registrada | `flag_comision_registrada = true` |
-| Éxito del flujo | Solicitudes en Paso 4 / solicitudes del periodo | porcentaje |
+| Tasa de éxito | Solicitudes pagadas / solicitudes del periodo | porcentaje |
 | Ticket promedio | Monto solicitado / solicitudes | importe |
 | Clientes nuevos | Clientes registrados en el periodo que tienen solicitud del servicio | `tb_cliente.fecha_registro` + `id_cliente` |
 
@@ -186,44 +188,31 @@ medida visual:
 - solicitudes pagadas;
 - monto solicitado;
 - comisión;
-- porcentaje de éxito del Paso 4.
+- porcentaje de solicitudes pagadas.
 
 Orden inicial recomendado: monto solicitado descendente; como desempate,
 solicitudes pagadas, comisión y nombre de sede.
 
 ### Sedes con mayor éxito
 
-Este bloque debe comunicar claramente que mide la finalización del flujo de
-Pago Deuda. Para esta ruta, “éxito” significa **Paso 4 completado**, no solo
-que la solicitud haya sido creada ni que haya pasado a `Procesado`.
+Este bloque mide la proporción de solicitudes que alcanzaron el estado
+`Pagado` durante el periodo seleccionado.
 
 ```text
-tasa_exito = paso_4_completado / solicitudes_del_periodo * 100
+tasa_exito = solicitudes_pagadas / solicitudes_del_periodo * 100
 ```
 
 Debe mostrar como mínimo:
 
 - nombre de sede;
 - solicitudes;
-- Paso 4 completado;
+- solicitudes pagadas;
 - tasa de éxito;
 - monto solicitado;
 - comisión acumulada.
 
 Si una sede no tiene solicitudes, no debe aparecer en el ranking ni dividir por
 cero.
-
-### Embudo de estados
-
-Se recomienda un embudo o barras por etapas:
-
-1. Solicitud creada.
-2. Procesada.
-3. Devolución/match confirmado.
-4. Comisión registrada — Paso 4.
-
-Los conteos deben salir de la misma población de solicitudes del periodo y no
-de consultas independientes que puedan mezclar rangos o duplicar operaciones.
 
 ## POS
 
@@ -249,6 +238,7 @@ los KPI de caja bancaria de Efectivización.
 |---|---|---|
 | Operaciones | Solicitudes POS no eliminadas del periodo | `COUNT(*)` |
 | Operaciones pagadas | Filas con estado `Pagado` | `nombre_estado` |
+| Operaciones pendientes | Filas en estado distinto de `Pagado`; se presentan con las referencias visuales `Solicitado` y `Pendiente` | `nombre_estado` |
 | Tasa de pago | Pagadas / operaciones | porcentaje |
 | Monto procesado | Suma del depósito de cliente | `monto_deposito_cliente` |
 | Comisiones | Comisión cobrada en pagadas | `resultado_comision_servicio` |
@@ -260,17 +250,18 @@ los KPI de caja bancaria de Efectivización.
 
 Las métricas financieras de POS solo consideran operaciones `Pagado`, siguiendo
 la regla de `f_get_tb_operacion_asistida_kpi`. Las operaciones pendientes sí se
-mantienen en conteos operativos y en el embudo.
+mantienen en conteos operativos y en la distribución por estado.
 
 ### Desgloses de POS
 
 - Sedes con más operaciones.
 - Sedes con mayor monto procesado.
-- Sedes con mayor tasa de pago.
+- Sedes con mayor ganancia acumulada.
 - Entidades de tarjeta más utilizadas (`nombre_banco_cliente`).
 - Bancos de transferencia más utilizados
   (`nombre_banco_cliente_transferencia`).
-- POS más utilizados (`nombre_pos`).
+- Monto depositado diario por POS (`nombre_pos`), mostrado como barras
+  agrupadas: una barra de color fijo por POS para cada día y leyenda inferior.
 - Empresas/cuentas destino con mayor salida.
 
 ## Link Pago
@@ -297,6 +288,7 @@ Link Pago utiliza los mismos indicadores base de POS, adaptados a sus campos:
 
 - operaciones;
 - operaciones pagadas;
+- operaciones pendientes;
 - tasa de pago;
 - monto procesado;
 - comisiones;
@@ -310,6 +302,10 @@ No se debe mostrar `POS` como dimensión de Link Pago porque esta ruta no tiene
 `nombre_pos`. El desglose principal será por sede y entidad de tarjeta.
 
 ### Desgloses de Link Pago
+
+La vista replica el comparativo diario de POS usando la entidad de tarjeta como
+dimensión, ya que Link Pago no registra `nombre_pos`. Cada día presenta una
+barra de color fijo por entidad y una leyenda inferior identifica las series.
 
 - Sedes con más operaciones.
 - Sedes con mayor monto procesado.
@@ -350,8 +346,9 @@ moneda con conteo en una misma tarjeta.
 Gráfico de barras o líneas con fechas completas del rango, incluyendo días en
 cero. Debe permitir visualizar subidas y bajadas:
 
-- Pago Deuda: solicitudes, Paso 4 y comisión.
-- POS/Link Pago: operaciones, pagadas, comisiones y ganancia.
+- Pago Deuda: solicitudes, pagadas y comisión.
+- POS/Link Pago: monto depositado, transferencias, operaciones, pagadas,
+  comisiones y ganancia.
 
 ### Ranking de sedes
 
@@ -363,8 +360,8 @@ mostrar cantidad, importe y porcentaje cuando corresponda.
 Gráfico de dona o barras para una dimensión propia del servicio:
 
 - Pago Deuda: banco solicitado, estado o sede.
-- POS: entidad tarjeta, banco destino o POS.
-- Link Pago: entidad tarjeta, estado o sede.
+- POS: barras de monto depositado por POS.
+- Link Pago: barras de monto depositado por entidad de tarjeta.
 
 El gráfico debe usar una sola población y no mezclar operaciones pendientes con
 montos financieros de operaciones pagadas sin indicarlo.
@@ -375,6 +372,10 @@ Tabla por sede y, cuando aplique, por banco/entidad, empresa y cuenta. Debe
 priorizar filas con actividad y ordenar el importe principal de mayor a menor.
 Las filas completamente en cero no se muestran si no aportan información al
 periodo.
+
+Todas las cabeceras visibles permiten alternar el orden ascendente y
+descendente. Esta interacción aplica a Efectivización, Pago Deuda, POS y Link
+Pago; el orden inicial conserva la medida monetaria principal descendente.
 
 ## Evidencia revisada
 
@@ -413,7 +414,7 @@ la pantalla. La pantalla debe consultar el periodo seleccionado.
   analítica`.
 - El botón activo identifica el servicio consultado.
 - Cada vista mantiene el mismo periodo y calendario, pero presenta KPIs propios.
-- Pago Deuda muestra sedes por solicitud, Paso 4 y tasa de éxito.
+- Pago Deuda muestra sedes por solicitudes, pagadas y tasa de éxito.
 - POS y Link Pago muestran comisión, gastos, ganancia, salidas y tasa de pago.
 - `Clientes nuevos` usa `tb_cliente.fecha_registro` y cuenta clientes únicos.
 - Las series muestran cada día del rango, incluidos días sin operaciones.

@@ -16,6 +16,7 @@ export interface MetricasServicioValores {
     operaciones: number;
     pagadas: number;
     pendientes: number;
+    sinEmpresaComision: number;
     montoProcesado: number;
     montoAtendido: number;
     comisiones: number;
@@ -27,25 +28,16 @@ export interface MetricasServicioValores {
     ticketPromedio: number;
 }
 
-export interface MetricasServicioEmbudo {
-    solicitudes: number;
-    procesadas: number;
-    atendidas: number;
-    paso4: number;
-}
-
 export interface MetricasServicioResumen {
     servicio: MetricasServicioOperativo;
     periodo: { desde: string; hasta: string };
     actual: MetricasServicioValores;
-    embudo: MetricasServicioEmbudo;
 }
 
 export interface MetricasServicioSerie {
     periodo: string;
     operaciones: number;
     pagadas: number;
-    paso4: number;
     clientesNuevos: number;
     montoProcesado: number;
     montoAtendido: number;
@@ -60,7 +52,6 @@ export interface MetricasServicioSede {
     sede: string;
     operaciones: number;
     pagadas: number;
-    paso4: number;
     clientesNuevos: number;
     montoProcesado: number;
     montoAtendido: number;
@@ -75,6 +66,7 @@ export interface MetricasServicioDistribucion {
     dimension: string;
     clave: string;
     nombre: string;
+    periodo: string | null;
     operaciones: number;
     pagadas: number;
     montoProcesado: number;

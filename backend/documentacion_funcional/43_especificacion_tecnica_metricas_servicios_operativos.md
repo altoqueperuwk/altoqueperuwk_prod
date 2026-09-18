@@ -213,6 +213,7 @@ actual y permitir agregar campos sin romper el frontend.
     "operaciones": 41,
     "pagadas": 33,
     "pendientes": 8,
+    "sin_empresa_comision": 3,
     "montoProcesado": 600473,
     "montoAtendido": 600473,
     "comisiones": 8572.89,
@@ -220,12 +221,6 @@ actual y permitir agregar campos sin romper el frontend.
     "clientesNuevos": 0,
     "tasaExito": 80.49,
     "ticketPromedio": 14645.68
-  },
-  "embudo": {
-    "solicitudes": 41,
-    "procesadas": 41,
-    "atendidas": 33,
-    "paso4": 33
   }
 }
 ```
@@ -246,8 +241,7 @@ sembrarse como datos dummy en producción.
     "comisiones": 620,
     "gastos": 120,
     "ganancias": 500,
-    "salidas": 43800,
-    "paso4": 8
+    "salidas": 43800
   }
 ]
 ```
@@ -265,11 +259,10 @@ como si fueran consecutivas.
     "sede": "Sede Lince",
     "operaciones": 20,
     "pagadas": 18,
-    "paso4": 17,
     "montoProcesado": 125000,
     "comisiones": 2100,
     "ganancias": 1900,
-    "tasaExito": 85
+    "tasaExito": 90
   }
 ]
 ```
@@ -290,9 +283,12 @@ monto_atendido_o_salidas
 comisiones
 gastos
 ganancias
-paso4
 tasa_exito
 ```
+
+El frontend ordena el desglose al seleccionar cualquier cabecera. El orden se
+aplica sobre la colección completa ya filtrada y alterna entre ascendente y
+descendente; no requiere una nueva consulta RPC.
 
 ## Funciones actuales y regla de reutilización
 
@@ -352,7 +348,7 @@ backend/backend_pruebas/15.validar_metricas_servicios_operativos.sql
 Casos mínimos:
 
 1. Pago Deuda con solicitudes `Procesado` y `Pagado`.
-2. Pago Deuda con Paso 4 incompleto.
+2. Pago Deuda con solicitudes pendientes y pagadas.
 3. Pago Deuda con devolución parcial y total.
 4. Dos solicitudes del mismo cliente: un solo cliente nuevo.
 5. Dos usuarios de sedes distintas: ranking separado.
@@ -373,7 +369,14 @@ Casos mínimos:
 - Cambiar sede actualiza rankings y detalle sin filtrar solo visualmente.
 - POS muestra entidad tarjeta, banco destino y POS sin confundir sus nombres.
 - Link Pago no muestra un selector de POS.
-- Pago Deuda muestra el embudo y etiqueta Paso 4.
+- Pago Deuda separa solicitudes pendientes y solicitudes sin empresa de comisión.
+- POS y Link Pago separan operaciones totales, pagadas y pendientes; el total
+  no repite las pendientes como texto secundario.
+- POS y Link Pago muestran `Monto depositado frente a transferencias`, sedes
+  ordenadas por ganancia y un comparativo de monto depositado por POS o entidad.
+- El comparativo de depósitos se agrega por `fecha_operacion` y categoría. La
+  distribución expone `pos-diario` para POS y `entidad-tarjeta-diaria` para
+  Link Pago, conservando días sin movimiento como cero en el frontend.
 - Los días sin operaciones aparecen como cero.
 - Loading, error y estado vacío son independientes por consulta.
 - Los colores de leyenda coinciden con cada serie.
@@ -401,7 +404,7 @@ El archivo SQL nuevo debe incluir al final su bloque de generación de
 - Cada tarjeta tiene una única fuente y fórmula documentada.
 - Resumen, serie, ranking y desglose concilian.
 - La sede se resuelve por `id_usuario_solicitud` y respeta permisos.
-- Pago Deuda identifica Paso 4 con `flag_comision_registrada`.
+- Pago Deuda calcula la tasa de éxito con solicitudes pagadas sobre el total.
 - POS y Link Pago mantienen la regla de sumar finanzas solo para `Pagado`.
 - No se cambian funciones operativas cerradas.
 - SQL, tipos frontend y pruebas quedan documentados en sus rutas respectivas.
