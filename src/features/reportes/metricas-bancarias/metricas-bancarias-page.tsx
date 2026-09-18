@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { parseDate as parseCalendarDate, type DateValue } from "@internationalized/date";
-import { BarChart03, Download01 } from "@untitledui/icons";
+import { BarChart03, ChevronDown, ChevronUp, Download01 } from "@untitledui/icons";
 import { motion } from "motion/react";
 import {
     Bar,
@@ -26,7 +26,7 @@ import { NativeSelect } from "@/components/base/select/select-native";
 import { cx } from "@/utils/cx";
 import { useMetricasBancarias, useMetricasBancariasCatalogo } from "./use-metricas-bancarias";
 import { MetricasServiceNavigation } from "./metricas-service-navigation";
-import type { MetricasConsulta, MetricasPeriodo } from "./metricas-bancarias.types";
+import type { MetricasConsulta, MetricasDesglose, MetricasPeriodo } from "./metricas-bancarias.types";
 
 const routeOptions = [
     { label: "Todos los bancos", value: "all" },
@@ -180,11 +180,35 @@ const LoadingState = () => (
     </div>
 );
 
+type BreakdownSortKey = keyof MetricasDesglose;
+type SortDirection = "asc" | "desc";
+
+const SortableHeader = ({ label, column, activeColumn, direction, align = "left", onSort }: {
+    label: string;
+    column: BreakdownSortKey;
+    activeColumn: BreakdownSortKey;
+    direction: SortDirection;
+    align?: "left" | "right";
+    onSort: (column: BreakdownSortKey) => void;
+}) => {
+    const isActive = activeColumn === column;
+    const SortIcon = direction === "asc" ? ChevronUp : ChevronDown;
+    return (
+        <th className={cx("px-4 py-3 font-semibold", align === "right" && "text-right")} aria-sort={isActive ? (direction === "asc" ? "ascending" : "descending") : "none"}>
+            <button type="button" className={cx("inline-flex w-full items-center gap-1.5 hover:text-primary", align === "right" && "justify-end")} onClick={() => onSort(column)}>
+                {label}
+                <SortIcon className={cx("size-3.5", !isActive && "opacity-30")} aria-hidden="true" />
+            </button>
+        </th>
+    );
+};
+
 export const MetricasBancariasPage = () => {
     const [period, setPeriod] = useState<MetricasPeriodo>("7d");
     const [dateRange, setDateRange] = useState(() => getDateRange("7d"));
     const [company, setCompany] = useState("all");
     const [account, setAccount] = useState("all");
+    const [breakdownSort, setBreakdownSort] = useState<{ column: BreakdownSortKey; direction: SortDirection }>({ column: "cajaRecaudacion", direction: "desc" });
     const { cuentas, error: catalogError } = useMetricasBancariasCatalogo();
 
     const consulta = useMemo<MetricasConsulta>(() => ({
@@ -237,24 +261,26 @@ export const MetricasBancariasPage = () => {
     const timelineTickInterval = Math.max(0, Math.ceil(timeline.length / 8) - 1);
 
     const sortedBreakdown = useMemo(() => breakdown.toSorted((a, b) => {
-        const aHasFinancialActivity = a.cajaRecaudacion > 0 || a.salidas > 0 || a.ganancias > 0 || a.pendienteTransferencia > 0;
-        const bHasFinancialActivity = b.cajaRecaudacion > 0 || b.salidas > 0 || b.ganancias > 0 || b.pendienteTransferencia > 0;
-
-        return Number(bHasFinancialActivity) - Number(aHasFinancialActivity)
-            || b.cajaRecaudacion - a.cajaRecaudacion
-            || b.salidas - a.salidas
-            || b.ganancias - a.ganancias
-            || b.pendienteTransferencia - a.pendienteTransferencia
-            || getRouteLabel(a.ruta).localeCompare(getRouteLabel(b.ruta), "es")
-            || a.empresa.localeCompare(b.empresa, "es")
-            || a.cuenta.localeCompare(b.cuenta, "es");
-    }), [breakdown]);
+        const left = a[breakdownSort.column];
+        const right = b[breakdownSort.column];
+        const comparison = typeof left === "number" && typeof right === "number"
+            ? left - right
+            : String(left ?? "").localeCompare(String(right ?? ""), "es", { numeric: true, sensitivity: "base" });
+        return breakdownSort.direction === "asc" ? comparison : -comparison;
+    }), [breakdown, breakdownSort]);
 
     const visibleBreakdown = useMemo(() => sortedBreakdown
         .filter((row) => !isHiddenCompany(row.empresa))
         .filter((row) => company === "all" || row.idEmpresa === Number(company))
         .filter((row) => account === "all" || row.idBanco === Number(account)),
     [account, company, sortedBreakdown]);
+
+    const handleBreakdownSort = (column: BreakdownSortKey) => {
+        setBreakdownSort((current) => ({
+            column,
+            direction: current.column === column && current.direction === "desc" ? "asc" : "desc",
+        }));
+    };
 
     const bankDistribution = useMemo(() => {
         const totals = new Map<string, { key: string; name: string; value: number }>();
@@ -548,9 +574,15 @@ export const MetricasBancariasPage = () => {
                     <div className="overflow-x-auto rounded-lg border border-secondary">
                         <table className="w-full min-w-[1180px] border-collapse text-left text-sm">
                             <thead className="bg-secondary text-xs uppercase tracking-wide text-tertiary"><tr>
-                                <th className="px-4 py-3 font-semibold">Banco</th><th className="px-4 py-3 font-semibold">Empresa</th><th className="px-4 py-3 font-semibold">Cuenta</th>
-                                <th className="px-4 py-3 text-right font-semibold">Operaciones</th><th className="px-4 py-3 text-right font-semibold">Pagadas</th><th className="px-4 py-3 text-right font-semibold">Recaudación</th>
-                                <th className="px-4 py-3 text-right font-semibold">Salidas</th><th className="px-4 py-3 text-right font-semibold">Ganancias</th><th className="px-4 py-3 text-right font-semibold">Pendiente</th>
+                                <SortableHeader label="Banco" column="ruta" activeColumn={breakdownSort.column} direction={breakdownSort.direction} onSort={handleBreakdownSort} />
+                                <SortableHeader label="Empresa" column="empresa" activeColumn={breakdownSort.column} direction={breakdownSort.direction} onSort={handleBreakdownSort} />
+                                <SortableHeader label="Cuenta" column="cuenta" activeColumn={breakdownSort.column} direction={breakdownSort.direction} onSort={handleBreakdownSort} />
+                                <SortableHeader label="Operaciones" column="operaciones" activeColumn={breakdownSort.column} direction={breakdownSort.direction} align="right" onSort={handleBreakdownSort} />
+                                <SortableHeader label="Pagadas" column="pagadas" activeColumn={breakdownSort.column} direction={breakdownSort.direction} align="right" onSort={handleBreakdownSort} />
+                                <SortableHeader label="Recaudación" column="cajaRecaudacion" activeColumn={breakdownSort.column} direction={breakdownSort.direction} align="right" onSort={handleBreakdownSort} />
+                                <SortableHeader label="Salidas" column="salidas" activeColumn={breakdownSort.column} direction={breakdownSort.direction} align="right" onSort={handleBreakdownSort} />
+                                <SortableHeader label="Ganancias" column="ganancias" activeColumn={breakdownSort.column} direction={breakdownSort.direction} align="right" onSort={handleBreakdownSort} />
+                                <SortableHeader label="Pendiente" column="pendienteTransferencia" activeColumn={breakdownSort.column} direction={breakdownSort.direction} align="right" onSort={handleBreakdownSort} />
                             </tr></thead>
                             <tbody className="divide-y divide-secondary">
                                 {visibleBreakdown.map((row) => (

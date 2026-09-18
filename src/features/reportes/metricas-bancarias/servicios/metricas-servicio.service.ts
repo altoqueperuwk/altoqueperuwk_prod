@@ -4,7 +4,6 @@ import type {
     MetricasServicioDashboard,
     MetricasServicioDesglose,
     MetricasServicioDistribucion,
-    MetricasServicioEmbudo,
     MetricasServicioOperativo,
     MetricasServicioResumen,
     MetricasServicioSede,
@@ -46,6 +45,7 @@ const mapValores = (value: unknown): MetricasServicioValores => {
         operaciones: numberValue(row.operaciones),
         pagadas: numberValue(row.pagadas),
         pendientes: numberValue(row.pendientes),
+        sinEmpresaComision: numberValue(row.sin_empresa_comision),
         montoProcesado: numberValue(row.monto_procesado),
         montoAtendido: numberValue(row.monto_atendido),
         comisiones: numberValue(row.comisiones),
@@ -58,22 +58,11 @@ const mapValores = (value: unknown): MetricasServicioValores => {
     };
 };
 
-const mapEmbudo = (value: unknown): MetricasServicioEmbudo => {
-    const row = recordValue(value);
-    return {
-        solicitudes: numberValue(row.solicitudes),
-        procesadas: numberValue(row.procesadas),
-        atendidas: numberValue(row.atendidas),
-        paso4: numberValue(row.paso4),
-    };
-};
-
 const mapSede = (row: JsonRecord): MetricasServicioSede => ({
     idSucursal: nullableNumber(row.id_sucursal),
     sede: String(row.sede ?? "Sin sede"),
     operaciones: numberValue(row.operaciones),
     pagadas: numberValue(row.pagadas),
-    paso4: numberValue(row.paso4),
     clientesNuevos: numberValue(row.clientes_nuevos),
     montoProcesado: numberValue(row.monto_procesado),
     montoAtendido: numberValue(row.monto_atendido),
@@ -111,14 +100,12 @@ export const metricasServicioService = {
             servicio: String(summaryRow.servicio ?? consulta.servicio) as MetricasServicioOperativo,
             periodo: { desde: String(periodo.desde ?? consulta.fechaDesde), hasta: String(periodo.hasta ?? consulta.fechaHasta) },
             actual: mapValores(summaryRow.actual),
-            embudo: mapEmbudo(summaryRow.embudo),
         };
 
         const series: MetricasServicioSerie[] = arrayValue(seriesRaw).map((row) => ({
             periodo: String(row.periodo ?? ""),
             operaciones: numberValue(row.operaciones),
             pagadas: numberValue(row.pagadas),
-            paso4: numberValue(row.paso4),
             clientesNuevos: numberValue(row.clientes_nuevos),
             montoProcesado: numberValue(row.monto_procesado),
             montoAtendido: numberValue(row.monto_atendido),
@@ -133,6 +120,7 @@ export const metricasServicioService = {
             dimension: String(row.dimension ?? ""),
             clave: String(row.clave ?? ""),
             nombre: String(row.nombre ?? "Sin dato"),
+            periodo: row.periodo == null ? null : String(row.periodo),
             operaciones: numberValue(row.operaciones),
             pagadas: numberValue(row.pagadas),
             montoProcesado: numberValue(row.monto_procesado),
@@ -159,6 +147,7 @@ export const metricasServicioService = {
             dimension: String(row.dimension ?? ""),
             clave: String(row.clave ?? ""),
             nombre: String(row.nombre ?? "Sin dato"),
+            periodo: row.periodo == null ? null : String(row.periodo),
             operaciones: numberValue(row.operaciones),
             pagadas: numberValue(row.pagadas),
             montoProcesado: numberValue(row.monto_procesado),

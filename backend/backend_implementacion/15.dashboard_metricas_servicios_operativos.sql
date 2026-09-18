@@ -11,7 +11,6 @@ Reglas principales:
   - POS y Link Pago usan ruta_origen y fecha_registro;
   - la sede pertenece al usuario solicitante;
   - las metricas financieras de POS/Link Pago solo consideran Pagado;
-  - Paso 4 de Pago Deuda significa comision registrada;
   - las fechas se interpretan en America/Lima.
 */
 
@@ -238,10 +237,19 @@ AS $$
       END)::character varying AS servicio,
       COUNT(*)::bigint AS operaciones,
       COUNT(*) FILTER (WHERE pagada)::bigint AS pagadas,
-      COUNT(*) FILTER (WHERE NOT pagada)::bigint AS pendientes,
-      COUNT(*) FILTER (WHERE procesada)::bigint AS procesadas,
-      COUNT(*) FILTER (WHERE atendida)::bigint AS atendidas,
-      COUNT(*) FILTER (WHERE paso4)::bigint AS paso4,
+      COUNT(*) FILTER (
+        WHERE CASE
+          -- En Pago Deuda solo son pendientes las solicitudes anteriores a
+          -- la confirmacion de la devolucion (etapas operativas 1 y 2).
+          WHEN servicio = 'pago-deuda' THEN NOT atendida
+          ELSE NOT pagada
+        END
+      )::bigint AS pendientes,
+      COUNT(*) FILTER (
+        -- Una devolucion confirmada sin comision registrada aun requiere
+        -- asignar/finalizar la empresa que recibira dicha comision.
+        WHERE servicio = 'pago-deuda' AND atendida AND NOT paso4
+      )::bigint AS sin_empresa_comision,
       COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint AS clientes_nuevos,
       COALESCE(SUM(monto_procesado), 0)::numeric AS monto_procesado,
       COALESCE(SUM(monto_atendido), 0)::numeric AS monto_atendido,
@@ -258,6 +266,7 @@ AS $$
       'operaciones', a.operaciones,
       'pagadas', a.pagadas,
       'pendientes', a.pendientes,
+      'sin_empresa_comision', a.sin_empresa_comision,
       'monto_procesado', a.monto_procesado,
       'monto_atendido', a.monto_atendido,
       'comisiones', a.comisiones,
@@ -266,16 +275,9 @@ AS $$
       'salidas', a.salidas,
       'clientes_nuevos', a.clientes_nuevos,
       'tasa_exito', CASE WHEN a.operaciones > 0 THEN ROUND(
-        (CASE WHEN a.servicio = 'pago-deuda' THEN a.paso4 ELSE a.pagadas END)::numeric
-        / a.operaciones * 100, 2) ELSE 0 END,
+        a.pagadas::numeric / a.operaciones * 100, 2) ELSE 0 END,
       'ticket_promedio', CASE WHEN a.operaciones > 0
         THEN ROUND(a.monto_procesado / a.operaciones, 2) ELSE 0 END
-    ),
-    'embudo', jsonb_build_object(
-      'solicitudes', a.operaciones,
-      'procesadas', a.procesadas,
-      'atendidas', a.atendidas,
-      'paso4', a.paso4
     )
   )
   FROM a;
@@ -315,7 +317,6 @@ AS $$
       fecha_operacion AS periodo,
       COUNT(*)::bigint AS operaciones,
       COUNT(*) FILTER (WHERE pagada)::bigint AS pagadas,
-      COUNT(*) FILTER (WHERE paso4)::bigint AS paso4,
       COALESCE(SUM(monto_procesado), 0)::numeric AS monto_procesado,
       COALESCE(SUM(monto_atendido), 0)::numeric AS monto_atendido,
       COALESCE(SUM(comisiones), 0)::numeric AS comisiones,
@@ -334,7 +335,6 @@ AS $$
     'periodo', d.periodo,
     'operaciones', COALESCE(o.operaciones, 0),
     'pagadas', COALESCE(o.pagadas, 0),
-    'paso4', COALESCE(o.paso4, 0),
     'clientes_nuevos', COALESCE(c.clientes_nuevos, 0),
     'monto_procesado', COALESCE(o.monto_procesado, 0),
     'monto_atendido', COALESCE(o.monto_atendido, 0),
@@ -376,7 +376,6 @@ AS $$
       id_sucursal, sucursal, MAX(servicio) AS servicio,
       COUNT(*)::bigint AS operaciones,
       COUNT(*) FILTER (WHERE pagada)::bigint AS pagadas,
-      COUNT(*) FILTER (WHERE paso4)::bigint AS paso4,
       COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint AS clientes_nuevos,
       SUM(monto_procesado)::numeric AS monto_procesado,
       SUM(monto_atendido)::numeric AS monto_atendido,
@@ -388,13 +387,12 @@ AS $$
   )
   SELECT jsonb_build_object(
     'id_sucursal', id_sucursal, 'sede', sucursal,
-    'operaciones', operaciones, 'pagadas', pagadas, 'paso4', paso4,
+    'operaciones', operaciones, 'pagadas', pagadas,
     'clientes_nuevos', clientes_nuevos,
     'monto_procesado', monto_procesado, 'monto_atendido', monto_atendido,
     'comisiones', comisiones, 'gastos', gastos, 'ganancias', ganancias, 'salidas', salidas,
     'tasa_exito', CASE WHEN operaciones > 0 THEN ROUND(
-      (CASE WHEN servicio = 'pago-deuda' THEN paso4 ELSE pagadas END)::numeric
-      / operaciones * 100, 2) ELSE 0 END
+      pagadas::numeric / operaciones * 100, 2) ELSE 0 END
   )
   FROM a
   ORDER BY monto_procesado DESC, operaciones DESC, sucursal;
@@ -423,35 +421,45 @@ AS $$
       p_id_sucursal, p_id_estado, p_id_banco_cliente, p_id_banco_destino, p_id_pos
     )
   ), dimensiones AS (
-    SELECT 'estado'::text AS dimension, COALESCE(id_estado::text, 'null') AS clave, estado AS nombre,
+    SELECT 'estado'::text AS dimension, COALESCE(id_estado::text, 'null') AS clave, estado AS nombre, NULL::date AS periodo,
            COUNT(*)::bigint AS operaciones, COUNT(*) FILTER (WHERE pagada)::bigint AS pagadas,
            SUM(monto_procesado)::numeric AS monto_procesado, SUM(comisiones)::numeric AS comisiones,
            SUM(ganancias)::numeric AS ganancias
     FROM h GROUP BY id_estado, estado
     UNION ALL
-    SELECT 'entidad-tarjeta', COALESCE(id_banco_cliente::text, 'null'), entidad_tarjeta,
+    SELECT 'entidad-tarjeta', COALESCE(id_banco_cliente::text, 'null'), entidad_tarjeta, NULL::date,
            COUNT(*)::bigint, COUNT(*) FILTER (WHERE pagada)::bigint,
            SUM(monto_procesado)::numeric, SUM(comisiones)::numeric, SUM(ganancias)::numeric
     FROM h GROUP BY id_banco_cliente, entidad_tarjeta
     UNION ALL
-    SELECT 'banco-destino', COALESCE(id_banco_destino::text, 'null'), banco_destino,
+    SELECT 'banco-destino', COALESCE(id_banco_destino::text, 'null'), banco_destino, NULL::date,
            COUNT(*)::bigint, COUNT(*) FILTER (WHERE pagada)::bigint,
            SUM(monto_procesado)::numeric, SUM(comisiones)::numeric, SUM(ganancias)::numeric
     FROM h WHERE servicio = 'pos' GROUP BY id_banco_destino, banco_destino
     UNION ALL
-    SELECT 'pos', COALESCE(id_pos::text, 'null'), pos,
+    SELECT 'pos', COALESCE(id_pos::text, 'null'), pos, NULL::date,
            COUNT(*)::bigint, COUNT(*) FILTER (WHERE pagada)::bigint,
            SUM(monto_procesado)::numeric, SUM(comisiones)::numeric, SUM(ganancias)::numeric
     FROM h WHERE servicio = 'pos' GROUP BY id_pos, pos
+    UNION ALL
+    SELECT 'pos-diario', COALESCE(id_pos::text, 'null'), pos, fecha_operacion,
+           COUNT(*)::bigint, COUNT(*) FILTER (WHERE pagada)::bigint,
+           SUM(monto_procesado)::numeric, SUM(comisiones)::numeric, SUM(ganancias)::numeric
+    FROM h WHERE servicio = 'pos' GROUP BY fecha_operacion, id_pos, pos
+    UNION ALL
+    SELECT 'entidad-tarjeta-diaria', COALESCE(id_banco_cliente::text, 'null'), entidad_tarjeta, fecha_operacion,
+           COUNT(*)::bigint, COUNT(*) FILTER (WHERE pagada)::bigint,
+           SUM(monto_procesado)::numeric, SUM(comisiones)::numeric, SUM(ganancias)::numeric
+    FROM h WHERE servicio = 'linkpago' GROUP BY fecha_operacion, id_banco_cliente, entidad_tarjeta
   )
   SELECT jsonb_build_object(
-    'dimension', dimension, 'clave', clave, 'nombre', nombre,
+    'dimension', dimension, 'clave', clave, 'nombre', nombre, 'periodo', periodo,
     'operaciones', operaciones, 'pagadas', pagadas,
     'monto_procesado', monto_procesado, 'comisiones', comisiones, 'ganancias', ganancias
   )
   FROM dimensiones
   WHERE operaciones > 0
-  ORDER BY dimension, operaciones DESC, monto_procesado DESC, nombre;
+  ORDER BY dimension, periodo NULLS FIRST, operaciones DESC, monto_procesado DESC, nombre;
 $$;
 
 CREATE OR REPLACE FUNCTION public.f_get_dashboard_metricas_servicios_desglose(
@@ -488,7 +496,6 @@ AS $$
       COUNT(*)::bigint AS operaciones,
       COUNT(*) FILTER (WHERE pagada)::bigint AS pagadas,
       COUNT(*) FILTER (WHERE NOT pagada)::bigint AS pendientes,
-      COUNT(*) FILTER (WHERE paso4)::bigint AS paso4,
       COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint AS clientes_nuevos,
       SUM(monto_procesado)::numeric AS monto_procesado,
       SUM(monto_atendido)::numeric AS monto_atendido,
@@ -510,12 +517,11 @@ AS $$
     'id_empresa_salida', id_empresa_salida, 'empresa_salida', empresa_salida,
     'id_cuenta_salida', id_cuenta_salida, 'cuenta_salida', cuenta_salida,
     'operaciones', operaciones, 'pagadas', pagadas, 'pendientes', pendientes,
-    'paso4', paso4, 'clientes_nuevos', clientes_nuevos,
+    'clientes_nuevos', clientes_nuevos,
     'monto_procesado', monto_procesado, 'monto_atendido', monto_atendido,
     'comisiones', comisiones, 'gastos', gastos, 'ganancias', ganancias, 'salidas', salidas,
     'tasa_exito', CASE WHEN operaciones > 0 THEN ROUND(
-      (CASE WHEN servicio = 'pago-deuda' THEN paso4 ELSE pagadas END)::numeric
-      / operaciones * 100, 2) ELSE 0 END
+      pagadas::numeric / operaciones * 100, 2) ELSE 0 END
   )
   FROM a
   ORDER BY monto_procesado DESC, operaciones DESC, sucursal, entidad_tarjeta;
@@ -529,7 +535,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_dashboard_metricas_servicios_hechos',
   'f_get_dashboard_metricas_servicios_resumen',
   'f_get_dashboard_metricas_servicios_serie',
   'f_get_dashboard_metricas_servicios_sedes',
