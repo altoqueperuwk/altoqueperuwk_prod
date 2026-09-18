@@ -1,12 +1,13 @@
-export type MetricasPeriodo = "6m" | "3m" | "month";
+export type MetricasPeriodo = "7d" | "month" | "2m" | "3m" | "4m" | "5m" | "6m";
 
-export type MetricasServicio = "all" | "efectivizacion" | "pago-deuda" | "movimientos" | "directo";
+export type MetricasServicio = "all" | "efectivizacion" | "pago-deuda";
 
 export interface MetricasCuenta {
     ruta: string;
     idEmpresa: number;
     empresa: string;
     idCuenta: number;
+    idBanco: number;
     cuenta: string;
 }
 
@@ -22,6 +23,7 @@ export interface MetricasValores {
     operacionesRegistradas: number;
     operacionesPagadas: number;
     operacionesPendientes: number;
+    clientesNuevos: number;
     tasaPago: number;
     ticketPromedio: number;
 }
@@ -33,6 +35,7 @@ export interface MetricasVariacion {
     ganancias: number | null;
     operacionesRegistradas: number | null;
     operacionesPagadas: number | null;
+    clientesNuevos: number | null;
 }
 
 export interface EmpresaDerivada {
@@ -48,7 +51,7 @@ export interface MetricasResumen {
     actual: MetricasValores;
     anterior: MetricasValores | null;
     variacion: MetricasVariacion | null;
-    safetypay: {
+    derivaciones: {
         totalTransferencia: number;
         empresasDerivadas: EmpresaDerivada[];
     };
@@ -66,6 +69,7 @@ export interface MetricasSerie {
     margenGanancia: number;
     operacionesRegistradas: number;
     operacionesPagadas: number;
+    clientesNuevos: number;
 }
 
 export interface MetricasDesglose {
@@ -73,6 +77,7 @@ export interface MetricasDesglose {
     idEmpresa: number;
     empresa: string;
     idCuenta: number;
+    idBanco: number;
     cuenta: string;
     operaciones: number;
     pagadas: number;
@@ -96,6 +101,7 @@ export interface MetricasConsulta {
     ruta: string | null;
     idEmpresa: number | null;
     idCuenta: number | null;
+    idBanco: number | null;
     servicio: MetricasServicio;
 }
 

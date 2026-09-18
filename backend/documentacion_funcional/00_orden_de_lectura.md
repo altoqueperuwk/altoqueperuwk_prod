@@ -36,6 +36,12 @@ en archivos nuevos y agregarse a este indice cuando corresponda.
     funcional de la nueva pantalla de métricas, sus KPI, filtros, gráficos,
     contratos de consulta, entregas y criterios de aceptación.
 
+17. `42_metricas_servicios_operativos.md`: alcance funcional de las vistas de
+    Pago Deuda, POS y Link Pago dentro de Metricas Bancarias.
+18. `43_especificacion_tecnica_metricas_servicios_operativos.md`: contrato
+    tecnico, funciones analiticas nuevas, seguridad, pruebas e integracion
+    frontend para esos servicios.
+
 ## Fuentes tecnicas
 
 - Backend: `../CONTEXTO_GENERAL_BACKEND.md`
