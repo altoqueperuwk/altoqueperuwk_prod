@@ -3260,7 +3260,10 @@ BEGIN
   SET id_caja_cierre_ingreso = p_id_caja_cierre,
       fecha_caja_cierre = COALESCE(fecha_caja_cierre, p_fecha_cierre)
   WHERE op.id_caja_cierre_ingreso IS NULL
-    AND op.id_caja_cierre IS NULL
+    AND (
+      op.id_caja_cierre IS NULL
+      OR COALESCE(op.flag_derivado, false) = true
+    )
     AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, 'SOLICITUD'))) <> 'BANCO'
     AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
     AND op.id_empresa_ingreso = v_caja.id_empresa
@@ -3280,7 +3283,10 @@ BEGIN
   SET id_caja_cierre_salida = p_id_caja_cierre,
       fecha_caja_cierre = COALESCE(fecha_caja_cierre, p_fecha_cierre)
   WHERE op.id_caja_cierre_salida IS NULL
-    AND op.id_caja_cierre IS NULL
+    AND (
+      op.id_caja_cierre IS NULL
+      OR COALESCE(op.flag_derivado, false) = true
+    )
     AND op.id_empresa_salida = v_caja.id_empresa
     AND op.id_empresa_cuenta_salida = v_caja.id_empresa_cuenta_bancaria
     AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO')
@@ -3390,19 +3396,26 @@ BEGIN
   SELECT EXISTS (
     SELECT 1
     FROM public.tb_operacion_proceso op
-    WHERE op.id_caja_cierre IS NULL
-      AND op.id_caja_cierre_ingreso IS NULL
-      AND op.id_caja_cierre_salida IS NULL
-      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+    WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
       AND op.fecha_registro >= COALESCE(v_caja.fecha_apertura, '-infinity'::timestamp with time zone)
       AND (
         (
           op.id_empresa_ingreso = v_caja.id_empresa
           AND op.id_empresa_cuenta_ingreso = v_caja.id_empresa_cuenta_bancaria
+          AND op.id_caja_cierre_ingreso IS NULL
+          AND (
+            op.id_caja_cierre IS NULL
+            OR COALESCE(op.flag_derivado, false) = true
+          )
         )
         OR (
           op.id_empresa_salida = v_caja.id_empresa
           AND op.id_empresa_cuenta_salida = v_caja.id_empresa_cuenta_bancaria
+          AND op.id_caja_cierre_salida IS NULL
+          AND (
+            op.id_caja_cierre IS NULL
+            OR COALESCE(op.flag_derivado, false) = true
+          )
         )
       )
   ) OR EXISTS (
@@ -4220,9 +4233,11 @@ WITH caja AS (
     AND (
       (
         p_id_caja_cierre IS NULL
-        AND op.id_caja_cierre IS NULL
         AND op.id_caja_cierre_ingreso IS NULL
-        AND op.id_caja_cierre_salida IS NULL
+        AND (
+          op.id_caja_cierre IS NULL
+          OR COALESCE(op.flag_derivado, false) = true
+        )
       )
       OR (
         p_id_caja_cierre IS NOT NULL
@@ -4464,38 +4479,44 @@ BEGIN
       END AS ganancia,
       CASE
         WHEN op.flag_derivado = true
-         AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(COALESCE(p_ruta, v_ruta))
+         AND op.id_empresa_salida_origen = v_caja.id_empresa
+         AND op.id_empresa_cuenta_salida_origen = v_caja.id_empresa_cuenta_bancaria
          AND LOWER(COALESCE(p_ruta, v_ruta)) <> 'safetypay'
         THEN 0
         ELSE COALESCE(op.monto_transferencia_cliente, 0)
       END AS transferencia,
       CASE
         WHEN op.flag_derivado = true
-         AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(COALESCE(p_ruta, v_ruta))
+         AND op.id_empresa_salida_origen = v_caja.id_empresa
+         AND op.id_empresa_cuenta_salida_origen = v_caja.id_empresa_cuenta_bancaria
         THEN COALESCE(op.nombre_empresa_salida, v_nombre_empresa)
         ELSE COALESCE(op.nombre_empresa_ingreso, v_nombre_empresa)
       END AS empresa,
       CASE
         WHEN op.flag_derivado = true
-         AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(COALESCE(p_ruta, v_ruta))
+         AND op.id_empresa_salida_origen = v_caja.id_empresa
+         AND op.id_empresa_cuenta_salida_origen = v_caja.id_empresa_cuenta_bancaria
         THEN COALESCE(op.nombre_banco_empresa_cuenta_salida, v_nombre_banco)
         ELSE COALESCE(op.nombre_banco_empresa_cuenta_ingreso, v_nombre_banco)
       END AS cuenta,
       CASE
         WHEN op.flag_derivado = true
-         AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(COALESCE(p_ruta, v_ruta))
+         AND op.id_empresa_salida_origen = v_caja.id_empresa
+         AND op.id_empresa_cuenta_salida_origen = v_caja.id_empresa_cuenta_bancaria
         THEN COALESCE(op.nombre_empresa_salida_origen, op.nombre_empresa_salida, v_nombre_empresa)
         ELSE NULL
       END AS empresa_derivada,
       CASE
         WHEN op.flag_derivado = true
-         AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(COALESCE(p_ruta, v_ruta))
+         AND op.id_empresa_salida_origen = v_caja.id_empresa
+         AND op.id_empresa_cuenta_salida_origen = v_caja.id_empresa_cuenta_bancaria
         THEN COALESCE(op.nombre_banco_empresa_cuenta_salida_origen, op.nombre_banco_empresa_cuenta_salida, v_nombre_banco)
         ELSE NULL
       END AS cuenta_derivada,
       (
         op.flag_derivado = true
-        AND LOWER(COALESCE(op.ruta_origen, '')) = LOWER(COALESCE(p_ruta, v_ruta))
+        AND op.id_empresa_salida_origen = v_caja.id_empresa
+        AND op.id_empresa_cuenta_salida_origen = v_caja.id_empresa_cuenta_bancaria
       ) AS derivada_congelada,
       COALESCE(op.flag_fuera_horario, false) AS fuera_horario,
       op.nombre_estado AS estado,
@@ -4522,12 +4543,14 @@ BEGIN
     ) caja ON true
     WHERE UPPER(COALESCE(op.tipo_servicio, '')) = 'EFECTIVIZACION'
       AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) <> 'DIRECTO_CAJA'
-      -- Una derivacion recibida pertenece al bloque unificado de Derivados.
-      -- La dejamos fuera de este conjunto para no duplicarla en el reporte.
-      AND NOT (
-        op.flag_derivado = true
-        AND LOWER(COALESCE(op.ruta_destino, '')) = LOWER(COALESCE(p_ruta, v_ruta))
-        AND LOWER(COALESCE(op.ruta_origen, '')) <> LOWER(COALESCE(p_ruta, v_ruta))
+      -- Una derivacion recibida pertenece al bloque de Derivados atendidos.
+      -- En rutas compartidas, empresa y cuenta determinan si fue enviada.
+      AND (
+        COALESCE(op.flag_derivado, false) = false
+        OR (
+          op.id_empresa_salida_origen = v_caja.id_empresa
+          AND op.id_empresa_cuenta_salida_origen = v_caja.id_empresa_cuenta_bancaria
+        )
       )
       AND (
         v_cierre_id IS NULL
@@ -7739,8 +7762,11 @@ por_caja AS (
   LEFT JOIN LATERAL (
     SELECT
       SUM(CASE
-        WHEN op.id_caja_cierre_ingreso IS NULL
-         AND op.id_caja_cierre IS NULL
+         WHEN op.id_caja_cierre_ingreso IS NULL
+          AND (
+            op.id_caja_cierre IS NULL
+            OR COALESCE(op.flag_derivado, false) = true
+          )
          AND op.id_empresa_ingreso = c.id_empresa
          AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
           AND op.fecha_registro >= COALESCE(c.fecha_apertura, '-infinity'::timestamp with time zone)
@@ -7750,8 +7776,11 @@ por_caja AS (
         ELSE 0
       END) AS recaudacion,
       SUM(CASE
-        WHEN op.id_caja_cierre_ingreso IS NULL
-         AND op.id_caja_cierre IS NULL
+         WHEN op.id_caja_cierre_ingreso IS NULL
+          AND (
+            op.id_caja_cierre IS NULL
+            OR COALESCE(op.flag_derivado, false) = true
+          )
          AND op.id_empresa_ingreso = c.id_empresa
          AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
          AND UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) <> 'POS'
@@ -7792,11 +7821,14 @@ por_caja AS (
         ELSE 0
       END) AS ingresos,
       SUM(CASE
-        WHEN UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) = 'DIRECTO_CAJA'
-         AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
-         AND op.id_caja_cierre_ingreso IS NULL
-         AND op.id_caja_cierre_salida IS NULL
-         AND op.id_caja_cierre IS NULL
+         WHEN UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) = 'DIRECTO_CAJA'
+          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+          AND op.id_caja_cierre_ingreso IS NULL
+          AND op.id_caja_cierre_salida IS NULL
+          AND (
+            op.id_caja_cierre IS NULL
+            OR COALESCE(op.flag_derivado, false) = true
+          )
          AND op.id_empresa_ingreso = c.id_empresa
          AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
          AND op.fecha_registro >= COALESCE(c.fecha_apertura, '-infinity'::timestamp with time zone)
@@ -7804,8 +7836,11 @@ por_caja AS (
         ELSE 0
       END) AS directos,
       SUM(CASE
-        WHEN op.id_caja_cierre_salida IS NULL
-         AND op.id_caja_cierre IS NULL
+         WHEN op.id_caja_cierre_salida IS NULL
+          AND (
+            op.id_caja_cierre IS NULL
+            OR COALESCE(op.flag_derivado, false) = true
+          )
          AND op.id_empresa_salida = c.id_empresa
          AND op.id_empresa_cuenta_salida = c.id_empresa_cuenta_bancaria
          AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO')
@@ -7855,8 +7890,11 @@ por_caja AS (
          ELSE 0
       END) AS salidas,
       SUM(CASE
-        WHEN op.id_caja_cierre_ingreso IS NULL
-         AND op.id_caja_cierre IS NULL
+         WHEN op.id_caja_cierre_ingreso IS NULL
+          AND (
+            op.id_caja_cierre IS NULL
+            OR COALESCE(op.flag_derivado, false) = true
+          )
          AND op.id_empresa_ingreso = c.id_empresa
          AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
           AND op.fecha_registro >= COALESCE(c.fecha_apertura, '-infinity'::timestamp with time zone)
@@ -7866,8 +7904,11 @@ por_caja AS (
         ELSE 0
       END)
       + SUM(CASE
-        WHEN op.id_caja_cierre_salida IS NULL
-         AND op.id_caja_cierre IS NULL
+         WHEN op.id_caja_cierre_salida IS NULL
+          AND (
+            op.id_caja_cierre IS NULL
+            OR COALESCE(op.flag_derivado, false) = true
+          )
          AND op.id_empresa_salida = c.id_empresa
          AND op.id_empresa_cuenta_salida = c.id_empresa_cuenta_bancaria
          AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO')
@@ -7894,8 +7935,11 @@ por_caja AS (
         ELSE 0
       END) AS gastos,
       SUM(CASE
-        WHEN op.id_caja_cierre_ingreso IS NULL
-         AND op.id_caja_cierre IS NULL
+         WHEN op.id_caja_cierre_ingreso IS NULL
+          AND (
+            op.id_caja_cierre IS NULL
+            OR COALESCE(op.flag_derivado, false) = true
+          )
          AND op.id_empresa_ingreso = c.id_empresa
          AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
          AND op.fecha_registro >= COALESCE(c.fecha_apertura, '-infinity'::timestamp with time zone)
@@ -8502,9 +8546,10 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_reporte_cierre',
+  'f_sync_tb_operacion_cierre_atribucion_v2',
+  'f_post_tb_caja_operativa_cierre',
   'f_get_tb_ruta_operacion_kpi_safetypay',
-  'f_get_tb_operacion_caja',
-  'f_get_tb_operacion_empresa_badges'
+  'f_get_tb_ruta_operacion_kpi_operaciones_v2',
+  'f_get_reporte_cierre'
 )
 ORDER BY n.nspname, p.proname;

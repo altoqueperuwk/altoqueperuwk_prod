@@ -116,6 +116,7 @@ interface BancariaOperationalTabsProps {
     showCompanyTabs?: boolean;
     flowTabsAsButtons?: boolean;
     hidePagination?: boolean;
+    enableCopyTable?: boolean;
     unifiedFlowFilter?: boolean;
     onChanged?: () => void;
     onMetricsChanged?: () => void;
@@ -483,6 +484,7 @@ export const BancariaOperationalTabs = ({
     showCompanyTabs = true,
     flowTabsAsButtons = false,
     hidePagination = false,
+    enableCopyTable = false,
     unifiedFlowFilter = false,
     onChanged,
     onMetricsChanged,
@@ -724,7 +726,7 @@ export const BancariaOperationalTabs = ({
         return base;
     }, [currentTab, ruta]);
     const currentFilters = unifiedFlowFilter && currentTab === "Unificado"
-        ? unifiedFlowFilters
+        ? ruta === "safetypay" ? ["Todos", "Efectivizacion"] : unifiedFlowFilters
         : contract.filters;
     const scopedRoutes = useMemo(
         () => Array.from(new Set([ruta, ...queryRoutes])),
@@ -1375,6 +1377,41 @@ export const BancariaOperationalTabs = ({
         }
 
         refreshMetrics();
+    };
+
+    const handleCopyTable = async () => {
+        const table = document.querySelector<HTMLElement>('[data-copy-table="cierre-caja"] table');
+        const tableRows = table ? Array.from(table.querySelectorAll("thead tr, tbody tr")) : [];
+        const text = tableRows
+            .map((row) => Array.from(row.querySelectorAll("th, td"))
+                .map((cell) => (cell as HTMLElement).innerText.replace(/\s+/g, " ").trim())
+                .join("\t"))
+            .join("\n");
+
+        if (!text || tableRows.length < 2) {
+            addToast("error", "No hay datos para copiar.");
+            return;
+        }
+
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const textarea = document.createElement("textarea");
+                textarea.value = text;
+                textarea.setAttribute("readonly", "true");
+                textarea.style.position = "fixed";
+                textarea.style.opacity = "0";
+                document.body.appendChild(textarea);
+                textarea.select();
+                const copied = document.execCommand("copy");
+                textarea.remove();
+                if (!copied) throw new Error("No se pudo acceder al portapapeles.");
+            }
+            addToast("success", "Tabla copiada. Puedes pegarla directamente en Excel.");
+        } catch {
+            addToast("error", "No se pudo copiar la tabla al portapapeles.");
+        }
     };
 
     useEffect(() => {
@@ -2077,6 +2114,7 @@ export const BancariaOperationalTabs = ({
                 onCodeChange={currentTab === "Movimientos" ? undefined : setCode}
                 onDniChange={setDni}
                 onFilterChange={handleFilterChange}
+                onCopyTable={enableCopyTable ? handleCopyTable : undefined}
                 isActionDisabled={isActionDisabled}
                 onAction={readOnly ? undefined : handleAction}
             />

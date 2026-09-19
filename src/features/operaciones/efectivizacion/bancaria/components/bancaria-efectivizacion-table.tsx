@@ -430,7 +430,10 @@ export const BancariaEfectivizacionTable = ({
     const showFueraHorario = false;
     const getRowFlow = (row: OperacionProceso) => {
         if (isUnificado) {
-            if (unifiedFlowLabels) return getUnifiedFlowLabel(row, ruta);
+            if (unifiedFlowLabels) return getUnifiedFlowLabel(row, ruta, {
+                idEmpresa: activeCompanyId,
+                idEmpresaCuentaBancaria: activeAccountId,
+            });
             if (row.flag_derivado) return "Derivado";
             if (String(row.ruta_origen ?? "").toLowerCase() === "pos") return "POS";
             return "Efectivizacion";
@@ -1267,7 +1270,7 @@ export const BancariaEfectivizacionTable = ({
     };
 
     return (
-        <div className="overflow-hidden border-t border-secondary" aria-busy={isLoading || isRefreshing}>
+        <div className="overflow-hidden border-t border-secondary" data-copy-table="cierre-caja" aria-busy={isLoading || isRefreshing}>
             <div className="overflow-x-auto">
                 <table className="w-full min-w-max table-auto divide-y divide-secondary">
                     <thead className="bg-secondary">

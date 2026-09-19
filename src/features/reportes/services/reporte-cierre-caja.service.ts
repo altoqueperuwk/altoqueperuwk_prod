@@ -379,7 +379,10 @@ export const getReporteCierreHistorico = async (
     const posRows: Record<string, unknown>[] = [];
 
     for (const row of uniqueUnifiedRows) {
-        const flow = getUnifiedFlowLabel(row, context.ruta);
+        const flow = getUnifiedFlowLabel(row, context.ruta, {
+            idEmpresa: context.idEmpresa,
+            idEmpresaCuentaBancaria: context.idEmpresaCuentaBancaria,
+        });
         if (flow === "POS") {
             posRows.push(toReportPosRow(row));
         } else if (flow === "Derivados Atendidos") {

@@ -105,6 +105,12 @@ const normalizeRow = (
 
 const isPaid = (row: ReporteEfectivizacionUnificadaRow) => row.estado?.trim().toLowerCase() === "pagado";
 
+const operationKey = (row: ReporteEfectivizacionUnificadaRow) => {
+    const operation = row.operacion?.trim();
+    if (!operation) return null;
+    return `${operation}|${row.dni ?? ""}|${row.deposito ?? ""}`;
+};
+
 export const getReporteEfectivizacionUnificada = (data: ReporteEfectivizacionSource) => {
     const efectivizacionRows = [
         ...toRows(data.efectivizacion),
@@ -118,7 +124,14 @@ export const getReporteEfectivizacionUnificada = (data: ReporteEfectivizacionSou
     // El backend marca como derivada_congelada la operación derivada enviada
     // por la ruta actual. Las demás operaciones de efectivización son normales.
     const efectivizacion = efectivizacionRows.filter((row) => !row.derivada_congelada);
-    const derivadosEnviados = efectivizacionRows.filter((row) => row.derivada_congelada);
+    // Una operacion recibida no puede figurar simultaneamente como enviada.
+    // Protege el reporte ante RPC antiguos que clasificaban solo por ruta.
+    const atendidosKeys = new Set(derivadosAtendidos.map(operationKey).filter((key): key is string => key !== null));
+    const derivadosEnviados = efectivizacionRows.filter((row) => {
+        if (!row.derivada_congelada) return false;
+        const key = operationKey(row);
+        return key === null || !atendidosKeys.has(key);
+    });
 
     return {
         efectivizacion,
