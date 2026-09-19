@@ -6,6 +6,7 @@ import type {
 import {
     getUnifiedFlowLabel,
     mergeMovimientos,
+    sortPagoDeudaChronologically,
 } from "./bancaria-bandeja-data";
 import { formatMovimientoOrigen } from "@/features/operaciones/efectivizacion/shared/utils/movement-labels";
 
@@ -107,5 +108,14 @@ describe("bancaria-bandeja-data", () => {
 
     it("identifica el ingreso directo a caja como movimiento informativo", () => {
         expect(formatMovimientoOrigen("DIRECTO_CAJA")).toBe("Directo");
+    });
+
+    it("ordena Pago Deuda por la fecha y hora que muestra la bandeja", () => {
+        const rows = [
+            operation({ id: 2, fecha_deposito_cliente: "2026-09-18T08:00:00-05:00", fecha_registro: "2026-09-19T09:22:00-05:00" }),
+            operation({ id: 1, fecha_deposito_cliente: "2026-09-19T08:00:00-05:00", fecha_registro: "2026-09-19T09:10:00-05:00" }),
+        ];
+
+        expect(sortPagoDeudaChronologically(rows).map((row) => row.id)).toEqual([1, 2]);
     });
 });

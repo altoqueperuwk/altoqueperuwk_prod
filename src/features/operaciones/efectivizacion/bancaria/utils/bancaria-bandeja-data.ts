@@ -104,6 +104,12 @@ export const sortOperacionesChronologically = (rows: OperacionProceso[]) =>
         a.id - b.id,
     );
 
+export const sortPagoDeudaChronologically = (rows: OperacionProceso[]) =>
+    [...rows].sort((a, b) =>
+        toChronologicalTime(a.fecha_registro, a.fecha_deposito_cliente) - toChronologicalTime(b.fecha_registro, b.fecha_deposito_cliente) ||
+        a.id - b.id,
+    );
+
 export const sortMovimientosChronologically = (rows: MovimientoMerged[]) =>
     [...rows].sort((a, b) =>
         toChronologicalTime(a.fecha_orden, a.fecha_registro) - toChronologicalTime(b.fecha_orden, b.fecha_registro) ||
