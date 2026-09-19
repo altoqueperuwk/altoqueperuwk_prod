@@ -45,6 +45,7 @@ import { BancariaEfectivizacionTable } from "@/features/operaciones/efectivizaci
 import { BancariaExcelRollbackModal } from "@/features/operaciones/efectivizacion/bancaria/components/bancaria-excel-rollback-modal";
 import {
     sortMovimientosChronologically,
+    sortPagoDeudaChronologically,
     sortOperacionesChronologically,
     type BancariaTab,
     type MovimientoMerged,
@@ -769,8 +770,11 @@ export const BancariaOperationalTabs = ({
     const operaciones = useMemo(() => {
         const byId = new Map<number, OperacionProceso>();
         [...primaryBandeja.operaciones, ...secondaryBandeja.operaciones].forEach((row) => byId.set(row.id, row));
-        return sortOperacionesChronologically(Array.from(byId.values()));
-    }, [primaryBandeja.operaciones, secondaryBandeja.operaciones]);
+        const rows = Array.from(byId.values());
+        return currentTab === "Pago Deuda"
+            ? sortPagoDeudaChronologically(rows)
+            : sortOperacionesChronologically(rows);
+    }, [currentTab, primaryBandeja.operaciones, secondaryBandeja.operaciones]);
     const movimientos = useMemo(() => {
         const byId = new Map<number, MovimientoMerged>();
         [...primaryBandeja.movimientos, ...secondaryBandeja.movimientos].forEach((row) => byId.set(row.id, row));
@@ -2172,6 +2176,7 @@ export const BancariaOperationalTabs = ({
                     columns={currentOperationColumns}
                     data={operaciones}
                     emptyText={emptyText}
+                    hidePagination={hidePagination || currentTab === "Pago Deuda"}
                     isLoading={isInitialLoading}
                     isRefreshing={isRefreshing}
                     selectedIds={selectedIds}

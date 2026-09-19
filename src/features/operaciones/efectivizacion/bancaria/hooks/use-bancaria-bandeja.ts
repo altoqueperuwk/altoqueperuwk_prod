@@ -11,6 +11,7 @@ import {
     getUnifiedFlowLabel,
     mergeMovimientos,
     sortMovimientosChronologically,
+    sortPagoDeudaChronologically,
     sortOperacionesChronologically,
     type MovimientoMerged,
     type UnifiedFlowFilter,
@@ -19,6 +20,7 @@ import {
 export {
     getUnifiedFlowLabel,
     sortMovimientosChronologically,
+    sortPagoDeudaChronologically,
     sortOperacionesChronologically,
 };
 export type { MovimientoMerged, UnifiedFlowFilter };
@@ -438,7 +440,8 @@ export const useBancariaBandeja = ({
                     setMovimientos((current) => reconcileRows(current, filterMovimientos(merged, activeFilter)));
                     setOperaciones([]);
                 } else {
-                    const rows = sortOperacionesChronologically((originRequest ? (result as [unknown, unknown]).flatMap((part) => (part ?? []) as OperacionProceso[]) : (result ?? []) as OperacionProceso[])
+                    const sortRows = tab === "Pago Deuda" ? sortPagoDeudaChronologically : sortOperacionesChronologically;
+                    const rows = sortRows((originRequest ? (result as [unknown, unknown]).flatMap((part) => (part ?? []) as OperacionProceso[]) : (result ?? []) as OperacionProceso[])
                         .filter((row, index, all) => all.findIndex((item) => item.id === row.id) === index)
                         .filter((row) => {
                             if (!originRequest || row.flag_derivado !== true) return true;
