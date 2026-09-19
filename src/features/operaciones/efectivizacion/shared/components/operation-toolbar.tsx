@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Copy01 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 
@@ -20,6 +21,7 @@ interface OperationToolbarProps {
     onDateToChange?: (value: string) => void;
     onDniChange: (value: string) => void;
     onFilterChange: (value: string) => void;
+    onCopyTable?: () => void;
     showDateRange?: boolean;
 }
 
@@ -41,6 +43,7 @@ export const OperationToolbar = ({
     onDateToChange,
     onDniChange,
     onFilterChange,
+    onCopyTable,
     showDateRange = false,
 }: OperationToolbarProps) => {
     const actionLabels: Record<string, string> = {
@@ -123,6 +126,16 @@ export const OperationToolbar = ({
                         {actionLabels[action] ?? action}
                     </Button>
                 ))}
+                {onCopyTable && (
+                    <Button
+                        size="sm"
+                        color="secondary"
+                        iconLeading={Copy01}
+                        onClick={onCopyTable}
+                    >
+                        Copiar
+                    </Button>
+                )}
             </div>
         </div>
     );

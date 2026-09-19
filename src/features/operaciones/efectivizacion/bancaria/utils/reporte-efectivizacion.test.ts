@@ -47,4 +47,34 @@ describe("getReporteEfectivizacionUnificada", () => {
             operacion: "202607301153",
         });
     });
+
+    it("no duplica como enviado un derivado atendido entre empresas de la misma ruta", () => {
+        const sharedOperation = {
+            codigo_operacion_deposito_cliente: "00056987",
+            dni_cliente: "60635682",
+            monto_deposito_cliente: 700,
+            nombre_estado: "Pagado",
+        };
+        const report = getReporteEfectivizacionUnificada({
+            empresa: "TwoService (1) S.A.",
+            banco: "Interbank",
+            ruta: "interbank",
+            efectivizacion: [{
+                ...sharedOperation,
+                empresa: "TwoService (1) S.A.",
+                cuenta: "Interbank",
+                empresa_derivada: "Capital Nova S.A.",
+                cuenta_derivada: "Interbank",
+                derivada_congelada: true,
+            }],
+            derivados: [{
+                ...sharedOperation,
+                empresa: "Capital Nova S.A.",
+                cuenta: "Interbank",
+            }],
+        });
+
+        expect(report.derivadosAtendidos).toHaveLength(1);
+        expect(report.derivadosEnviados).toHaveLength(0);
+    });
 });

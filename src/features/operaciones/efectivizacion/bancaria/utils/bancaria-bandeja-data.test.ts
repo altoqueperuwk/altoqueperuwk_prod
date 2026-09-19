@@ -63,6 +63,23 @@ describe("bancaria-bandeja-data", () => {
             .toBe("Derivados Atendidos");
     });
 
+    it("distingue origen y destino cuando una derivacion permanece en la misma ruta bancaria", () => {
+        const derived = operation({
+            flag_derivado: true,
+            ruta_origen: "interbank",
+            ruta_destino: "interbank",
+            id_empresa_salida_origen: 10,
+            id_empresa_cuenta_salida_origen: 100,
+            id_empresa_salida: 20,
+            id_empresa_cuenta_salida: 200,
+        });
+
+        expect(getUnifiedFlowLabel(derived, "interbank", { idEmpresa: 10 }))
+            .toBe("Derivados Enviados");
+        expect(getUnifiedFlowLabel(derived, "interbank", { idEmpresa: 20 }))
+            .toBe("Derivados Atendidos");
+    });
+
     it("agrupa ingreso y salida igual que el datatable de movimientos", () => {
         const rows = mergeMovimientos([
             movement({

@@ -67,11 +67,17 @@ export const ReporteCierreCajaOperationalPage = () => {
         [selectedBank],
     );
     const { data: routeCajas, error: companiesError, isLoading: isLoadingCompanies } = useRouteCompanies(workspaceRoutes);
+    const companyRouteCajas = useMemo(
+        () => selectedBank === "interbank"
+            ? routeCajas.filter((company) => company.nombre_empresa.trim().toLowerCase().replace(/\s+/g, "") !== "safetypay")
+            : routeCajas,
+        [routeCajas, selectedBank],
+    );
     const {
         activeCompanyId,
         companies,
         setActiveCompanyId,
-    } = useActiveCompany(routeCajas, selectedBank);
+    } = useActiveCompany(companyRouteCajas, selectedBank);
 
     useEffect(() => {
         let ignore = false;
@@ -296,6 +302,7 @@ export const ReporteCierreCajaOperationalPage = () => {
                     activeCompanyCaja={null}
                     activeCompanyId={activeCompanyId}
                     companies={companies}
+                    enableCopyTable
                     hasRetentionRule={companies.find((company) => company.id_empresa === activeCompanyId)?.flag_retencion_cuenta === true}
                     enabled={Boolean(selectedDate)}
                     embedded
@@ -310,7 +317,7 @@ export const ReporteCierreCajaOperationalPage = () => {
                     onCompanyChange={setActiveCompanyId}
                     ruta={selectedBank}
                     queryRoutes={workspaceRoutes}
-                    visibleTabs={[...visibleTabs]}
+                    visibleTabs={selectedBank === "safetypay" ? ["Unificado"] : [...visibleTabs]}
                 />
                 </div>
             </div>

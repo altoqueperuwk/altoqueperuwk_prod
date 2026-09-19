@@ -6,12 +6,54 @@ import type {
 
 export type UnifiedFlowFilter = "Todos" | "Efectivizacion" | "Derivados Atendidos" | "Derivados Enviados" | "POS";
 
+interface UnifiedFlowContext {
+    idEmpresa?: number | null;
+    idEmpresaCuentaBancaria?: number | null;
+}
+
+const matchesContext = (
+    idEmpresa: number | null | undefined,
+    idEmpresaCuentaBancaria: number | null | undefined,
+    context: UnifiedFlowContext,
+) => {
+    if (context.idEmpresa == null || idEmpresa == null || Number(idEmpresa) !== Number(context.idEmpresa)) return false;
+    return context.idEmpresaCuentaBancaria == null ||
+        idEmpresaCuentaBancaria == null ||
+        Number(idEmpresaCuentaBancaria) === Number(context.idEmpresaCuentaBancaria);
+};
+
 export const getUnifiedFlowLabel = (
-    row: Pick<OperacionProceso, "flag_derivado" | "ruta_origen" | "ruta_destino">,
+    row: Pick<
+        OperacionProceso,
+        | "flag_derivado"
+        | "ruta_origen"
+        | "ruta_destino"
+        | "id_empresa_salida"
+        | "id_empresa_cuenta_salida"
+        | "id_empresa_salida_origen"
+        | "id_empresa_cuenta_salida_origen"
+    >,
     ruta: OperacionRutaBancaria,
+    context: UnifiedFlowContext = {},
 ): Exclude<UnifiedFlowFilter, "Todos"> => {
     const isDerived = row.flag_derivado === true || String(row.flag_derivado).toLowerCase() === "true";
     if (isDerived) {
+        const matchesOrigin = matchesContext(
+            row.id_empresa_salida_origen,
+            row.id_empresa_cuenta_salida_origen,
+            context,
+        );
+        const matchesDestination = matchesContext(
+            row.id_empresa_salida,
+            row.id_empresa_cuenta_salida,
+            context,
+        );
+
+        if (matchesOrigin && !matchesDestination) return "Derivados Enviados";
+        if (matchesDestination && !matchesOrigin) return "Derivados Atendidos";
+        if (matchesOrigin) return "Derivados Enviados";
+        if (matchesDestination) return "Derivados Atendidos";
+
         return String(row.ruta_origen ?? "").trim().toLowerCase() === String(ruta).trim().toLowerCase()
             ? "Derivados Enviados"
             : "Derivados Atendidos";

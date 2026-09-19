@@ -117,7 +117,7 @@ export const OperationTable = <T extends { id: number }>({
     };
 
     return (
-        <div className="overflow-hidden border-t border-secondary" aria-busy={isLoading || isRefreshing}>
+        <div className="overflow-hidden border-t border-secondary" data-copy-table="cierre-caja" aria-busy={isLoading || isRefreshing}>
             <div className="overflow-x-auto">
                 <table className="w-full min-w-max table-auto divide-y divide-secondary">
                     <thead className="bg-secondary">

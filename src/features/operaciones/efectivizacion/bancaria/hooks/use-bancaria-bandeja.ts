@@ -424,7 +424,10 @@ export const useBancariaBandeja = ({
                         .filter((row, index, all) => all.findIndex((item) => item.id === row.id) === index)
                         .filter((row) => matchesCurrentOperacionView(row)));
                     const flowRows = unifiedFlowFilter
-                        ? rows.filter((row) => activeFilter === "Todos" || getUnifiedFlowLabel(row, ruta) === activeFilter)
+                        ? rows.filter((row) => activeFilter === "Todos" || getUnifiedFlowLabel(row, ruta, {
+                            idEmpresa: activeCompanyId,
+                            idEmpresaCuentaBancaria: activeAccountId,
+                        }) === activeFilter)
                         : rows;
                     setOperaciones((current) => reconcileRows(current, flowRows));
                     setMovimientos([]);
