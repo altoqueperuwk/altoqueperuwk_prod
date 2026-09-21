@@ -44,6 +44,8 @@ type ManualCommissionType = "especial" | "extra";
 type RecurringCommissionType = "especial" | "extra";
 type ConfirmActionType = "pagar" | "pd-directo" | "directo";
 
+const PAGO_DEUDA_MATCH_RECHECK_MS = 2_000;
+
 interface ReglaEfectivizacion {
     id: number;
     id_codigo_servicio: number;
@@ -361,7 +363,8 @@ export const BancariaEfectivizacionTable = ({
     const [pagoDeudaMatches, setPagoDeudaMatches] = useState<Record<number, OperacionProceso[]>>({});
     const [pagoDeudaMatchLoadingId, setPagoDeudaMatchLoadingId] = useState<number | null>(null);
     const [pagoDeudaMatchError, setPagoDeudaMatchError] = useState<string | null>(null);
-    const pagoDeudaMatchFlagCache = useRef(new Map<number, { fingerprint: string; hasMatch: boolean }>());
+    const [pagoDeudaMatchRecheckKey, setPagoDeudaMatchRecheckKey] = useState(0);
+    const pagoDeudaMatchFlagCache = useRef(new Map<number, { fingerprint: string; hasMatch: boolean; checkedAt: number }>());
     const pagoDeudaMatchCache = useRef(new Map<number, { fingerprint: string; matches: OperacionProceso[] }>());
     const pagoDeudaMatchRequestId = useRef(0);
     const lastMatchRefreshKey = useRef<string | number>(matchRefreshKey);
@@ -466,9 +469,7 @@ export const BancariaEfectivizacionTable = ({
     useEffect(() => {
         const shouldInvalidate = lastMatchRefreshKey.current !== matchRefreshKey;
         if (shouldInvalidate) {
-            pagoDeudaMatchFlagCache.current.clear();
             pagoDeudaMatchCache.current.clear();
-            setPagoDeudaMatchFlags({});
             setPagoDeudaMatches({});
             lastMatchRefreshKey.current = matchRefreshKey;
         }
@@ -485,7 +486,7 @@ export const BancariaEfectivizacionTable = ({
         }
 
         let ignore = false;
-        const matchRows = rows.filter((row) =>
+        const matchRows = visibleRows.filter((row) =>
             mode !== "unificado" || (!row.flag_derivado && String(row.ruta_origen ?? "").toLowerCase() !== "pos"),
         );
 
@@ -495,6 +496,7 @@ export const BancariaEfectivizacionTable = ({
             return;
         }
 
+        const now = Date.now();
         const flagsById: Record<number, boolean> = {};
         const fingerprintById = new Map<number, string>();
         const candidateRows: OperacionProceso[] = [];
@@ -507,10 +509,18 @@ export const BancariaEfectivizacionTable = ({
             const cachedFlag = pagoDeudaMatchFlagCache.current.get(row.id);
             if (cachedFlag?.fingerprint === fingerprint) {
                 flagsById[row.id] = cachedFlag.hasMatch;
+                if (
+                    !cachedFlag.hasMatch &&
+                    !isPagado(row) &&
+                    !row.tipo_flujo_pago_deuda &&
+                    (shouldInvalidate || now - cachedFlag.checkedAt >= PAGO_DEUDA_MATCH_RECHECK_MS)
+                ) {
+                    candidateRows.push(row);
+                }
             } else if (cachedDetails?.fingerprint === fingerprint) {
                 const hasMatch = cachedDetails.matches.length > 0;
                 flagsById[row.id] = hasMatch;
-                pagoDeudaMatchFlagCache.current.set(row.id, { fingerprint, hasMatch });
+                pagoDeudaMatchFlagCache.current.set(row.id, { fingerprint, hasMatch, checkedAt: now });
             } else {
                 flagsById[row.id] = false;
                 if (!isPagado(row) && !row.tipo_flujo_pago_deuda) {
@@ -519,15 +529,15 @@ export const BancariaEfectivizacionTable = ({
             }
         }
 
-        const visibleMatchIds = new Set(matchRows.map((row) => row.id));
+        const currentMatchIds = new Set(rows.map((row) => row.id));
         for (const operationId of pagoDeudaMatchFlagCache.current.keys()) {
-            if (!visibleMatchIds.has(operationId)) pagoDeudaMatchFlagCache.current.delete(operationId);
+            if (!currentMatchIds.has(operationId)) pagoDeudaMatchFlagCache.current.delete(operationId);
         }
         for (const operationId of pagoDeudaMatchCache.current.keys()) {
-            if (!visibleMatchIds.has(operationId)) pagoDeudaMatchCache.current.delete(operationId);
+            if (!currentMatchIds.has(operationId)) pagoDeudaMatchCache.current.delete(operationId);
         }
 
-        setPagoDeudaMatchFlags(flagsById);
+        setPagoDeudaMatchFlags((current) => ({ ...current, ...flagsById }));
 
         if (!candidateRows.length) {
             return () => {
@@ -541,33 +551,52 @@ export const BancariaEfectivizacionTable = ({
             .then((entries) => {
                 if (ignore) return;
 
+                const checkedAt = Date.now();
+                const returnedIds = new Set<number>();
                 for (const entry of entries ?? []) {
                     const operationId = Number(entry.id_operacion_efectivizacion);
                     if (!Number.isFinite(operationId)) continue;
+                    returnedIds.add(operationId);
                     const hasMatch = entry.tiene_match === true;
                     const fingerprint = fingerprintById.get(operationId);
                     if (!fingerprint) continue;
-                    pagoDeudaMatchFlagCache.current.set(operationId, { fingerprint, hasMatch });
+                    pagoDeudaMatchFlagCache.current.set(operationId, { fingerprint, hasMatch, checkedAt });
                     flagsById[operationId] = hasMatch;
                 }
 
                 for (const row of candidateRows) {
                     const fingerprint = fingerprintById.get(row.id);
-                    if (fingerprint && !pagoDeudaMatchFlagCache.current.has(row.id)) {
-                        pagoDeudaMatchFlagCache.current.set(row.id, { fingerprint, hasMatch: false });
+                    if (fingerprint && !returnedIds.has(row.id)) {
+                        pagoDeudaMatchFlagCache.current.set(row.id, { fingerprint, hasMatch: false, checkedAt });
+                        flagsById[row.id] = false;
                     }
                 }
 
-                setPagoDeudaMatchFlags(flagsById);
+                setPagoDeudaMatchFlags((current) => ({ ...current, ...flagsById }));
             })
-            .catch(() => {
-                if (!ignore) setPagoDeudaMatchFlags(flagsById);
-            });
+            .catch(() => undefined);
 
         return () => {
             ignore = true;
         };
-    }, [matchRefreshKey, mode, readOnly, rows, ruta]);
+    }, [matchRefreshKey, mode, pagoDeudaMatchRecheckKey, readOnly, rows, ruta, visibleRows]);
+
+    useEffect(() => {
+        if (
+            readOnly ||
+            (mode !== "efectivizacion" && mode !== "unificado") ||
+            ruta === "safetypay" ||
+            !visibleRows.some((row) => !isPagado(row) && !row.tipo_flujo_pago_deuda)
+        ) {
+            return;
+        }
+
+        const intervalId = window.setInterval(() => {
+            setPagoDeudaMatchRecheckKey((current) => current + 1);
+        }, PAGO_DEUDA_MATCH_RECHECK_MS);
+
+        return () => window.clearInterval(intervalId);
+    }, [mode, readOnly, ruta, visibleRows]);
 
     const tipoDepositoOptions = (row: OperacionProceso) => uniqueOptions([
         ...(row.nombre_tipo_deposito ? [toOption(row.nombre_tipo_deposito, row.nombre_tipo_deposito)] : []),
@@ -1080,7 +1109,11 @@ export const BancariaEfectivizacionTable = ({
             const matches = Array.isArray(entry?.matches) ? entry.matches : [];
 
             pagoDeudaMatchCache.current.set(row.id, { fingerprint, matches });
-            pagoDeudaMatchFlagCache.current.set(row.id, { fingerprint, hasMatch: matches.length > 0 });
+            pagoDeudaMatchFlagCache.current.set(row.id, {
+                fingerprint,
+                hasMatch: matches.length > 0,
+                checkedAt: Date.now(),
+            });
             setPagoDeudaMatches((current) => ({ ...current, [row.id]: matches }));
             setPagoDeudaMatchFlags((current) => ({ ...current, [row.id]: matches.length > 0 }));
         } catch {
