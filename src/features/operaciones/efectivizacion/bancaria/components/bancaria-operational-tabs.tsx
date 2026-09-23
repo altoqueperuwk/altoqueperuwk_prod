@@ -501,6 +501,7 @@ export const BancariaOperationalTabs = ({
     const [activeFilter, setActiveFilter] = useState("Todos");
     const [actionRefreshKey, setActionRefreshKey] = useState(0);
     const [metricsRefreshKey, setMetricsRefreshKey] = useState(0);
+    const [matchRefreshKey, setMatchRefreshKey] = useState(0);
     const [code, setCode] = useState("");
     const [dni, setDni] = useState("");
     const [dateFrom, setDateFrom] = useState("");
@@ -1368,19 +1369,20 @@ export const BancariaOperationalTabs = ({
     };
     const pendingActionEligibleCount = pendingAction ? getEligibleIdsForAction(pendingAction).length : actionIds.length;
 
-    const refreshMetrics = () => {
+    const refreshMetrics = (refreshMatches = true) => {
         setMetricsRefreshKey((value) => value + 1);
+        if (refreshMatches) setMatchRefreshKey((value) => value + 1);
         onMetricsChanged?.();
     };
 
-    const applyUpdatedRows = (updatedRows: OperacionProceso[]) => {
+    const applyUpdatedRows = (updatedRows: OperacionProceso[], refreshMatches = true) => {
         if (updatedRows.length) {
             replaceOperaciones(updatedRows);
         } else {
             refreshBandeja();
         }
 
-        refreshMetrics();
+        refreshMetrics(refreshMatches);
     };
 
     const handleCopyTable = async () => {
@@ -1711,7 +1713,7 @@ export const BancariaOperationalTabs = ({
             }
 
             removeSelectedIds(processedIds);
-            applyUpdatedRows(updatedRows);
+            applyUpdatedRows(updatedRows, !canPayEfectivizacionBatch);
             if (batchErrors) {
                 addToast(
                     "error",
@@ -2142,7 +2144,7 @@ export const BancariaOperationalTabs = ({
                     estadoPendiente={estadoPendiente}
                     isLoading={isInitialLoading}
                     isRefreshing={isRefreshing}
-                    matchRefreshKey={`${refreshKey}:${actionRefreshKey}:${metricsRefreshKey}`}
+                    matchRefreshKey={`${refreshKey}:${actionRefreshKey}:${matchRefreshKey}`}
                     mode={currentTab === "Derivados" ? "derivaciones" : currentTab === "POS" ? "pos" : currentTab === "Unificado" ? "unificado" : currentTab === "Eliminados" ? "eliminados" : "efectivizacion"}
                     flow={currentTab === "Derivados" ? "Derivado" : currentTab === "POS" ? "POS" : "Efectivizacion"}
                     unifiedFlowLabels={unifiedFlowFilter}

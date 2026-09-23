@@ -1669,7 +1669,8 @@ Uso:
 */
 CREATE OR REPLACE FUNCTION public.f_sync_tb_ruta_operacion_kpi_operacion(
   p_ruta character varying,
-  p_id_usuario bigint DEFAULT NULL
+  p_id_usuario bigint,
+  p_incluir_resultado boolean
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -1766,13 +1767,26 @@ BEGIN
   FROM totales t
   WHERE k.ruta = p_ruta;
 
-  SELECT to_jsonb(x)
-  INTO v_result
-  FROM public.f_get_tb_ruta_operacion_kpi(p_ruta := p_ruta) AS x
-  LIMIT 1;
+  IF p_incluir_resultado THEN
+    SELECT to_jsonb(x)
+    INTO v_result
+    FROM public.f_get_tb_ruta_operacion_kpi(p_ruta := p_ruta) AS x
+    LIMIT 1;
+  END IF;
 
   RETURN v_result;
 END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.f_sync_tb_ruta_operacion_kpi_operacion(
+  p_ruta character varying,
+  p_id_usuario bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+AS $$
+  SELECT public.f_sync_tb_ruta_operacion_kpi_operacion(p_ruta, p_id_usuario, true);
 $$;
 
 /*
@@ -8552,4 +8566,13 @@ WHERE p.proname IN (
   'f_get_tb_ruta_operacion_kpi_operaciones_v2',
   'f_get_reporte_cierre'
 )
+ORDER BY n.nspname, p.proname;
+
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN ('f_sync_tb_ruta_operacion_kpi_operacion')
 ORDER BY n.nspname, p.proname;
