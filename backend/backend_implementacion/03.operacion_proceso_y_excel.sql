@@ -234,6 +234,10 @@ CREATE INDEX IF NOT EXISTS idx_tb_operacion_proceso_kpi_salida_cierre
 CREATE INDEX IF NOT EXISTS idx_tb_operacion_proceso_kpi_estado_ruta
   ON public.tb_operacion_proceso (ruta_destino, ruta_origen, id_estado, nombre_estado);
 
+CREATE INDEX IF NOT EXISTS idx_tb_operacion_proceso_kpi_ruta_abierta
+  ON public.tb_operacion_proceso ((COALESCE(ruta_destino, ruta_origen)))
+  WHERE id_caja_cierre IS NULL AND COALESCE(id_estado, 0) <> 10;
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -3260,7 +3264,8 @@ BEGIN
     IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
       PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(
         v_ruta_kpi,
-        COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario)
+        COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario),
+        false
       );
     END IF;
 
@@ -3356,7 +3361,7 @@ BEGIN
   v_ruta_kpi := COALESCE(v_actual.ruta_destino, v_actual.ruta_origen);
   -- Los lotes de pago sincronizan el KPI una sola vez al finalizar.
   IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
-    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario));
+    PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_kpi, COALESCE(p_id_usuario_gestor, v_actual.id_usuario_gestor, v_actual.id_usuario), false);
   END IF;
 
   RETURN (
@@ -6459,4 +6464,13 @@ WHERE p.proname IN (
   'f_patch_tb_operacion_proceso_reanudar_lote',
   'f_patch_tb_operacion_proceso_reanudar_post_cierre'
 )
+ORDER BY n.nspname, p.proname;
+
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN ('f_patch_tb_operacion_proceso_pagado')
 ORDER BY n.nspname, p.proname;

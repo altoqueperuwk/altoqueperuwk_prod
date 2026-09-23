@@ -196,7 +196,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
         return () => {
             ignore = true;
         };
-    }, [activeCajaId, refreshKey, metricsRefreshKey]);
+    }, [activeCajaId, refreshKey]);
 
     const loadReporteData = async () => {
         const cajaId = activeCajaIds[0];
