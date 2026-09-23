@@ -68,15 +68,16 @@ const getColumnClasses = <T extends { id: number }>(column: Column<T>) => {
 
 const getVirtualColumnWidth = <T extends { id: number }>(column: Column<T>) => {
     const label = column.label.toLowerCase();
-    if (label.includes("pasos")) return 170;
-    if (label.includes("atencion")) return 190;
-    if (label.includes("empresa cuenta")) return 195;
-    if (label.includes("cuenta cliente")) return 150;
-    if (label.includes("monto") || label.includes("transferencia")) return 165;
-    if (label.includes("hora")) return 130;
-    if (label.includes("dni")) return 150;
-    if (label.includes("estado")) return 145;
-    return 160;
+    if (label.includes("pasos")) return 160;
+    if (label.includes("atencion")) return 170;
+    if (label.includes("empresa cuenta")) return 190;
+    if (label.includes("cuenta cliente")) return 125;
+    if (label.includes("monto") || label.includes("transferencia")) return 140;
+    if (label.includes("hora") || label.includes("fecha")) return 110;
+    if (label.includes("dni")) return 125;
+    if (label.includes("estado")) return 120;
+    if (label.includes("acciones")) return 90;
+    return 130;
 };
 
 export const OperationTable = <T extends { id: number }>({
@@ -111,7 +112,7 @@ export const OperationTable = <T extends { id: number }>({
         : paginatedData.map((row, index) => ({ row, index }));
     const RowComponent = virtualizeRows ? "tr" : motion.tr;
     const RowsWrapper = isVirtualized ? Fragment : AnimatePresence;
-    const virtualTableWidth = columns.reduce((total, column) => total + getVirtualColumnWidth(column), (hasSelection ? 40 : 0) + (renderActions ? 70 : 0));
+    const virtualTableWidth = columns.reduce((total, column) => total + getVirtualColumnWidth(column), (hasSelection ? 36 : 0) + (renderActions ? 70 : 0));
     const skeletonRows = Array.from({ length: Math.min(activePageSize, 5) });
 
     useEffect(() => {
@@ -152,13 +153,13 @@ export const OperationTable = <T extends { id: number }>({
         <div className="overflow-hidden border-t border-secondary" data-copy-table="cierre-caja" aria-busy={isLoading || isRefreshing}>
             <div ref={scrollRef} className="overflow-x-auto">
                 <table
-                    className={cx("w-full min-w-max divide-y divide-secondary", isVirtualized ? "table-fixed" : "table-auto")}
+                    className={cx("w-full divide-y divide-secondary", isVirtualized ? "table-fixed" : "min-w-max table-auto")}
                     style={isVirtualized ? { minWidth: virtualTableWidth } : undefined}
                 >
                     {isVirtualized && <colgroup>
-                        {hasSelection && <col style={{ width: 40 }} />}
+                        {hasSelection && <col style={{ width: 36 }} />}
                         {columns.map((column) => <col key={String(column.key)} style={{ width: getVirtualColumnWidth(column) }} />)}
-                        {renderActions && <col style={{ width: 70 }} />}
+                            {renderActions && <col style={{ width: 70 }} />}
                     </colgroup>}
                     <thead className="sticky top-0 z-10 bg-secondary">
                         <tr>
@@ -178,13 +179,13 @@ export const OperationTable = <T extends { id: number }>({
                                 return (
                                     <th
                                         key={String(column.key)}
-                                        className={cx("whitespace-nowrap px-2 py-2 text-left text-xs font-semibold text-tertiary", classes.header, column.headerClassName)}
+                                        className={cx("whitespace-nowrap px-2 py-2 text-left text-xs font-semibold text-tertiary", classes.header, column.headerClassName, isVirtualized && column.label === "Acciones" && "sticky right-0 z-20 bg-secondary")}
                                     >
                                         {column.label}
                                     </th>
                                 );
                             })}
-                            {renderActions ? <th className="w-14 px-2 py-2 text-center text-xs font-semibold text-tertiary">Acciones</th> : null}
+                            {renderActions ? <th className={cx("w-14 px-2 py-2 text-center text-xs font-semibold text-tertiary", isVirtualized && "sticky right-0 z-20 bg-secondary")}>Acciones</th> : null}
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-secondary bg-primary">
@@ -241,12 +242,12 @@ export const OperationTable = <T extends { id: number }>({
                                             const classes = getColumnClasses(column);
 
                                             return (
-                                                <td key={String(column.key)} className={cx("whitespace-nowrap px-2 py-2 text-sm text-secondary", classes.cell, column.cellClassName)}>
+                                            <td key={String(column.key)} className={cx("whitespace-nowrap px-2 py-2 text-sm text-secondary", classes.cell, column.cellClassName, isVirtualized && column.label === "Acciones" && "sticky right-0 z-10 bg-primary")}>
                                                     {column.render ? column.render(row) : String(row[column.key as keyof T] ?? "")}
                                                 </td>
                                             );
                                         })}
-                                        {renderActions ? <td className="w-14 px-2 py-2 text-center">{renderActions(row)}</td> : null}
+                                        {renderActions ? <td className={cx("w-14 px-2 py-2 text-center", isVirtualized && "sticky right-0 z-10 bg-primary")}>{renderActions(row)}</td> : null}
                                     </RowComponent>
                                 ))}
                                 {isVirtualized && paddingBottom > 0 && (

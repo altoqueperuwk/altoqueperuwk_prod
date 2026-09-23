@@ -302,21 +302,21 @@ const getColumnHeaders = (showFlow: boolean, showBanca: boolean, showDerivo: boo
 ];
 
 const virtualColumnWidths: Record<string, number> = {
-    Flujo: 140,
-    Banca: 115,
-    Facturacion: 155,
-    Derivo: 180,
-    "Cod. Op.": 145,
-    DNI: 160,
-    Comunidad: 145,
-    "Cuenta Cliente": 160,
-    Monto: 145,
-    Comision: 165,
-    Transferencia: 175,
-    "Fuera de Horario": 155,
-    Estado: 145,
-    Hora: 130,
-    Acciones: 215,
+    Flujo: 120,
+    Banca: 105,
+    Facturacion: 128,
+    Derivo: 150,
+    "Cod. Op.": 90,
+    DNI: 120,
+    Comunidad: 112,
+    "Cuenta Cliente": 145,
+    Monto: 110,
+    Comision: 130,
+    Transferencia: 135,
+    "Fuera de Horario": 120,
+    Estado: 105,
+    Hora: 100,
+    Acciones: 175,
 };
 
 const flowBadgeColors: Record<string, "brand" | "blue" | "orange" | "gray"> = {
@@ -475,7 +475,7 @@ export const BancariaEfectivizacionTable = ({
         [isUnificado, readOnly, showBanca, showCuentaCliente, showDerivo, showFueraHorario],
     );
     const tableColSpan = columnHeaders.length + (hasSelection ? 1 : 0);
-    const virtualTableWidth = columnHeaders.reduce((total, column) => total + (virtualColumnWidths[column.label] ?? 150), hasSelection ? 40 : 0);
+    const virtualTableWidth = columnHeaders.reduce((total, column) => total + (virtualColumnWidths[column.label] ?? 130), hasSelection ? 36 : 0);
     const activeCompanyAccounts = useMemo(
         () => companies.filter((company) =>
             (!activeCompanyId || company.id_empresa === activeCompanyId) &&
@@ -1318,12 +1318,12 @@ export const BancariaEfectivizacionTable = ({
         <div className="overflow-hidden border-t border-secondary" data-copy-table="cierre-caja" aria-busy={isLoading || isRefreshing}>
             <div ref={scrollRef} className="overflow-x-auto">
                 <table
-                    className={cx("w-full min-w-max divide-y divide-secondary", isVirtualized ? "table-fixed" : "table-auto")}
+                    className={cx("w-full divide-y divide-secondary", isVirtualized ? "table-fixed" : "min-w-max table-auto")}
                     style={isVirtualized ? { minWidth: virtualTableWidth } : undefined}
                 >
                     {isVirtualized && <colgroup>
-                        {hasSelection && <col style={{ width: 40 }} />}
-                        {columnHeaders.map((column) => <col key={column.label} style={{ width: virtualColumnWidths[column.label] ?? 150 }} />)}
+                        {hasSelection && <col style={{ width: 36 }} />}
+                        {columnHeaders.map((column) => <col key={column.label} style={{ width: virtualColumnWidths[column.label] ?? 130 }} />)}
                     </colgroup>}
                     <thead className="sticky top-0 z-10 bg-secondary">
                         <tr>
@@ -1338,7 +1338,7 @@ export const BancariaEfectivizacionTable = ({
                                 </th>
                             )}
                             {columnHeaders.map((column) => (
-                                <th key={column.label} className={cx("px-2 py-2 text-left text-xs font-semibold text-tertiary", column.className)}>{column.label}</th>
+                                <th key={column.label} className={cx("px-2 py-2 text-left text-xs font-semibold text-tertiary", column.className, isVirtualized && column.label === "Acciones" && "sticky right-0 z-20 bg-secondary")}>{column.label}</th>
                             ))}
                         </tr>
                     </thead>
@@ -1458,7 +1458,7 @@ export const BancariaEfectivizacionTable = ({
                                         {showDerivo && (
                                             <td className="px-2 py-2 align-top">
                                                 {derivationDisplay ? (
-                                                    <div className="flex min-w-36 flex-col items-start gap-1">
+                                                    <div className={cx("flex flex-col items-start gap-1", isVirtualized ? "min-w-0" : "min-w-36")}>
                                                         {isPlain ? <>
                                                             <span className="text-sm text-secondary">{derivationDisplay.empresa || "-"}</span>
                                                             <span className="text-sm text-secondary">{derivationDisplay.cuenta || "-"}</span>
@@ -1579,7 +1579,7 @@ export const BancariaEfectivizacionTable = ({
 
                                                     return (
                                                         <>
-                                                <div className="flex items-center gap-1">
+                                                <div className={cx("flex items-center gap-1", isVirtualized && "flex-wrap")}>
                                                     <span className="whitespace-nowrap text-sm font-semibold text-primary">{formatMoney(row.resultado_comision_servicio)}</span>
                                                     <CompactBadgeLine>{commissionLabel}</CompactBadgeLine>
                                                 </div>
@@ -1649,8 +1649,8 @@ export const BancariaEfectivizacionTable = ({
                                                 <span className="text-sm text-secondary">{formatDate(displayOperationDate) || "-"}</span>
                                             ) : <CompactCellText primary={formatTime(displayOperationDate) || "-"} secondary={formatDate(displayOperationDate)} />}
                                         </td>
-                                                {!readOnly && <td className="px-2 py-2 text-center align-top">
-                                            {!frozenOrigin && <div className="flex items-center justify-center gap-1">
+                                                {!readOnly && <td className={cx("px-2 py-2 text-center align-top", isVirtualized && "sticky right-0 z-10 bg-primary", frozenPaid && "bg-secondary", selectedIdSet.has(row.id) && !frozenRow && "bg-warning-primary/20")}>
+                                            {!frozenOrigin && <div className={cx("flex items-center justify-center gap-1", isVirtualized && "flex-wrap")}>
                                                 {!frozenPaid && (mode === "efectivizacion" || mode === "unificado" || mode === "derivaciones" || mode === "pos") && ruta !== "safetypay" && (
                                                     <ButtonUtility
                                                         size="xs"
