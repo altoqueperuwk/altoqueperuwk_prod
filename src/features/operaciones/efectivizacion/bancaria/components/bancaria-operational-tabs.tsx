@@ -117,6 +117,7 @@ interface BancariaOperationalTabsProps {
     showCompanyTabs?: boolean;
     flowTabsAsButtons?: boolean;
     hidePagination?: boolean;
+    virtualizeRows?: boolean;
     enableCopyTable?: boolean;
     unifiedFlowFilter?: boolean;
     onChanged?: () => void;
@@ -485,6 +486,7 @@ export const BancariaOperationalTabs = ({
     showCompanyTabs = true,
     flowTabsAsButtons = false,
     hidePagination = false,
+    virtualizeRows = false,
     enableCopyTable = false,
     unifiedFlowFilter = false,
     onChanged,
@@ -504,6 +506,7 @@ export const BancariaOperationalTabs = ({
     const [matchRefreshKey, setMatchRefreshKey] = useState(0);
     const [code, setCode] = useState("");
     const [dni, setDni] = useState("");
+    const [searchQuery, setSearchQuery] = useState({ code: "", dni: "" });
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
     const [pendingAction, setPendingAction] = useState<"Derivar" | "Emp. Ingreso" | "Emp. Salida" | "Reasignar" | "Transferencia" | "Match" | "Modalidad" | null>(null);
@@ -538,6 +541,13 @@ export const BancariaOperationalTabs = ({
     const [isProcessingOperationRestore, setIsProcessingOperationRestore] = useState(false);
     const handledDownloadKeyRef = useRef(0);
     const isActiveDigitalWallet = isDigitalWalletBank(activeCompanyCaja);
+    useEffect(() => {
+        if (!virtualizeRows) return;
+        const timer = window.setTimeout(() => setSearchQuery({ code, dni }), 250);
+        return () => window.clearTimeout(timer);
+    }, [code, dni, virtualizeRows]);
+    const queryCode = virtualizeRows && code ? searchQuery.code : code;
+    const queryDni = virtualizeRows && dni ? searchQuery.dni : dni;
     const clearSelection = useCallback(() => {
         setSelectedIds([]);
         setSelectedOperationsById({});
@@ -741,10 +751,10 @@ export const BancariaOperationalTabs = ({
         activeCajaId,
         activeCompanyId,
         activeFilter,
-        code,
+        code: queryCode,
         dateFrom,
         dateTo,
-        dni,
+        dni: queryDni,
         historyDate,
         enabled,
         unifiedFlowFilter,
@@ -757,10 +767,10 @@ export const BancariaOperationalTabs = ({
         activeCajaId,
         activeCompanyId,
         activeFilter,
-        code,
+        code: queryCode,
         dateFrom,
         dateTo,
-        dni,
+        dni: queryDni,
         enabled: enabled && Boolean(secondaryRuta),
         historyDate,
         unifiedFlowFilter,
@@ -1459,6 +1469,24 @@ export const BancariaOperationalTabs = ({
         });
     };
 
+    const handleToggleRows = (ids: number[], selected: boolean) => {
+        const idSet = new Set(ids);
+        setSelectedIds((current) => selected
+            ? Array.from(new Set([...current, ...ids]))
+            : current.filter((id) => !idSet.has(id)));
+        setSelectedOperationsById((current) => {
+            const next = { ...current };
+            if (selected) {
+                operaciones.forEach((row) => {
+                    if (idSet.has(row.id)) next[row.id] = { row, tab: currentTab };
+                });
+            } else {
+                ids.forEach((id) => delete next[id]);
+            }
+            return next;
+        });
+    };
+
     const handleToggleFueraHorario = useCallback(async (row: OperacionProceso, value: boolean) => {
         if (readOnly || isHistoryMode || isPagado(row) || row.id_caja_cierre) return;
 
@@ -2132,7 +2160,7 @@ export const BancariaOperationalTabs = ({
             )}
 
             {currentTab === "Movimientos" ? (
-                <OperationTable columns={currentMovementColumns} data={movimientos} emptyText={emptyText} hidePagination isLoading={isInitialLoading} isRefreshing={isRefreshing} />
+                <OperationTable columns={currentMovementColumns} data={movimientos} emptyText={emptyText} hidePagination virtualizeRows={virtualizeRows} isLoading={isInitialLoading} isRefreshing={isRefreshing} />
             ) : currentTab === "Efectivizacion" || currentTab === "Unificado" || currentTab === "Derivados" || currentTab === "POS" || currentTab === "Eliminados" ? (
             <BancariaEfectivizacionTable
                     activeAccountId={activeAccountId}
@@ -2149,6 +2177,7 @@ export const BancariaOperationalTabs = ({
                     flow={currentTab === "Derivados" ? "Derivado" : currentTab === "POS" ? "POS" : "Efectivizacion"}
                     unifiedFlowLabels={unifiedFlowFilter}
                     hidePagination={hidePagination}
+                    virtualizeRows={virtualizeRows}
                     presentation={presentation}
                     readOnly={readOnly}
                     onMetricsChanged={refreshMetrics}
@@ -2172,6 +2201,7 @@ export const BancariaOperationalTabs = ({
                     selectedIds={selectedIds}
                     user={{ userId, userName }}
                     onToggleRow={canUseProcesoActions ? handleToggleRow : undefined}
+                    onToggleRows={canUseProcesoActions ? handleToggleRows : undefined}
                 />
             ) : (
                 <OperationTable
@@ -2179,10 +2209,12 @@ export const BancariaOperationalTabs = ({
                     data={operaciones}
                     emptyText={emptyText}
                     hidePagination={hidePagination || currentTab === "Pago Deuda"}
+                    virtualizeRows={virtualizeRows}
                     isLoading={isInitialLoading}
                     isRefreshing={isRefreshing}
                     selectedIds={selectedIds}
                     onToggleRow={canUseProcesoActions ? handleToggleRow : undefined}
+                    onToggleRows={canUseProcesoActions ? handleToggleRows : undefined}
                     renderActions={
                         !readOnly && currentTab === "Pago Deuda"
                             ? (row) => {

@@ -968,6 +968,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                         onMetricsChanged={() => setMetricsRefreshKey((value) => value + 1)}
                         onCompanyChange={setActiveCompanyId}
                         refreshKey={refreshKey}
+                        virtualizeRows={ruta !== "safetypay"}
                         ruta={activeOperationRoute}
                         queryRoutes={workspaceRoutes}
                     />
