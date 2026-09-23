@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronLeft, ChevronRight, Coins01, Copy01, CreditCardCheck, Edit03, Percent01, RefreshCcw02, Send01, Trash01 } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
@@ -29,6 +29,7 @@ import { isInteractiveElement } from "@/features/operaciones/efectivizacion/shar
 import { buildOperacionPagadoPayload, buildOperacionReanudarPayload } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
 import { cx } from "@/utils/cx";
 import { getUnifiedFlowLabel } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
+import { useVirtualTableRows } from "@/features/operaciones/efectivizacion/shared/hooks/use-virtual-table-rows";
 
 interface EstadoRef {
     id: number;
@@ -84,9 +85,11 @@ interface BancariaEfectivizacionTableProps {
     isPayingRow?: (row: OperacionProceso) => boolean;
     onRestoreOperation?: (row: OperacionProceso) => void;
     onToggleRow?: (id: number) => void;
+    onToggleRows?: (ids: number[], selected: boolean) => void;
     onToggleFueraHorario?: (row: OperacionProceso, value: boolean) => void;
     hideFueraHorario?: boolean;
     hidePagination?: boolean;
+    virtualizeRows?: boolean;
     matchRefreshKey?: string | number;
     ruta: OperacionRutaBancaria;
     showBanca?: boolean;
@@ -298,6 +301,24 @@ const getColumnHeaders = (showFlow: boolean, showBanca: boolean, showDerivo: boo
     { label: "Acciones", className: "w-14 text-center" },
 ];
 
+const virtualColumnWidths: Record<string, number> = {
+    Flujo: 140,
+    Banca: 115,
+    Facturacion: 155,
+    Derivo: 180,
+    "Cod. Op.": 145,
+    DNI: 160,
+    Comunidad: 145,
+    "Cuenta Cliente": 160,
+    Monto: 145,
+    Comision: 165,
+    Transferencia: 175,
+    "Fuera de Horario": 155,
+    Estado: 145,
+    Hora: 130,
+    Acciones: 215,
+};
+
 const flowBadgeColors: Record<string, "brand" | "blue" | "orange" | "gray"> = {
     Efectivizacion: "brand",
     POS: "blue",
@@ -330,9 +351,11 @@ export const BancariaEfectivizacionTable = ({
     isPayingRow,
     onRestoreOperation,
     onToggleRow,
+    onToggleRows,
     onToggleFueraHorario,
     hideFueraHorario = false,
     hidePagination = false,
+    virtualizeRows = false,
     matchRefreshKey = 0,
     ruta,
     showBanca = false,
@@ -417,6 +440,13 @@ export const BancariaEfectivizacionTable = ({
         () => (showPagination ? rows.slice((page - 1) * pageSize, page * pageSize) : rows),
         [page, pageSize, rows, showPagination],
     );
+    const isVirtualized = virtualizeRows && !showPagination && visibleRows.length > 60;
+    const { scrollRef, virtualizer, items, paddingTop, paddingBottom } = useVirtualTableRows(visibleRows, isVirtualized, 64);
+    const RowsWrapper = isVirtualized ? Fragment : AnimatePresence;
+    const renderedRows = isVirtualized
+        ? items.map((item) => ({ row: visibleRows[item.index], index: item.index }))
+        : visibleRows.map((row, index) => ({ row, index }));
+    const RowComponent = virtualizeRows ? "tr" : motion.tr;
     const visibleIds = visibleRows
         .filter((row) => !isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId))
         .map((row) => row.id);
@@ -445,6 +475,7 @@ export const BancariaEfectivizacionTable = ({
         [isUnificado, readOnly, showBanca, showCuentaCliente, showDerivo, showFueraHorario],
     );
     const tableColSpan = columnHeaders.length + (hasSelection ? 1 : 0);
+    const virtualTableWidth = columnHeaders.reduce((total, column) => total + (virtualColumnWidths[column.label] ?? 150), hasSelection ? 40 : 0);
     const activeCompanyAccounts = useMemo(
         () => companies.filter((company) =>
             (!activeCompanyId || company.id_empresa === activeCompanyId) &&
@@ -787,6 +818,10 @@ export const BancariaEfectivizacionTable = ({
 
     const handleToggleVisible = () => {
         if (!onToggleRow || isLoading) return;
+        if (onToggleRows) {
+            onToggleRows(visibleIds, !allVisibleSelected);
+            return;
+        }
         if (allVisibleSelected) {
             visibleIds.forEach((id) => onToggleRow(id));
             return;
@@ -1281,9 +1316,16 @@ export const BancariaEfectivizacionTable = ({
 
     return (
         <div className="overflow-hidden border-t border-secondary" data-copy-table="cierre-caja" aria-busy={isLoading || isRefreshing}>
-            <div className="overflow-x-auto">
-                <table className="w-full min-w-max table-auto divide-y divide-secondary">
-                    <thead className="bg-secondary">
+            <div ref={scrollRef} className="overflow-x-auto">
+                <table
+                    className={cx("w-full min-w-max divide-y divide-secondary", isVirtualized ? "table-fixed" : "table-auto")}
+                    style={isVirtualized ? { minWidth: virtualTableWidth } : undefined}
+                >
+                    {isVirtualized && <colgroup>
+                        {hasSelection && <col style={{ width: 40 }} />}
+                        {columnHeaders.map((column) => <col key={column.label} style={{ width: virtualColumnWidths[column.label] ?? 150 }} />)}
+                    </colgroup>}
+                    <thead className="sticky top-0 z-10 bg-secondary">
                         <tr>
                             {hasSelection && (
                                 <th className="w-10 px-2 py-2">
@@ -1310,8 +1352,11 @@ export const BancariaEfectivizacionTable = ({
                                 </tr>
                             ))
                         ) : visibleRows.length ? (
-                            <AnimatePresence initial={false}>
-                            {visibleRows.map((row) => {
+                            <RowsWrapper {...(!isVirtualized ? { initial: false } : {})}>
+                            {isVirtualized && paddingTop > 0 && (
+                                <tr key="virtual-spacer-top" aria-hidden="true"><td colSpan={tableColSpan} className="border-0 p-0" style={{ height: paddingTop }} /></tr>
+                            )}
+                            {renderedRows.map(({ row, index }) => {
                                 const frozenOrigin = isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId);
                                 const frozenPaid = isFrozenPaidOperation(row, mode);
                                 const frozenRow = frozenOrigin || frozenPaid;
@@ -1348,18 +1393,21 @@ export const BancariaEfectivizacionTable = ({
                                 const derivationDisplay = getDerivationDisplay(row, mode, activeCompanyId, activeAccountId);
 
                                 return (
-                                    <motion.tr
+                                    <RowComponent
                                         key={row.id}
+                                        data-index={isVirtualized ? index : undefined}
+                                        ref={isVirtualized ? virtualizer.measureElement : undefined}
                                         className={cx(
-                                            isUnificado && "[content-visibility:auto] [contain-intrinsic-size:0_64px]",
                                             frozenPaid && "bg-secondary grayscale opacity-75",
                                             hasSelection && !rowSaving && !frozenRow && "cursor-pointer transition-colors hover:bg-primary_hover",
                                             selectedIdSet.has(row.id) && !frozenRow && "bg-warning-primary/20 hover:bg-warning-primary/30",
                                         )}
-                                        initial={{ opacity: 0, y: 4 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, height: 0 }}
-                                        transition={{ duration: 0.2 }}
+                                        {...(!virtualizeRows ? {
+                                            initial: { opacity: 0, y: 4 },
+                                            animate: { opacity: 1, y: 0 },
+                                            exit: { opacity: 0, height: 0 },
+                                            transition: { duration: 0.2 },
+                                        } : {})}
                                         onClick={(event) => !frozenRow && handleRowClick(event, row, rowSaving)}
                                     >
                                         {hasSelection && (
@@ -1706,10 +1754,13 @@ export const BancariaEfectivizacionTable = ({
                                             </div>}
                                             {rowSaving && <p className="mt-1 text-xs text-tertiary">Guardando...</p>}
                                                 </td>}
-                                    </motion.tr>
+                                    </RowComponent>
                                 );
                             })}
-                            </AnimatePresence>
+                            {isVirtualized && paddingBottom > 0 && (
+                                <tr key="virtual-spacer-bottom" aria-hidden="true"><td colSpan={tableColSpan} className="border-0 p-0" style={{ height: paddingBottom }} /></tr>
+                            )}
+                            </RowsWrapper>
                         ) : (
                             <tr>
                                 <td colSpan={tableColSpan} className="px-4 py-10 text-center text-sm text-tertiary">{emptyText}</td>

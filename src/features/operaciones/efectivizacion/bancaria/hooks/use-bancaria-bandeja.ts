@@ -82,6 +82,15 @@ const filterPagoDeudaByVisualState = (rows: OperacionProceso[], activeFilter: st
     return rows.filter((row) => getPagoDeudaEstadoVisual(row).label === activeFilter);
 };
 
+const uniqueById = <T extends { id: number }>(rows: T[]) => {
+    const seen = new Set<number>();
+    return rows.filter((row) => {
+        if (seen.has(row.id)) return false;
+        seen.add(row.id);
+        return true;
+    });
+};
+
 const filterMovimientos = (rows: MovimientoMerged[], activeFilter: string) => {
     if (activeFilter === "Todos") return rows;
 
@@ -422,8 +431,7 @@ export const useBancariaBandeja = ({
             .then(async (result) => {
                 if (ignore) return;
                 if (tab === "Unificado") {
-                    const rows = sortOperacionesChronologically(((result ?? []) as OperacionProceso[])
-                        .filter((row, index, all) => all.findIndex((item) => item.id === row.id) === index)
+                    const rows = sortOperacionesChronologically(uniqueById((result ?? []) as OperacionProceso[])
                         .filter((row) => matchesCurrentOperacionView(row)));
                     const flowRows = unifiedFlowFilter
                         ? rows.filter((row) => activeFilter === "Todos" || getUnifiedFlowLabel(row, ruta, {
@@ -441,8 +449,7 @@ export const useBancariaBandeja = ({
                     setOperaciones([]);
                 } else {
                     const sortRows = tab === "Pago Deuda" ? sortPagoDeudaChronologically : sortOperacionesChronologically;
-                    const rows = sortRows((originRequest ? (result as [unknown, unknown]).flatMap((part) => (part ?? []) as OperacionProceso[]) : (result ?? []) as OperacionProceso[])
-                        .filter((row, index, all) => all.findIndex((item) => item.id === row.id) === index)
+                    const rows = sortRows(uniqueById(originRequest ? (result as [unknown, unknown]).flatMap((part) => (part ?? []) as OperacionProceso[]) : (result ?? []) as OperacionProceso[])
                         .filter((row) => {
                             if (!originRequest || row.flag_derivado !== true) return true;
                             return (

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronLeft, ChevronRight } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { isInteractiveElement } from "@/features/operaciones/efectivizacion/shared/utils/row-selection";
+import { useVirtualTableRows } from "@/features/operaciones/efectivizacion/shared/hooks/use-virtual-table-rows";
 import { cx } from "@/utils/cx";
 
 interface Column<T> {
@@ -22,7 +23,9 @@ interface OperationTableProps<T extends { id: number }> {
     isLoading?: boolean;
     isRefreshing?: boolean;
     hidePagination?: boolean;
+    virtualizeRows?: boolean;
     onToggleRow?: (id: number) => void;
+    onToggleRows?: (ids: number[], selected: boolean) => void;
     renderActions?: (row: T) => ReactNode;
     selectedIds?: number[];
     serverPagination?: {
@@ -63,6 +66,19 @@ const getColumnClasses = <T extends { id: number }>(column: Column<T>) => {
     return { header: "", cell: "" };
 };
 
+const getVirtualColumnWidth = <T extends { id: number }>(column: Column<T>) => {
+    const label = column.label.toLowerCase();
+    if (label.includes("pasos")) return 170;
+    if (label.includes("atencion")) return 190;
+    if (label.includes("empresa cuenta")) return 195;
+    if (label.includes("cuenta cliente")) return 150;
+    if (label.includes("monto") || label.includes("transferencia")) return 165;
+    if (label.includes("hora")) return 130;
+    if (label.includes("dni")) return 150;
+    if (label.includes("estado")) return 145;
+    return 160;
+};
+
 export const OperationTable = <T extends { id: number }>({
     columns,
     data,
@@ -70,7 +86,9 @@ export const OperationTable = <T extends { id: number }>({
     isLoading = false,
     isRefreshing = false,
     hidePagination = false,
+    virtualizeRows = false,
     onToggleRow,
+    onToggleRows,
     renderActions,
     selectedIds = [],
     serverPagination,
@@ -86,6 +104,14 @@ export const OperationTable = <T extends { id: number }>({
         const start = (activePage - 1) * activePageSize;
         return data.slice(start, start + activePageSize);
     }, [activePage, activePageSize, data, hidePagination, serverPagination]);
+    const isVirtualized = virtualizeRows && hidePagination && paginatedData.length > 60;
+    const { scrollRef, virtualizer, items, paddingTop, paddingBottom } = useVirtualTableRows(paginatedData, isVirtualized, 64);
+    const renderedRows = isVirtualized
+        ? items.map((item) => ({ row: paginatedData[item.index], index: item.index }))
+        : paginatedData.map((row, index) => ({ row, index }));
+    const RowComponent = virtualizeRows ? "tr" : motion.tr;
+    const RowsWrapper = isVirtualized ? Fragment : AnimatePresence;
+    const virtualTableWidth = columns.reduce((total, column) => total + getVirtualColumnWidth(column), (hasSelection ? 40 : 0) + (renderActions ? 70 : 0));
     const skeletonRows = Array.from({ length: Math.min(activePageSize, 5) });
 
     useEffect(() => {
@@ -97,7 +123,8 @@ export const OperationTable = <T extends { id: number }>({
     }, [data, hidePagination, pageSize, serverPagination]);
 
     const visibleIds = paginatedData.map((row) => row.id);
-    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+    const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIdSet.has(id));
     const handleRowClick = (event: MouseEvent<HTMLTableRowElement>, rowId: number) => {
         if (!onToggleRow || isLoading || isInteractiveElement(event.target)) return;
         onToggleRow(rowId);
@@ -106,21 +133,34 @@ export const OperationTable = <T extends { id: number }>({
     const handleToggleVisible = () => {
         if (!onToggleRow || isLoading) return;
 
+        if (onToggleRows) {
+            onToggleRows(visibleIds, !allVisibleSelected);
+            return;
+        }
+
         if (allVisibleSelected) {
             visibleIds.forEach((id) => onToggleRow(id));
             return;
         }
 
         visibleIds
-            .filter((id) => !selectedIds.includes(id))
+            .filter((id) => !selectedIdSet.has(id))
             .forEach((id) => onToggleRow(id));
     };
 
     return (
         <div className="overflow-hidden border-t border-secondary" data-copy-table="cierre-caja" aria-busy={isLoading || isRefreshing}>
-            <div className="overflow-x-auto">
-                <table className="w-full min-w-max table-auto divide-y divide-secondary">
-                    <thead className="bg-secondary">
+            <div ref={scrollRef} className="overflow-x-auto">
+                <table
+                    className={cx("w-full min-w-max divide-y divide-secondary", isVirtualized ? "table-fixed" : "table-auto")}
+                    style={isVirtualized ? { minWidth: virtualTableWidth } : undefined}
+                >
+                    {isVirtualized && <colgroup>
+                        {hasSelection && <col style={{ width: 40 }} />}
+                        {columns.map((column) => <col key={String(column.key)} style={{ width: getVirtualColumnWidth(column) }} />)}
+                        {renderActions && <col style={{ width: 70 }} />}
+                    </colgroup>}
+                    <thead className="sticky top-0 z-10 bg-secondary">
                         <tr>
                             {hasSelection && (
                                 <th className="w-9 px-2 py-2">
@@ -165,19 +205,26 @@ export const OperationTable = <T extends { id: number }>({
                                 </tr>
                             ))
                         ) : data.length ? (
-                            <AnimatePresence initial={false}>
-                                {paginatedData.map((row) => (
-                                    <motion.tr
+                            <RowsWrapper {...(!isVirtualized ? { initial: false } : {})}>
+                                {isVirtualized && paddingTop > 0 && (
+                                    <tr key="virtual-spacer-top" aria-hidden="true"><td colSpan={columns.length + (hasSelection ? 1 : 0) + (renderActions ? 1 : 0)} className="border-0 p-0" style={{ height: paddingTop }} /></tr>
+                                )}
+                                {renderedRows.map(({ row, index }) => (
+                                    <RowComponent
                                         key={row.id}
-                                        layout
+                                        data-index={isVirtualized ? index : undefined}
+                                        ref={isVirtualized ? virtualizer.measureElement : undefined}
                                         className={cx(
                                             hasSelection && "cursor-pointer transition-colors hover:bg-primary_hover",
-                                            selectedIds.includes(row.id) && "bg-warning-primary/20 hover:bg-warning-primary/30",
+                                            selectedIdSet.has(row.id) && "bg-warning-primary/20 hover:bg-warning-primary/30",
                                         )}
-                                        initial={{ opacity: 0, y: 4 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, height: 0 }}
-                                        transition={{ duration: 0.2 }}
+                                        {...(!virtualizeRows ? {
+                                            layout: true,
+                                            initial: { opacity: 0, y: 4 },
+                                            animate: { opacity: 1, y: 0 },
+                                            exit: { opacity: 0, height: 0 },
+                                            transition: { duration: 0.2 },
+                                        } : {})}
                                         onClick={(event) => handleRowClick(event, row.id)}
                                     >
                                         {hasSelection && (
@@ -185,7 +232,7 @@ export const OperationTable = <T extends { id: number }>({
                                                 <Checkbox
                                                     aria-label={`Seleccionar ${row.id}`}
                                                     data-prevent-row-select
-                                                    isSelected={selectedIds.includes(row.id)}
+                                                    isSelected={selectedIdSet.has(row.id)}
                                                     onChange={() => onToggleRow?.(row.id)}
                                                 />
                                             </td>
@@ -200,9 +247,12 @@ export const OperationTable = <T extends { id: number }>({
                                             );
                                         })}
                                         {renderActions ? <td className="w-14 px-2 py-2 text-center">{renderActions(row)}</td> : null}
-                                    </motion.tr>
+                                    </RowComponent>
                                 ))}
-                            </AnimatePresence>
+                                {isVirtualized && paddingBottom > 0 && (
+                                    <tr key="virtual-spacer-bottom" aria-hidden="true"><td colSpan={columns.length + (hasSelection ? 1 : 0) + (renderActions ? 1 : 0)} className="border-0 p-0" style={{ height: paddingBottom }} /></tr>
+                                )}
+                            </RowsWrapper>
                         ) : (
                             <tr>
                                 <td colSpan={columns.length + (hasSelection ? 1 : 0) + (renderActions ? 1 : 0)} className="px-4 py-10 text-center text-sm text-tertiary">
