@@ -41,6 +41,22 @@ en archivos nuevos y agregarse a este indice cuando corresponda.
 18. `43_especificacion_tecnica_metricas_servicios_operativos.md`: contrato
     tecnico, funciones analiticas nuevas, seguridad, pruebas e integracion
     frontend para esos servicios.
+19. `44_levantamiento_legacy_compensaciones.md`: metodo de levantamiento de la
+    funcionalidad legacy sin acceso a su codigo fuente.
+20. `45_levantamiento_legacy_menu_personal.md`: asistencia, sueldos,
+    colaboradores y calificaciones observados en el legacy.
+21. `46_levantamiento_legacy_menu_operaciones.md`: referidos, llamadas y
+    tarjetas de tercero; delimita los reportes operativos que no se duplicaran.
+22. `47_levantamiento_legacy_menu_control.md`: penalidades, auditoria de pagos,
+    cierre mensual y opciones pendientes del legacy.
+23. `48_levantamiento_legacy_matriz_madre_y_reportes.md`: configuracion de
+    sueldos, bonos, descuentos, metas y reportes observados.
+24. `49_plan_trabajo_compensaciones_integrado.md`: arquitectura objetivo,
+    integraciones con el sistema actual y plan secuenciado de construccion,
+    verificacion, migracion y salida gradual.
+25. `53_plan_bandeja_observaciones_operativas.md`: plan inicial para enviar
+    recordatorios predeterminados al creador de una operacion pendiente,
+    mantener su bandeja personal y cerrar el aviso cuando finalice la operacion.
 
 ## Fuentes tecnicas
 

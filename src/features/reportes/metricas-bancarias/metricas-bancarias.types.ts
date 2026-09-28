@@ -82,6 +82,7 @@ export interface MetricasDesglose {
     operaciones: number;
     pagadas: number;
     pendientes: number;
+    clientesNuevos: number;
     tasaPago: number;
     cajaRecaudacion: number;
     ingresosMovimientos: number;
@@ -92,6 +93,68 @@ export interface MetricasDesglose {
     pendienteTransferencia: number;
     saldoBanco: number;
     ticketPromedio: number;
+}
+
+export interface MetricasComunidad {
+    idComunidad: number;
+    comunidad: string;
+    operaciones: number;
+    recaudacion: number;
+    comision: number;
+    gastosOperacionales: number;
+    ganancias: number;
+    salida: number;
+    clientesNuevos: number;
+    operacionesPendientes: number;
+}
+
+export interface MetricasCliente {
+    idCliente: number;
+    dni: string;
+    nombreCompleto: string;
+    comunidad: string;
+    operaciones: number;
+    recaudacion: number;
+    comision: number;
+    gastosOperacionales: number;
+    ganancias: number;
+    salida: number;
+    operacionesPendientes: number;
+}
+
+export interface MetricasComision {
+    porcentaje: number;
+    operaciones: number;
+    recaudacion: number;
+    comision: number;
+    gastosOperacionales: number;
+    ganancias: number;
+    salida: number;
+}
+
+export interface MetricasOperacionPendiente {
+    idOperacion: number;
+    idCliente: number | null;
+    codigoOperacion: string;
+    dni: string;
+    nombreCompleto: string;
+    idComunidad: number | null;
+    comunidad: string;
+    ruta: string;
+    empresa: string;
+    cuenta: string;
+    fecha: string;
+    recaudacion: number;
+    transferencia: number;
+    estado: string;
+}
+
+export interface MetricasMejorCliente {
+    idCliente: number;
+    dni: string;
+    nombreCompleto: string;
+    operaciones: number;
+    ganancias: number;
 }
 
 export interface MetricasConsulta {

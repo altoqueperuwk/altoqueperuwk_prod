@@ -250,14 +250,23 @@ AS $$
         -- asignar/finalizar la empresa que recibira dicha comision.
         WHERE servicio = 'pago-deuda' AND atendida AND NOT paso4
       )::bigint AS sin_empresa_comision,
-      COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint AS clientes_nuevos,
+      COUNT(DISTINCT h.id_cliente) FILTER (WHERE cliente_nuevo)::bigint AS clientes_nuevos,
       COALESCE(SUM(monto_procesado), 0)::numeric AS monto_procesado,
       COALESCE(SUM(monto_atendido), 0)::numeric AS monto_atendido,
       COALESCE(SUM(comisiones), 0)::numeric AS comisiones,
       COALESCE(SUM(gastos), 0)::numeric AS gastos,
       COALESCE(SUM(ganancias), 0)::numeric AS ganancias,
-      COALESCE(SUM(salidas), 0)::numeric AS salidas
+      COALESCE(SUM(salidas), 0)::numeric AS salidas,
+      -- Mantener el mismo universo que el conteo de pendientes de cada servicio.
+      COALESCE(SUM(CASE
+        WHEN h.servicio = 'pago-deuda' AND NOT h.atendida
+          THEN GREATEST(h.monto_procesado - h.monto_atendido, 0)
+        WHEN h.servicio IN ('pos', 'linkpago') AND NOT h.pagada
+          THEN GREATEST(COALESCE(op.monto_transferencia_cliente, 0), 0)
+        ELSE 0
+      END), 0)::numeric AS pendiente_transferencia
     FROM h
+    LEFT JOIN public.tb_operacion_proceso op ON op.id = h.id_operacion
   )
   SELECT jsonb_build_object(
     'servicio', a.servicio,
@@ -273,6 +282,7 @@ AS $$
       'gastos', a.gastos,
       'ganancias', a.ganancias,
       'salidas', a.salidas,
+      'pendiente_transferencia', a.pendiente_transferencia,
       'clientes_nuevos', a.clientes_nuevos,
       'tasa_exito', CASE WHEN a.operaciones > 0 THEN ROUND(
         a.pagadas::numeric / a.operaciones * 100, 2) ELSE 0 END,
@@ -423,39 +433,61 @@ AS $$
   ), dimensiones AS (
     SELECT 'estado'::text AS dimension, COALESCE(id_estado::text, 'null') AS clave, estado AS nombre, NULL::date AS periodo,
            COUNT(*)::bigint AS operaciones, COUNT(*) FILTER (WHERE pagada)::bigint AS pagadas,
-           SUM(monto_procesado)::numeric AS monto_procesado, SUM(comisiones)::numeric AS comisiones,
-           SUM(ganancias)::numeric AS ganancias
+           COUNT(*) FILTER (WHERE NOT pagada)::bigint AS pendientes,
+           COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint AS clientes_nuevos,
+           SUM(monto_procesado)::numeric AS monto_procesado, SUM(monto_atendido)::numeric AS monto_atendido,
+           SUM(comisiones)::numeric AS comisiones, SUM(gastos)::numeric AS gastos,
+           SUM(ganancias)::numeric AS ganancias, SUM(salidas)::numeric AS salidas
     FROM h GROUP BY id_estado, estado
     UNION ALL
     SELECT 'entidad-tarjeta', COALESCE(id_banco_cliente::text, 'null'), entidad_tarjeta, NULL::date,
            COUNT(*)::bigint, COUNT(*) FILTER (WHERE pagada)::bigint,
-           SUM(monto_procesado)::numeric, SUM(comisiones)::numeric, SUM(ganancias)::numeric
+           COUNT(*) FILTER (WHERE NOT pagada)::bigint,
+           COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint,
+           SUM(monto_procesado)::numeric, SUM(monto_atendido)::numeric,
+           SUM(comisiones)::numeric, SUM(gastos)::numeric, SUM(ganancias)::numeric, SUM(salidas)::numeric
     FROM h GROUP BY id_banco_cliente, entidad_tarjeta
     UNION ALL
     SELECT 'banco-destino', COALESCE(id_banco_destino::text, 'null'), banco_destino, NULL::date,
            COUNT(*)::bigint, COUNT(*) FILTER (WHERE pagada)::bigint,
-           SUM(monto_procesado)::numeric, SUM(comisiones)::numeric, SUM(ganancias)::numeric
+           COUNT(*) FILTER (WHERE NOT pagada)::bigint,
+           COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint,
+           SUM(monto_procesado)::numeric, SUM(monto_atendido)::numeric,
+           SUM(comisiones)::numeric, SUM(gastos)::numeric, SUM(ganancias)::numeric, SUM(salidas)::numeric
     FROM h WHERE servicio = 'pos' GROUP BY id_banco_destino, banco_destino
     UNION ALL
     SELECT 'pos', COALESCE(id_pos::text, 'null'), pos, NULL::date,
            COUNT(*)::bigint, COUNT(*) FILTER (WHERE pagada)::bigint,
-           SUM(monto_procesado)::numeric, SUM(comisiones)::numeric, SUM(ganancias)::numeric
+           COUNT(*) FILTER (WHERE NOT pagada)::bigint,
+           COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint,
+           SUM(monto_procesado)::numeric, SUM(monto_atendido)::numeric,
+           SUM(comisiones)::numeric, SUM(gastos)::numeric, SUM(ganancias)::numeric, SUM(salidas)::numeric
     FROM h WHERE servicio = 'pos' GROUP BY id_pos, pos
     UNION ALL
     SELECT 'pos-diario', COALESCE(id_pos::text, 'null'), pos, fecha_operacion,
            COUNT(*)::bigint, COUNT(*) FILTER (WHERE pagada)::bigint,
-           SUM(monto_procesado)::numeric, SUM(comisiones)::numeric, SUM(ganancias)::numeric
+           COUNT(*) FILTER (WHERE NOT pagada)::bigint,
+           COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint,
+           SUM(monto_procesado)::numeric, SUM(monto_atendido)::numeric,
+           SUM(comisiones)::numeric, SUM(gastos)::numeric, SUM(ganancias)::numeric, SUM(salidas)::numeric
     FROM h WHERE servicio = 'pos' GROUP BY fecha_operacion, id_pos, pos
     UNION ALL
     SELECT 'entidad-tarjeta-diaria', COALESCE(id_banco_cliente::text, 'null'), entidad_tarjeta, fecha_operacion,
            COUNT(*)::bigint, COUNT(*) FILTER (WHERE pagada)::bigint,
-           SUM(monto_procesado)::numeric, SUM(comisiones)::numeric, SUM(ganancias)::numeric
+           COUNT(*) FILTER (WHERE NOT pagada)::bigint,
+           COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint,
+           SUM(monto_procesado)::numeric, SUM(monto_atendido)::numeric,
+           SUM(comisiones)::numeric, SUM(gastos)::numeric, SUM(ganancias)::numeric, SUM(salidas)::numeric
     FROM h WHERE servicio = 'linkpago' GROUP BY fecha_operacion, id_banco_cliente, entidad_tarjeta
   )
   SELECT jsonb_build_object(
     'dimension', dimension, 'clave', clave, 'nombre', nombre, 'periodo', periodo,
-    'operaciones', operaciones, 'pagadas', pagadas,
-    'monto_procesado', monto_procesado, 'comisiones', comisiones, 'ganancias', ganancias
+    'operaciones', operaciones, 'pagadas', pagadas, 'pendientes', pendientes,
+    'clientes_nuevos', clientes_nuevos,
+    'monto_procesado', monto_procesado, 'monto_atendido', monto_atendido,
+    'comisiones', comisiones, 'gastos', gastos, 'ganancias', ganancias, 'salidas', salidas,
+    'tasa_exito', CASE WHEN operaciones > 0 THEN ROUND(
+      pagadas::numeric / operaciones * 100, 2) ELSE 0 END
   )
   FROM dimensiones
   WHERE operaciones > 0
@@ -527,6 +559,293 @@ AS $$
   ORDER BY monto_procesado DESC, operaciones DESC, sucursal, entidad_tarjeta;
 $$;
 
+DROP FUNCTION IF EXISTS public.f_get_dashboard_metricas_pago_deuda_analitica(
+  date,
+  date,
+  bigint,
+  bigint,
+  bigint
+);
+
+/* Vista analitica completa de Pago Deuda para filtros, KPI y datatables. */
+CREATE OR REPLACE FUNCTION public.f_get_dashboard_metricas_pago_deuda_analitica(
+  p_fecha_desde date,
+  p_fecha_hasta date,
+  p_id_usuario_consulta bigint,
+  p_id_banco_cliente bigint DEFAULT NULL,
+  p_id_empresa_salida bigint DEFAULT NULL,
+  p_id_sucursal bigint DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_resultado jsonb;
+BEGIN
+  IF p_fecha_desde IS NULL OR p_fecha_hasta IS NULL OR p_fecha_desde > p_fecha_hasta THEN
+    RAISE EXCEPTION 'El rango de fechas del dashboard no es valido.';
+  END IF;
+  IF p_fecha_hasta - p_fecha_desde > 730 THEN
+    RAISE EXCEPTION 'El rango maximo permitido es de 731 dias.';
+  END IF;
+
+  WITH universo_base AS MATERIALIZED (
+    SELECT *
+    FROM public.f_get_dashboard_metricas_servicios_hechos(
+      'pago-deuda', p_fecha_desde, p_fecha_hasta, p_id_usuario_consulta,
+      NULL, NULL, NULL, NULL, NULL
+    )
+  ), bancos_base AS MATERIALIZED (
+    SELECT *
+    FROM universo_base
+    WHERE p_id_sucursal IS NULL
+       OR (p_id_sucursal = 0 AND id_sucursal IS NULL)
+       OR id_sucursal = p_id_sucursal
+  ), empresas_base AS MATERIALIZED (
+    SELECT *
+    FROM bancos_base
+    WHERE p_id_banco_cliente IS NULL
+       OR (p_id_banco_cliente = 0 AND id_banco_cliente IS NULL)
+       OR id_banco_cliente = p_id_banco_cliente
+  ), hechos AS MATERIALIZED (
+    SELECT *
+    FROM empresas_base
+    WHERE p_id_empresa_salida IS NULL
+       OR (p_id_empresa_salida = 0 AND id_empresa_salida IS NULL)
+       OR id_empresa_salida = p_id_empresa_salida
+  ), detalle AS MATERIALIZED (
+    SELECT
+      h.*,
+      op.codigo_operacion_deposito_cliente AS codigo_operacion,
+      op.fecha_registro,
+      op.id_comunidad,
+      COALESCE(NULLIF(BTRIM(op.nombre_comunidad), ''), 'Sin comunidad')::character varying AS comunidad_operacion,
+      COALESCE(NULLIF(BTRIM(op.dni_cliente), ''), NULLIF(BTRIM(cl.numero_documento), ''), '-')::character varying AS dni,
+      COALESCE(NULLIF(BTRIM(op.nombre_cliente), ''), NULLIF(BTRIM(cl.nombre), ''), 'Sin nombre')::character varying AS nombre_completo,
+      COALESCE(op.comision_servicio, 0)::numeric AS comision_porcentaje,
+      COALESCE(NULLIF(BTRIM(cm.nombre), ''), 'Sin comunidad')::character varying AS comunidad_cliente
+    FROM hechos h
+    JOIN public.tb_operacion_proceso op ON op.id = h.id_operacion
+    LEFT JOIN public.tb_cliente cl ON cl.id = h.id_cliente
+    LEFT JOIN public.tb_comunidad cm ON cm.id = cl.id_comunidad
+  ), resumen AS (
+    SELECT jsonb_build_object(
+      'operaciones', COUNT(*)::bigint,
+      'recaudacion', COALESCE(SUM(monto_procesado), 0)::numeric,
+      'comision', COALESCE(SUM(comisiones), 0)::numeric,
+      'gastos_operacionales', COALESCE(SUM(gastos), 0)::numeric,
+      'ganancias', COALESCE(SUM(ganancias), 0)::numeric,
+      'salida', COALESCE(SUM(monto_atendido), 0)::numeric,
+      'clientes_nuevos', COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint,
+      'operaciones_pendientes', COUNT(*) FILTER (WHERE NOT atendida)::bigint,
+      'monto_pendiente', COALESCE(SUM(GREATEST(monto_procesado - monto_atendido, 0)) FILTER (WHERE NOT atendida), 0)::numeric
+    ) AS valor
+    FROM detalle
+  ), serie_filas AS (
+    SELECT
+      fecha_operacion AS periodo,
+      COUNT(*)::bigint AS operaciones,
+      COALESCE(SUM(ganancias), 0)::numeric AS ganancias
+    FROM detalle
+    GROUP BY fecha_operacion
+  ), comisiones_filas AS (
+    SELECT
+      comision_porcentaje AS porcentaje,
+      COUNT(*)::bigint AS operaciones,
+      COUNT(*) FILTER (WHERE atendida)::bigint AS atendidas,
+      COUNT(*) FILTER (WHERE NOT atendida)::bigint AS pendientes,
+      COALESCE(SUM(monto_procesado), 0)::numeric AS recaudacion,
+      COALESCE(SUM(comisiones), 0)::numeric AS comision,
+      COALESCE(SUM(gastos), 0)::numeric AS gastos_operacionales,
+      COALESCE(SUM(ganancias), 0)::numeric AS ganancias,
+      COALESCE(SUM(monto_atendido), 0)::numeric AS salida,
+      COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint AS clientes_nuevos,
+      CASE WHEN COUNT(*) > 0 THEN ROUND(COUNT(*) FILTER (WHERE atendida)::numeric / COUNT(*) * 100, 2) ELSE 0 END AS tasa_atencion
+    FROM detalle
+    GROUP BY comision_porcentaje
+  ), comunidades_filas AS (
+    SELECT
+      id_comunidad,
+      comunidad_operacion AS comunidad,
+      COUNT(*)::bigint AS operaciones,
+      COUNT(*) FILTER (WHERE atendida)::bigint AS atendidas,
+      COUNT(*) FILTER (WHERE NOT atendida)::bigint AS pendientes,
+      COALESCE(SUM(monto_procesado), 0)::numeric AS recaudacion,
+      COALESCE(SUM(comisiones), 0)::numeric AS comision,
+      COALESCE(SUM(gastos), 0)::numeric AS gastos_operacionales,
+      COALESCE(SUM(ganancias), 0)::numeric AS ganancias,
+      COALESCE(SUM(monto_atendido), 0)::numeric AS salida,
+      COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint AS clientes_nuevos,
+      COUNT(*) FILTER (WHERE NOT atendida)::bigint AS operaciones_pendientes,
+      CASE WHEN COUNT(*) > 0 THEN ROUND(COUNT(*) FILTER (WHERE atendida)::numeric / COUNT(*) * 100, 2) ELSE 0 END AS tasa_atencion
+    FROM detalle
+    GROUP BY id_comunidad, comunidad_operacion
+  ), clientes_filas AS (
+    SELECT
+      d.id_cliente,
+      MAX(d.dni) AS dni,
+      MAX(d.nombre_completo) AS nombre_completo,
+      MAX(d.comunidad_cliente) AS comunidad,
+      COUNT(*)::bigint AS operaciones,
+      COUNT(*) FILTER (WHERE d.atendida)::bigint AS atendidas,
+      COUNT(*) FILTER (WHERE NOT d.atendida)::bigint AS pendientes,
+      COUNT(*) FILTER (WHERE NOT d.atendida)::bigint AS operaciones_pendientes,
+      COALESCE(SUM(d.monto_procesado), 0)::numeric AS recaudacion,
+      COALESCE(SUM(d.comisiones), 0)::numeric AS comision,
+      COALESCE(SUM(d.gastos), 0)::numeric AS gastos_operacionales,
+      COALESCE(SUM(d.ganancias), 0)::numeric AS ganancias,
+      COALESCE(SUM(d.monto_atendido), 0)::numeric AS salida,
+      COUNT(DISTINCT d.id_cliente) FILTER (WHERE d.cliente_nuevo)::bigint AS clientes_nuevos,
+      CASE WHEN COUNT(*) > 0 THEN ROUND(COUNT(*) FILTER (WHERE d.atendida)::numeric / COUNT(*) * 100, 2) ELSE 0 END AS tasa_atencion
+    FROM detalle d
+    WHERE d.id_cliente IS NOT NULL
+    GROUP BY d.id_cliente
+  ), sedes_filas AS (
+    SELECT
+      id_sucursal,
+      MAX(sucursal) AS sede,
+      COUNT(*)::bigint AS operaciones,
+      COUNT(*) FILTER (WHERE atendida)::bigint AS atendidas,
+      COUNT(*) FILTER (WHERE NOT atendida)::bigint AS pendientes,
+      COALESCE(SUM(monto_procesado), 0)::numeric AS monto_solicitado,
+      COALESCE(SUM(monto_atendido), 0)::numeric AS monto_transferido,
+      COALESCE(SUM(ganancias), 0)::numeric AS ganancias,
+      COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint AS clientes_nuevos,
+      CASE WHEN COUNT(*) > 0 THEN ROUND(COUNT(*) FILTER (WHERE atendida)::numeric / COUNT(*) * 100, 2) ELSE 0 END AS tasa_atencion
+    FROM detalle
+    GROUP BY id_sucursal
+  ), bancos_filas AS (
+    SELECT
+      id_banco_cliente,
+      MAX(entidad_tarjeta) AS banco,
+      COUNT(*)::bigint AS operaciones,
+      COUNT(*) FILTER (WHERE atendida)::bigint AS atendidas,
+      COUNT(*) FILTER (WHERE NOT atendida)::bigint AS pendientes,
+      COALESCE(SUM(monto_procesado), 0)::numeric AS monto_solicitado,
+      COALESCE(SUM(monto_atendido), 0)::numeric AS monto_transferido,
+      COALESCE(SUM(ganancias), 0)::numeric AS ganancias,
+      COUNT(DISTINCT id_cliente) FILTER (WHERE cliente_nuevo)::bigint AS clientes_nuevos,
+      CASE WHEN COUNT(*) > 0 THEN ROUND(COUNT(*) FILTER (WHERE atendida)::numeric / COUNT(*) * 100, 2) ELSE 0 END AS tasa_atencion
+    FROM detalle
+    GROUP BY id_banco_cliente
+  ), mejor_cliente AS (
+    SELECT jsonb_build_object(
+      'id_cliente', id_cliente,
+      'dni', dni,
+      'nombre_completo', nombre_completo,
+      'operaciones', operaciones,
+      'ganancias', ganancias
+    ) AS valor
+    FROM clientes_filas
+    ORDER BY ganancias DESC, operaciones DESC, id_cliente
+    LIMIT 1
+  ), mejor_sede AS (
+    SELECT jsonb_build_object(
+      'id_sucursal', id_sucursal,
+      'sede', sede,
+      'operaciones', operaciones,
+      'ganancias', ganancias
+    ) AS valor
+    FROM sedes_filas
+    ORDER BY ganancias DESC, operaciones DESC, sede
+    LIMIT 1
+  )
+  SELECT jsonb_build_object(
+    'id_sucursal_seleccionada', p_id_sucursal,
+    'id_banco_seleccionado', p_id_banco_cliente,
+    'id_empresa_seleccionada', p_id_empresa_salida,
+    'bancos', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id_banco', id_banco_cliente,
+        'banco', entidad_tarjeta
+      ) ORDER BY entidad_tarjeta)
+      FROM (
+        SELECT id_banco_cliente, MAX(entidad_tarjeta) AS entidad_tarjeta
+        FROM bancos_base
+        GROUP BY id_banco_cliente
+      ) b
+    ), '[]'::jsonb),
+    'sedes', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id_sucursal', id_sucursal,
+        'sede', sucursal
+      ) ORDER BY sucursal)
+      FROM (
+        SELECT id_sucursal, MAX(sucursal) AS sucursal
+        FROM universo_base
+        GROUP BY id_sucursal
+      ) s
+    ), '[]'::jsonb),
+    'empresas', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id_empresa', id_empresa_salida,
+        'empresa', empresa_salida
+      ) ORDER BY empresa_salida)
+      FROM (
+        SELECT id_empresa_salida, MAX(empresa_salida) AS empresa_salida
+        FROM empresas_base
+        GROUP BY id_empresa_salida
+      ) e
+    ), '[]'::jsonb),
+    'resumen', (SELECT valor FROM resumen),
+    'serie', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'periodo', periodo,
+        'operaciones', operaciones,
+        'ganancias', ganancias
+      ) ORDER BY periodo)
+      FROM serie_filas
+    ), '[]'::jsonb),
+    'comisiones', COALESCE((
+      SELECT jsonb_agg(to_jsonb(c) ORDER BY porcentaje)
+      FROM comisiones_filas c
+    ), '[]'::jsonb),
+    'comunidades', COALESCE((
+      SELECT jsonb_agg(to_jsonb(c) ORDER BY recaudacion DESC, comunidad)
+      FROM comunidades_filas c
+    ), '[]'::jsonb),
+    'clientes', COALESCE((
+      SELECT jsonb_agg(to_jsonb(c) ORDER BY operaciones DESC, ganancias DESC, dni)
+      FROM (SELECT * FROM clientes_filas ORDER BY operaciones DESC, ganancias DESC, dni LIMIT 10) c
+    ), '[]'::jsonb),
+    'mejor_cliente', COALESCE((SELECT valor FROM mejor_cliente), '{}'::jsonb),
+    'mejor_sede', COALESCE((SELECT valor FROM mejor_sede), '{}'::jsonb),
+    'distribucion_sedes', COALESCE((
+      SELECT jsonb_agg(to_jsonb(s) ORDER BY operaciones DESC, sede)
+      FROM sedes_filas s
+    ), '[]'::jsonb),
+    'distribucion_bancos', COALESCE((
+      SELECT jsonb_agg(to_jsonb(b) ORDER BY operaciones DESC, banco)
+      FROM bancos_filas b
+    ), '[]'::jsonb),
+    'pendientes', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id_operacion', id_operacion,
+        'codigo_operacion', COALESCE(codigo_operacion, id_operacion::text),
+        'dni', dni,
+        'nombre_completo', nombre_completo,
+        'comunidad', comunidad_operacion,
+        'banco', entidad_tarjeta,
+        'empresa', empresa_salida,
+        'fecha', fecha_registro,
+        'recaudacion', monto_procesado,
+        'transferencia', monto_atendido,
+        'ganancias', ganancias,
+        'estado', estado
+      ) ORDER BY fecha_registro DESC)
+      FROM detalle
+      WHERE NOT atendida
+    ), '[]'::jsonb)
+  )
+  INTO v_resultado;
+
+  RETURN v_resultado;
+END;
+$$;
+
 -- Diagnostico de firmas para despliegue seguro.
 SELECT 'DROP FUNCTION IF EXISTS ' ||
        n.nspname || '.' ||
@@ -536,9 +855,7 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_dashboard_metricas_servicios_resumen',
-  'f_get_dashboard_metricas_servicios_serie',
-  'f_get_dashboard_metricas_servicios_sedes',
   'f_get_dashboard_metricas_servicios_distribucion',
-  'f_get_dashboard_metricas_servicios_desglose'
+  'f_get_dashboard_metricas_pago_deuda_analitica'
 )
 ORDER BY n.nspname, p.proname;

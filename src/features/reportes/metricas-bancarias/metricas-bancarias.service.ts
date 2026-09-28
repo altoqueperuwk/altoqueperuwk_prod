@@ -4,8 +4,13 @@ import type {
     EmpresaDerivada,
     MetricasConsulta,
     MetricasCuenta,
+    MetricasCliente,
+    MetricasComision,
+    MetricasComunidad,
     MetricasDesglose,
     MetricasResumen,
+    MetricasOperacionPendiente,
+    MetricasMejorCliente,
     MetricasSerie,
     MetricasServicio,
     MetricasValores,
@@ -115,6 +120,110 @@ const distributionMeta: Array<{ key: Exclude<MetricasServicio, "all">; name: str
     { key: "pago-deuda", name: "Pago Deuda", color: "var(--color-utility-blue-500)" },
 ];
 
+const mapCommunities = (rows: unknown[]): MetricasComunidad[] => arrayValue(rows).map((row) => ({
+    idComunidad: numberValue(row.id_comunidad),
+    comunidad: String(row.comunidad ?? "Sin comunidad"),
+    operaciones: numberValue(row.operaciones),
+    recaudacion: numberValue(row.recaudacion),
+    comision: numberValue(row.comision),
+    gastosOperacionales: numberValue(row.gastos_operacionales),
+    ganancias: numberValue(row.ganancias),
+    salida: numberValue(row.salida),
+    clientesNuevos: numberValue(row.clientes_nuevos),
+    operacionesPendientes: numberValue(row.operaciones_pendientes),
+}));
+
+const mapClients = (rows: unknown[]): MetricasCliente[] => arrayValue(rows).map((row) => ({
+    idCliente: numberValue(row.id_cliente),
+    dni: String(row.dni ?? "-"),
+    nombreCompleto: String(row.nombre_completo ?? "Sin nombre"),
+    comunidad: String(row.comunidad ?? "Sin comunidad"),
+    operaciones: numberValue(row.operaciones),
+    recaudacion: numberValue(row.recaudacion),
+    comision: numberValue(row.comision),
+    gastosOperacionales: numberValue(row.gastos_operacionales),
+    ganancias: numberValue(row.ganancias),
+    salida: numberValue(row.salida),
+    operacionesPendientes: numberValue(row.operaciones_pendientes),
+}));
+
+const mapCommissions = (rows: unknown[]): MetricasComision[] => arrayValue(rows).map((row) => ({
+    porcentaje: numberValue(row.porcentaje),
+    operaciones: numberValue(row.operaciones),
+    recaudacion: numberValue(row.recaudacion),
+    comision: numberValue(row.comision),
+    gastosOperacionales: numberValue(row.gastos_operacionales),
+    ganancias: numberValue(row.ganancias),
+    salida: numberValue(row.salida),
+}));
+
+const mapPendingOperations = (rows: unknown[]): MetricasOperacionPendiente[] => arrayValue(rows).map((row) => ({
+    idOperacion: numberValue(row.id_operacion),
+    idCliente: row.id_cliente == null ? null : numberValue(row.id_cliente),
+    codigoOperacion: String(row.codigo_operacion ?? "-"),
+    dni: String(row.dni ?? "-"),
+    nombreCompleto: String(row.nombre_completo ?? "Sin nombre"),
+    idComunidad: row.id_comunidad == null ? null : numberValue(row.id_comunidad),
+    comunidad: String(row.comunidad ?? "Sin comunidad"),
+    ruta: String(row.ruta ?? ""),
+    empresa: String(row.empresa ?? "-"),
+    cuenta: String(row.cuenta ?? "-"),
+    fecha: String(row.fecha ?? ""),
+    recaudacion: numberValue(row.recaudacion),
+    transferencia: numberValue(row.transferencia),
+    estado: String(row.estado ?? "Sin estado"),
+}));
+
+const mapBestClient = (value: unknown): MetricasMejorCliente | null => {
+    const row = recordValue(value);
+    if (!row.id_cliente) return null;
+    return {
+        idCliente: numberValue(row.id_cliente),
+        dni: String(row.dni ?? "-"),
+        nombreCompleto: String(row.nombre_completo ?? "Sin nombre"),
+        operaciones: numberValue(row.operaciones),
+        ganancias: numberValue(row.ganancias),
+    };
+};
+
+const mapBreakdown = (rows: unknown[]): MetricasDesglose[] => arrayValue(rows).map((row) => ({
+    ruta: String(row.ruta ?? ""),
+    idEmpresa: numberValue(row.id_empresa),
+    empresa: String(row.empresa ?? "-"),
+    idCuenta: numberValue(row.id_empresa_cuenta_bancaria),
+    idBanco: numberValue(row.id_banco),
+    cuenta: String(row.cuenta ?? "-"),
+    operaciones: numberValue(row.operaciones),
+    pagadas: numberValue(row.pagadas),
+    pendientes: numberValue(row.pendientes),
+    clientesNuevos: numberValue(row.clientes_nuevos),
+    tasaPago: numberValue(row.tasa_pago),
+    cajaRecaudacion: numberValue(row.caja_recaudacion),
+    ingresosMovimientos: numberValue(row.ingresos_movimientos),
+    salidas: numberValue(row.salidas),
+    gastosOperacionales: numberValue(row.gastos_operacionales),
+    ganancias: numberValue(row.ganancias),
+    margenGanancia: numberValue(row.margen_ganancia),
+    pendienteTransferencia: numberValue(row.pendiente_transferencia),
+    saldoBanco: numberValue(row.saldo_banco),
+    ticketPromedio: numberValue(row.ticket_promedio),
+}));
+
+const mapSeries = (rows: unknown[]): MetricasSerie[] => arrayValue(rows).map((row) => ({
+    periodo: String(row.periodo ?? ""),
+    granularidad: String(row.granularidad ?? ""),
+    ruta: String(row.ruta ?? ""),
+    cajaRecaudacion: numberValue(row.caja_recaudacion),
+    ingresosMovimientos: numberValue(row.ingresos_movimientos),
+    salidas: numberValue(row.salidas),
+    gastosOperacionales: numberValue(row.gastos_operacionales),
+    ganancias: numberValue(row.ganancias),
+    margenGanancia: numberValue(row.margen_ganancia),
+    operacionesRegistradas: numberValue(row.operaciones_registradas),
+    operacionesPagadas: numberValue(row.operaciones_pagadas),
+    clientesNuevos: numberValue(row.clientes_nuevos),
+}));
+
 export const metricasBancariasService = {
     async getCuentas(): Promise<MetricasCuenta[]> {
         const rows = await rpc<JsonRecord[]>("f_get_tb_ruta_operacion_caja", { p_id_estado: 1 });
@@ -150,42 +259,9 @@ export const metricasBancariasService = {
             }),
         ]);
 
-        const series: MetricasSerie[] = arrayValue(seriesRaw).map((row) => ({
-            periodo: String(row.periodo ?? ""),
-            granularidad: String(row.granularidad ?? ""),
-            ruta: String(row.ruta ?? ""),
-            cajaRecaudacion: numberValue(row.caja_recaudacion),
-            ingresosMovimientos: numberValue(row.ingresos_movimientos),
-            salidas: numberValue(row.salidas),
-            gastosOperacionales: numberValue(row.gastos_operacionales),
-            ganancias: numberValue(row.ganancias),
-            margenGanancia: numberValue(row.margen_ganancia),
-            operacionesRegistradas: numberValue(row.operaciones_registradas),
-            operacionesPagadas: numberValue(row.operaciones_pagadas),
-            clientesNuevos: numberValue(row.clientes_nuevos),
-        }));
+        const series = mapSeries(seriesRaw);
 
-        const breakdown: MetricasDesglose[] = arrayValue(breakdownRaw).map((row) => ({
-            ruta: String(row.ruta ?? ""),
-            idEmpresa: numberValue(row.id_empresa),
-            empresa: String(row.empresa ?? "-"),
-            idCuenta: numberValue(row.id_empresa_cuenta_bancaria),
-            idBanco: numberValue(row.id_banco),
-            cuenta: String(row.cuenta ?? "-"),
-            operaciones: numberValue(row.operaciones),
-            pagadas: numberValue(row.pagadas),
-            pendientes: numberValue(row.pendientes),
-            tasaPago: numberValue(row.tasa_pago),
-            cajaRecaudacion: numberValue(row.caja_recaudacion),
-            ingresosMovimientos: numberValue(row.ingresos_movimientos),
-            salidas: numberValue(row.salidas),
-            gastosOperacionales: numberValue(row.gastos_operacionales),
-            ganancias: numberValue(row.ganancias),
-            margenGanancia: numberValue(row.margen_ganancia),
-            pendienteTransferencia: numberValue(row.pendiente_transferencia),
-            saldoBanco: numberValue(row.saldo_banco),
-            ticketPromedio: numberValue(row.ticket_promedio),
-        }));
+        const breakdown = mapBreakdown(breakdownRaw);
 
         const distributionByFamily = new Map(arrayValue(distributionRaw).map((row) => [String(row.familia ?? ""), numberValue(row.operaciones)]));
         const activeDistribution = consulta.servicio === "all" ? distributionMeta : distributionMeta.filter((item) => item.key === consulta.servicio);
@@ -196,5 +272,54 @@ export const metricasBancariasService = {
         })).filter((item) => item.value > 0);
 
         return { summary: mapResumen(summaryRaw), series, breakdown, distribution };
+    },
+
+    async getBreakdown(consulta: MetricasConsulta): Promise<MetricasDesglose[]> {
+        const params = { ...familyParams(consulta) };
+        delete (params as Partial<typeof params>).p_incluir_comparacion;
+        const rows = await rpc<unknown[]>("f_get_dashboard_metricas_bancarias_desglose", params);
+        return mapBreakdown(rows);
+    },
+
+    async getCommunities(consulta: MetricasConsulta): Promise<MetricasComunidad[]> {
+        const params = { ...familyParams(consulta) };
+        delete (params as Partial<typeof params>).p_incluir_comparacion;
+        const rows = await rpc<unknown[]>("f_get_dashboard_metricas_bancarias_comunidades", params);
+        return mapCommunities(rows);
+    },
+
+    async getTopClients(consulta: MetricasConsulta): Promise<MetricasCliente[]> {
+        const params = { ...familyParams(consulta) };
+        delete (params as Partial<typeof params>).p_incluir_comparacion;
+        const rows = await rpc<unknown[]>("f_get_dashboard_metricas_bancarias_clientes_top", params);
+        return mapClients(rows);
+    },
+
+    async getCommissions(consulta: MetricasConsulta): Promise<MetricasComision[]> {
+        const params = { ...familyParams(consulta) };
+        delete (params as Partial<typeof params>).p_incluir_comparacion;
+        const rows = await rpc<unknown[]>("f_get_dashboard_metricas_bancarias_comisiones", params);
+        return mapCommissions(rows);
+    },
+
+    async getPendingOperations(consulta: MetricasConsulta): Promise<MetricasOperacionPendiente[]> {
+        const params = { ...familyParams(consulta) };
+        delete (params as Partial<typeof params>).p_incluir_comparacion;
+        const rows = await rpc<unknown[]>("f_get_dashboard_metricas_bancarias_pendientes", params);
+        return mapPendingOperations(rows);
+    },
+
+    async getSeries(consulta: MetricasConsulta): Promise<MetricasSerie[]> {
+        const params = { ...familyParams(consulta), p_granularidad: "DIA" };
+        delete (params as Partial<typeof params>).p_incluir_comparacion;
+        const rows = await rpc<unknown[]>("f_get_dashboard_metricas_bancarias_serie", params);
+        return mapSeries(rows);
+    },
+
+    async getBestClient(consulta: MetricasConsulta): Promise<MetricasMejorCliente | null> {
+        const params = { ...familyParams(consulta) };
+        delete (params as Partial<typeof params>).p_incluir_comparacion;
+        const row = await rpc<unknown>("f_get_dashboard_metricas_bancarias_mejor_cliente", params);
+        return mapBestClient(row);
     },
 };
