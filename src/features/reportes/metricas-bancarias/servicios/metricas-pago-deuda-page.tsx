@@ -179,8 +179,8 @@ const TableShell = ({ children, empty }: { children: ReactNode; empty: boolean }
 export const MetricasPagoDeudaPage = () => {
     const { businessUser } = useAuth();
     const userId = businessUser?.id ? Number(businessUser.id) : null;
-    const [period, setPeriod] = useState<Period>("yesterday");
-    const [dateRange, setDateRange] = useState(() => getDateRange("yesterday"));
+    const [period, setPeriod] = useState<Period>("week");
+    const [dateRange, setDateRange] = useState(() => getDateRange("week"));
     const [branchId, setBranchId] = useState<number | null>(null);
     const [bankId, setBankId] = useState<number | null>(null);
     const [isExporting, setIsExporting] = useState(false);
@@ -236,7 +236,7 @@ export const MetricasPagoDeudaPage = () => {
             return { fechaDesde, fechaHasta };
         });
     };
-    const reset = () => { setPeriod("yesterday"); setDateRange(getDateRange("yesterday")); setBranchId(null); setBankId(null); };
+    const reset = () => { setPeriod("week"); setDateRange(getDateRange("week")); setBranchId(null); setBankId(null); };
     const handleExport = async () => {
         if (!data || isExporting) return;
         setIsExporting(true);

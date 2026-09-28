@@ -227,8 +227,8 @@ const SortableHeader = <T extends string,>({ label, column, activeColumn, direct
 };
 
 export const MetricasBancariasPage = () => {
-    const [period, setPeriod] = useState<MetricasBancariasPeriodo | null>("yesterday");
-    const [dateRange, setDateRange] = useState(() => getDateRange("yesterday"));
+    const [period, setPeriod] = useState<MetricasBancariasPeriodo | null>("week");
+    const [dateRange, setDateRange] = useState(() => getDateRange("week"));
     const [selectedBankRoute, setSelectedBankRoute] = useState<string | null>(null);
     const [selectedCompanyByBank, setSelectedCompanyByBank] = useState<Record<string, number>>({});
     const [communitySort, setCommunitySort] = useState<{ column: CommunitySortKey; direction: SortDirection }>({ column: "recaudacion", direction: "desc" });
@@ -424,8 +424,8 @@ export const MetricasBancariasPage = () => {
         },
     ];
     const resetFilters = () => {
-        setPeriod("yesterday");
-        setDateRange(getDateRange("yesterday"));
+        setPeriod("week");
+        setDateRange(getDateRange("week"));
         setSelectedBankRoute(null);
         setSelectedCompanyByBank({});
     };

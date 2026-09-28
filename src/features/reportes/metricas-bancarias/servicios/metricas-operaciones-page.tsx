@@ -197,8 +197,8 @@ const DistributionTable = ({ title, dimension, rows, context, isLoading }: {
 export const MetricasOperacionesPage = ({ servicio }: { servicio: AnalyticsService }) => {
     const { businessUser } = useAuth();
     const userId = businessUser?.id ? Number(businessUser.id) : null;
-    const [period, setPeriod] = useState<Period>("yesterday");
-    const [dateRange, setDateRange] = useState(() => getDateRange("yesterday"));
+    const [period, setPeriod] = useState<Period>("week");
+    const [dateRange, setDateRange] = useState(() => getDateRange("week"));
     const [branchId, setBranchId] = useState<number | null>(null);
     const [entityId, setEntityId] = useState<number | null>(null);
     const [posId, setPosId] = useState<number | null>(null);
@@ -268,8 +268,8 @@ export const MetricasOperacionesPage = ({ servicio }: { servicio: AnalyticsServi
         });
     };
     const reset = () => {
-        setPeriod("yesterday");
-        setDateRange(getDateRange("yesterday"));
+        setPeriod("week");
+        setDateRange(getDateRange("week"));
         setBranchId(null);
         setEntityId(null);
         setPosId(null);
