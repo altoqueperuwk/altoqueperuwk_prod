@@ -4,6 +4,8 @@
 
 Este documento levanta el contenido funcional de `implementacion_esquema/ESQUEMA 9.pdf`, incorpora las respuestas de `implementacion_esquema/gemini-code-1789349311096.md` y propone cómo integrarlo como un sistema nuevo en la aplicación actual. Las respuestas se toman como definiciones funcionales de trabajo; los casos aún ambiguos y la aprobación administrativa/legal se identifican por separado. Este documento no autoriza por sí solo pagos o descuentos automáticos.
 
+> **Reapertura del levantamiento:** desde septiembre de 2026 existe acceso visual al sistema legacy que contiene la funcionalidad que se desea migrar. Por ello, este documento deja de considerarse una especificación cerrada. Las reglas del PDF siguen siendo una fuente de política, mientras que el comportamiento observable del legacy será la fuente para reconstruir pantallas, estados, validaciones, permisos, cálculos y reportes. El protocolo de análisis se encuentra en `44_levantamiento_legacy_compensaciones.md`.
+
 El PDF tiene siete páginas y está compuesto principalmente por láminas gráficas, sin texto seleccionable. Las reglas que siguen se transcribieron visualmente. La portada es gráfica y no añade reglas de negocio. Antes de implementar, Administración/RR. HH., las jefaturas y Contabilidad deben validar los importes, condiciones, excepciones y vigencia.
 
 ## Por qué conviene un sistema separado
@@ -195,6 +197,7 @@ Los niveles Jefe Superior, Operador de alta demanda, Cartera Media y Asistente V
 ### Incidencias cruzadas, asistencia y métricas de calidad
 
 - Pagos puede reportar un abandono/error de Atención al Cliente; aplicar el bono de S/ 1 al detector de Pagos y la penalidad de S/ 2 al responsable, con evidencia de Pancake/sistema y confirmación de Jefe de Tienda o Facturación. El incentivo de S/ 0.50 de Diseño/Marketing no aplica en la primera versión porque ese perfil no forma parte de la plantilla incluida. Las alertas podrán registrarse sin exponer al denunciante al usuario reportado; la auditoría autorizada conserva su identidad.
+- La asistencia del personal proviene de un archivo Excel exportado por un sistema de huellero. El nuevo módulo debe importar y conciliar ese archivo; no debe reemplazar al huellero ni asumir que la fecha de carga equivale a la fecha de asistencia. Se debe conservar el archivo fuente, identificar cada carga y permitir rastrear cada marcación hasta su fila original.
 - Zona horaria oficial: `America/Lima` (UTC-5). La tolerancia termina a las 9:05:00 a. m. y la marcación tardía comienza a las 9:05:01. Criterio de cálculo: cobrar minutos completos de tardanza; el primer minuto se genera al llegar a las 9:06:00, sin redondear fracciones hacia arriba.
 - El plazo de abandono de chat es de 20 minutos desde el último mensaje del cliente, con conversación activa/asignada y sin respuesta del asesor.
 - Video viral se evalúa a los 30 días de publicado mediante analítica nativa de TikTok o Meta Business Suite; comentarios deben ser de cuentas reales. Esta regla queda documentada, pero fuera de la primera versión por no incluir Diseño/Marketing.
@@ -314,7 +317,7 @@ Registrar ajustes posteriores con auditoría
 
 ## Condiciones previas al despliegue productivo
 
-No quedan preguntas funcionales abiertas que impidan diseñar el sistema. Antes de liquidar dinero en producción, se debe:
+El modelo preliminar permite continuar el análisis, pero el acceso al legacy reabre preguntas funcionales sobre su comportamiento real. Antes de cerrar el diseño y liquidar dinero en producción, se debe:
 
 - Probar y documentar ejemplos de referidos con la regla adoptada (0.4% sobre la primera operación elegible al 1%) como parte de la aprobación de la política.
 - Probar con un mes histórico que el volumen efectivizado, sede, usuario responsable y estado `Pagado` coincidan con los reportes operativos.
@@ -338,3 +341,5 @@ No quedan preguntas funcionales abiertas que impidan diseñar el sistema. Antes 
 ## Alcance de este levantamiento
 
 En esta entrega se documentó el contenido visible del PDF, su relación con el sistema actual y una ruta de implementación. **No se modificaron código, funciones SQL, tablas ni procesos financieros.** Las reglas monetarias quedan pendientes de validación funcional antes de transformarse en configuración o cálculos ejecutables.
+
+El siguiente entregable debe incorporar el inventario verificable del sistema legacy, sus casos de prueba y las diferencias entre el comportamiento actual y la política objetivo. No se debe replicar automáticamente un defecto del legacy ni inferir una regla únicamente por su apariencia visual.

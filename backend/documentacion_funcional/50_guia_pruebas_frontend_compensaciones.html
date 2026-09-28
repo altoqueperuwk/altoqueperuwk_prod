@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guía de pruebas · Compensaciones</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6fa;
+      --surface: #ffffff;
+      --surface-soft: #f8fafc;
+      --surface-accent: #f4f0ff;
+      --text: #182230;
+      --muted: #667085;
+      --border: #dfe3ea;
+      --brand: #6941c6;
+      --brand-hover: #53389e;
+      --success: #067647;
+      --success-bg: #ecfdf3;
+      --warning: #b54708;
+      --warning-bg: #fffaeb;
+      --danger: #b42318;
+      --danger-bg: #fef3f2;
+      --info: #175cd3;
+      --info-bg: #eff8ff;
+      --shadow: 0 1px 3px rgb(16 24 40 / 0.08), 0 1px 2px rgb(16 24 40 / 0.06);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+
+    .layout { min-height: 100vh; }
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 20;
+      width: 280px;
+      overflow-y: auto;
+      border-right: 1px solid #263044;
+      background: #101828;
+      color: #eaecf0;
+      padding: 24px 18px;
+    }
+    .brand { display: flex; gap: 12px; align-items: center; margin-bottom: 24px; }
+    .brand-mark {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #7f56d9, #53389e);
+      color: white;
+      font-weight: 800;
+    }
+    .brand strong { display: block; font-size: 15px; }
+    .brand small { color: #98a2b3; }
+    .progress-card { margin-bottom: 20px; border: 1px solid #344054; border-radius: 12px; padding: 12px; background: #1d2939; }
+    .progress-row { display: flex; justify-content: space-between; gap: 12px; color: #d0d5dd; font-size: 12px; }
+    .progress-track { height: 8px; margin-top: 8px; overflow: hidden; border-radius: 99px; background: #344054; }
+    .progress-fill { width: 0; height: 100%; border-radius: inherit; background: #9e77ed; transition: width 180ms ease; }
+    .nav-title { margin: 18px 10px 8px; color: #667085; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .nav-button {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      gap: 10px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #d0d5dd;
+      padding: 10px 12px;
+      text-align: left;
+    }
+    .nav-button:hover { background: #1d2939; color: white; }
+    .nav-button.active { background: #3538cd; color: white; }
+    .nav-index { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 6px; background: rgb(255 255 255 / .08); font-size: 11px; }
+    .sidebar-actions { display: grid; gap: 8px; margin-top: 24px; }
+
+    .main { margin-left: 280px; }
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      min-height: 72px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgb(255 255 255 / .94);
+      padding: 14px 28px;
+      backdrop-filter: blur(10px);
+    }
+    .header h1 { margin: 0; font-size: 19px; }
+    .header p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+    .header-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .content { width: min(1320px, calc(100% - 48px)); margin: 0 auto; padding: 28px 0 64px; }
+    .page { display: none; animation: fade .18s ease; }
+    .page.active { display: block; }
+    @keyframes fade { from { opacity: 0; transform: translateY(4px); } }
+
+    .hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+    .eyebrow { margin: 0 0 4px; color: var(--brand); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+    .hero h2 { margin: 0; font-size: 28px; line-height: 1.25; }
+    .hero p { max-width: 820px; margin: 8px 0 0; color: var(--muted); }
+    .route { white-space: nowrap; border: 1px solid #d6bbfb; border-radius: 8px; background: var(--surface-accent); color: #53389e; padding: 7px 10px; font-family: ui-monospace, monospace; font-size: 12px; }
+    .grid { display: grid; gap: 16px; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .card { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+    .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding: 16px 18px; }
+    .card-header h3 { margin: 0; font-size: 15px; }
+    .card-header p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .card-body { padding: 18px; }
+    .metric { padding: 18px; }
+    .metric span { color: var(--muted); font-size: 12px; }
+    .metric strong { display: block; margin-top: 7px; font-size: 25px; }
+    .metric small { color: var(--muted); }
+    .metric.success strong { color: var(--success); }
+    .metric.warning strong { color: var(--warning); }
+    .metric.danger strong { color: var(--danger); }
+    .section-title { margin: 28px 0 12px; font-size: 18px; }
+    .note { border-left: 4px solid var(--info); border-radius: 8px; background: var(--info-bg); color: #1849a9; padding: 12px 14px; }
+    .note.warning { border-color: #f79009; background: var(--warning-bg); color: #93370d; }
+    .note.success { border-color: #12b76a; background: var(--success-bg); color: #05603a; }
+    .note.danger { border-color: #f04438; background: var(--danger-bg); color: #912018; }
+    .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 8px; background: #f2f4f7; color: #344054; font-size: 11px; font-weight: 600; }
+    .badge.success { background: var(--success-bg); color: var(--success); }
+    .badge.warning { background: var(--warning-bg); color: var(--warning); }
+    .badge.brand { background: var(--surface-accent); color: var(--brand); }
+
+    .form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .field { display: grid; gap: 6px; }
+    .field.full { grid-column: 1 / -1; }
+    label { color: #344054; font-size: 12px; font-weight: 600; }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      background: white;
+      color: var(--text);
+      padding: 9px 11px;
+      outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: #9e77ed; box-shadow: 0 0 0 3px #f4ebff; }
+    input:disabled { background: #f2f4f7; color: #667085; }
+    textarea { min-height: 84px; resize: vertical; }
+    .button { border: 1px solid transparent; border-radius: 8px; padding: 8px 12px; font-weight: 600; }
+    .button.primary { background: var(--brand); color: white; }
+    .button.primary:hover { background: var(--brand-hover); }
+    .button.secondary { border-color: #d0d5dd; background: white; color: #344054; }
+    .button.danger { border-color: #fda29b; background: white; color: var(--danger); }
+    .button.dark { border-color: #475467; background: #1d2939; color: white; }
+    .button-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: var(--surface-soft); color: #475467; font-size: 11px; letter-spacing: .03em; text-align: left; text-transform: uppercase; }
+    th, td { border-bottom: 1px solid var(--border); padding: 11px 12px; vertical-align: top; }
+    tr:last-child td { border-bottom: 0; }
+    .money { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+    .steps { display: grid; gap: 10px; counter-reset: step; }
+    .step { position: relative; border: 1px solid var(--border); border-radius: 10px; background: white; padding: 14px 14px 14px 48px; }
+    .step::before { counter-increment: step; content: counter(step); position: absolute; left: 14px; top: 13px; display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; background: var(--surface-accent); color: var(--brand); font-size: 12px; font-weight: 800; }
+    .step strong { display: block; }
+    .step p { margin: 3px 0 0; color: var(--muted); }
+
+    .test-list { display: grid; gap: 10px; }
+    .test-case { display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: start; border: 1px solid var(--border); border-radius: 10px; background: white; padding: 12px; }
+    .test-case input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--brand); }
+    .test-case strong { display: block; font-size: 13px; }
+    .test-case p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .test-case.done { border-color: #75e0a7; background: #f6fef9; }
+    .test-id { color: var(--muted); font: 11px ui-monospace, monospace; }
+    .expected { margin-top: 7px; color: var(--success); font-size: 12px; }
+    .expected::before { content: "Resultado esperado: "; font-weight: 700; }
+    .code { overflow-x: auto; border-radius: 8px; background: #101828; color: #d0d5dd; padding: 14px; font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
+    .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .flow-item { border: 1px solid #d6bbfb; border-radius: 8px; background: var(--surface-accent); color: #53389e; padding: 8px 10px; font-weight: 600; }
+    .flow-arrow { color: #98a2b3; }
+    .mobile-menu { display: none; }
+
+    @media (max-width: 980px) {
+      .sidebar { transform: translateX(-100%); transition: transform 180ms ease; }
+      .sidebar.open { transform: translateX(0); }
+      .main { margin-left: 0; }
+      .mobile-menu { display: inline-flex; }
+      .grid-4, .grid-3, .grid-2, .form-grid { grid-template-columns: 1fr; }
+      .hero { flex-direction: column; }
+      .route { white-space: normal; }
+      .content { width: min(100% - 28px, 1320px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">CP</div>
+        <div><strong>Compensaciones</strong><small>Guía de pruebas funcionales</small></div>
+      </div>
+      <div class="progress-card">
+        <div class="progress-row"><span>Progreso de ejecución</span><strong id="progressText">0%</strong></div>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+      <div class="nav-title">Preparación</div>
+      <button class="nav-button active" data-page="inicio"><span class="nav-index">00</span>Inicio y alcance</button>
+      <button class="nav-button" data-page="preflight"><span class="nav-index">01</span>Preflight técnico</button>
+      <div class="nav-title">Pruebas por módulo</div>
+      <button class="nav-button" data-page="configuracion"><span class="nav-index">02</span>Configuración</button>
+      <button class="nav-button" data-page="colaboradores"><span class="nav-index">03</span>Colaboradores</button>
+      <button class="nav-button" data-page="asistencia"><span class="nav-index">04</span>Asistencia</button>
+      <button class="nav-button" data-page="evidencias"><span class="nav-index">05</span>Evidencias</button>
+      <button class="nav-button" data-page="incidencias"><span class="nav-index">06</span>Incidencias</button>
+      <button class="nav-button" data-page="liquidaciones"><span class="nav-index">07</span>Liquidaciones</button>
+      <button class="nav-button" data-page="cierres"><span class="nav-index">08</span>Cierres</button>
+      <button class="nav-button" data-page="reportes"><span class="nav-index">09</span>Reportes</button>
+      <button class="nav-button" data-page="resumen"><span class="nav-index">10</span>Resumen</button>
+      <div class="nav-title">Cierre de pruebas</div>
+      <button class="nav-button" data-page="matriz"><span class="nav-index">11</span>Matriz y evidencias</button>
+      <div class="sidebar-actions">
+        <button class="button dark" id="exportButton">Exportar progreso JSON</button>
+        <button class="button danger" id="resetButton">Reiniciar guía</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="header">
+        <div style="display:flex;align-items:center;gap:12px">
+          <button class="button secondary mobile-menu" id="menuButton">Menú</button>
+          <div><h1 id="headerTitle">Inicio y alcance</h1><p>Documento interactivo; no modifica la base de datos.</p></div>
+        </div>
+        <div class="header-actions">
+          <span class="badge brand">Ambiente recomendado: QA</span>
+          <span class="badge">Versión 1.0</span>
+        </div>
+      </header>
+
+      <div class="content">
+        <section class="page active" id="page-inicio" data-title="Inicio y alcance">
+          <div class="hero"><div><p class="eyebrow">Antes de comenzar</p><h2>Guía para validar Compensaciones de extremo a extremo</h2><p>Esta guía describe qué significa cada módulo, qué información registrar, qué acciones ejecutar y qué resultado esperar. Los formularios y tablas son representaciones visuales; las operaciones reales deben hacerse en el frontend del sistema.</p></div><span class="route">/compensaciones/resumen</span></div>
+          <div class="note warning"><strong>Terminología:</strong> aunque internamente se hable de “pruebas unitarias”, este recorrido corresponde principalmente a pruebas funcionales manuales e integrales del frontend contra el backend.</div>
+          <h3 class="section-title">Orden obligatorio de ejecución</h3>
+          <div class="flow"><span class="flow-item">Configuración</span><span class="flow-arrow">→</span><span class="flow-item">Colaboradores</span><span class="flow-arrow">→</span><span class="flow-item">Asistencia / Evidencias</span><span class="flow-arrow">→</span><span class="flow-item">Incidencias</span><span class="flow-arrow">→</span><span class="flow-item">Liquidaciones</span><span class="flow-arrow">→</span><span class="flow-item">Pagos</span><span class="flow-arrow">→</span><span class="flow-item">Cierre</span><span class="flow-arrow">→</span><span class="flow-item">Reportes</span></div>
+          <div class="grid grid-3" style="margin-top:18px">
+            <article class="card metric"><span>Objetivo principal</span><strong>Trazabilidad</strong><small>Cada monto debe explicar usuario, regla, origen y periodo.</small></article>
+            <article class="card metric"><span>Identidad operativa</span><strong>tb_usuario</strong><small>La ficha laboral referencia al usuario; no duplica su identidad.</small></article>
+            <article class="card metric"><span>Resultado final</span><strong>Liquidación</strong><small>Sueldo + bonos + comisiones − descuentos.</small></article>
+          </div>
+          <h3 class="section-title">Datos controlados sugeridos</h3>
+          <div class="card"><div class="table-wrap"><table><thead><tr><th>Dato</th><th>Valor de prueba</th><th>Uso</th></tr></thead><tbody><tr><td>Usuario</td><td>Un usuario activo de QA</td><td>Vinculación y atribución operativa</td></tr><tr><td>Documento</td><td>Documento no utilizado</td><td>Ficha de colaborador</td></tr><tr><td>Periodo</td><td>Mes abierto de QA</td><td>Asistencia, liquidación y cierre</td></tr><tr><td>Operación</td><td>Una operación pagada controlada</td><td>Bono por operación atribuida</td></tr><tr><td>Montos</td><td>S/ 1,000 sueldo; S/ 10 bono; S/ 5 descuento</td><td>Conciliación matemática simple</td></tr></tbody></table></div></div>
+        </section>
+
+        <section class="page" id="page-preflight" data-title="Preflight técnico">
+          <div class="hero"><div><p class="eyebrow">Paso 01</p><h2>Confirmar que frontend y backend pueden conversar</h2><p>El preflight evita confundir un error de despliegue con un error funcional. Debe completarse antes de crear información.</p></div><span class="route">backend/backend_pruebas/19.preflight_frontend_compensaciones.sql</span></div>
+          <div class="grid grid-2">
+            <article class="card"><div class="card-header"><div><h3>Scripts requeridos</h3><p>Aplicar en una base de pruebas.</p></div></div><div class="card-body"><div class="code">17 → 18 → 19 → 20 → 21 → 22 → 23 → 24 → 25
+26 → 27 → 28 → 29 → 30 → 31 → 32 → 33 → 34 → 35</div><p>Además, aplicar los índices de compensaciones definidos en los scripts 02 y 03.</p></div></article>
+            <article class="card"><div class="card-header"><div><h3>Interpretación del resultado</h3><p>Condiciones para continuar.</p></div></div><div class="card-body"><ul><li><code>contrato_faltante</code>: cero filas.</li><li>Vinculación de colaboradores: <code>true</code>.</li><li>RPC públicas: ejecutables por <code>authenticated</code>.</li><li>Helpers privados: no ejecutables desde frontend.</li><li>Hallazgos nivel <code>ERROR</code>: cero.</li></ul></div></article>
+          </div>
+          <h3 class="section-title">Casos de prueba</h3>
+          <div class="test-list">
+            <label class="test-case"><input type="checkbox" data-test="PF-01"><span><strong>Ejecutar validación de modelo</strong><p>Ejecutar 17.validar_modelo_compensaciones.sql.</p><span class="expected">No existen tablas, constraints o firmas faltantes.</span></span><span class="test-id">PF-01</span></label>
+            <label class="test-case"><input type="checkbox" data-test="PF-02"><span><strong>Ejecutar validación integral</strong><p>Ejecutar 18.validar_integral_compensaciones.sql.</p><span class="expected">Cero hallazgos de nivel ERROR.</span></span><span class="test-id">PF-02</span></label>
+            <label class="test-case"><input type="checkbox" data-test="PF-03"><span><strong>Ejecutar preflight del frontend</strong><p>Revisar contratos, permisos y configuración mínima.</p><span class="expected">Cero contratos faltantes y estructura lista.</span></span><span class="test-id">PF-03</span></label>
+            <label class="test-case"><input type="checkbox" data-test="PF-04"><span><strong>Ingresar con superadministrador</strong><p>Abrir todas las rutas del menú Compensaciones.</p><span class="expected">Ninguna pantalla devuelve 404 ni error de permisos.</span></span><span class="test-id">PF-04</span></label>
+          </div>
+        </section>
+
+        <section class="page" id="page-configuracion" data-title="Configuración">
+          <div class="hero"><div><p class="eyebrow">Paso 02 · Matriz madre</p><h2>Configuración</h2><p>Define las reglas que transforman asistencia, operaciones, evidencias e incidencias en dinero. Nada debería calcularse si no existe una versión publicada aplicable.</p></div><span class="route">/compensaciones/configuracion</span></div>
+          <div class="note"><strong>Conceptos clave:</strong> el plan agrupa la política; la versión define su vigencia; el concepto identifica el ingreso o descuento; la regla define cuánto y bajo qué fuente se calcula.</div>
+          <h3 class="section-title">Formulario simulado · Regla operativa</h3>
+          <div class="card"><div class="card-body"><div class="form-grid"><div class="field"><label>Versión</label><select><option>Plan QA · v1 · Borrador</option></select></div><div class="field"><label>Concepto</label><select><option>Bono por operación pagada</option></select></div><div class="field"><label>Fuente operativa</label><select><option>OPERACION_PAGADA_GESTOR</option></select></div><div class="field"><label>Tipo de cálculo</label><select><option>Fijo</option><option>Por unidad</option><option>Porcentaje</option></select></div><div class="field"><label>Monto</label><input value="10.00"></div><div class="field"><label>Prioridad</label><input value="10"></div></div><div class="button-row"><button class="button secondary">Cancelar</button><button class="button primary">Guardar regla</button></div></div></div>
+          <h3 class="section-title">Tabla esperada</h3>
+          <div class="card"><div class="table-wrap"><table><thead><tr><th>Concepto</th><th>Aplicación</th><th>Cálculo</th><th>Fuente</th><th>Valor</th><th>Estado</th></tr></thead><tbody><tr><td>Bono operación QA</td><td>Todos · Todas</td><td>Fijo</td><td>Operación pagada gestor</td><td class="money">S/ 10.00</td><td><span class="badge success">Activo</span></td></tr></tbody></table></div></div>
+          <h3 class="section-title">Casos de prueba</h3>
+          <div class="test-list">
+            <label class="test-case"><input type="checkbox" data-test="CF-01"><span><strong>Crear cargo, jornada y conceptos</strong><p>Registrar al menos un cargo, una jornada y conceptos de sueldo, bono y descuento.</p><span class="expected">Los registros aparecen activos y disponibles en los demás formularios.</span></span><span class="test-id">CF-01</span></label>
+            <label class="test-case"><input type="checkbox" data-test="CF-02"><span><strong>Crear plan y versión borrador</strong><p>Asignar una vigencia que incluya el periodo de prueba.</p><span class="expected">La versión acepta reglas mientras está en BORRADOR.</span></span><span class="test-id">CF-02</span></label>
+            <label class="test-case"><input type="checkbox" data-test="CF-03"><span><strong>Configurar regla por operación</strong><p>Usar OPERACION_PAGADA_GESTOR y un concepto de ingreso.</p><span class="expected">La regla se guarda; una fuente inválida o concepto de descuento es rechazado.</span></span><span class="test-id">CF-03</span></label>
+            <label class="test-case"><input type="checkbox" data-test="CF-04"><span><strong>Publicar la versión</strong><p>Publicar y volver a intentar editar sus reglas.</p><span class="expected">La versión publicada queda inmutable.</span></span><span class="test-id">CF-04</span></label>
+            <label class="test-case"><input type="checkbox" data-test="CF-05"><span><strong>Crear tipos de evidencia y accesos</strong><p>Configurar un tipo CALIFICACION y permisos para un usuario no superadministrador.</p><span class="expected">El tipo aparece en Evidencias y el usuario solo ejecuta acciones concedidas.</span></span><span class="test-id">CF-05</span></label>
+          </div>
+        </section>
+
+        <section class="page" id="page-colaboradores" data-title="Colaboradores">
+          <div class="hero"><div><p class="eyebrow">Paso 03</p><h2>Colaboradores</h2><p>Extiende un usuario existente con información laboral. Aquí se asignan cargo, sede, jornada, plan y cuenta de depósito sin alterar el login ni duplicar la identidad.</p></div><span class="route">/compensaciones/colaboradores</span></div>
+          <div class="flow"><span class="flow-item">tb_usuario</span><span class="flow-arrow">→</span><span class="flow-item">Ficha laboral</span><span class="flow-arrow">→</span><span class="flow-item">Asignación vigente</span><span class="flow-arrow">→</span><span class="flow-item">Liquidación</span></div>
+          <h3 class="section-title">Formulario simulado · Nuevo colaborador</h3>
+          <div class="card"><div class="card-body"><div class="form-grid"><div class="field full"><label>Usuario del sistema</label><select><option>Usuario QA · usuario.qa · Atención al cliente</option></select></div><div class="field"><label>Tipo documento</label><select><option>DNI</option></select></div><div class="field"><label>Número documento</label><input value="70000001"></div><div class="field"><label>Nombres</label><input value="Persona Prueba QA"></div><div class="field"><label>Cargo</label><select><option>Personal Registro</option></select></div><div class="field"><label>Sede</label><select><option>Lince</option></select></div><div class="field"><label>Jornada</label><select><option>09:00 a 18:00</option></select></div><div class="field"><label>Plan</label><select><option>Plan QA</option></select></div><div class="field"><label>Fecha ingreso</label><input type="date"></div></div><div class="button-row"><button class="button primary">Guardar colaborador</button></div></div></div>
+          <h3 class="section-title">Casos de prueba</h3>
+          <div class="test-list">
+            <label class="test-case"><input type="checkbox" data-test="CO-01"><span><strong>Crear ficha vinculada</strong><p>Seleccionar un usuario activo sin ficha y completar su asignación.</p><span class="expected">La tabla muestra usuario, documento, cargo, sede y estado activo.</span></span><span class="test-id">CO-01</span></label>
+            <label class="test-case"><input type="checkbox" data-test="CO-02"><span><strong>Evitar usuario duplicado</strong><p>Intentar crear una segunda ficha con el mismo usuario.</p><span class="expected">El usuario no aparece como elegible o el backend rechaza la duplicidad.</span></span><span class="test-id">CO-02</span></label>
+            <label class="test-case"><input type="checkbox" data-test="CO-03"><span><strong>Cambiar asignación con vigencia</strong><p>Cambiar cargo o sede usando una fecha posterior.</p><span class="expected">La asignación anterior se cierra y la nueva no se solapa.</span></span><span class="test-id">CO-03</span></label>
+            <label class="test-case"><input type="checkbox" data-test="CO-04"><span><strong>Registrar cuenta de pago</strong><p>Ingresar banco, moneda, tipo, número y titular.</p><span class="expected">Los números se muestran enmascarados al consultar y existe una sola cuenta principal vigente.</span></span><span class="test-id">CO-04</span></label>
+          </div>
+        </section>
+
+        <section class="page" id="page-asistencia" data-title="Asistencia">
+          <div class="hero"><div><p class="eyebrow">Paso 04</p><h2>Asistencia</h2><p>Importa las marcaciones del huellero, valida personas y fechas, genera jornadas diarias y permite corregir excepciones mediante solicitudes aprobadas.</p></div><span class="route">/compensaciones/asistencia</span></div>
+          <div class="grid grid-4"><article class="card metric"><span>Integrantes</span><strong>1</strong></article><article class="card metric warning"><span>Tardanzas</span><strong>1</strong></article><article class="card metric danger"><span>Faltas de entrada</span><strong>0</strong></article><article class="card metric success"><span>Días completos</span><strong>4</strong></article></div>
+          <h3 class="section-title">Vista simulada · Jornadas</h3>
+          <div class="card"><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Persona</th><th>Entrada</th><th>Salida</th><th>Tardanza</th><th>Estado</th></tr></thead><tbody><tr><td>21/09/2026</td><td>Persona Prueba QA</td><td>09:07</td><td>18:00</td><td>2 min luego de tolerancia</td><td><span class="badge warning">Completo con tardanza</span></td></tr></tbody></table></div></div>
+          <h3 class="section-title">Casos de prueba</h3>
+          <div class="test-list">
+            <label class="test-case"><input type="checkbox" data-test="AS-01"><span><strong>Validar Excel correcto</strong><p>Subir un archivo con código de huellero y marcaciones reconocibles.</p><span class="expected">La previsualización muestra filas válidas, rango de fechas y cero errores.</span></span><span class="test-id">AS-01</span></label>
+            <label class="test-case"><input type="checkbox" data-test="AS-02"><span><strong>Rechazar fila desconocida</strong><p>Agregar un código de huellero inexistente.</p><span class="expected">La fila queda inválida con mensaje identificable y no genera jornada.</span></span><span class="test-id">AS-02</span></label>
+            <label class="test-case"><input type="checkbox" data-test="AS-03"><span><strong>Confirmar importación idempotente</strong><p>Confirmar y luego volver a cargar exactamente el mismo archivo.</p><span class="expected">El hash evita duplicar cargas y jornadas.</span></span><span class="test-id">AS-03</span></label>
+            <label class="test-case"><input type="checkbox" data-test="AS-04"><span><strong>Solicitar y aprobar corrección</strong><p>Cambiar entrada o salida con un motivo.</p><span class="expected">La jornada crea una nueva versión y conserva los valores anteriores.</span></span><span class="test-id">AS-04</span></label>
+          </div>
+        </section>
+
+        <section class="page" id="page-evidencias" data-title="Evidencias">
+          <div class="hero"><div><p class="eyebrow">Paso 05</p><h2>Evidencias</h2><p>Registra calificaciones, llamadas, tarjetas de terceros, referidos y otros eventos positivos. Cada evento atraviesa un flujo de borrador, revisión y decisión.</p></div><span class="route">/compensaciones/evidencias</span></div>
+          <div class="card"><div class="card-body"><div class="form-grid"><div class="field"><label>Tipo</label><select><option>Calificación aprobada</option></select></div><div class="field"><label>Fecha y hora</label><input type="datetime-local"></div><div class="field"><label>Beneficiario</label><select><option>Persona Prueba QA</option></select></div><div class="field"><label>DNI cliente</label><input value="70000002"></div><div class="field"><label>Estrellas</label><input type="number" value="5"></div><div class="field"><label>Enlace de evidencia</label><input value="https://evidencia.qa/1"></div><div class="field full"><label>Descripción</label><textarea>Cliente satisfecho; evidencia controlada para QA.</textarea></div></div><div class="button-row"><button class="button secondary">Guardar borrador</button><button class="button primary">Guardar y enviar</button></div></div></div>
+          <h3 class="section-title">Casos de prueba</h3>
+          <div class="test-list">
+            <label class="test-case"><input type="checkbox" data-test="EV-01"><span><strong>Guardar borrador</strong><p>Registrar un evento sin enviarlo.</p><span class="expected">Permanece editable y no afecta la liquidación.</span></span><span class="test-id">EV-01</span></label>
+            <label class="test-case"><input type="checkbox" data-test="EV-02"><span><strong>Validar requisitos dinámicos</strong><p>Elegir tipos que requieran cliente, operación, beneficiario o responsable.</p><span class="expected">El formulario exige únicamente los campos configurados para el tipo.</span></span><span class="test-id">EV-02</span></label>
+            <label class="test-case"><input type="checkbox" data-test="EV-03"><span><strong>Aprobar evidencia</strong><p>Enviar y aprobar con base y cantidad cuando corresponda.</p><span class="expected">Se congela el importe aprobado y aparece como bono o comisión en la simulación.</span></span><span class="test-id">EV-03</span></label>
+            <label class="test-case"><input type="checkbox" data-test="EV-04"><span><strong>Rechazar evidencia</strong><p>Rechazar otro evento indicando comentario.</p><span class="expected">No genera importe y conserva la revisión.</span></span><span class="test-id">EV-04</span></label>
+          </div>
+        </section>
+
+        <section class="page" id="page-incidencias" data-title="Incidencias">
+          <div class="hero"><div><p class="eyebrow">Paso 06</p><h2>Incidencias</h2><p>Gestiona penalidades y auditorías entre sedes. Una incidencia aprobada puede crear un descuento al responsable y, si la política lo define, un bono al reportante.</p></div><span class="route">/compensaciones/incidencias</span></div>
+          <div class="note danger"><strong>Regla importante:</strong> reportante y responsable deben ser personas diferentes. El monto usado debe provenir de la penalidad vigente al momento del evento.</div>
+          <h3 class="section-title">Tabla simulada</h3>
+          <div class="card"><div class="table-wrap"><table><thead><tr><th>Penalidad</th><th>Reportante</th><th>Responsable</th><th>Descuento</th><th>Bono</th><th>Estado</th></tr></thead><tbody><tr><td>Error de datos</td><td>Jefe QA</td><td>Persona Prueba QA</td><td class="money">S/ 5.00</td><td class="money">S/ 1.00</td><td><span class="badge warning">Pendiente</span></td></tr></tbody></table></div></div>
+          <h3 class="section-title">Casos de prueba</h3>
+          <div class="test-list">
+            <label class="test-case"><input type="checkbox" data-test="IN-01"><span><strong>Crear y enviar incidencia</strong><p>Elegir tipo, penalidad, reportante, responsable y evidencia.</p><span class="expected">La incidencia llega a PENDIENTE y queda en bandejas enviado/recibido.</span></span><span class="test-id">IN-01</span></label>
+            <label class="test-case"><input type="checkbox" data-test="IN-02"><span><strong>Registrar descargo</strong><p>Como responsable, agregar comentario y evidencia.</p><span class="expected">El descargo queda trazado y disponible para el revisor.</span></span><span class="test-id">IN-02</span></label>
+            <label class="test-case"><input type="checkbox" data-test="IN-03"><span><strong>Aprobar penalidad</strong><p>Resolver la incidencia como APROBADO.</p><span class="expected">El descuento y eventual bono aparecen en la liquidación correspondiente.</span></span><span class="test-id">IN-03</span></label>
+            <label class="test-case"><input type="checkbox" data-test="IN-04"><span><strong>Probar alcance por sede</strong><p>Ingresar con un usuario restringido a otra sede.</p><span class="expected">No puede consultar ni decidir incidencias fuera de su alcance.</span></span><span class="test-id">IN-04</span></label>
+          </div>
+        </section>
+
+        <section class="page" id="page-liquidaciones" data-title="Liquidaciones">
+          <div class="hero"><div><p class="eyebrow">Paso 07</p><h2>Liquidaciones</h2><p>Simula y consolida el pago mensual por colaborador. Es el punto donde convergen sueldo, asistencia, operaciones, evidencias, incidencias y ajustes.</p></div><span class="route">/compensaciones/liquidaciones</span></div>
+          <div class="grid grid-4"><article class="card metric"><span>Sueldo</span><strong>S/ 1,000</strong></article><article class="card metric success"><span>Bonos</span><strong>S/ 20</strong></article><article class="card metric success"><span>Comisiones</span><strong>S/ 10</strong></article><article class="card metric danger"><span>Descuentos</span><strong>S/ 5</strong></article></div>
+          <h3 class="section-title">Detalle esperado</h3>
+          <div class="card"><div class="table-wrap"><table><thead><tr><th>Origen</th><th>Concepto</th><th>Fórmula</th><th>Base</th><th>Importe</th></tr></thead><tbody><tr><td>Asignación</td><td>Sueldo base</td><td>Sueldo mensual prorrateado</td><td>1 mes</td><td class="money">S/ 1,000.00</td></tr><tr><td>Operación</td><td>Bono operación</td><td>Monto fijo por operación elegible</td><td>2 operaciones</td><td class="money">S/ 20.00</td></tr><tr><td>Incidencia</td><td>Error de datos</td><td>Penalidad aprobada</td><td>1</td><td class="money">- S/ 5.00</td></tr></tbody><tfoot><tr><th colspan="4">Total a pagar</th><th class="money">S/ 1,025.00</th></tr></tfoot></table></div></div>
+          <h3 class="section-title">Casos de prueba</h3>
+          <div class="test-list">
+            <label class="test-case"><input type="checkbox" data-test="LI-01"><span><strong>Simular antes de calcular</strong><p>Seleccionar periodo y colaborador.</p><span class="expected">Muestra bloqueos y desglose sin guardar una liquidación.</span></span><span class="test-id">LI-01</span></label>
+            <label class="test-case"><input type="checkbox" data-test="LI-02"><span><strong>Verificar atribución de operación</strong><p>Confirmar que una operación pagada del usuario produzca una línea OPERACION.</p><span class="expected">La línea contiene regla, operación, base, fórmula e importe correctos.</span></span><span class="test-id">LI-02</span></label>
+            <label class="test-case"><input type="checkbox" data-test="LI-03"><span><strong>Calcular lote</strong><p>Calcular todas las fichas elegibles del periodo.</p><span class="expected">Cada colaborador obtiene una sola liquidación vigente por número de cálculo.</span></span><span class="test-id">LI-03</span></label>
+            <label class="test-case"><input type="checkbox" data-test="LI-04"><span><strong>Aprobar, observar y reabrir</strong><p>Recorrer las decisiones con comentarios.</p><span class="expected">Cada transición respeta el estado y conserva auditoría maker-checker.</span></span><span class="test-id">LI-04</span></label>
+            <label class="test-case"><input type="checkbox" data-test="LI-05"><span><strong>Registrar pago parcial y total</strong><p>Registrar dos movimientos hasta cubrir el total.</p><span class="expected">El saldo disminuye, no permite sobrepago y termina en PAGADA.</span></span><span class="test-id">LI-05</span></label>
+          </div>
+        </section>
+
+        <section class="page" id="page-cierres" data-title="Cierres">
+          <div class="hero"><div><p class="eyebrow">Paso 08</p><h2>Cierres</h2><p>Congela el resultado mensual para que los reportes históricos no cambien. Antes de cerrar, valida pendientes, pagos, integridad y consistencia de totales.</p></div><span class="route">/compensaciones/cierres</span></div>
+          <div class="grid grid-2"><article class="card"><div class="card-header"><div><h3>Prevalidación</h3><p>Ejemplo de periodo todavía bloqueado.</p></div><span class="badge warning">No puede cerrar</span></div><div class="card-body"><ul><li>1 liquidación pendiente de aprobación.</li><li>1 saldo pendiente de pago.</li><li>0 solicitudes de asistencia pendientes.</li></ul></div></article><article class="card"><div class="card-header"><div><h3>Resumen congelable</h3><p>Totales esperados del escenario QA.</p></div></div><div class="card-body"><table><tr><td>Total pagar</td><td class="money">S/ 1,025.00</td></tr><tr><td>Total pagado</td><td class="money">S/ 1,025.00</td></tr><tr><td>Pendiente</td><td class="money">S/ 0.00</td></tr></table></div></article></div>
+          <h3 class="section-title">Casos de prueba</h3>
+          <div class="test-list">
+            <label class="test-case"><input type="checkbox" data-test="CI-01"><span><strong>Bloquear cierre incompleto</strong><p>Intentar cerrar con liquidaciones no aprobadas o pagos pendientes.</p><span class="expected">El backend devuelve bloqueos específicos y no crea cierre.</span></span><span class="test-id">CI-01</span></label>
+            <label class="test-case"><input type="checkbox" data-test="CI-02"><span><strong>Cerrar periodo completo</strong><p>Resolver todos los bloqueos y ejecutar cierre.</p><span class="expected">Se genera versión de cierre, snapshots y hash de integridad.</span></span><span class="test-id">CI-02</span></label>
+            <label class="test-case"><input type="checkbox" data-test="CI-03"><span><strong>Validar integridad</strong><p>Usar la acción de validación del cierre.</p><span class="expected">Resumen íntegro, índice íntegro y cero líneas inválidas.</span></span><span class="test-id">CI-03</span></label>
+            <label class="test-case"><input type="checkbox" data-test="CI-04"><span><strong>Reabrir con motivo</strong><p>Reabrir el cierre y comprobar la versión anterior.</p><span class="expected">El cierre queda revertido con motivo, sin eliminar el snapshot previo.</span></span><span class="test-id">CI-04</span></label>
+          </div>
+        </section>
+
+        <section class="page" id="page-reportes" data-title="Reportes">
+          <div class="hero"><div><p class="eyebrow">Paso 09</p><h2>Reportes</h2><p>Concilia resultados financieros, sedes, conceptos, asistencia, productividad y pagos. En meses cerrados debe consumir snapshots, no datos operativos cambiantes.</p></div><span class="route">/compensaciones/reportes</span></div>
+          <div class="card"><div class="card-header"><div><h3>Parámetros simulados</h3><p>La exportación debe respetar exactamente estos filtros.</p></div></div><div class="card-body"><div class="form-grid"><div class="field"><label>Periodo</label><select><option>Septiembre 2026 · Cerrado</option></select></div><div class="field"><label>Tipo reporte</label><select><option>Financiero</option><option>Productividad</option><option>Pagos</option></select></div><div class="field"><label>Sede</label><select><option>Todas las sedes</option></select></div></div><div class="button-row"><button class="button secondary">Descargar Excel</button><button class="button primary">Descargar PDF</button></div></div></div>
+          <h3 class="section-title">Casos de prueba</h3>
+          <div class="test-list">
+            <label class="test-case"><input type="checkbox" data-test="RE-01"><span><strong>Conciliar reporte financiero</strong><p>Comparar total del reporte contra liquidaciones del periodo.</p><span class="expected">Sueldo, bonos, comisiones, descuentos y neto coinciden.</span></span><span class="test-id">RE-01</span></label>
+            <label class="test-case"><input type="checkbox" data-test="RE-02"><span><strong>Filtrar por sede</strong><p>Elegir una sede específica.</p><span class="expected">Solo aparecen colaboradores atribuibles a esa sede.</span></span><span class="test-id">RE-02</span></label>
+            <label class="test-case"><input type="checkbox" data-test="RE-03"><span><strong>Exportar archivo</strong><p>Descargar y abrir Excel/PDF.</p><span class="expected">El archivo no está corrupto, conserva encabezados, filtros y totales.</span></span><span class="test-id">RE-03</span></label>
+            <label class="test-case"><input type="checkbox" data-test="RE-04"><span><strong>Ver historial de exportaciones</strong><p>Actualizar la bandeja luego de descargar.</p><span class="expected">Se registra formato, archivo, hash, cantidad, total, estado y fecha.</span></span><span class="test-id">RE-04</span></label>
+          </div>
+        </section>
+
+        <section class="page" id="page-resumen" data-title="Resumen">
+          <div class="hero"><div><p class="eyebrow">Paso 10</p><h2>Resumen</h2><p>Es la entrada ejecutiva al módulo. Presenta periodos, totales y pendientes para detectar rápidamente si el ciclo mensual está listo para aprobarse o cerrarse.</p></div><span class="route">/compensaciones/resumen</span></div>
+          <div class="grid grid-4"><article class="card metric"><span>Liquidaciones</span><strong>1</strong><small>Periodo seleccionado</small></article><article class="card metric success"><span>Total pagar</span><strong>S/ 1,025</strong><small>Debe coincidir con reportes</small></article><article class="card metric success"><span>Total pagado</span><strong>S/ 1,025</strong><small>Saldo cero</small></article><article class="card metric"><span>Estado</span><strong>Cerrado</strong><small>Snapshot vigente</small></article></div>
+          <h3 class="section-title">Casos de prueba</h3>
+          <div class="test-list">
+            <label class="test-case"><input type="checkbox" data-test="RS-01"><span><strong>Cargar lista de periodos</strong><p>Verificar meses abiertos, aprobados y cerrados.</p><span class="expected">El orden y estado coinciden con la base.</span></span><span class="test-id">RS-01</span></label>
+            <label class="test-case"><input type="checkbox" data-test="RS-02"><span><strong>Conciliar indicadores</strong><p>Comparar totales con Liquidaciones y Reportes.</p><span class="expected">No existen diferencias de redondeo ni registros omitidos.</span></span><span class="test-id">RS-02</span></label>
+            <label class="test-case"><input type="checkbox" data-test="RS-03"><span><strong>Actualizar después de una acción</strong><p>Registrar un pago o cierre y regresar al resumen.</p><span class="expected">Los pendientes y totales se actualizan sin datos obsoletos.</span></span><span class="test-id">RS-03</span></label>
+          </div>
+        </section>
+
+        <section class="page" id="page-matriz" data-title="Matriz y evidencias">
+          <div class="hero"><div><p class="eyebrow">Paso 11 · Cierre de QA</p><h2>Matriz de resultados y registro de incidencias</h2><p>Usa esta sección para confirmar cobertura. El progreso marcado se guarda localmente en este navegador y puede exportarse.</p></div><span class="route">localStorage: compensaciones-test-guide</span></div>
+          <div class="grid grid-3"><article class="card metric success"><span>Casos aprobados</span><strong id="passedCount">0</strong></article><article class="card metric warning"><span>Casos pendientes</span><strong id="pendingCount">0</strong></article><article class="card metric"><span>Total casos</span><strong id="totalCount">0</strong></article></div>
+          <h3 class="section-title">Registro manual de hallazgo</h3>
+          <div class="card"><div class="card-body"><div class="form-grid"><div class="field"><label>Módulo</label><select id="issueModule"><option>Configuración</option><option>Colaboradores</option><option>Asistencia</option><option>Evidencias</option><option>Incidencias</option><option>Liquidaciones</option><option>Cierres</option><option>Reportes</option><option>Resumen</option></select></div><div class="field"><label>Severidad</label><select id="issueSeverity"><option>Bloqueante</option><option>Alta</option><option>Media</option><option>Baja</option></select></div><div class="field"><label>Caso relacionado</label><input id="issueCase" placeholder="Ej. LI-02"></div><div class="field full"><label>Descripción y resultado obtenido</label><textarea id="issueDescription" placeholder="Pasos, datos usados, resultado actual y resultado esperado"></textarea></div></div><div class="button-row"><button class="button primary" id="addIssueButton">Agregar hallazgo</button></div></div></div>
+          <h3 class="section-title">Hallazgos registrados</h3>
+          <div class="card"><div class="table-wrap"><table><thead><tr><th>Módulo</th><th>Severidad</th><th>Caso</th><th>Descripción</th><th></th></tr></thead><tbody id="issuesBody"><tr id="emptyIssues"><td colspan="5" style="text-align:center;color:var(--muted)">No hay hallazgos registrados.</td></tr></tbody></table></div></div>
+          <div class="note success" style="margin-top:18px"><strong>Criterio de salida:</strong> 100% de casos críticos ejecutados, cero hallazgos bloqueantes abiertos, conciliación financiera correcta y preflight sin errores.</div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "compensaciones-test-guide-v1";
+    const state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"tests":{},"issues":[]}');
+    const navButtons = [...document.querySelectorAll(".nav-button[data-page]")];
+    const pages = [...document.querySelectorAll(".page")];
+    const checks = [...document.querySelectorAll("input[data-test]")];
+
+    function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    function updateProgress() {
+      const passed = checks.filter((check) => check.checked).length;
+      const total = checks.length;
+      const percentage = total ? Math.round((passed / total) * 100) : 0;
+      document.getElementById("progressText").textContent = percentage + "%";
+      document.getElementById("progressFill").style.width = percentage + "%";
+      document.getElementById("passedCount").textContent = passed;
+      document.getElementById("pendingCount").textContent = total - passed;
+      document.getElementById("totalCount").textContent = total;
+    }
+    function openPage(id) {
+      pages.forEach((page) => page.classList.toggle("active", page.id === "page-" + id));
+      navButtons.forEach((button) => button.classList.toggle("active", button.dataset.page === id));
+      const page = document.getElementById("page-" + id);
+      document.getElementById("headerTitle").textContent = page?.dataset.title || "Guía de pruebas";
+      document.getElementById("sidebar").classList.remove("open");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    navButtons.forEach((button) => button.addEventListener("click", () => openPage(button.dataset.page)));
+    checks.forEach((check) => {
+      check.checked = Boolean(state.tests[check.dataset.test]);
+      check.closest(".test-case").classList.toggle("done", check.checked);
+      check.addEventListener("change", () => {
+        state.tests[check.dataset.test] = check.checked;
+        check.closest(".test-case").classList.toggle("done", check.checked);
+        persist(); updateProgress();
+      });
+    });
+
+    function renderIssues() {
+      const body = document.getElementById("issuesBody");
+      body.innerHTML = "";
+      if (!state.issues.length) {
+        body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted)">No hay hallazgos registrados.</td></tr>';
+        return;
+      }
+      state.issues.forEach((issue, index) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td>${escapeHtml(issue.module)}</td><td><span class="badge warning">${escapeHtml(issue.severity)}</span></td><td>${escapeHtml(issue.testCase || "—")}</td><td>${escapeHtml(issue.description)}</td><td><button class="button danger" data-delete-issue="${index}">Eliminar</button></td>`;
+        body.appendChild(row);
+      });
+      body.querySelectorAll("[data-delete-issue]").forEach((button) => button.addEventListener("click", () => {
+        state.issues.splice(Number(button.dataset.deleteIssue), 1); persist(); renderIssues();
+      }));
+    }
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+    }
+    document.getElementById("addIssueButton").addEventListener("click", () => {
+      const description = document.getElementById("issueDescription").value.trim();
+      if (!description) return alert("Describe el hallazgo antes de agregarlo.");
+      state.issues.push({
+        module: document.getElementById("issueModule").value,
+        severity: document.getElementById("issueSeverity").value,
+        testCase: document.getElementById("issueCase").value.trim(),
+        description,
+        createdAt: new Date().toISOString()
+      });
+      document.getElementById("issueCase").value = "";
+      document.getElementById("issueDescription").value = "";
+      persist(); renderIssues();
+    });
+    document.getElementById("exportButton").addEventListener("click", () => {
+      const payload = { exportedAt: new Date().toISOString(), progress: { passed: checks.filter((item) => item.checked).length, total: checks.length }, ...state };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const anchor = document.createElement("a");
+      anchor.href = URL.createObjectURL(blob);
+      anchor.download = `pruebas-compensaciones-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.click(); URL.revokeObjectURL(anchor.href);
+    });
+    document.getElementById("resetButton").addEventListener("click", () => {
+      if (!confirm("¿Deseas borrar el progreso y los hallazgos guardados en este navegador?")) return;
+      localStorage.removeItem(STORAGE_KEY); location.reload();
+    });
+    document.getElementById("menuButton").addEventListener("click", () => document.getElementById("sidebar").classList.toggle("open"));
+
+    updateProgress(); renderIssues();
+  </script>
+</body>
+</html>

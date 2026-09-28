@@ -28,6 +28,8 @@ import { cx } from "@/utils/cx";
 import { MetricasServiceNavigation } from "../metricas-service-navigation";
 import type { MetricasPeriodo } from "../metricas-bancarias.types";
 import type { MetricasServicioDesglose, MetricasServicioOperativo } from "./metricas-servicio.types";
+import { MetricasPagoDeudaPage } from "./metricas-pago-deuda-page";
+import { MetricasOperacionesPage } from "./metricas-operaciones-page";
 import { useMetricasServicio } from "./use-metricas-servicio";
 
 const periodOptions = [
@@ -153,7 +155,7 @@ const SortableHeader = ({ label, column, activeColumn, direction, align = "left"
 const EmptyChart = () => <div className="flex h-72 items-center justify-center rounded-lg bg-secondary text-sm text-tertiary">No hay información para los filtros seleccionados.</div>;
 const LoadingState = () => <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{Array.from({ length: 10 }, (_, index) => <div key={index} className="h-32 animate-pulse rounded-xl bg-secondary" />)}</div>;
 
-export const MetricasServicioPage = ({ servicio }: { servicio: MetricasServicioOperativo }) => {
+const MetricasServicioDashboardPage = ({ servicio }: { servicio: MetricasServicioOperativo }) => {
     const { businessUser } = useAuth();
     const [period, setPeriod] = useState<MetricasPeriodo>("7d");
     const [dateRange, setDateRange] = useState(() => getDateRange("7d"));
@@ -228,24 +230,21 @@ export const MetricasServicioPage = ({ servicio }: { servicio: MetricasServicioO
     const kpis = values ? servicio === "pago-deuda" ? [
         { label: "Solicitudes", value: integerFormatter.format(values.operaciones) },
         { label: "Solicitudes sin empresa de comisión", value: integerFormatter.format(values.sinEmpresaComision), badges: ["Yape", "Plin", "QR", "Otros"], tone: "warning" as const },
-        { label: "Solicitudes pendientes", value: integerFormatter.format(values.pendientes), supportingText: "sin devolución confirmada", tone: "warning" as const },
+        { label: "Operaciones Pendientes", value: integerFormatter.format(values.pendientes), supportingText: formatMoney(values.pendienteTransferencia), tone: "warning" as const },
         { label: "Monto solicitado", value: formatMoney(values.montoProcesado), supportingText: "registrado por los clientes" },
         { label: "Monto atendido", value: formatMoney(values.montoAtendido), supportingText: "devuelto o asociado al flujo", tone: "success" as const },
         { label: "Comisiones", value: formatMoney(values.comisiones), supportingText: "solo solicitudes pagadas", tone: "success" as const },
         { label: "Tasa de éxito", value: `${values.tasaExito.toFixed(2)}%`, supportingText: "solicitudes pagadas sobre el total", tone: "success" as const },
         { label: "Clientes nuevos", value: integerFormatter.format(values.clientesNuevos), supportingText: "registrados en el periodo" },
-        { label: "Ticket promedio", value: formatMoney(values.ticketPromedio), supportingText: "monto medio solicitado" },
     ] : [
         { label: "Operaciones", value: integerFormatter.format(values.operaciones) },
-        { label: "Operaciones pagadas", value: integerFormatter.format(values.pagadas), supportingText: "estado Pagado", tone: "success" as const },
-        { label: "Operaciones pendientes", value: integerFormatter.format(values.pendientes), badges: ["Solicitado", "Pendiente"], tone: "warning" as const },
+        { label: "Operaciones Pendientes", value: integerFormatter.format(values.pendientes), supportingText: formatMoney(values.pendienteTransferencia), badges: ["Solicitado", "Pendiente"], tone: "warning" as const },
         { label: "Monto depositado", value: formatMoney(values.montoProcesado), supportingText: "depósitos de operaciones pagadas" },
         { label: "Transferencias", value: formatMoney(values.salidas), supportingText: "transferencias de operaciones pagadas", tone: "error" as const },
         { label: "Comisiones", value: formatMoney(values.comisiones), supportingText: "cobrado al cliente", tone: "success" as const },
         { label: "Gastos bancarios", value: formatMoney(values.gastos), supportingText: "ingreso y salida", tone: "error" as const },
         { label: "Ganancia", value: formatMoney(values.ganancias), supportingText: "comisiones menos gastos", tone: "success" as const },
         { label: "Clientes nuevos", value: integerFormatter.format(values.clientesNuevos), supportingText: "registrados en el periodo" },
-        { label: "Ticket promedio", value: formatMoney(values.ticketPromedio), supportingText: "monto medio por operación" },
     ] : [];
 
     const handlePeriodChange = (value: MetricasPeriodo) => {
@@ -478,3 +477,7 @@ export const MetricasServicioPage = ({ servicio }: { servicio: MetricasServicioO
         </AppLayout>
     );
 };
+
+export const MetricasServicioPage = ({ servicio }: { servicio: MetricasServicioOperativo }) => (
+    servicio === "pago-deuda" ? <MetricasPagoDeudaPage /> : <MetricasOperacionesPage servicio={servicio} />
+);

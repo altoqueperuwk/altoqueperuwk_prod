@@ -13,13 +13,14 @@ const highlightedDates = [today(getLocalTimeZone())];
 interface BasicDatePickerProps extends AriaDatePickerProps<DateValue> {
     size?: ButtonProps["size"];
     buttonClassName?: string;
+    showYear?: boolean;
 }
 
-export const BasicDatePicker = ({ value: valueProp, defaultValue, onChange, size = "sm", buttonClassName, ...props }: BasicDatePickerProps) => {
+export const BasicDatePicker = ({ value: valueProp, defaultValue, onChange, size = "sm", buttonClassName, showYear = true, ...props }: BasicDatePickerProps) => {
     const formatter = useDateFormatter({
         month: "short",
         day: "numeric",
-        year: "numeric",
+        ...(showYear ? { year: "numeric" as const } : {}),
     });
     const [value, setValue] = useControlledState(valueProp, defaultValue || null, onChange);
     const formattedDate = value ? formatter.format(value.toDate(getLocalTimeZone())) : "Select date";

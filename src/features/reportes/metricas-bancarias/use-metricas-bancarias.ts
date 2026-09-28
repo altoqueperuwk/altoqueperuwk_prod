@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { metricasBancariasService } from "./metricas-bancarias.service";
 import type {
-    DistribucionServicio,
+    MetricasCliente,
+    MetricasComision,
     MetricasConsulta,
+    MetricasComunidad,
     MetricasCuenta,
     MetricasDesglose,
-    MetricasResumen,
+    MetricasOperacionPendiente,
+    MetricasMejorCliente,
     MetricasSerie,
 } from "./metricas-bancarias.types";
 
@@ -35,10 +38,7 @@ export const useMetricasBancariasCatalogo = () => {
 };
 
 export const useMetricasBancarias = (consulta: MetricasConsulta) => {
-    const [summary, setSummary] = useState<MetricasResumen | null>(null);
-    const [series, setSeries] = useState<MetricasSerie[]>([]);
     const [breakdown, setBreakdown] = useState<MetricasDesglose[]>([]);
-    const [distribution, setDistribution] = useState<DistribucionServicio[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [refreshKey, setRefreshKey] = useState(0);
@@ -49,25 +49,16 @@ export const useMetricasBancarias = (consulta: MetricasConsulta) => {
         let active = true;
         setIsLoading(true);
         setError(null);
-        setSummary(null);
-        setSeries([]);
         setBreakdown([]);
-        setDistribution([]);
 
-        metricasBancariasService.getDashboard(consulta)
+        metricasBancariasService.getBreakdown(consulta)
             .then((result) => {
                 if (!active) return;
-                setSummary(result.summary);
-                setSeries(result.series);
-                setBreakdown(result.breakdown);
-                setDistribution(result.distribution);
+                setBreakdown(result);
             })
             .catch((reason: unknown) => {
                 if (!active) return;
-                setSummary(null);
-                setSeries([]);
                 setBreakdown([]);
-                setDistribution([]);
                 setError(getErrorMessage(reason));
             })
             .finally(() => {
@@ -77,5 +68,132 @@ export const useMetricasBancarias = (consulta: MetricasConsulta) => {
         return () => { active = false; };
     }, [consulta, refreshKey]);
 
-    return { summary, series, breakdown, distribution, isLoading, error, refresh };
+    return { breakdown, isLoading, error, refresh };
+};
+
+export const useMetricasBancariasComunidades = (consulta: MetricasConsulta) => {
+    const [communities, setCommunities] = useState<MetricasComunidad[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let active = true;
+        setIsLoading(true);
+        setError(null);
+        setCommunities([]);
+
+        metricasBancariasService.getCommunities(consulta)
+            .then((result) => {
+                if (active) setCommunities(result);
+            })
+            .catch((reason: unknown) => {
+                if (!active) return;
+                setCommunities([]);
+                setError(getErrorMessage(reason));
+            })
+            .finally(() => {
+                if (active) setIsLoading(false);
+            });
+
+        return () => { active = false; };
+    }, [consulta]);
+
+    return { communities, isLoading, error };
+};
+
+export const useMetricasBancariasClientes = (consulta: MetricasConsulta) => {
+    const [clients, setClients] = useState<MetricasCliente[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let active = true;
+        setIsLoading(true);
+        setError(null);
+        setClients([]);
+
+        metricasBancariasService.getTopClients(consulta)
+            .then((result) => {
+                if (active) setClients(result);
+            })
+            .catch((reason: unknown) => {
+                if (!active) return;
+                setClients([]);
+                setError(getErrorMessage(reason));
+            })
+            .finally(() => {
+                if (active) setIsLoading(false);
+            });
+
+        return () => { active = false; };
+    }, [consulta]);
+
+    return { clients, isLoading, error };
+};
+
+const useMetricasBancariasCollection = <T,>(consulta: MetricasConsulta, loader: (value: MetricasConsulta) => Promise<T[]>) => {
+    const [items, setItems] = useState<T[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let active = true;
+        setIsLoading(true);
+        setError(null);
+        setItems([]);
+        loader(consulta)
+            .then((result) => { if (active) setItems(result); })
+            .catch((reason: unknown) => {
+                if (!active) return;
+                setItems([]);
+                setError(getErrorMessage(reason));
+            })
+            .finally(() => { if (active) setIsLoading(false); });
+        return () => { active = false; };
+    }, [consulta, loader]);
+
+    return { items, isLoading, error };
+};
+
+const loadCommissions = (consulta: MetricasConsulta) => metricasBancariasService.getCommissions(consulta);
+const loadPendingOperations = (consulta: MetricasConsulta) => metricasBancariasService.getPendingOperations(consulta);
+const loadSeries = (consulta: MetricasConsulta) => metricasBancariasService.getSeries(consulta);
+
+export const useMetricasBancariasComisiones = (consulta: MetricasConsulta) => {
+    const result = useMetricasBancariasCollection<MetricasComision>(consulta, loadCommissions);
+    return { commissions: result.items, isLoading: result.isLoading, error: result.error };
+};
+
+export const useMetricasBancariasPendientes = (consulta: MetricasConsulta) => {
+    const result = useMetricasBancariasCollection<MetricasOperacionPendiente>(consulta, loadPendingOperations);
+    return { pendingOperations: result.items, isLoading: result.isLoading, error: result.error };
+};
+
+export const useMetricasBancariasSerie = (consulta: MetricasConsulta) => {
+    const result = useMetricasBancariasCollection<MetricasSerie>(consulta, loadSeries);
+    return { series: result.items, isLoading: result.isLoading, error: result.error };
+};
+
+export const useMetricasBancariasMejorCliente = (consulta: MetricasConsulta) => {
+    const [bestClient, setBestClient] = useState<MetricasMejorCliente | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let active = true;
+        setIsLoading(true);
+        setError(null);
+        setBestClient(null);
+        metricasBancariasService.getBestClient(consulta)
+            .then((result) => { if (active) setBestClient(result); })
+            .catch((reason: unknown) => {
+                if (!active) return;
+                setBestClient(null);
+                setError(getErrorMessage(reason));
+            })
+            .finally(() => { if (active) setIsLoading(false); });
+        return () => { active = false; };
+    }, [consulta]);
+
+    return { bestClient, isLoading, error };
 };

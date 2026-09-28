@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS public.tb_cliente (
   CONSTRAINT tb_cliente_documento_unique UNIQUE (tipo_documento, numero_documento)
 );
 
+-- Soporta la atribucion de clientes nuevos al usuario que los registro y la
+-- evaluacion de su primera efectivizacion dentro de la ventana configurada.
+CREATE INDEX IF NOT EXISTS idx_tb_cliente_compensacion_usuario_fecha
+  ON public.tb_cliente (id_usuario, fecha_registro, id);
+
 -- ============================================================================
 -- ALTER TABLE: migracion de dni a tipo_documento + numero_documento
 -- ============================================================================

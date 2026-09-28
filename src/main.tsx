@@ -10,6 +10,7 @@ import { HomePage } from "@/pages/home-page";
 import { AuthProvider, useAuth } from "@/providers/auth-provider";
 import { RouteProvider } from "@/providers/router-provider";
 import { SessionCacheProvider } from "@/providers/session-cache-provider";
+import { OperationalRemindersProvider } from "@/providers/operational-reminders-provider";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { ToastProvider } from "@/providers/toast-provider";
 import { EstadoPage } from "@/features/sistema/estado/estado-page";
@@ -34,6 +35,16 @@ import { SeguimientoOperacionesPaginadoPage } from "@/features/seguimientos/segu
 import { ReporteCierreCajaOperationalPage } from "@/features/reportes/reporte-cierre-caja-operational-page";
 import { MetricasBancariasPage } from "@/features/reportes/metricas-bancarias/metricas-bancarias-page";
 import { MetricasServicioPage } from "@/features/reportes/metricas-bancarias/servicios/metricas-servicio-page";
+import { BandejaPage } from "@/features/recordatorios-operativos/bandeja-page";
+import { CompensacionesResumenPage } from "@/features/compensaciones/resumen/compensaciones-resumen-page";
+import { ColaboradoresPage } from "@/features/compensaciones/colaboradores/colaboradores-page";
+import { AsistenciaPage } from "@/features/compensaciones/asistencia/asistencia-page";
+import { EvidenciasPage } from "@/features/compensaciones/evidencias/evidencias-page";
+import { IncidenciasPage } from "@/features/compensaciones/incidencias/incidencias-page";
+import { LiquidacionesPage } from "@/features/compensaciones/liquidaciones/liquidaciones-page";
+import { CierresPage } from "@/features/compensaciones/cierres/cierres-page";
+import { ConfiguracionPage } from "@/features/compensaciones/configuracion/configuracion-page";
+import { ReportesPage } from "@/features/compensaciones/reportes/reportes-page";
 import "@/styles/globals.css";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -57,7 +68,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
         return <Navigate to="/login" replace />;
     }
 
-    return <SessionCacheProvider>{children ?? <Outlet />}</SessionCacheProvider>;
+    return (
+        <SessionCacheProvider>
+            <OperationalRemindersProvider>{children ?? <Outlet />}</OperationalRemindersProvider>
+        </SessionCacheProvider>
+    );
 }
 
 function AppRoutes() {
@@ -86,6 +101,17 @@ function AppRoutes() {
 
                 <Route path="/atencion/cliente" element={<AtencionClientePage />} />
 
+                <Route path="/compensaciones" element={<Navigate to="/compensaciones/resumen" replace />} />
+                <Route path="/compensaciones/resumen" element={<CompensacionesResumenPage />} />
+                <Route path="/compensaciones/colaboradores" element={<ColaboradoresPage />} />
+                <Route path="/compensaciones/asistencia" element={<AsistenciaPage />} />
+                <Route path="/compensaciones/evidencias" element={<EvidenciasPage />} />
+                <Route path="/compensaciones/incidencias" element={<IncidenciasPage />} />
+                <Route path="/compensaciones/liquidaciones" element={<LiquidacionesPage />} />
+                <Route path="/compensaciones/cierres" element={<CierresPage />} />
+                <Route path="/compensaciones/configuracion" element={<ConfiguracionPage />} />
+                <Route path="/compensaciones/reportes" element={<ReportesPage />} />
+
                 <Route path="/seguimientos/operaciones" element={<SeguimientoOperacionesPaginadoPage />} />
                 <Route path="/seguimientos/pago-deuda" element={<SeguimientoOperacionesPaginadoPage />} />
                 <Route path="/reportes" element={<Navigate to="/reportes/cierre-caja" replace />} />
@@ -94,6 +120,7 @@ function AppRoutes() {
                 <Route path="/reportes/metricas-bancarias/pago-deuda" element={<MetricasServicioPage servicio="pago-deuda" />} />
                 <Route path="/reportes/metricas-bancarias/pos" element={<MetricasServicioPage servicio="pos" />} />
                 <Route path="/reportes/metricas-bancarias/link-pago" element={<MetricasServicioPage servicio="linkpago" />} />
+                <Route path="/bandeja" element={<BandejaPage />} />
 
                 <Route path="/operaciones/bcp" element={<BancariaPage ruta="bcp" />} />
                 <Route path="/operaciones/bbva" element={<BancariaPage ruta="bbva" />} />

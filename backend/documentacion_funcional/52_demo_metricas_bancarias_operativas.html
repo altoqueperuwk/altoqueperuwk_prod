@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demo - Métricas bancarias operativas</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111217;
+      --surface: #191a20;
+      --surface-2: #202127;
+      --surface-3: #282a31;
+      --border: #34363f;
+      --border-strong: #464955;
+      --text: #f5f5f6;
+      --muted: #a7a8ad;
+      --subtle: #74767f;
+      --brand: #8255e5;
+      --brand-hover: #9168ea;
+      --green: #38d9a9;
+      --lime: #c3e548;
+      --red: #ff786f;
+      --amber: #f6c344;
+      --blue: #70a5ff;
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    button, select, input { font: inherit; }
+    button { cursor: pointer; }
+    .app { min-height: 100vh; }
+    .topbar { height: 58px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .topbar-inner, .main { width: min(1580px, calc(100% - 32px)); margin: auto; }
+    .topbar-inner { height: 100%; display: flex; align-items: center; gap: 10px; color: var(--muted); }
+    .topbar strong { color: var(--text); }
+    .chevron { color: var(--subtle); }
+    .main { padding: 24px 0 48px; }
+    h1, h2, h3, h4, p { margin: 0; }
+    h1 { font-size: 22px; letter-spacing: 0; }
+    h2 { font-size: 17px; }
+    h3 { font-size: 16px; }
+    h4 { font-size: 14px; }
+    .muted { color: var(--muted); }
+    .page-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
+    .page-head p { margin-top: 4px; }
+    .btn {
+      min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 8px 13px; border: 1px solid var(--border-strong); border-radius: var(--radius);
+      color: var(--text); background: var(--surface); font-weight: 600;
+    }
+    .btn:hover { background: var(--surface-2); }
+    .btn.primary { border-color: var(--brand); background: var(--brand); }
+    .btn.primary:hover { background: var(--brand-hover); }
+    .btn.danger { color: var(--red); }
+    .filters {
+      display: grid; grid-template-columns: 190px 1fr 1fr 150px 150px auto; gap: 12px;
+      align-items: end; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+    }
+    .field { min-width: 0; }
+    .field label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
+    select, input {
+      width: 100%; height: 40px; padding: 0 11px; border: 1px solid var(--border-strong); border-radius: var(--radius);
+      outline: none; color: var(--text); background: var(--surface-2);
+    }
+    select:focus, input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(130, 85, 229, .18); }
+    .tabs { display: flex; gap: 4px; margin: 20px 0; border-bottom: 1px solid var(--border); }
+    .tab { padding: 11px 14px; border: 0; border-bottom: 2px solid transparent; color: var(--muted); background: transparent; font-weight: 600; }
+    .tab.active { border-bottom-color: var(--brand); color: var(--text); }
+    .section-head { display: flex; justify-content: space-between; align-items: end; gap: 12px; margin: 22px 0 12px; }
+    .section-head p { margin-top: 4px; }
+    .pill { display: inline-flex; padding: 3px 8px; border: 1px solid var(--border-strong); border-radius: 999px; color: var(--muted); font-size: 12px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .kpi {
+      min-height: 126px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+    }
+    .kpi.clickable:hover { border-color: var(--brand); background: var(--surface-2); }
+    .kpi-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; color: var(--muted); font-weight: 600; }
+    .kpi-value { margin-top: 16px; font-size: 25px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .kpi-foot { margin-top: 6px; color: var(--muted); font-size: 12px; }
+    .green { color: var(--green); }
+    .red { color: var(--red); }
+    .amber { color: var(--amber); }
+    .blue { color: var(--blue); }
+    .bank-section { margin-top: 28px; }
+    .bank-head { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+    .bank-badge { padding: 4px 9px; border-radius: 5px; color: #fff; background: var(--brand); font-size: 12px; font-weight: 700; }
+    .company { padding: 18px 0 8px; }
+    .company-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 10px; }
+    .company-head span { color: var(--muted); font-size: 12px; }
+    .company-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+    .mini-kpi { min-height: 92px; padding: 13px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    .mini-kpi span { color: var(--muted); font-size: 12px; }
+    .mini-kpi strong { display: block; margin-top: 10px; font-size: 17px; font-variant-numeric: tabular-nums; }
+    .panel { padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    .commission-grid { display: grid; grid-template-columns: 1.25fr .75fr; gap: 16px; }
+    .bar-row { display: grid; grid-template-columns: 80px 1fr 92px; align-items: center; gap: 12px; margin-top: 18px; }
+    .bar-track { height: 10px; overflow: hidden; border-radius: 999px; background: var(--surface-3); }
+    .bar { height: 100%; border-radius: inherit; background: var(--brand); }
+    .bar-row strong { text-align: right; font-variant-numeric: tabular-nums; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+    table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+    th { padding: 11px 13px; color: var(--muted); background: var(--surface-2); text-align: left; font-size: 12px; }
+    td { padding: 12px 13px; border-top: 1px solid var(--border); }
+    td.number, th.number { text-align: right; font-variant-numeric: tabular-nums; }
+    .status { display: inline-flex; padding: 4px 8px; border-radius: 5px; color: #221700; background: var(--amber); font-size: 12px; font-weight: 700; }
+    .view { display: none; }
+    .view.active { display: block; }
+    .empty { padding: 36px; text-align: center; color: var(--muted); }
+    .overlay { position: fixed; inset: 0; z-index: 20; display: none; background: rgba(0, 0, 0, .62); }
+    .overlay.open { display: block; }
+    .drawer {
+      position: absolute; top: 0; right: 0; width: min(920px, 94vw); height: 100%; overflow: auto;
+      padding: 22px; border-left: 1px solid var(--border); background: var(--bg); box-shadow: -20px 0 50px rgba(0, 0, 0, .32);
+    }
+    .drawer-head { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    .drawer-head p { margin-top: 5px; }
+    .icon-btn { width: 38px; height: 38px; border: 1px solid var(--border-strong); border-radius: var(--radius); color: var(--text); background: var(--surface); font-size: 20px; }
+    .drawer-actions { display: flex; gap: 6px; }
+    .small-btn { padding: 6px 9px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text); background: var(--surface-2); font-size: 12px; }
+    .small-btn:hover { border-color: var(--brand); }
+    .toast { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: none; padding: 12px 15px; border: 1px solid #287c63; border-radius: var(--radius); background: #163c32; color: #c6f7e8; }
+    .toast.show { display: block; }
+    @media (max-width: 1100px) {
+      .filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .company-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 700px) {
+      .topbar-inner, .main { width: min(100% - 20px, 1580px); }
+      .page-head { align-items: flex-start; flex-direction: column; }
+      .filters, .kpi-grid, .company-grid, .commission-grid { grid-template-columns: 1fr; }
+      .tabs { overflow-x: auto; }
+      .bar-row { grid-template-columns: 65px 1fr 72px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar"><div class="topbar-inner"><span>Home</span><span class="chevron">›</span><span>Reportes</span><span class="chevron">›</span><strong>Métricas Bancarias</strong></div></header>
+    <main class="main">
+      <div class="page-head">
+        <div><h1>Métricas Bancarias</h1><p class="muted">Resultados operativos de Efectivización por banco, empresa y cuenta.</p></div>
+        <button class="btn" id="exportBtn">↓ Exportar Excel</button>
+      </div>
+
+      <section class="filters">
+        <div class="field"><label for="period">Periodo</label><select id="period"><option value="7">Últimos 7 días</option><option value="1">Hoy</option><option value="14">Últimos 14 días</option><option value="30">Últimos 30 días</option><option value="custom">Personalizado</option></select></div>
+        <div class="field"><label for="bank">Banco</label><select id="bank"><option value="all">Todos los bancos</option></select></div>
+        <div class="field"><label for="company">Empresa</label><select id="company"><option value="all">Todas las empresas</option></select></div>
+        <div class="field"><label for="from">Desde</label><input type="date" id="from" value="2026-09-20"></div>
+        <div class="field"><label for="to">Hasta</label><input type="date" id="to" value="2026-09-26"></div>
+        <button class="btn" id="clearBtn">Limpiar</button>
+      </section>
+
+      <nav class="tabs" aria-label="Vistas de métricas">
+        <button class="tab active" data-view="overview">Resumen</button>
+        <button class="tab" data-view="banks">Bancos y empresas</button>
+        <button class="tab" data-view="commissions">Comisiones</button>
+      </nav>
+
+      <div class="view active" id="overview">
+        <div class="section-head"><div><h2>Resumen del periodo</h2><p class="muted" id="periodLabel">20 set. 2026 al 26 set. 2026</p></div><span class="pill">America/Lima</span></div>
+        <div class="kpi-grid" id="summaryKpis"></div>
+        <div class="section-head"><div><h2>Rentabilidad por banco</h2><p class="muted">El monto movilizado y la ganancia se presentan como indicadores distintos.</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Banco</th><th class="number">Operaciones</th><th class="number">Monto movido</th><th class="number">Ganancia</th><th class="number">Pendientes</th></tr></thead><tbody id="bankTable"></tbody></table></div>
+      </div>
+
+      <div class="view" id="banks">
+        <div class="section-head"><div><h2>Detalle por empresa y cuenta</h2><p class="muted">Conteos y resultados atribuibles a cada cuenta durante el periodo seleccionado.</p></div></div>
+        <div id="bankSections"></div>
+      </div>
+
+      <div class="view" id="commissions">
+        <div class="section-head"><div><h2>Distribución por comisión</h2><p class="muted">Cantidad de operaciones, monto movilizado y ganancia por regla aplicada.</p></div></div>
+        <div class="commission-grid">
+          <section class="panel"><h3>Operaciones por tasa</h3><div id="commissionBars"></div></section>
+          <section class="panel"><h3>Detalle exportable</h3><div class="table-wrap" style="margin-top:14px"><table><thead><tr><th>Tasa</th><th class="number">Ops.</th><th class="number">Monto</th><th class="number">Ganancia</th></tr></thead><tbody id="commissionTable"></tbody></table></div></section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="overlay" id="pendingOverlay" role="dialog" aria-modal="true" aria-labelledby="pendingTitle">
+    <aside class="drawer">
+      <div class="drawer-head"><div><h2 id="pendingTitle">Operaciones pendientes</h2><p class="muted">Revisa el estado y corrige cada operación desde este detalle.</p></div><button class="icon-btn" id="closeDrawer" aria-label="Cerrar">×</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Cód. operación</th><th>Banco</th><th>Empresa</th><th>DNI</th><th class="number">Transferencia</th><th>Fecha</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="pendingTable"></tbody></table></div>
+    </aside>
+  </div>
+  <div class="toast" id="toast">Operación actualizada en la demo.</div>
+
+  <script>
+    const bankOrder = ["BCP", "BBVA", "Banbif", "Interbank", "SafetyPay", "Scotiabank"];
+    const accounts = [
+      { bank: "BCP", company: "Capital Nova S.A.", account: "BCP · 193-284", operations: 1248, moved: 2834410, profit: 24873.45, pending: 11, pendingAmount: 28760, expenses: 6102.20 },
+      { bank: "BCP", company: "Hueso Cash S.A.", account: "BCP · 191-046", operations: 936, moved: 1948200, profit: 17642.80, pending: 7, pendingAmount: 18250, expenses: 4211.70 },
+      { bank: "BBVA", company: "Abitex S.A.", account: "BBVA · 0011-38", operations: 1107, moved: 2275800, profit: 19346.35, pending: 9, pendingAmount: 21120, expenses: 5010.40 },
+      { bank: "BBVA", company: "Fluxopay S.A.", account: "BBVA · 0011-72", operations: 688, moved: 1309940, profit: 11208.10, pending: 4, pendingAmount: 9630, expenses: 2807.15 },
+      { bank: "Banbif", company: "Academia WK S.A.", account: "Banbif · 100-387", operations: 421, moved: 876500, profit: 7864.20, pending: 3, pendingAmount: 7200, expenses: 1640.30 },
+      { bank: "Interbank", company: "Habita Express S.A.", account: "Interbank · 300-522", operations: 744, moved: 1568810, profit: 13821.60, pending: 6, pendingAmount: 14400, expenses: 3350.60 },
+      { bank: "SafetyPay", company: "TwoService (1) S.A.", account: "SafetyPay · Recaudación", operations: 532, moved: 1124450, profit: 9956.70, pending: 5, pendingAmount: 11890, expenses: 2254.80 },
+      { bank: "Scotiabank", company: "Impulsa Capital Corp S.A.", account: "Scotiabank · 009-716", operations: 365, moved: 792340, profit: 7012.55, pending: 8, pendingAmount: 20340, expenses: 1710.25 }
+    ];
+    const rates = [
+      { rate: "0.35%", share: .29, avg: 4350 },
+      { rate: "0.50%", share: .18, avg: 3890 },
+      { rate: "1.00%", share: .43, avg: 4720 },
+      { rate: "Tarifa fija", share: .10, avg: 820 }
+    ];
+    const money = new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN", minimumFractionDigits: 2 }).format;
+    const integer = new Intl.NumberFormat("es-PE").format;
+    const shortDate = new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format;
+    const state = { bank: "all", company: "all", factor: 1 };
+
+    const filtered = () => accounts.filter(x => (state.bank === "all" || x.bank === state.bank) && (state.company === "all" || x.company === state.company));
+    const scaled = (value) => value * state.factor;
+    const totals = () => filtered().reduce((t, x) => ({ operations: t.operations + scaled(x.operations), moved: t.moved + scaled(x.moved), profit: t.profit + scaled(x.profit), pending: t.pending + Math.ceil(scaled(x.pending)), pendingAmount: t.pendingAmount + scaled(x.pendingAmount), expenses: t.expenses + scaled(x.expenses) }), { operations: 0, moved: 0, profit: 0, pending: 0, pendingAmount: 0, expenses: 0 });
+    const kpi = (label, value, foot, tone = "", clickable = false) => `<article class="kpi ${clickable ? "clickable" : ""}" ${clickable ? "tabindex=\"0\" role=\"button\" data-pending=\"true\"" : ""}><div class="kpi-top"><span>${label}</span>${clickable ? "<span>Ver detalle ›</span>" : ""}</div><div class="kpi-value ${tone}">${value}</div><div class="kpi-foot">${foot}</div></article>`;
+
+    function renderFilters() {
+      const bank = document.querySelector("#bank");
+      bank.innerHTML = `<option value="all">Todos los bancos</option>${bankOrder.map(x => `<option value="${x}">${x}</option>`).join("")}`;
+      bank.value = state.bank;
+      const companies = [...new Set(accounts.filter(x => state.bank === "all" || x.bank === state.bank).map(x => x.company))].sort();
+      const company = document.querySelector("#company");
+      company.innerHTML = `<option value="all">Todas las empresas</option>${companies.map(x => `<option value="${x}">${x}</option>`).join("")}`;
+      if (!companies.includes(state.company)) state.company = "all";
+      company.value = state.company;
+    }
+
+    function renderSummary() {
+      const t = totals();
+      document.querySelector("#summaryKpis").innerHTML = [
+        kpi("Operaciones", integer(Math.round(t.operations)), "cantidad procesada en el periodo", "blue"),
+        kpi("Monto movido", money(t.moved), "volumen transferido; no representa ganancia"),
+        kpi("Ganancia", money(t.profit), "resultado según la comisión aplicada", "green"),
+        kpi("Operaciones pendientes", integer(t.pending), `${money(t.pendingAmount)} por transferir`, "amber", true),
+        kpi("Gastos operacionales", money(t.expenses), "comisiones bancarias del periodo", "red")
+      ].join("");
+      document.querySelectorAll("[data-pending]").forEach(el => { el.onclick = openPending; el.onkeydown = e => { if (e.key === "Enter") openPending(); }; });
+
+      document.querySelector("#bankTable").innerHTML = bankOrder.map(bank => {
+        const rows = filtered().filter(x => x.bank === bank);
+        if (!rows.length) return "";
+        const sum = rows.reduce((a, x) => ({ o: a.o + scaled(x.operations), m: a.m + scaled(x.moved), g: a.g + scaled(x.profit), p: a.p + Math.ceil(scaled(x.pending)) }), { o: 0, m: 0, g: 0, p: 0 });
+        return `<tr><td><strong>${bank}</strong></td><td class="number">${integer(Math.round(sum.o))}</td><td class="number">${money(sum.m)}</td><td class="number green">${money(sum.g)}</td><td class="number amber">${integer(sum.p)}</td></tr>`;
+      }).join("") || `<tr><td colspan="5" class="empty">No hay resultados para los filtros seleccionados.</td></tr>`;
+    }
+
+    function renderBanks() {
+      document.querySelector("#bankSections").innerHTML = bankOrder.map(bank => {
+        const rows = filtered().filter(x => x.bank === bank);
+        if (!rows.length) return "";
+        return `<section class="bank-section"><div class="bank-head"><span class="bank-badge">${bank}</span><span class="muted">${rows.length} ${rows.length === 1 ? "cuenta" : "cuentas"}</span></div>${rows.map(x => `<div class="company"><div class="company-head"><h4>${x.company}</h4><span>${x.account}</span></div><div class="company-grid"><div class="mini-kpi"><span>Operaciones</span><strong class="blue">${integer(Math.round(scaled(x.operations)))}</strong></div><div class="mini-kpi"><span>Monto movido</span><strong>${money(scaled(x.moved))}</strong></div><div class="mini-kpi"><span>Ganancia</span><strong class="green">${money(scaled(x.profit))}</strong></div><div class="mini-kpi"><span>Gastos</span><strong class="red">${money(scaled(x.expenses))}</strong></div><div class="mini-kpi"><span>Pendientes</span><strong class="amber">${integer(Math.ceil(scaled(x.pending)))}</strong></div></div></div>`).join("")}</section>`;
+      }).join("") || `<div class="empty">No hay empresas para los filtros seleccionados.</div>`;
+    }
+
+    function renderCommissions() {
+      const t = totals();
+      const rows = rates.map(r => ({ ...r, operations: Math.round(t.operations * r.share), moved: t.moved * r.share, profit: r.rate === "Tarifa fija" ? t.operations * r.share * 12 : t.moved * r.share * Number(r.rate.replace("%", "")) / 100 }));
+      const max = Math.max(...rows.map(x => x.operations), 1);
+      document.querySelector("#commissionBars").innerHTML = rows.map(x => `<div class="bar-row"><span>${x.rate}</span><div class="bar-track"><div class="bar" style="width:${x.operations / max * 100}%"></div></div><strong>${integer(x.operations)} ops.</strong></div>`).join("");
+      document.querySelector("#commissionTable").innerHTML = rows.map(x => `<tr><td><strong>${x.rate}</strong></td><td class="number">${integer(x.operations)}</td><td class="number">${money(x.moved)}</td><td class="number green">${money(x.profit)}</td></tr>`).join("");
+    }
+
+    function renderPending() {
+      const rows = filtered().flatMap((account, accountIndex) => Array.from({ length: Math.ceil(scaled(account.pending)) }, (_, index) => {
+        const amount = scaled(account.pendingAmount) / Math.max(1, Math.ceil(scaled(account.pending)));
+        return [String(62000 + accountIndex * 100 + index), account.bank, account.company, String(70000000 + accountIndex * 1000 + index), amount, `26/09/2026 ${String(8 + index % 10).padStart(2, "0")}:${String((index * 7) % 60).padStart(2, "0")}`, "Pendiente"];
+      }));
+      document.querySelector("#pendingTable").innerHTML = rows.map((x, index) => `<tr data-row="${index}"><td><strong>${x[0]}</strong></td><td>${x[1]}</td><td>${x[2]}</td><td>${x[3]}</td><td class="number amber">${money(x[4])}</td><td>${x[5]}</td><td><span class="status">${x[6]}</span></td><td><div class="drawer-actions"><button class="small-btn" data-action="paid">Marcar pagado</button><button class="small-btn danger" data-action="deleted">Eliminar</button></div></td></tr>`).join("") || `<tr><td colspan="8" class="empty">No hay pendientes para los filtros seleccionados.</td></tr>`;
+      document.querySelectorAll("[data-action]").forEach(btn => btn.onclick = () => { btn.closest("tr").remove(); showToast(); });
+    }
+
+    function updatePeriodLabel() {
+      const from = document.querySelector("#from").value;
+      const to = document.querySelector("#to").value;
+      if (from && to) document.querySelector("#periodLabel").textContent = `${shortDate(new Date(`${from}T12:00:00Z`))} al ${shortDate(new Date(`${to}T12:00:00Z`))}`;
+    }
+    function render() { renderFilters(); renderSummary(); renderBanks(); renderCommissions(); updatePeriodLabel(); }
+    function openPending() { renderPending(); document.querySelector("#pendingOverlay").classList.add("open"); }
+    function showToast() { const toast = document.querySelector("#toast"); toast.classList.add("show"); setTimeout(() => toast.classList.remove("show"), 1800); }
+    function exportCsv() {
+      const rows = [["Banco", "Empresa", "Cuenta", "Operaciones", "Monto movido", "Ganancia", "Pendientes"], ...filtered().map(x => [x.bank, x.company, x.account, Math.round(scaled(x.operations)), scaled(x.moved).toFixed(2), scaled(x.profit).toFixed(2), Math.ceil(scaled(x.pending))])];
+      const blob = new Blob([rows.map(r => r.map(v => `"${String(v).replaceAll('"', '""')}"`).join(";")).join("\n")], { type: "text/csv;charset=utf-8" });
+      const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "demo_metricas_bancarias.csv"; link.click(); URL.revokeObjectURL(link.href);
+    }
+
+    document.querySelectorAll(".tab").forEach(tab => tab.onclick = () => { document.querySelectorAll(".tab,.view").forEach(x => x.classList.remove("active")); tab.classList.add("active"); document.querySelector(`#${tab.dataset.view}`).classList.add("active"); });
+    document.querySelector("#bank").onchange = e => { state.bank = e.target.value; state.company = "all"; render(); };
+    document.querySelector("#company").onchange = e => { state.company = e.target.value; render(); };
+    document.querySelector("#period").onchange = e => {
+      if (e.target.value === "custom") return;
+      const days = Number(e.target.value);
+      state.factor = days / 7;
+      const end = new Date("2026-09-26T12:00:00Z");
+      const start = new Date(end); start.setUTCDate(start.getUTCDate() - days + 1);
+      document.querySelector("#from").value = start.toISOString().slice(0, 10);
+      document.querySelector("#to").value = end.toISOString().slice(0, 10);
+      render();
+    };
+    ["from", "to"].forEach(id => document.querySelector(`#${id}`).onchange = () => {
+      const from = new Date(`${document.querySelector("#from").value}T12:00:00Z`);
+      const to = new Date(`${document.querySelector("#to").value}T12:00:00Z`);
+      const days = Math.max(1, Math.round((to - from) / 86400000) + 1);
+      state.factor = days / 7;
+      document.querySelector("#period").value = "custom";
+      render();
+    });
+    document.querySelector("#clearBtn").onclick = () => { state.bank = "all"; state.company = "all"; state.factor = 1; document.querySelector("#period").value = "7"; render(); };
+    document.querySelector("#exportBtn").onclick = exportCsv;
+    document.querySelector("#closeDrawer").onclick = () => document.querySelector("#pendingOverlay").classList.remove("open");
+    document.querySelector("#pendingOverlay").onclick = e => { if (e.target.id === "pendingOverlay") e.currentTarget.classList.remove("open"); };
+    document.addEventListener("keydown", e => { if (e.key === "Escape") document.querySelector("#pendingOverlay").classList.remove("open"); });
+    render();
+  </script>
+</body>
+</html>

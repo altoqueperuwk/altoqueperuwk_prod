@@ -2568,10 +2568,6 @@ BEGIN
     RETURN jsonb_build_object('error', 'No se encontro la operacion bancaria de Pago Deuda.');
   END IF;
 
-  IF public.f_get_tb_pago_deuda_tiene_cierre(v_op_deuda.id) THEN
-    RETURN jsonb_build_object('error', 'La solicitud de Pago Deuda ya pertenece a un cierre de caja.');
-  END IF;
-
   SELECT *
   INTO v_op_efect
   FROM public.tb_operacion_proceso
@@ -2581,10 +2577,6 @@ BEGIN
 
   IF v_op_efect.id IS NULL THEN
     RETURN jsonb_build_object('error', 'Operacion de efectivizacion no encontrada.');
-  END IF;
-
-  IF public.f_get_tb_pago_deuda_tiene_cierre(v_op_efect.id) THEN
-    RETURN jsonb_build_object('error', 'La operacion de retorno ya pertenece a un cierre de caja.');
   END IF;
 
   IF UPPER(BTRIM(COALESCE(v_op_efect.tipo_flujo_pago_deuda, ''))) = 'RETORNO'
@@ -2627,13 +2619,6 @@ BEGIN
   ORDER BY oc.id
   LIMIT 1
   FOR UPDATE;
-
-  IF v_movimiento_efect.id IS NOT NULL
-     AND v_movimiento_efect.id_caja_cierre IS NOT NULL THEN
-    RETURN jsonb_build_object(
-      'error', 'No se puede realizar el match porque el movimiento de efectivizacion ya pertenece a un cierre de caja.'
-    );
-  END IF;
 
   IF COALESCE(v_op_deuda.dni_cliente, '') <> COALESCE(v_op_efect.dni_cliente, '') THEN
     RETURN jsonb_build_object('error', 'Los DNIs no coinciden.');
@@ -3485,9 +3470,5 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
-  AND p.proname IN (
-    'f_get_tb_pago_deuda',
-    'f_patch_tb_pago_deuda_match',
-    'f_patch_tb_pago_deuda_pagado'
-  )
+  AND p.proname IN ('f_patch_tb_pago_deuda_match')
 ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid);

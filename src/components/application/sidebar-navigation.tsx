@@ -22,10 +22,13 @@ import {
     Briefcase02,
     Sliders03,
     Activity,
+    AlertCircle,
     BarChart03,
     File07,
     Link01,
+    CoinsStacked01,
     XClose,
+    MessageNotificationCircle,
 } from "@untitledui/icons";
 import { UntitledLogoMinimal } from "@/components/foundations/logo/untitledui-logo-minimal";
 import { Button } from "@/components/base/buttons/button";
@@ -35,6 +38,8 @@ import { useSessionCache } from "@/providers/session-cache-provider";
 import { useAuth } from "@/providers/auth-provider";
 import type { NavItemType } from "@/components/application/app-navigation/config";
 import { NavList } from "@/components/application/app-navigation/base-components/nav-list";
+import { Badge } from "@/components/base/badges/badges";
+import { useOperationalReminders } from "@/providers/operational-reminders-provider";
 
 const iconMap: Record<string, FC<{ className?: string }>> = {
     "settings": Settings01,
@@ -49,6 +54,7 @@ const iconMap: Record<string, FC<{ className?: string }>> = {
     "credit-card-linkpago": Link01,
     "credit-card-deuda": CreditCard01,
     "activity": Activity,
+    "alert-circle": AlertCircle,
     "bar-chart": BarChart03,
     "file-text": File07,
     "circle": Circle,
@@ -64,6 +70,7 @@ const iconMap: Record<string, FC<{ className?: string }>> = {
     "briefcase": Briefcase02,
     "sliders": Sliders03,
     "link": Link01,
+    "coins-stacked": CoinsStacked01,
 };
 
 const resolveIcon = (iconName: string): FC<{ className?: string }> => {
@@ -106,6 +113,7 @@ export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) 
     const { navegacion, isLoading } = useSessionCache();
     const { signOut, user, businessUser } = useAuth();
     const navigate = useNavigate();
+    const { resumen } = useOperationalReminders();
 
     const [activeUrl, setActiveUrl] = useState(location.pathname);
 
@@ -175,6 +183,18 @@ export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) 
 
             <div className="mt-auto flex flex-col gap-3 px-4 py-4 min-[1920px]:py-5">
                 <div className="flex flex-col gap-1">
+                    <Button
+                        size="sm"
+                        color="tertiary"
+                        className="w-full justify-start"
+                        iconLeading={MessageNotificationCircle}
+                        onClick={() => { navigate("/bandeja"); onToggle(); }}
+                    >
+                        <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                            <span>Bandeja</span>
+                            {resumen.activos > 0 && <Badge size="sm" color={resumen.nivel3 > 0 ? "error" : "warning"}>{resumen.activos > 99 ? "99+" : resumen.activos}</Badge>}
+                        </span>
+                    </Button>
                     <Button
                         size="sm"
                         color="tertiary"

@@ -165,6 +165,24 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso (
   CONSTRAINT tb_operacion_proceso_fk_carga_excel FOREIGN KEY (id_carga_excel) REFERENCES public.tb_operacion_carga_excel(id)
 );
 
+-- Indices funcionales para atribuir actividad operativa a tb_usuario durante
+-- el calculo de compensaciones. Solo indexan operaciones pagadas.
+CREATE INDEX IF NOT EXISTS idx_tb_operacion_proceso_compensacion_gestor_pagado
+  ON public.tb_operacion_proceso (
+    COALESCE(id_usuario_gestor, id_usuario),
+    COALESCE(fecha_pagado, fecha_deposito_cliente, fecha_registro),
+    id
+  )
+  WHERE UPPER(BTRIM(COALESCE(nombre_estado, ''))) = 'PAGADO';
+
+CREATE INDEX IF NOT EXISTS idx_tb_operacion_proceso_compensacion_cliente_pagado
+  ON public.tb_operacion_proceso (
+    id_cliente,
+    COALESCE(fecha_pagado, fecha_deposito_cliente, fecha_registro),
+    id
+  )
+  WHERE UPPER(BTRIM(COALESCE(nombre_estado, ''))) = 'PAGADO';
+
 ALTER TABLE public.tb_operacion_proceso
   ADD COLUMN IF NOT EXISTS id_empresa_pos bigint,
   ADD COLUMN IF NOT EXISTS nombre_empresa_pos character varying,

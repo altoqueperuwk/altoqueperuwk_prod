@@ -19,6 +19,17 @@
 -- con retencion mantengan estos importes separados, restaurar la exclusion en
 -- hechos_ingreso; no modificar silenciosamente las formulas del resumen.
 
+DROP FUNCTION IF EXISTS public.f_get_dashboard_metricas_bancarias_hechos(
+  date,
+  date,
+  character varying[],
+  bigint,
+  bigint,
+  bigint,
+  character varying[],
+  character varying[]
+);
+
 /*
 Funcion: f_get_dashboard_metricas_bancarias_hechos
 Objetivo:
@@ -56,7 +67,13 @@ RETURNS TABLE (
   operaciones_pagadas bigint,
   operaciones_pendientes bigint,
   pendiente_transferencia numeric,
-  saldo_banco numeric
+  saldo_banco numeric,
+  comision_servicio numeric,
+  comision_porcentaje numeric,
+  monto_transferencia_cliente numeric,
+  id_comunidad bigint,
+  nombre_comunidad character varying,
+  id_cliente bigint
 )
 LANGUAGE sql
 STABLE
@@ -180,7 +197,28 @@ hechos_ingreso AS (
     END::numeric,
     1::bigint,
     0::bigint,
-    0::bigint, 0::numeric, 0::numeric
+    0::bigint, 0::numeric, 0::numeric,
+    CASE
+      WHEN o.familia_dashboard <> 'DIRECTO'
+       AND NOT COALESCE(o.flag_fuera_horario, false)
+       AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+      THEN COALESCE(o.resultado_comision_servicio, 0) ELSE 0
+    END::numeric,
+    CASE
+      WHEN o.familia_dashboard <> 'DIRECTO'
+       AND NOT COALESCE(o.flag_fuera_horario, false)
+       AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+      THEN COALESCE(o.comision_servicio, 0) ELSE 0
+    END::numeric,
+    CASE
+      WHEN o.familia_dashboard <> 'DIRECTO'
+       AND NOT COALESCE(o.flag_fuera_horario, false)
+       AND UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN ('PENDIENTE', 'PAGADO')
+      THEN COALESCE(o.monto_transferencia_cliente, 0) ELSE 0
+    END::numeric,
+    o.id_comunidad,
+    NULLIF(BTRIM(o.nombre_comunidad), '')::character varying,
+    o.id_cliente
   FROM operaciones o
 ),
 hechos_pago AS (
@@ -190,7 +228,11 @@ hechos_pago AS (
     o.ruta, o.id_empresa, o.empresa, o.id_empresa_cuenta_bancaria,
     o.id_banco, o.cuenta, o.familia_dashboard,
     0::numeric, 0::numeric, 0::numeric, 0::numeric, 0::numeric,
-    0::bigint, 1::bigint, 0::bigint, 0::numeric, 0::numeric
+    0::bigint, 1::bigint, 0::bigint, 0::numeric, 0::numeric,
+    0::numeric, 0::numeric, 0::numeric,
+    o.id_comunidad,
+    NULLIF(BTRIM(o.nombre_comunidad), '')::character varying,
+    o.id_cliente
   FROM operaciones o
   -- Pagadas debe ser un subconjunto de Operaciones: ambas metricas respetan
   -- la fecha de deposito del cliente y los mismos filtros del dashboard.
@@ -264,7 +306,11 @@ hechos_salida AS (
     s.id_banco, s.cuenta, s.familia_dashboard,
     0::numeric, 0::numeric, s.monto_salida_real,
     COALESCE(s.resultado_comision_banco_salida, 0)::numeric,
-    0::numeric, 0::bigint, 0::bigint, 0::bigint, 0::numeric, 0::numeric
+    0::numeric, 0::bigint, 0::bigint, 0::bigint, 0::numeric, 0::numeric,
+    0::numeric, 0::numeric, 0::numeric,
+    s.id_comunidad,
+    NULLIF(BTRIM(s.nombre_comunidad), '')::character varying,
+    s.id_cliente
   FROM salidas_filtradas s
 ),
 ultimo_cierre AS (
@@ -301,7 +347,13 @@ cortes AS (
       ELSE COALESCE(pendiente_transfer.monto, 0)
     END::numeric,
     CASE WHEN p_fecha_hasta >= p.hoy THEN COALESCE(caja.saldo_actual, 0)
-         ELSE COALESCE(uc.saldo_actual, 0) END::numeric
+         ELSE COALESCE(uc.saldo_actual, 0) END::numeric,
+    0::numeric,
+    0::numeric,
+    0::numeric,
+    NULL::bigint,
+    NULL::character varying,
+    NULL::bigint
   FROM cuentas c
   CROSS JOIN parametros p
   LEFT JOIN public.tb_caja_operativa caja ON caja.id = c.id_caja
@@ -842,21 +894,656 @@ BEGIN
       p_id_empresa_cuenta_bancaria, p_id_banco, p_familias, p_estados
     ) h
     GROUP BY h.ruta, h.id_empresa, h.empresa, h.id_empresa_cuenta_bancaria, h.id_banco, h.cuenta
+  ),
+  clientes_nuevos AS (
+    SELECT
+      LOWER(BTRIM(rc.ruta))::character varying AS ruta,
+      rc.id_empresa,
+      rc.id_empresa_cuenta_bancaria,
+      COUNT(DISTINCT cl.id)::bigint AS total
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_empresa_cuenta_bancaria ecb
+      ON ecb.id = rc.id_empresa_cuenta_bancaria
+    JOIN public.tb_operacion_proceso op
+      ON op.id_empresa_ingreso = rc.id_empresa
+     AND op.id_empresa_cuenta_ingreso = rc.id_empresa_cuenta_bancaria
+     AND (
+       op.ruta_origen IS NULL
+       OR LOWER(BTRIM(op.ruta_origen)) = LOWER(BTRIM(rc.ruta))
+       OR (LOWER(BTRIM(rc.ruta)) = 'safetypay' AND LOWER(BTRIM(op.ruta_origen)) = 'interbank')
+     )
+    JOIN public.tb_cliente cl ON cl.id = op.id_cliente
+    WHERE rc.id_estado = 1
+      AND (cl.fecha_registro AT TIME ZONE 'America/Lima')::date BETWEEN p_fecha_desde AND p_fecha_hasta
+      AND (COALESCE(op.fecha_deposito_cliente, op.fecha_registro) AT TIME ZONE 'America/Lima')::date
+        BETWEEN p_fecha_desde AND p_fecha_hasta
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+      AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO')
+      AND (p_id_empresa IS NULL OR rc.id_empresa = p_id_empresa)
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR rc.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria)
+      AND (p_id_banco IS NULL OR ecb.id_banco = p_id_banco)
+      AND (
+        p_rutas IS NULL OR COALESCE(cardinality(p_rutas), 0) = 0
+        OR LOWER(BTRIM(rc.ruta)) IN (SELECT LOWER(BTRIM(value)) FROM unnest(p_rutas) AS value)
+      )
+      AND (
+        p_familias IS NULL OR COALESCE(cardinality(p_familias), 0) = 0
+        OR CASE
+          WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'PAGO DEUDA' THEN 'PAGO DEUDA'
+          ELSE 'EFECTIVIZACION'
+        END IN (SELECT UPPER(REPLACE(BTRIM(value), '-', ' ')) FROM unnest(p_familias) AS value)
+      )
+      AND (
+        p_estados IS NULL OR COALESCE(cardinality(p_estados), 0) = 0
+        OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN (
+          SELECT UPPER(BTRIM(value)) FROM unnest(p_estados) AS value
+        )
+      )
+    GROUP BY LOWER(BTRIM(rc.ruta)), rc.id_empresa, rc.id_empresa_cuenta_bancaria
   )
   SELECT jsonb_build_object(
-    'ruta', ruta, 'id_empresa', id_empresa, 'empresa', empresa,
-    'id_empresa_cuenta_bancaria', id_empresa_cuenta_bancaria,
-    'id_banco', id_banco, 'cuenta', cuenta,
-    'operaciones', operaciones, 'pagadas', pagadas, 'pendientes', pendientes,
-    'tasa_pago', CASE WHEN pagadas + pendientes > 0
-      THEN ROUND(pagadas::numeric / (pagadas + pendientes) * 100, 2) ELSE 0 END,
-    'caja_recaudacion', recaudacion, 'ingresos_movimientos', ingresos,
-    'salidas', salidas, 'gastos_operacionales', gastos, 'ganancias', ganancias,
-    'margen_ganancia', CASE WHEN recaudacion <> 0
-      THEN ROUND(ganancias / recaudacion * 100, 2) ELSE 0 END,
-    'pendiente_transferencia', pendiente_transferencia, 'saldo_banco', saldo_banco,
-    'ticket_promedio', CASE WHEN operaciones > 0 THEN ROUND(recaudacion / operaciones, 2) ELSE 0 END
-  ) FROM agregado ORDER BY recaudacion DESC, ruta, empresa, cuenta;
+    'ruta', a.ruta, 'id_empresa', a.id_empresa, 'empresa', a.empresa,
+    'id_empresa_cuenta_bancaria', a.id_empresa_cuenta_bancaria,
+    'id_banco', a.id_banco, 'cuenta', a.cuenta,
+    'operaciones', a.operaciones, 'pagadas', a.pagadas, 'pendientes', a.pendientes,
+    'clientes_nuevos', COALESCE(cn.total, 0),
+    'tasa_pago', CASE WHEN a.pagadas + a.pendientes > 0
+      THEN ROUND(a.pagadas::numeric / (a.pagadas + a.pendientes) * 100, 2) ELSE 0 END,
+    'caja_recaudacion', a.recaudacion, 'ingresos_movimientos', a.ingresos,
+    'salidas', a.salidas, 'gastos_operacionales', a.gastos, 'ganancias', a.ganancias,
+    'margen_ganancia', CASE WHEN a.recaudacion <> 0
+      THEN ROUND(a.ganancias / a.recaudacion * 100, 2) ELSE 0 END,
+    'pendiente_transferencia', a.pendiente_transferencia, 'saldo_banco', a.saldo_banco,
+    'ticket_promedio', CASE WHEN a.operaciones > 0 THEN ROUND(a.recaudacion / a.operaciones, 2) ELSE 0 END
+  )
+  FROM agregado a
+  LEFT JOIN clientes_nuevos cn
+    ON cn.ruta = a.ruta
+   AND cn.id_empresa = a.id_empresa
+   AND cn.id_empresa_cuenta_bancaria = a.id_empresa_cuenta_bancaria
+  ORDER BY a.recaudacion DESC, a.ruta, a.empresa, a.cuenta;
+END;
+$$;
+
+/* Desglose analitico por comunidad para la cohorte filtrada. */
+CREATE OR REPLACE FUNCTION public.f_get_dashboard_metricas_bancarias_comunidades(
+  p_fecha_desde date,
+  p_fecha_hasta date,
+  p_rutas character varying[] DEFAULT NULL,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_id_banco bigint DEFAULT NULL,
+  p_familias character varying[] DEFAULT NULL,
+  p_estados character varying[] DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF p_fecha_desde IS NULL OR p_fecha_hasta IS NULL OR p_fecha_desde > p_fecha_hasta THEN
+    RAISE EXCEPTION 'El rango de fechas del dashboard no es valido.';
+  END IF;
+  IF p_fecha_hasta - p_fecha_desde > 730 THEN
+    RAISE EXCEPTION 'El rango maximo permitido es de 731 dias.';
+  END IF;
+
+  RETURN QUERY
+  WITH parametros AS (
+    SELECT
+      p_fecha_desde::timestamp AT TIME ZONE 'America/Lima' AS desde_ts,
+      (p_fecha_hasta + 1)::timestamp AT TIME ZONE 'America/Lima' AS hasta_ts
+  ),
+  cuentas AS (
+    SELECT DISTINCT
+      LOWER(BTRIM(rc.ruta)) AS ruta,
+      rc.id_empresa,
+      rc.id_empresa_cuenta_bancaria,
+      ecb.id_banco
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_empresa_cuenta_bancaria ecb
+      ON ecb.id = rc.id_empresa_cuenta_bancaria
+    WHERE rc.id_estado = 1
+      AND (p_id_empresa IS NULL OR rc.id_empresa = p_id_empresa)
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR rc.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria)
+      AND (p_id_banco IS NULL OR ecb.id_banco = p_id_banco)
+      AND (
+        p_rutas IS NULL OR COALESCE(cardinality(p_rutas), 0) = 0
+        OR LOWER(BTRIM(rc.ruta)) IN (
+          SELECT LOWER(BTRIM(value)) FROM unnest(p_rutas) AS value
+        )
+      )
+  ),
+  operaciones_comunidad AS (
+    SELECT DISTINCT ON (op.id)
+      op.id,
+      op.id_cliente,
+      op.id_comunidad,
+      NULLIF(BTRIM(op.nombre_comunidad), '')::character varying AS nombre_comunidad,
+      op.nombre_estado,
+      COALESCE(op.fecha_deposito_cliente, op.fecha_registro) AS fecha_operacion
+    FROM public.tb_operacion_proceso op
+    JOIN cuentas c
+      ON op.id_empresa_ingreso = c.id_empresa
+     AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
+     AND (
+       op.ruta_origen IS NULL
+       OR LOWER(BTRIM(op.ruta_origen)) = c.ruta
+       OR (c.ruta = 'safetypay' AND LOWER(BTRIM(op.ruta_origen)) = 'interbank')
+     )
+    CROSS JOIN parametros p
+    WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+      AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN ('RETORNO', 'RETORNO_DIRECTO')
+      AND COALESCE(op.fecha_deposito_cliente, op.fecha_registro) >= p.desde_ts
+      AND COALESCE(op.fecha_deposito_cliente, op.fecha_registro) < p.hasta_ts
+      AND CASE
+        WHEN UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) = 'DIRECTO_CAJA' THEN 'DIRECTO'
+        WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'PAGO DEUDA' THEN 'PAGO DEUDA'
+        WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'POS' THEN 'POS'
+        WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) IN ('LINK PAGO', 'LINKPAGO') THEN 'LINK PAGO'
+        ELSE 'EFECTIVIZACION'
+      END IN ('EFECTIVIZACION', 'PAGO DEUDA')
+      AND (
+        p_familias IS NULL OR COALESCE(cardinality(p_familias), 0) = 0
+        OR CASE
+          WHEN UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) = 'DIRECTO_CAJA' THEN 'DIRECTO'
+          WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'PAGO DEUDA' THEN 'PAGO DEUDA'
+          WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'POS' THEN 'POS'
+          WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) IN ('LINK PAGO', 'LINKPAGO') THEN 'LINK PAGO'
+          ELSE 'EFECTIVIZACION'
+        END IN (SELECT UPPER(REPLACE(BTRIM(value), '-', ' ')) FROM unnest(p_familias) AS value)
+      )
+      AND (
+        p_estados IS NULL OR COALESCE(cardinality(p_estados), 0) = 0
+        OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN (
+          SELECT UPPER(BTRIM(value)) FROM unnest(p_estados) AS value
+        )
+      )
+    ORDER BY op.id, c.ruta, c.id_empresa, c.id_empresa_cuenta_bancaria
+  ),
+  agregado AS (
+    SELECT
+      CASE
+        WHEN h.id_comunidad IS NULL OR NULLIF(BTRIM(h.nombre_comunidad), '') IS NULL THEN 0
+        ELSE h.id_comunidad
+      END::bigint AS id_comunidad,
+      CASE
+        WHEN h.id_comunidad IS NULL OR NULLIF(BTRIM(h.nombre_comunidad), '') IS NULL THEN 'Sin comunidad'
+        ELSE BTRIM(h.nombre_comunidad)
+      END::character varying AS comunidad,
+      SUM(h.operaciones_registradas)::bigint AS operaciones,
+      SUM(h.caja_recaudacion)::numeric AS recaudacion,
+      SUM(h.comision_servicio)::numeric AS comision,
+      SUM(h.gastos_operacionales)::numeric AS gastos_operacionales,
+      SUM(h.ganancias)::numeric AS ganancias,
+      SUM(h.monto_transferencia_cliente)::numeric AS salida
+    FROM public.f_get_dashboard_metricas_bancarias_hechos(
+      p_fecha_desde,
+      p_fecha_hasta,
+      p_rutas,
+      p_id_empresa,
+      p_id_empresa_cuenta_bancaria,
+      p_id_banco,
+      p_familias,
+      p_estados
+    ) h
+    WHERE h.tipo_evento <> 'CORTE'
+    GROUP BY 1, 2
+  ),
+  pendientes AS (
+    SELECT
+      CASE
+        WHEN o.id_comunidad IS NULL OR o.nombre_comunidad IS NULL THEN 0
+        ELSE o.id_comunidad
+      END::bigint AS id_comunidad,
+      CASE WHEN o.id_comunidad IS NULL OR o.nombre_comunidad IS NULL THEN 'Sin comunidad' ELSE o.nombre_comunidad END::character varying AS comunidad,
+      COUNT(*)::bigint AS operaciones_pendientes
+    FROM operaciones_comunidad o
+    WHERE UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PENDIENTE'
+    GROUP BY 1, 2
+  ),
+  clientes_nuevos AS (
+    SELECT
+      CASE
+        WHEN o.id_comunidad IS NULL OR o.nombre_comunidad IS NULL THEN 0
+        ELSE o.id_comunidad
+      END::bigint AS id_comunidad,
+      CASE WHEN o.id_comunidad IS NULL OR o.nombre_comunidad IS NULL THEN 'Sin comunidad' ELSE o.nombre_comunidad END::character varying AS comunidad,
+      COUNT(DISTINCT cl.id)::bigint AS clientes_nuevos
+    FROM operaciones_comunidad o
+    JOIN public.tb_cliente cl ON cl.id = o.id_cliente
+    CROSS JOIN parametros p
+    WHERE cl.fecha_registro >= p.desde_ts
+      AND cl.fecha_registro < p.hasta_ts
+    GROUP BY 1, 2
+  ),
+  comunidades AS (
+    SELECT id_comunidad, comunidad FROM agregado
+    UNION
+    SELECT id_comunidad, comunidad FROM pendientes
+    UNION
+    SELECT id_comunidad, comunidad FROM clientes_nuevos
+  )
+  SELECT jsonb_build_object(
+    'id_comunidad', c.id_comunidad,
+    'comunidad', c.comunidad,
+    'operaciones', COALESCE(a.operaciones, 0),
+    'recaudacion', COALESCE(a.recaudacion, 0),
+    'comision', COALESCE(a.comision, 0),
+    'gastos_operacionales', COALESCE(a.gastos_operacionales, 0),
+    'ganancias', COALESCE(a.ganancias, 0),
+    'salida', COALESCE(a.salida, 0),
+    'clientes_nuevos', COALESCE(cn.clientes_nuevos, 0),
+    'operaciones_pendientes', COALESCE(p.operaciones_pendientes, 0)
+  )
+  FROM comunidades c
+  LEFT JOIN agregado a
+    ON a.id_comunidad = c.id_comunidad AND a.comunidad = c.comunidad
+  LEFT JOIN pendientes p
+    ON p.id_comunidad = c.id_comunidad AND p.comunidad = c.comunidad
+  LEFT JOIN clientes_nuevos cn
+    ON cn.id_comunidad = c.id_comunidad AND cn.comunidad = c.comunidad
+  ORDER BY COALESCE(a.recaudacion, 0) DESC, c.comunidad;
+END;
+$$;
+
+/* Top de clientes por cantidad de operaciones para la cohorte filtrada. */
+CREATE OR REPLACE FUNCTION public.f_get_dashboard_metricas_bancarias_clientes_top(
+  p_fecha_desde date,
+  p_fecha_hasta date,
+  p_rutas character varying[] DEFAULT NULL,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_id_banco bigint DEFAULT NULL,
+  p_familias character varying[] DEFAULT NULL,
+  p_estados character varying[] DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF p_fecha_desde IS NULL OR p_fecha_hasta IS NULL OR p_fecha_desde > p_fecha_hasta THEN
+    RAISE EXCEPTION 'El rango de fechas del dashboard no es valido.';
+  END IF;
+  IF p_fecha_hasta - p_fecha_desde > 730 THEN
+    RAISE EXCEPTION 'El rango maximo permitido es de 731 dias.';
+  END IF;
+
+  RETURN QUERY
+  WITH parametros AS (
+    SELECT
+      p_fecha_desde::timestamp AT TIME ZONE 'America/Lima' AS desde_ts,
+      (p_fecha_hasta + 1)::timestamp AT TIME ZONE 'America/Lima' AS hasta_ts
+  ),
+  cuentas AS (
+    SELECT DISTINCT
+      LOWER(BTRIM(rc.ruta)) AS ruta,
+      rc.id_empresa,
+      rc.id_empresa_cuenta_bancaria,
+      ecb.id_banco
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_empresa_cuenta_bancaria ecb
+      ON ecb.id = rc.id_empresa_cuenta_bancaria
+    WHERE rc.id_estado = 1
+      AND (p_id_empresa IS NULL OR rc.id_empresa = p_id_empresa)
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR rc.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria)
+      AND (p_id_banco IS NULL OR ecb.id_banco = p_id_banco)
+      AND (
+        p_rutas IS NULL OR COALESCE(cardinality(p_rutas), 0) = 0
+        OR LOWER(BTRIM(rc.ruta)) IN (
+          SELECT LOWER(BTRIM(value)) FROM unnest(p_rutas) AS value
+        )
+      )
+  ),
+  operaciones_cliente AS (
+    SELECT DISTINCT ON (op.id)
+      op.id,
+      op.id_cliente,
+      NULLIF(BTRIM(op.dni_cliente), '')::character varying AS dni_operacion,
+      NULLIF(BTRIM(op.nombre_cliente), '')::character varying AS nombre_operacion,
+      op.nombre_estado
+    FROM public.tb_operacion_proceso op
+    JOIN cuentas c
+      ON op.id_empresa_ingreso = c.id_empresa
+     AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
+     AND (
+       op.ruta_origen IS NULL
+       OR LOWER(BTRIM(op.ruta_origen)) = c.ruta
+       OR (c.ruta = 'safetypay' AND LOWER(BTRIM(op.ruta_origen)) = 'interbank')
+     )
+    CROSS JOIN parametros p
+    WHERE op.id_cliente IS NOT NULL
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+      AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN ('RETORNO', 'RETORNO_DIRECTO')
+      AND COALESCE(op.fecha_deposito_cliente, op.fecha_registro) >= p.desde_ts
+      AND COALESCE(op.fecha_deposito_cliente, op.fecha_registro) < p.hasta_ts
+      AND CASE
+        WHEN UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) = 'DIRECTO_CAJA' THEN 'DIRECTO'
+        WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'PAGO DEUDA' THEN 'PAGO DEUDA'
+        WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'POS' THEN 'POS'
+        WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) IN ('LINK PAGO', 'LINKPAGO') THEN 'LINK PAGO'
+        ELSE 'EFECTIVIZACION'
+      END IN ('EFECTIVIZACION', 'PAGO DEUDA')
+      AND (
+        p_familias IS NULL OR COALESCE(cardinality(p_familias), 0) = 0
+        OR CASE
+          WHEN UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) = 'DIRECTO_CAJA' THEN 'DIRECTO'
+          WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'PAGO DEUDA' THEN 'PAGO DEUDA'
+          WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'POS' THEN 'POS'
+          WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) IN ('LINK PAGO', 'LINKPAGO') THEN 'LINK PAGO'
+          ELSE 'EFECTIVIZACION'
+        END IN (SELECT UPPER(REPLACE(BTRIM(value), '-', ' ')) FROM unnest(p_familias) AS value)
+      )
+      AND (
+        p_estados IS NULL OR COALESCE(cardinality(p_estados), 0) = 0
+        OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) IN (
+          SELECT UPPER(BTRIM(value)) FROM unnest(p_estados) AS value
+        )
+      )
+    ORDER BY op.id, c.ruta, c.id_empresa, c.id_empresa_cuenta_bancaria
+  ),
+  operaciones_agrupadas AS (
+    -- La comunidad maestra del cliente prevalece sobre el snapshot de cada
+    -- operacion para acumular todo su historial en una sola fila.
+    SELECT
+      o.id_cliente,
+      cl.id_comunidad AS id_comunidad_cliente,
+      COUNT(*)::bigint AS operaciones,
+      COUNT(*) FILTER (WHERE UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) = 'PENDIENTE')::bigint AS operaciones_pendientes
+    FROM operaciones_cliente o
+    LEFT JOIN public.tb_cliente cl ON cl.id = o.id_cliente
+    GROUP BY o.id_cliente, cl.id_comunidad
+  ),
+  identidad_operacion AS (
+    SELECT
+      o.id_cliente,
+      MAX(o.dni_operacion) AS dni_operacion,
+      MAX(o.nombre_operacion) AS nombre_operacion
+    FROM operaciones_cliente o
+    GROUP BY o.id_cliente
+  ),
+  importes AS (
+    SELECT
+      h.id_cliente,
+      SUM(h.caja_recaudacion)::numeric AS recaudacion,
+      SUM(h.comision_servicio)::numeric AS comision,
+      SUM(h.gastos_operacionales)::numeric AS gastos_operacionales,
+      SUM(h.ganancias)::numeric AS ganancias,
+      SUM(h.monto_transferencia_cliente)::numeric AS salida
+    FROM public.f_get_dashboard_metricas_bancarias_hechos(
+      p_fecha_desde,
+      p_fecha_hasta,
+      p_rutas,
+      p_id_empresa,
+      p_id_empresa_cuenta_bancaria,
+      p_id_banco,
+      p_familias,
+      p_estados
+    ) h
+    WHERE h.tipo_evento <> 'CORTE'
+      AND h.id_cliente IS NOT NULL
+    GROUP BY h.id_cliente
+  )
+  SELECT jsonb_build_object(
+    'id_cliente', oa.id_cliente,
+    'dni', COALESCE(NULLIF(BTRIM(cl.numero_documento), ''), io.dni_operacion, '-'),
+    'nombre_completo', COALESCE(NULLIF(BTRIM(cl.nombre), ''), io.nombre_operacion, 'Sin nombre'),
+    'comunidad', COALESCE(NULLIF(BTRIM(cm.nombre), ''), 'Sin comunidad'),
+    'operaciones', oa.operaciones,
+    'recaudacion', COALESCE(i.recaudacion, 0),
+    'comision', COALESCE(i.comision, 0),
+    'gastos_operacionales', COALESCE(i.gastos_operacionales, 0),
+    'ganancias', COALESCE(i.ganancias, 0),
+    'salida', COALESCE(i.salida, 0),
+    'operaciones_pendientes', oa.operaciones_pendientes
+  )
+  FROM operaciones_agrupadas oa
+  LEFT JOIN importes i ON i.id_cliente = oa.id_cliente
+  LEFT JOIN public.tb_cliente cl ON cl.id = oa.id_cliente
+  LEFT JOIN public.tb_comunidad cm ON cm.id = cl.id_comunidad
+  LEFT JOIN identidad_operacion io ON io.id_cliente = oa.id_cliente
+  ORDER BY oa.operaciones DESC, COALESCE(i.recaudacion, 0) DESC, oa.id_cliente
+  LIMIT 10;
+END;
+$$;
+
+/* Distribucion de operaciones e importes por porcentaje de comision. */
+CREATE OR REPLACE FUNCTION public.f_get_dashboard_metricas_bancarias_comisiones(
+  p_fecha_desde date,
+  p_fecha_hasta date,
+  p_rutas character varying[] DEFAULT NULL,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_id_banco bigint DEFAULT NULL,
+  p_familias character varying[] DEFAULT NULL,
+  p_estados character varying[] DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF p_fecha_desde IS NULL OR p_fecha_hasta IS NULL OR p_fecha_desde > p_fecha_hasta THEN
+    RAISE EXCEPTION 'El rango de fechas del dashboard no es valido.';
+  END IF;
+  IF p_fecha_hasta - p_fecha_desde > 730 THEN
+    RAISE EXCEPTION 'El rango maximo permitido es de 731 dias.';
+  END IF;
+
+  RETURN QUERY
+  SELECT jsonb_build_object(
+    'porcentaje', h.comision_porcentaje,
+    'operaciones', SUM(h.operaciones_registradas),
+    'recaudacion', SUM(h.caja_recaudacion),
+    'comision', SUM(h.comision_servicio),
+    'gastos_operacionales', SUM(h.gastos_operacionales),
+    'ganancias', SUM(h.ganancias),
+    'salida', SUM(h.monto_transferencia_cliente)
+  )
+  FROM public.f_get_dashboard_metricas_bancarias_hechos(
+    p_fecha_desde,
+    p_fecha_hasta,
+    p_rutas,
+    p_id_empresa,
+    p_id_empresa_cuenta_bancaria,
+    p_id_banco,
+    p_familias,
+    p_estados
+  ) h
+  WHERE h.tipo_evento = 'INGRESO_OPERACION'
+  GROUP BY h.comision_porcentaje
+  ORDER BY h.comision_porcentaje;
+END;
+$$;
+
+/* Operaciones pendientes al cierre del periodo para revision operativa. */
+CREATE OR REPLACE FUNCTION public.f_get_dashboard_metricas_bancarias_pendientes(
+  p_fecha_desde date,
+  p_fecha_hasta date,
+  p_rutas character varying[] DEFAULT NULL,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_id_banco bigint DEFAULT NULL,
+  p_familias character varying[] DEFAULT NULL,
+  p_estados character varying[] DEFAULT NULL
+)
+RETURNS SETOF jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF p_fecha_desde IS NULL OR p_fecha_hasta IS NULL OR p_fecha_desde > p_fecha_hasta THEN
+    RAISE EXCEPTION 'El rango de fechas del dashboard no es valido.';
+  END IF;
+  IF p_fecha_hasta - p_fecha_desde > 730 THEN
+    RAISE EXCEPTION 'El rango maximo permitido es de 731 dias.';
+  END IF;
+
+  RETURN QUERY
+  WITH parametros AS (
+    SELECT (p_fecha_hasta + 1)::timestamp AT TIME ZONE 'America/Lima' AS hasta_ts
+  ),
+  cuentas AS (
+    SELECT DISTINCT
+      LOWER(BTRIM(rc.ruta))::character varying AS ruta,
+      rc.id_empresa,
+      e.nombre::character varying AS empresa,
+      rc.id_empresa_cuenta_bancaria,
+      ecb.id_banco,
+      b.nombre::character varying AS cuenta
+    FROM public.tb_ruta_operacion_caja rc
+    JOIN public.tb_empresa e ON e.id = rc.id_empresa
+    JOIN public.tb_empresa_cuenta_bancaria ecb ON ecb.id = rc.id_empresa_cuenta_bancaria
+    JOIN public.tb_banco b ON b.id = ecb.id_banco
+    WHERE rc.id_estado = 1
+      AND (p_id_empresa IS NULL OR rc.id_empresa = p_id_empresa)
+      AND (p_id_empresa_cuenta_bancaria IS NULL OR rc.id_empresa_cuenta_bancaria = p_id_empresa_cuenta_bancaria)
+      AND (p_id_banco IS NULL OR ecb.id_banco = p_id_banco)
+      AND (
+        p_rutas IS NULL OR COALESCE(cardinality(p_rutas), 0) = 0
+        OR LOWER(BTRIM(rc.ruta)) IN (SELECT LOWER(BTRIM(value)) FROM unnest(p_rutas) AS value)
+      )
+  ),
+  operaciones AS (
+    SELECT DISTINCT ON (op.id)
+      op.id,
+      op.id_cliente,
+      c.ruta,
+      c.empresa,
+      c.cuenta,
+      op.codigo_operacion_deposito_cliente,
+      op.dni_cliente,
+      op.nombre_cliente,
+      op.id_comunidad,
+      op.nombre_comunidad,
+      op.monto_deposito_cliente,
+      op.monto_transferencia_cliente,
+      op.nombre_estado,
+      COALESCE(op.fecha_deposito_cliente, op.fecha_registro) AS fecha_operacion,
+      CASE
+        WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'PAGO DEUDA' THEN 'PAGO DEUDA'
+        WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) = 'POS' THEN 'POS'
+        WHEN UPPER(BTRIM(COALESCE(op.tipo_servicio, op.nombre_codigo_servicio, ''))) IN ('LINK PAGO', 'LINKPAGO') THEN 'LINK PAGO'
+        ELSE 'EFECTIVIZACION'
+      END::character varying AS familia
+    FROM public.tb_operacion_proceso op
+    JOIN cuentas c
+      ON op.id_empresa_salida = c.id_empresa
+     AND op.id_empresa_cuenta_salida = c.id_empresa_cuenta_bancaria
+     AND (op.ruta_destino IS NULL OR LOWER(BTRIM(op.ruta_destino)) = c.ruta)
+    CROSS JOIN parametros p
+    WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+      AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO')
+      AND COALESCE(op.fecha_deposito_cliente, op.fecha_registro) < p.hasta_ts
+      AND (
+        (op.fecha_pagado IS NOT NULL AND op.fecha_pagado >= p.hasta_ts)
+        OR (
+          op.fecha_pagado IS NULL
+          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) NOT IN ('PAGADO', 'PROCESADO', 'DEVUELTO', 'RECHAZADO')
+        )
+      )
+      AND COALESCE(op.monto_transferencia_cliente, 0) > 0
+    ORDER BY op.id, c.ruta, c.id_empresa, c.id_empresa_cuenta_bancaria
+  )
+  SELECT jsonb_build_object(
+    'id_operacion', o.id,
+    'id_cliente', o.id_cliente,
+    'codigo_operacion', COALESCE(NULLIF(BTRIM(o.codigo_operacion_deposito_cliente), ''), o.id::text),
+    'dni', COALESCE(NULLIF(BTRIM(cl.numero_documento), ''), NULLIF(BTRIM(o.dni_cliente), ''), '-'),
+    'nombre_completo', COALESCE(NULLIF(BTRIM(cl.nombre), ''), NULLIF(BTRIM(o.nombre_cliente), ''), 'Sin nombre'),
+    'id_comunidad', COALESCE(cl.id_comunidad, o.id_comunidad),
+    'comunidad', COALESCE(NULLIF(BTRIM(cm.nombre), ''), NULLIF(BTRIM(o.nombre_comunidad), ''), 'Sin comunidad'),
+    'ruta', o.ruta,
+    'empresa', o.empresa,
+    'cuenta', o.cuenta,
+    'fecha', o.fecha_operacion,
+    'recaudacion', COALESCE(o.monto_deposito_cliente, 0),
+    'transferencia', COALESCE(o.monto_transferencia_cliente, 0),
+    'estado', COALESCE(NULLIF(BTRIM(o.nombre_estado), ''), 'Sin estado')
+  )
+  FROM operaciones o
+  LEFT JOIN public.tb_cliente cl ON cl.id = o.id_cliente
+  LEFT JOIN public.tb_comunidad cm ON cm.id = COALESCE(cl.id_comunidad, o.id_comunidad)
+  WHERE (
+      p_familias IS NULL OR COALESCE(cardinality(p_familias), 0) = 0
+      OR o.familia IN (SELECT UPPER(REPLACE(BTRIM(value), '-', ' ')) FROM unnest(p_familias) AS value)
+    )
+    AND (
+      p_estados IS NULL OR COALESCE(cardinality(p_estados), 0) = 0
+      OR UPPER(BTRIM(COALESCE(o.nombre_estado, ''))) IN (SELECT UPPER(BTRIM(value)) FROM unnest(p_estados) AS value)
+    )
+  ORDER BY o.fecha_operacion DESC, o.id DESC;
+END;
+$$;
+
+/* Cliente que genera la mayor ganancia dentro de la cohorte filtrada. */
+CREATE OR REPLACE FUNCTION public.f_get_dashboard_metricas_bancarias_mejor_cliente(
+  p_fecha_desde date,
+  p_fecha_hasta date,
+  p_rutas character varying[] DEFAULT NULL,
+  p_id_empresa bigint DEFAULT NULL,
+  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
+  p_id_banco bigint DEFAULT NULL,
+  p_familias character varying[] DEFAULT NULL,
+  p_estados character varying[] DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_resultado jsonb;
+BEGIN
+  IF p_fecha_desde IS NULL OR p_fecha_hasta IS NULL OR p_fecha_desde > p_fecha_hasta THEN
+    RAISE EXCEPTION 'El rango de fechas del dashboard no es valido.';
+  END IF;
+  IF p_fecha_hasta - p_fecha_desde > 730 THEN
+    RAISE EXCEPTION 'El rango maximo permitido es de 731 dias.';
+  END IF;
+
+  SELECT jsonb_build_object(
+    'id_cliente', ranking.id_cliente,
+    'dni', COALESCE(NULLIF(BTRIM(cl.numero_documento), ''), '-'),
+    'nombre_completo', COALESCE(NULLIF(BTRIM(cl.nombre), ''), 'Sin nombre'),
+    'operaciones', ranking.operaciones,
+    'ganancias', ranking.ganancias
+  )
+  INTO v_resultado
+  FROM (
+    SELECT
+      h.id_cliente,
+      SUM(h.operaciones_registradas)::bigint AS operaciones,
+      SUM(h.ganancias)::numeric AS ganancias
+    FROM public.f_get_dashboard_metricas_bancarias_hechos(
+      p_fecha_desde,
+      p_fecha_hasta,
+      p_rutas,
+      p_id_empresa,
+      p_id_empresa_cuenta_bancaria,
+      p_id_banco,
+      p_familias,
+      p_estados
+    ) h
+    WHERE h.tipo_evento = 'INGRESO_OPERACION'
+      AND h.id_cliente IS NOT NULL
+    GROUP BY h.id_cliente
+    ORDER BY SUM(h.ganancias) DESC, SUM(h.operaciones_registradas) DESC, h.id_cliente
+    LIMIT 1
+  ) ranking
+  LEFT JOIN public.tb_cliente cl ON cl.id = ranking.id_cliente;
+
+  RETURN COALESCE(v_resultado, '{}'::jsonb);
 END;
 $$;
 
@@ -879,10 +1566,10 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
   'f_get_dashboard_metricas_bancarias_hechos',
-  'f_get_dashboard_metricas_bancarias_clientes_nuevos',
-  'f_get_dashboard_metricas_bancarias_resumen',
-  'f_get_dashboard_metricas_bancarias_distribucion',
-  'f_get_dashboard_metricas_bancarias_serie',
-  'f_get_dashboard_metricas_bancarias_desglose'
+  'f_get_dashboard_metricas_bancarias_comunidades',
+  'f_get_dashboard_metricas_bancarias_clientes_top',
+  'f_get_dashboard_metricas_bancarias_comisiones',
+  'f_get_dashboard_metricas_bancarias_pendientes',
+  'f_get_dashboard_metricas_bancarias_mejor_cliente'
 )
 ORDER BY n.nspname, p.proname;
