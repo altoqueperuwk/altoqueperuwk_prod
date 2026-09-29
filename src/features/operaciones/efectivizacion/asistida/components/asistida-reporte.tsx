@@ -3,9 +3,15 @@ import type { OperacionAsistidaKpi, OperacionProceso, OperacionRuta } from "@/fe
 import { formatMoney } from "@/features/operaciones/efectivizacion/shared/utils/money";
 
 export type AsistidaReportColumnKey =
+    | "fechaOperacion"
+    | "usuario"
+    | "pos"
+    | "empresaPos"
     | "entidad"
     | "tarjeta"
     | "dni"
+    | "cliente"
+    | "transaccionPos"
     | "comunidad"
     | "monto"
     | "comision"
@@ -13,6 +19,7 @@ export type AsistidaReportColumnKey =
     | "comisionAtk"
     | "empresa"
     | "cuenta"
+    | "empresaCuenta"
     | "transferencia"
     | "estado"
     | "hora";
@@ -34,34 +41,46 @@ export interface AsistidaReportProps {
 
 export const getAsistidaReportColumns = (ruta: AsistidaReportProps["ruta"]): AsistidaReportColumn[] => ruta === "linkpago"
     ? [
+        { key: "usuario", label: "Usuario" },
         { key: "entidad", label: "Entidad Tarjeta" },
         { key: "tarjeta", label: "Tarjeta" },
         { key: "dni", label: "DNI" },
+        { key: "cliente", label: "Nombre" },
         { key: "comunidad", label: "Comunidad" },
-        { key: "monto", label: "Monto", money: true },
+        { key: "monto", label: "Monto Deposito", money: true },
         { key: "comision", label: "Comision", money: true },
         { key: "comisionEcompany", label: "Comision ECompany", money: true },
         { key: "comisionAtk", label: "Comision ATK", money: true },
         { key: "transferencia", label: "Transferencia", money: true },
         { key: "estado", label: "Estado" },
-        { key: "hora", label: "Hora" },
+        { key: "hora", label: "Fecha Hora" },
     ]
     : [
+        { key: "usuario", label: "Usuario" },
+        { key: "pos", label: "POS" },
+        { key: "empresaPos", label: "Empresa" },
+        { key: "transaccionPos", label: "N° transacción POS" },
         { key: "entidad", label: "Entidad Tarjeta" },
         { key: "tarjeta", label: "Tarjeta" },
         { key: "dni", label: "DNI" },
+        { key: "cliente", label: "Nombre del cliente" },
         { key: "comunidad", label: "Comunidad" },
-        { key: "monto", label: "Monto", money: true },
+        { key: "monto", label: "Monto Deposito", money: true },
         { key: "comision", label: "Comision", money: true },
-        { key: "empresa", label: "Empresa" },
-        { key: "cuenta", label: "Cuenta" },
+        { key: "empresaCuenta", label: "Empresa Cuenta" },
         { key: "transferencia", label: "Transferencia", money: true },
         { key: "estado", label: "Estado" },
-        { key: "hora", label: "Hora" },
+        { key: "fechaOperacion", label: "Fecha de operación" },
     ];
 
 const numberValue = (value: unknown) => Number(value ?? 0);
 const textValue = (value: unknown) => value == null || value === "" ? "-" : String(value);
+const linesValue = (...values: unknown[]) => {
+    const lines = values
+        .filter((value) => value != null && String(value).trim() !== "")
+        .map(String);
+    return lines.length ? lines.join("\n") : "-";
+};
 const isPagado = (row: OperacionProceso) => String(row.nombre_estado ?? "").trim().toUpperCase() === "PAGADO";
 const dateTimeValue = (value: string | null | undefined) => value
     ? `${new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value))}\n${new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" }).format(new Date(value))}`
@@ -69,9 +88,15 @@ const dateTimeValue = (value: string | null | undefined) => value
 
 export const getAsistidaReportCellValue = (row: OperacionProceso, key: AsistidaReportColumnKey): string | number => {
     switch (key) {
+        case "fechaOperacion": return dateTimeValue(row.fecha_registro);
+        case "usuario": return textValue(row.nombre_usuario);
+        case "pos": return textValue(row.nombre_pos);
+        case "empresaPos": return textValue(row.nombre_empresa_pos);
         case "entidad": return textValue(row.nombre_banco_cliente);
         case "tarjeta": return textValue(row.numero_tarjeta);
         case "dni": return textValue(row.dni_cliente);
+        case "cliente": return textValue(row.nombre_cliente);
+        case "transaccionPos": return textValue(row.codigo_operacion_deposito_cliente);
         case "comunidad": return textValue(row.nombre_comunidad);
         case "monto": return numberValue(row.monto_deposito_cliente);
         case "comision": return numberValue(row.resultado_comision_servicio);
@@ -79,6 +104,7 @@ export const getAsistidaReportCellValue = (row: OperacionProceso, key: AsistidaR
         case "comisionAtk": return numberValue(row.resultado_comision_servicio) - numberValue(row.resultado_comision_banco_ingreso) - numberValue(row.resultado_comision_banco_salida);
         case "empresa": return textValue(row.nombre_empresa_salida);
         case "cuenta": return textValue(row.nombre_banco_empresa_cuenta_salida);
+        case "empresaCuenta": return linesValue(row.nombre_empresa_salida, row.nombre_banco_empresa_cuenta_salida);
         case "transferencia": return numberValue(row.monto_transferencia_cliente ?? row.monto_deposito_cliente);
         case "estado": return isPagado(row) ? "Pagado" : "Pendiente";
         case "hora": return dateTimeValue(row.fecha_registro);
@@ -88,6 +114,7 @@ export const getAsistidaReportCellValue = (row: OperacionProceso, key: AsistidaR
 const reportStyles = `
 .asistida-report, .asistida-report * { box-sizing:border-box; }
 .asistida-report { width:794px; padding:28px; background:#fff; color:#1e2a38; font-family:Arial,sans-serif; font-size:10px; }
+.asistida-report.is-wide { width:1123px; }
 .asistida-report .cover { padding:22px 24px; color:#fff; background:#1e2a38; border-radius:10px; }
 .asistida-report .cover-top { display:flex; justify-content:space-between; gap:20px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,.18); }
 .asistida-report .brand, .asistida-report .title { font-size:16px; font-weight:700; letter-spacing:1px; white-space:nowrap; }
@@ -102,13 +129,14 @@ const reportStyles = `
 .asistida-report h2 { margin:22px 0 8px; font-size:13px; }
 .asistida-report .table-wrap { overflow:hidden; border:1px solid #e5e7eb; border-radius:7px; }
 .asistida-report table { width:100%; border-collapse:collapse; table-layout:fixed; }
-.asistida-report th { padding:8px 5px; background:#1e2a38; color:#fff; font-size:7px; text-align:left; white-space:nowrap; }
+.asistida-report th { padding:8px 5px; background:#1e2a38; color:#fff; font-size:7px; text-align:left; white-space:normal; }
 .asistida-report td { padding:7px 5px; border-bottom:1px solid #eef2f6; color:#334155; font-size:8px; vertical-align:middle; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .asistida-report td.date-time { white-space:pre-line; line-height:1.35; }
+.asistida-report td.wrap-text { white-space:normal; overflow-wrap:anywhere; line-height:1.35; }
 .asistida-report tr:nth-child(even) td { background:#f8fafc; }
 .asistida-report .total td { background:#f8fafc; border-top:1px solid #cbd5e1; font-weight:700; }
 .asistida-report footer { display:flex; justify-content:space-between; margin-top:18px; padding-top:9px; border-top:1px solid #e2e8f0; color:#94a3b8; font-size:8px; }
-@page { size:A4 portrait; margin:7mm; }
+@page { size:A4; margin:7mm; }
 `;
 
 const Cell = ({ children, className = "" }: { children: ReactNode; className?: string }) => <td className={className}>{children}</td>;
@@ -117,11 +145,16 @@ export const AsistidaReportPdf = ({ ruta, rows, deletedRows = [], dateLabel, use
     const columns = getAsistidaReportColumns(ruta);
     const title = ruta === "linkpago" ? "LinkPago" : "POS";
     const totalByKey = (key: AsistidaReportColumnKey) => rows.reduce((sum, row) => sum + numberValue(getAsistidaReportCellValue(row, key)), 0);
+    const getCellClassName = (key: AsistidaReportColumnKey) => {
+        if (key === "hora" || key === "fechaOperacion") return "date-time";
+        if (key === "cliente" || key === "empresaCuenta") return "wrap-text";
+        return "";
+    };
 
     return (
         <>
             <style>{reportStyles}</style>
-            <div className="asistida-report">
+            <div className="asistida-report is-wide">
                 <header className="cover">
                     <div className="cover-top"><div className="brand">ALTOQUE PERÚ <span>WK</span></div><div className="title">Reporte de {title}</div></div>
                     <div className="meta">
@@ -145,7 +178,7 @@ export const AsistidaReportPdf = ({ ruta, rows, deletedRows = [], dateLabel, use
                         <tbody>
                             {rows.map((row) => <tr key={row.id}>{columns.map((column) => {
                                 const value = getAsistidaReportCellValue(row, column.key);
-                                return <Cell className={column.key === "hora" ? "date-time" : ""} key={column.key}>{column.money ? formatMoney(Number(value)) : value}</Cell>;
+                                return <Cell className={getCellClassName(column.key)} key={column.key}>{column.money ? formatMoney(Number(value)) : value}</Cell>;
                             })}</tr>)}
                             <tr className="total"><td colSpan={Math.max(1, columns.findIndex((column) => column.key === "monto"))}>Totales</td>{columns.map((column, index) => index >= columns.findIndex((item) => item.key === "monto") ? <Cell key={column.key}>{column.money ? formatMoney(totalByKey(column.key)) : ""}</Cell> : null)}</tr>
                         </tbody>
@@ -160,7 +193,7 @@ export const AsistidaReportPdf = ({ ruta, rows, deletedRows = [], dateLabel, use
                                 <tbody>
                                     {deletedRows.map((row) => <tr key={row.id}>{columns.map((column) => {
                                         const value = column.key === "estado" ? "Eliminado" : getAsistidaReportCellValue(row, column.key);
-                                        return <Cell className={column.key === "hora" ? "date-time" : ""} key={column.key}>{column.money ? formatMoney(Number(value)) : value}</Cell>;
+                                        return <Cell className={getCellClassName(column.key)} key={column.key}>{column.money ? formatMoney(Number(value)) : value}</Cell>;
                                     })}</tr>)}
                                 </tbody>
                             </table>

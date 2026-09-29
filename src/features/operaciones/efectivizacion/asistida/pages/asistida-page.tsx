@@ -90,7 +90,19 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
         workbook.creator = "Altoque Peru WK";
         const sheet = workbook.addWorksheet(ruta === "linkpago" ? "LinkPago" : "POS", { properties: { defaultRowHeight: 19 } });
         sheet.views = [{ showGridLines: false }];
-        sheet.columns = columns.map((column) => ({ width: column.key === "hora" ? 20 : column.key === "comisionEcompany" || column.key === "comisionAtk" ? 19 : 16 }));
+        const columnWidths: Partial<Record<(typeof columns)[number]["key"], number>> = {
+            fechaOperacion: 20,
+            hora: 20,
+            usuario: 16,
+            pos: 14,
+            empresaPos: 24,
+            cliente: 30,
+            transaccionPos: 22,
+            empresaCuenta: 28,
+            comisionEcompany: 19,
+            comisionAtk: 19,
+        };
+        sheet.columns = columns.map((column) => ({ width: columnWidths[column.key] ?? 16 }));
         const colors = { navy: "1E2A38", white: "FFFFFF", line: "E5E7EB", row: "F8FAFC", ink: "334155" };
         const styleCell = (cell: ExcelJS.Cell, options: { bold?: boolean; color?: string; bg?: string } = {}) => {
             cell.font = { name: "Arial", size: 9, bold: options.bold ?? false, color: { argb: options.color ?? colors.ink } };
@@ -187,7 +199,7 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
         host.style.position = "absolute";
         host.style.left = "0";
         host.style.top = "0";
-        host.style.width = "794px";
+        host.style.width = "1123px";
         host.style.zIndex = "9999";
         host.style.background = "#FFFFFF";
         host.style.pointerEvents = "none";
@@ -203,7 +215,7 @@ export const AsistidaPage = ({ ruta }: AsistidaPageProps) => {
                 filename: getReportFileName("pdf"),
                 image: { type: "jpeg", quality: 0.98 },
                 html2canvas: { scale: 3, backgroundColor: "#FFFFFF", useCORS: true },
-                jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+                jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
             }).from(element).save();
         } finally {
             root.unmount();

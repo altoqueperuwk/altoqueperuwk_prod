@@ -1,7 +1,7 @@
 -- Validacion de solo lectura para 13.dashboard_metricas_bancarias.sql.
--- Ejecutar despues de desplegar las diez funciones en Supabase.
+-- Ejecutar despues de desplegar las once funciones en Supabase.
 
--- 1. Las diez firmas deben existir.
+-- 1. Las once firmas deben existir.
 SELECT
   to_regprocedure(
      'public.f_get_dashboard_metricas_bancarias_hechos(date,date,character varying[],bigint,bigint,bigint,character varying[],character varying[])'
@@ -30,6 +30,9 @@ SELECT
    to_regprocedure(
      'public.f_get_dashboard_metricas_bancarias_pendientes(date,date,character varying[],bigint,bigint,bigint,character varying[],character varying[])'
    ) IS NOT NULL AS existe_pendientes,
+   to_regprocedure(
+     'public.f_get_dashboard_metricas_bancarias_derivaciones(date,date,character varying[],bigint,bigint,bigint,character varying[],character varying[])'
+   ) IS NOT NULL AS existe_derivaciones,
    to_regprocedure(
      'public.f_get_dashboard_metricas_bancarias_mejor_cliente(date,date,character varying[],bigint,bigint,bigint,character varying[],character varying[])'
    ) IS NOT NULL AS existe_mejor_cliente;
@@ -101,7 +104,18 @@ SELECT public.f_get_dashboard_metricas_bancarias_mejor_cliente(
   p_familias := ARRAY['EFECTIVIZACION']::character varying[]
 );
 
--- 10. Caso SafetyPay del mes. Debe incluir total_transferencia y
+-- 10. Derivaciones atendidas de Efectivizacion. El contexto debe coincidir con
+-- la empresa/cuenta de salida, agrupando por empresa y banco de origen y
+-- sumando como gasto operacional la comision bancaria de salida.
+SELECT *
+FROM public.f_get_dashboard_metricas_bancarias_derivaciones(
+  p_fecha_desde := DATE_TRUNC('month', CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date,
+  p_fecha_hasta := (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date,
+  p_rutas := ARRAY['bcp']::character varying[],
+  p_familias := ARRAY['EFECTIVIZACION']::character varying[]
+);
+
+-- 11. Caso SafetyPay del mes. Debe incluir total_transferencia y
 -- empresas_derivadas dentro del objeto safetypay.
 SELECT public.f_get_dashboard_metricas_bancarias_resumen(
   p_fecha_desde := DATE_TRUNC('month', CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date,
@@ -110,7 +124,7 @@ SELECT public.f_get_dashboard_metricas_bancarias_resumen(
   p_incluir_comparacion := false
 ) AS resumen_safetypay;
 
--- 11. Filtros de familia. DIRECTO solo debe producir ingresos informativos y
+-- 12. Filtros de familia. DIRECTO solo debe producir ingresos informativos y
 -- no Caja Recaudacion, Salidas, Gastos ni Ganancias.
 SELECT public.f_get_dashboard_metricas_bancarias_resumen(
   p_fecha_desde := DATE_TRUNC('month', CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date,
@@ -119,7 +133,7 @@ SELECT public.f_get_dashboard_metricas_bancarias_resumen(
   p_incluir_comparacion := false
 ) AS resumen_directo;
 
--- 12. El contrato analitico usa margen de ganancia. Ganancias ya descuenta las
+-- 13. El contrato analitico usa margen de ganancia. Ganancias ya descuenta las
 -- comisiones bancarias, por lo que no debe existir un segundo resultado que
 -- vuelva a restar Gastos Operacionales.
 WITH resultado AS (
@@ -134,7 +148,7 @@ SELECT
   NOT (data -> 'actual' ? 'resultado_operativo') AS evita_doble_deduccion
 FROM resultado;
 
--- 13. La funcion base tambien protege su consulta directa. Un rango superior a
+-- 14. La funcion base tambien protege su consulta directa. Un rango superior a
 -- 731 dias debe devolver cero hechos; las RPC publicas generan una excepcion.
 SELECT COUNT(*) = 0 AS rango_directo_protegido
 FROM public.f_get_dashboard_metricas_bancarias_hechos(

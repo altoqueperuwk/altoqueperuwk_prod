@@ -7,6 +7,7 @@ import type {
     MetricasComunidad,
     MetricasCuenta,
     MetricasDesglose,
+    MetricasDerivacion,
     MetricasOperacionPendiente,
     MetricasMejorCliente,
     MetricasSerie,
@@ -157,6 +158,7 @@ const useMetricasBancariasCollection = <T,>(consulta: MetricasConsulta, loader: 
 
 const loadCommissions = (consulta: MetricasConsulta) => metricasBancariasService.getCommissions(consulta);
 const loadPendingOperations = (consulta: MetricasConsulta) => metricasBancariasService.getPendingOperations(consulta);
+const loadDerivations = (consulta: MetricasConsulta) => metricasBancariasService.getDerivations(consulta);
 const loadSeries = (consulta: MetricasConsulta) => metricasBancariasService.getSeries(consulta);
 
 export const useMetricasBancariasComisiones = (consulta: MetricasConsulta) => {
@@ -167,6 +169,11 @@ export const useMetricasBancariasComisiones = (consulta: MetricasConsulta) => {
 export const useMetricasBancariasPendientes = (consulta: MetricasConsulta) => {
     const result = useMetricasBancariasCollection<MetricasOperacionPendiente>(consulta, loadPendingOperations);
     return { pendingOperations: result.items, isLoading: result.isLoading, error: result.error };
+};
+
+export const useMetricasBancariasDerivaciones = (consulta: MetricasConsulta) => {
+    const result = useMetricasBancariasCollection<MetricasDerivacion>(consulta, loadDerivations);
+    return { derivations: result.items, isLoading: result.isLoading, error: result.error };
 };
 
 export const useMetricasBancariasSerie = (consulta: MetricasConsulta) => {

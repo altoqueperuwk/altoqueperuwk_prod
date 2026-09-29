@@ -12,6 +12,7 @@ import { cx } from "@/utils/cx";
 import { MetricasServiceNavigation } from "../metricas-service-navigation";
 import { exportMetricasBancarias } from "../metricas-bancarias-export";
 import { RecordatorioEnviarModal } from "@/features/recordatorios-operativos/recordatorio-enviar-modal";
+import { formatMetricasDateRange } from "../metricas-date-range";
 import type {
     MetricasPagoDeudaCliente,
     MetricasPagoDeudaComision,
@@ -108,13 +109,14 @@ const Tab = ({ active, children, onClick, title }: { active: boolean; children: 
     )}>{children}</button>
 );
 
-const Panel = ({ title, context, children }: { title: string; context?: string[]; children: ReactNode }) => (
+const Panel = ({ title, context, period, children }: { title: string; context?: string[]; period?: string; children: ReactNode }) => (
     <motion.section layout transition={{ duration: 0.2 }} className="rounded-xl border border-secondary bg-primary p-5 shadow-xs">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-primary">{title}</h2>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                 {context?.map((item) => <Badge key={item} size="sm" color="gray">{item}</Badge>)}
                 <Badge size="sm" color="brand">Pago Deuda</Badge>
+                {period && <Badge size="sm" color="blue">{period}</Badge>}
             </div>
         </div>
         {children}
@@ -181,6 +183,7 @@ export const MetricasPagoDeudaPage = () => {
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const [period, setPeriod] = useState<Period>("week");
     const [dateRange, setDateRange] = useState(() => getDateRange("week"));
+    const periodLabel = formatMetricasDateRange(dateRange.fechaDesde, dateRange.fechaHasta);
     const [branchId, setBranchId] = useState<number | null>(null);
     const [bankId, setBankId] = useState<number | null>(null);
     const [isExporting, setIsExporting] = useState(false);
@@ -295,35 +298,35 @@ export const MetricasPagoDeudaPage = () => {
 
             <section>{isLoading && !data ? <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">{Array.from({ length: 12 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-lg bg-secondary" />)}</div> : <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">{kpis.map((item, index) => <MetricCard key={item.label} {...item} index={index} />)}</div>}</section>
 
-            <Panel title="Distribución por Sede" context={tableContext}>
+            <Panel title="Distribución por Sede" context={tableContext} period={periodLabel}>
                 <TableShell empty={!isLoading && !branchDistribution.length}><table className="w-full min-w-[1180px] border-collapse text-left text-sm"><thead className="bg-secondary text-xs uppercase text-tertiary"><tr>
                     {([[
                         "Sede", "nombre", "left"], ["Solicitudes", "operaciones", "right"], ["Atendidas", "atendidas", "right"], ["Pendientes", "pendientes", "right"], ["Monto Solicitado", "montoSolicitado", "right"], ["Monto Transferido", "montoTransferido", "right"], ["Ganancia", "ganancias", "right"], ["Clientes Nuevos", "clientesNuevos", "right"], ["Tasa Atención", "tasaAtencion", "right"]] as const).map(([label, column, align]) => <SortableHeader key={column} label={label} column={column} sort={branchDistributionSort} align={align} onSort={(value) => toggleSort(setBranchDistributionSort, value)} />)}
                 </tr></thead><tbody className="divide-y divide-secondary">{branchDistribution.map((row) => <tr key={row.id ?? row.nombre} className="bg-primary hover:bg-primary_hover"><td className="px-4 py-3 font-semibold text-primary">{row.nombre}</td><td className="px-4 py-3 text-right tabular-nums text-secondary">{integerFormatter.format(row.operaciones)}</td><td className="px-4 py-3 text-right tabular-nums text-success-primary">{integerFormatter.format(row.atendidas)}</td><td className="px-4 py-3 text-right tabular-nums text-warning-primary">{integerFormatter.format(row.pendientes)}</td><td className="px-4 py-3 text-right tabular-nums text-success-primary">{formatMoney(row.montoSolicitado)}</td><td className="px-4 py-3 text-right tabular-nums text-error-primary">{formatMoney(row.montoTransferido)}</td><td className="px-4 py-3 text-right tabular-nums text-brand-secondary">{formatMoney(row.ganancias)}</td><td className="px-4 py-3 text-right tabular-nums text-secondary">{integerFormatter.format(row.clientesNuevos)}</td><td className="px-4 py-3 text-right font-medium tabular-nums text-primary">{row.tasaAtencion.toFixed(2)}%</td></tr>)}</tbody></table></TableShell>
             </Panel>
 
-            <Panel title="Distribución por Banco Solicitado" context={tableContext}>
+            <Panel title="Distribución por Banco Solicitado" context={tableContext} period={periodLabel}>
                 <TableShell empty={!isLoading && !bankDistribution.length}><table className="w-full min-w-[1180px] border-collapse text-left text-sm"><thead className="bg-secondary text-xs uppercase text-tertiary"><tr>
                     {([[
                         "Banco Solicitado", "nombre", "left"], ["Solicitudes", "operaciones", "right"], ["Atendidas", "atendidas", "right"], ["Pendientes", "pendientes", "right"], ["Monto Solicitado", "montoSolicitado", "right"], ["Monto Transferido", "montoTransferido", "right"], ["Ganancia", "ganancias", "right"], ["Clientes Nuevos", "clientesNuevos", "right"], ["Tasa Atención", "tasaAtencion", "right"]] as const).map(([label, column, align]) => <SortableHeader key={column} label={label} column={column} sort={bankDistributionSort} align={align} onSort={(value) => toggleSort(setBankDistributionSort, value)} />)}
                 </tr></thead><tbody className="divide-y divide-secondary">{bankDistribution.map((row) => <tr key={row.id ?? row.nombre} className="bg-primary hover:bg-primary_hover"><td className="px-4 py-3 font-semibold text-primary">{row.nombre}</td><td className="px-4 py-3 text-right tabular-nums text-secondary">{integerFormatter.format(row.operaciones)}</td><td className="px-4 py-3 text-right tabular-nums text-success-primary">{integerFormatter.format(row.atendidas)}</td><td className="px-4 py-3 text-right tabular-nums text-warning-primary">{integerFormatter.format(row.pendientes)}</td><td className="px-4 py-3 text-right tabular-nums text-success-primary">{formatMoney(row.montoSolicitado)}</td><td className="px-4 py-3 text-right tabular-nums text-error-primary">{formatMoney(row.montoTransferido)}</td><td className="px-4 py-3 text-right tabular-nums text-brand-secondary">{formatMoney(row.ganancias)}</td><td className="px-4 py-3 text-right tabular-nums text-secondary">{integerFormatter.format(row.clientesNuevos)}</td><td className="px-4 py-3 text-right font-medium tabular-nums text-primary">{row.tasaAtencion.toFixed(2)}%</td></tr>)}</tbody></table></TableShell>
             </Panel>
 
-            <Panel title="Distribución % Comisión" context={tableContext}>
+            <Panel title="Distribución % Comisión" context={tableContext} period={periodLabel}>
                 <TableShell empty={!isLoading && !commissions.length}><table className="w-full min-w-[1180px] border-collapse text-left text-sm"><thead className="bg-secondary text-xs uppercase text-tertiary"><tr>
                     {([[
                         "Comisión", "porcentaje", "left"], ["Solicitudes", "operaciones", "right"], ["Atendidas", "atendidas", "right"], ["Pendientes", "pendientes", "right"], ["Monto Solicitado", "recaudacion", "right"], ["Monto Transferido", "salida", "right"], ["Ganancia", "ganancias", "right"], ["Clientes Nuevos", "clientesNuevos", "right"], ["Tasa Atención", "tasaAtencion", "right"]] as const).map(([label, column, align]) => <SortableHeader key={column} label={label} column={column} sort={commissionSort} align={align} onSort={(value) => toggleSort(setCommissionSort, value)} />)}
                 </tr></thead><tbody className="divide-y divide-secondary">{commissions.map((row) => <tr key={row.porcentaje} className="bg-primary hover:bg-primary_hover"><td className="px-4 py-3 font-semibold text-primary">{row.porcentaje.toFixed(2)}%</td><td className="px-4 py-3 text-right tabular-nums text-secondary">{integerFormatter.format(row.operaciones)}</td><td className="px-4 py-3 text-right tabular-nums text-success-primary">{integerFormatter.format(row.atendidas)}</td><td className="px-4 py-3 text-right tabular-nums text-warning-primary">{integerFormatter.format(row.pendientes)}</td><td className="px-4 py-3 text-right tabular-nums text-success-primary">{formatMoney(row.recaudacion)}</td><td className="px-4 py-3 text-right tabular-nums text-error-primary">{formatMoney(row.salida)}</td><td className="px-4 py-3 text-right tabular-nums text-brand-secondary">{formatMoney(row.ganancias)}</td><td className="px-4 py-3 text-right tabular-nums text-secondary">{integerFormatter.format(row.clientesNuevos)}</td><td className="px-4 py-3 text-right font-medium tabular-nums text-primary">{row.tasaAtencion.toFixed(2)}%</td></tr>)}</tbody></table></TableShell>
             </Panel>
 
-            <Panel title="Distribución Comunidad" context={tableContext}>
+            <Panel title="Distribución Comunidad" context={tableContext} period={periodLabel}>
                 <TableShell empty={!isLoading && !communities.length}><table className="w-full min-w-[1280px] border-collapse text-left text-sm"><thead className="bg-secondary text-xs uppercase text-tertiary"><tr>
                     {([[
                         "Comunidad", "comunidad", "left"], ["Solicitudes", "operaciones", "right"], ["Atendidas", "atendidas", "right"], ["Pendientes", "pendientes", "right"], ["Monto Solicitado", "recaudacion", "right"], ["Monto Transferido", "salida", "right"], ["Ganancia", "ganancias", "right"], ["Clientes Nuevos", "clientesNuevos", "right"], ["Tasa Atención", "tasaAtencion", "right"]] as const).map(([label, column, align]) => <SortableHeader key={column} label={label} column={column} sort={communitySort} align={align} onSort={(value) => toggleSort(setCommunitySort, value)} />)}
                 </tr></thead><tbody className="divide-y divide-secondary">{communities.map((row) => <tr key={`${row.idComunidad}-${row.comunidad}`} className="bg-primary hover:bg-primary_hover"><td className="px-4 py-3 font-semibold text-primary">{row.comunidad}</td><td className="px-4 py-3 text-right tabular-nums text-secondary">{integerFormatter.format(row.operaciones)}</td><td className="px-4 py-3 text-right tabular-nums text-success-primary">{integerFormatter.format(row.atendidas)}</td><td className="px-4 py-3 text-right tabular-nums text-warning-primary">{integerFormatter.format(row.pendientes)}</td><td className="px-4 py-3 text-right tabular-nums text-success-primary">{formatMoney(row.recaudacion)}</td><td className="px-4 py-3 text-right tabular-nums text-error-primary">{formatMoney(row.salida)}</td><td className="px-4 py-3 text-right tabular-nums text-brand-secondary">{formatMoney(row.ganancias)}</td><td className="px-4 py-3 text-right tabular-nums text-secondary">{integerFormatter.format(row.clientesNuevos)}</td><td className="px-4 py-3 text-right font-medium tabular-nums text-primary">{row.tasaAtencion.toFixed(2)}%</td></tr>)}</tbody></table></TableShell>
             </Panel>
 
-            <Panel title="Distribución Clientes con Más Solicitudes" context={tableContext}>
+            <Panel title="Distribución Clientes con Más Solicitudes" context={tableContext} period={periodLabel}>
                 <TableShell empty={!isLoading && !clients.length}><table className="w-full min-w-[1220px] border-collapse text-left text-sm"><thead className="bg-secondary text-xs uppercase text-tertiary"><tr>
                     {([[
                         "DNI", "dni", "left"], ["Nombre Completo", "nombreCompleto", "left"], ["Comunidad", "comunidad", "left"], ["Solicitudes", "operaciones", "right"], ["Atendidas", "atendidas", "right"], ["Pendientes", "pendientes", "right"], ["Monto Solicitado", "recaudacion", "right"], ["Monto Transferido", "salida", "right"], ["Ganancia", "ganancias", "right"]] as const).map(([label, column, align]) => <SortableHeader key={column} label={label} column={column} sort={clientSort} align={align} onSort={(value) => toggleSort(setClientSort, value)} />)}
@@ -331,7 +334,7 @@ export const MetricasPagoDeudaPage = () => {
             </Panel>
 
             <div ref={pendingTableRef} className="scroll-mt-6">
-            <Panel title="Solicitudes Pendientes" context={tableContext}>
+            <Panel title="Solicitudes Pendientes" context={tableContext} period={periodLabel}>
                 <TableShell empty={!isLoading && !pending.length}><table className="w-full min-w-[1180px] border-collapse text-left text-sm"><thead className="bg-secondary text-xs uppercase text-tertiary"><tr>
                     {([[
                         "DNI", "dni", "left"], ["Cliente", "nombreCompleto", "left"], ["Comunidad", "comunidad", "left"], ["Banco", "banco", "left"], ["Fecha", "fecha", "left"], ["Monto Solicitado", "recaudacion", "right"], ["Monto Transferido", "transferencia", "right"], ["Ganancia", "ganancias", "right"], ["Estado actual", "estado", "left"]] as const).map(([label, column, align]) => <SortableHeader key={column} label={label} column={column} sort={pendingSort} align={align} onSort={(value) => toggleSort(setPendingSort, value)} />)}<th className="px-4 py-3 text-right font-semibold">Acciones</th>

@@ -8,6 +8,7 @@ import type {
     MetricasComision,
     MetricasComunidad,
     MetricasDesglose,
+    MetricasDerivacion,
     MetricasResumen,
     MetricasOperacionPendiente,
     MetricasMejorCliente,
@@ -174,6 +175,16 @@ const mapPendingOperations = (rows: unknown[]): MetricasOperacionPendiente[] => 
     estado: String(row.estado ?? "Sin estado"),
 }));
 
+const mapDerivations = (rows: unknown[]): MetricasDerivacion[] => arrayValue(rows).map((row) => ({
+    idEmpresaContraparte: row.id_empresa_contraparte == null ? null : numberValue(row.id_empresa_contraparte),
+    empresaContraparte: String(row.empresa_contraparte ?? "Sin empresa"),
+    idBancoContraparte: row.id_banco_contraparte == null ? null : numberValue(row.id_banco_contraparte),
+    bancoContraparte: String(row.banco_contraparte ?? "Sin banco"),
+    operaciones: numberValue(row.operaciones),
+    gastosOperacionales: numberValue(row.gastos_operacionales),
+    montoTransferido: numberValue(row.monto_transferido),
+}));
+
 const mapBestClient = (value: unknown): MetricasMejorCliente | null => {
     const row = recordValue(value);
     if (!row.id_cliente) return null;
@@ -307,6 +318,13 @@ export const metricasBancariasService = {
         delete (params as Partial<typeof params>).p_incluir_comparacion;
         const rows = await rpc<unknown[]>("f_get_dashboard_metricas_bancarias_pendientes", params);
         return mapPendingOperations(rows);
+    },
+
+    async getDerivations(consulta: MetricasConsulta): Promise<MetricasDerivacion[]> {
+        const params = { ...familyParams(consulta) };
+        delete (params as Partial<typeof params>).p_incluir_comparacion;
+        const rows = await rpc<unknown[]>("f_get_dashboard_metricas_bancarias_derivaciones", params);
+        return mapDerivations(rows);
     },
 
     async getSeries(consulta: MetricasConsulta): Promise<MetricasSerie[]> {

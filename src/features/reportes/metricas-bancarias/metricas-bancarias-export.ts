@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import type { MetricasCliente, MetricasComision, MetricasComunidad, MetricasOperacionPendiente } from "./metricas-bancarias.types";
+import type { MetricasCliente, MetricasComision, MetricasComunidad, MetricasDerivacion, MetricasOperacionPendiente } from "./metricas-bancarias.types";
 
 interface MetricasExportKpi {
     indicador: string;
@@ -16,6 +16,7 @@ interface MetricasExportInput {
     communities: MetricasComunidad[];
     clients: MetricasCliente[];
     pendingOperations: MetricasOperacionPendiente[];
+    derivations?: MetricasDerivacion[];
 }
 
 const downloadBlob = (blob: Blob, fileName: string) => {
@@ -83,10 +84,26 @@ export const exportMetricasBancarias = async (input: MetricasExportInput) => {
         { header: "Transferencia", key: "transferencia", width: 18 }, { header: "Estado actual", key: "estado", width: 18 },
     ], input.pendingOperations.map((row) => ({ codigo: row.codigoOperacion, dni: row.dni, cliente: row.nombreCompleto, comunidad: row.comunidad, banco: row.ruta.toUpperCase(), empresa: row.empresa, cuenta: row.cuenta, fecha: row.fecha, recaudacion: row.recaudacion, transferencia: row.transferencia, estado: row.estado })));
 
+    if (input.derivations) {
+        addSheet("Derivaciones atendidas", [
+            { header: "Envio", key: "empresa", width: 30 },
+            { header: "Banco origen", key: "banco", width: 20 },
+            { header: "Operaciones", key: "operaciones", width: 16 },
+            { header: "Gastos Operacionales", key: "gastos", width: 22 },
+            { header: "Transferido al cliente", key: "transferencia", width: 22 },
+        ], input.derivations.map((row) => ({
+            empresa: row.empresaContraparte,
+            banco: row.bancoContraparte,
+            operaciones: row.operaciones,
+            gastos: row.gastosOperacionales,
+            transferencia: row.montoTransferido,
+        })));
+    }
+
     for (const sheet of workbook.worksheets) {
         sheet.eachRow((row, rowIndex) => row.eachCell((cell, columnIndex) => {
             const key = sheet.columns[columnIndex - 1]?.key;
-            if (rowIndex > 1 && ["recaudacion", "comision", "gastos", "ganancias", "salida", "transferencia"].includes(String(key))) cell.numFmt = '"S/ "#,##0.00';
+            if (rowIndex > 1 && ["recaudacion", "comision", "gastos", "ganancia", "ganancias", "salida", "transferencia"].includes(String(key))) cell.numFmt = '"S/ "#,##0.00';
             if (rowIndex > 1 && key === "porcentaje") cell.numFmt = "0.00%";
         }));
     }

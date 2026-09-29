@@ -12,6 +12,7 @@ import { cx } from "@/utils/cx";
 import { MetricasServiceNavigation } from "../metricas-service-navigation";
 import type { MetricasServicioDesglose, MetricasServicioOperativo } from "./metricas-servicio.types";
 import { useMetricasServicio } from "./use-metricas-servicio";
+import { formatMetricasDateRange } from "../metricas-date-range";
 
 type AnalyticsService = Extract<MetricasServicioOperativo, "pos" | "linkpago">;
 type Period = "today" | "yesterday" | "week" | "month";
@@ -98,12 +99,13 @@ const Tab = ({ active, children, onClick }: { active: boolean; children: ReactNo
     )}>{children}</button>
 );
 
-const Panel = ({ title, context, children }: { title: string; context: string[]; children: ReactNode }) => (
+const Panel = ({ title, context, period, children }: { title: string; context: string[]; period?: string; children: ReactNode }) => (
     <motion.section layout transition={{ duration: 0.2 }} className="rounded-xl border border-secondary bg-primary p-5 shadow-xs">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-primary">{title}</h2>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                 {context.map((item) => <Badge key={item} size="sm" color="gray">{item}</Badge>)}
+                {period && <Badge size="sm" color="blue">{period}</Badge>}
             </div>
         </div>
         {children}
@@ -161,16 +163,17 @@ const TableShell = ({ children, empty }: { children: ReactNode; empty: boolean }
     </div>
 );
 
-const DistributionTable = ({ title, dimension, rows, context, isLoading }: {
+const DistributionTable = ({ title, dimension, rows, context, period, isLoading }: {
     title: string;
     dimension: string;
     rows: DetailRow[];
     context: string[];
+    period: string;
     isLoading: boolean;
 }) => {
     const [sort, setSort] = useState<SortState<keyof DetailRow & string>>({ column: "montoProcesado", direction: "desc" });
     const sorted = useMemo(() => sortRows(rows, sort), [rows, sort]);
-    return <Panel title={title} context={context}>
+    return <Panel title={title} context={context} period={period}>
         <TableShell empty={!isLoading && !sorted.length}>
             <table className="w-full min-w-[1180px] border-collapse text-left text-sm">
                 <thead className="bg-secondary text-xs uppercase text-tertiary"><tr>
@@ -199,6 +202,7 @@ export const MetricasOperacionesPage = ({ servicio }: { servicio: AnalyticsServi
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const [period, setPeriod] = useState<Period>("week");
     const [dateRange, setDateRange] = useState(() => getDateRange("week"));
+    const periodLabel = formatMetricasDateRange(dateRange.fechaDesde, dateRange.fechaHasta);
     const [branchId, setBranchId] = useState<number | null>(null);
     const [entityId, setEntityId] = useState<number | null>(null);
     const [posId, setPosId] = useState<number | null>(null);
@@ -308,13 +312,13 @@ export const MetricasOperacionesPage = ({ servicio }: { servicio: AnalyticsServi
 
             <section>{isLoading && !data ? <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">{Array.from({ length: 10 }, (_, index) => <div key={index} className="h-24 animate-pulse rounded-lg bg-secondary" />)}</div> : <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">{kpis.map((item, index) => <MetricCard key={item.label} {...item} index={index} />)}</div>}</section>
 
-            <DistributionTable title="Distribución por Sucursal" dimension="Sucursal" rows={branchRows} context={context} isLoading={isLoading} />
-            <DistributionTable title="Distribución por Entidad" dimension="Entidad" rows={entityRows} context={context} isLoading={isLoading} />
-            {servicio === "pos" && <DistributionTable title="Distribución por POS" dimension="POS" rows={posRows} context={context} isLoading={isLoading} />}
-            {servicio === "pos" && <DistributionTable title="Distribución por Banco de Transferencia" dimension="Banco" rows={destinationRows} context={context} isLoading={isLoading} />}
+            <DistributionTable title="Distribución por Sucursal" dimension="Sucursal" rows={branchRows} context={context} period={periodLabel} isLoading={isLoading} />
+            <DistributionTable title="Distribución por Entidad" dimension="Entidad" rows={entityRows} context={context} period={periodLabel} isLoading={isLoading} />
+            {servicio === "pos" && <DistributionTable title="Distribución por POS" dimension="POS" rows={posRows} context={context} period={periodLabel} isLoading={isLoading} />}
+            {servicio === "pos" && <DistributionTable title="Distribución por Banco de Transferencia" dimension="Banco" rows={destinationRows} context={context} period={periodLabel} isLoading={isLoading} />}
 
             <div ref={pendingTableRef} className="scroll-mt-6">
-                <Panel title="Operaciones Pendientes" context={context}>
+                <Panel title="Operaciones Pendientes" context={context} period={periodLabel}>
                     <TableShell empty={!isLoading && !pendingRows.length}>
                         <table className="w-full min-w-[1280px] border-collapse text-left text-sm">
                             <thead className="bg-secondary text-xs uppercase text-tertiary"><tr>

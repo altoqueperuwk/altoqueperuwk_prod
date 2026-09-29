@@ -13,14 +13,16 @@ import {
     useMetricasBancariasClientes,
     useMetricasBancariasComisiones,
     useMetricasBancariasComunidades,
+    useMetricasBancariasDerivaciones,
     useMetricasBancariasMejorCliente,
     useMetricasBancariasPendientes,
     useMetricasBancariasSerie,
 } from "./use-metricas-bancarias";
 import { exportMetricasBancarias } from "./metricas-bancarias-export";
 import { MetricasServiceNavigation } from "./metricas-service-navigation";
-import type { MetricasCliente, MetricasComision, MetricasComunidad, MetricasConsulta, MetricasDesglose, MetricasOperacionPendiente } from "./metricas-bancarias.types";
+import type { MetricasCliente, MetricasComision, MetricasComunidad, MetricasConsulta, MetricasDerivacion, MetricasDesglose, MetricasOperacionPendiente } from "./metricas-bancarias.types";
 import { RecordatorioEnviarModal } from "@/features/recordatorios-operativos/recordatorio-enviar-modal";
+import { formatMetricasDateRange } from "./metricas-date-range";
 
 const routeOptions = [
     { label: "Todos los bancos", value: "all" },
@@ -179,15 +181,17 @@ interface PanelProps {
     className?: string;
     company?: string;
     service?: string;
+    period?: string;
 }
 
-const Panel = ({ title, children, className, company, service }: PanelProps) => (
+const Panel = ({ title, children, className, company, service, period }: PanelProps) => (
     <motion.section layout transition={{ duration: 0.2 }} className={cx("rounded-xl border border-secondary bg-primary p-5 shadow-xs", className)}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-primary">{title}</h2>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                 {company && <Badge size="sm" color="gray">{company}</Badge>}
                 {service && <Badge size="sm" color="brand">{service}</Badge>}
+                {period && <Badge size="sm" color="blue">{period}</Badge>}
             </div>
         </div>
         {children}
@@ -204,7 +208,17 @@ type CommunitySortKey = keyof MetricasComunidad;
 type ClientSortKey = keyof MetricasCliente;
 type CommissionSortKey = keyof MetricasComision;
 type PendingSortKey = keyof MetricasOperacionPendiente;
+type DerivationSortKey = keyof MetricasDerivacion;
 type SortDirection = "asc" | "desc";
+
+const sortDerivationRows = (rows: MetricasDerivacion[], sort: { column: DerivationSortKey; direction: SortDirection }) => rows.toSorted((a, b) => {
+    const left = a[sort.column];
+    const right = b[sort.column];
+    const comparison = typeof left === "number" && typeof right === "number"
+        ? left - right
+        : String(left ?? "").localeCompare(String(right ?? ""), "es", { numeric: true, sensitivity: "base" });
+    return sort.direction === "asc" ? comparison : -comparison;
+});
 
 const SortableHeader = <T extends string,>({ label, column, activeColumn, direction, align = "left", onSort }: {
     label: string;
@@ -226,17 +240,61 @@ const SortableHeader = <T extends string,>({ label, column, activeColumn, direct
     );
 };
 
+const DerivationsPanel = ({ title, rows, sort, onSort, company, period, isLoading, error }: {
+    title: string;
+    rows: MetricasDerivacion[];
+    sort: { column: DerivationSortKey; direction: SortDirection };
+    onSort: (column: DerivationSortKey) => void;
+    company?: string;
+    period: string;
+    isLoading: boolean;
+    error: string | null;
+}) => (
+    <Panel title={title} company={company} service="Efectivización" period={period} className="mb-2">
+        <div className="overflow-x-auto rounded-lg border border-secondary">
+            <table className="w-full min-w-[960px] border-collapse text-left text-sm">
+                <thead className="bg-secondary text-xs text-tertiary"><tr>
+                    <SortableHeader label="Envió" column="empresaContraparte" activeColumn={sort.column} direction={sort.direction} onSort={onSort} />
+                    <SortableHeader label="Banco origen" column="bancoContraparte" activeColumn={sort.column} direction={sort.direction} onSort={onSort} />
+                    <SortableHeader label="Operaciones" column="operaciones" activeColumn={sort.column} direction={sort.direction} align="right" onSort={onSort} />
+                    <SortableHeader label="Gastos Operacionales" column="gastosOperacionales" activeColumn={sort.column} direction={sort.direction} align="right" onSort={onSort} />
+                    <SortableHeader label="Transferido al cliente" column="montoTransferido" activeColumn={sort.column} direction={sort.direction} align="right" onSort={onSort} />
+                </tr></thead>
+                <tbody className="divide-y divide-secondary">
+                    {rows.map((row) => (
+                        <tr key={`${row.idEmpresaContraparte ?? row.empresaContraparte}-${row.idBancoContraparte ?? row.bancoContraparte}`} className="bg-primary hover:bg-primary_hover">
+                            <td className="px-4 py-3 font-semibold text-primary">{row.empresaContraparte}</td>
+                            <td className="px-4 py-3 text-secondary">{row.bancoContraparte}</td>
+                            <td className="px-4 py-3 text-right tabular-nums text-secondary">{integerFormatter.format(row.operaciones)}</td>
+                            <td className="px-4 py-3 text-right tabular-nums text-error-primary">{formatMoney(row.gastosOperacionales)}</td>
+                            <td className="px-4 py-3 text-right font-medium tabular-nums text-error-primary">{formatMoney(row.montoTransferido)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            {error ? (
+                <p className="px-4 py-10 text-center text-sm text-error-primary">{error}</p>
+            ) : !rows.length && !isLoading ? (
+                <p className="px-4 py-10 text-center text-sm text-tertiary">No hay resultados para mostrar.</p>
+            ) : null}
+        </div>
+    </Panel>
+);
+
 export const MetricasBancariasPage = () => {
     const [period, setPeriod] = useState<MetricasBancariasPeriodo | null>("week");
     const [dateRange, setDateRange] = useState(() => getDateRange("week"));
+    const periodLabel = formatMetricasDateRange(dateRange.fechaDesde, dateRange.fechaHasta);
     const [selectedBankRoute, setSelectedBankRoute] = useState<string | null>(null);
     const [selectedCompanyByBank, setSelectedCompanyByBank] = useState<Record<string, number>>({});
     const [communitySort, setCommunitySort] = useState<{ column: CommunitySortKey; direction: SortDirection }>({ column: "recaudacion", direction: "desc" });
     const [clientSort, setClientSort] = useState<{ column: ClientSortKey; direction: SortDirection }>({ column: "operaciones", direction: "desc" });
     const [commissionSort, setCommissionSort] = useState<{ column: CommissionSortKey; direction: SortDirection }>({ column: "porcentaje", direction: "asc" });
     const [pendingSort, setPendingSort] = useState<{ column: PendingSortKey; direction: SortDirection }>({ column: "fecha", direction: "desc" });
+    const [attendedDerivationSort, setAttendedDerivationSort] = useState<{ column: DerivationSortKey; direction: SortDirection }>({ column: "montoTransferido", direction: "desc" });
     const [isExporting, setIsExporting] = useState(false);
     const pendingTableRef = useRef<HTMLDivElement>(null);
+    const attendedDerivationsTableRef = useRef<HTMLDivElement>(null);
 
     const consulta = useMemo<MetricasConsulta>(() => ({
         ...dateRange,
@@ -337,6 +395,7 @@ export const MetricasBancariasPage = () => {
     const { clients, isLoading: clientsLoading, error: clientsError } = useMetricasBancariasClientes(communityConsulta);
     const { commissions, isLoading: commissionsLoading, error: commissionsError } = useMetricasBancariasComisiones(communityConsulta);
     const { pendingOperations, isLoading: pendingLoading, error: pendingError } = useMetricasBancariasPendientes(communityConsulta);
+    const { derivations, isLoading: derivationsLoading, error: derivationsError } = useMetricasBancariasDerivaciones(communityConsulta);
     const { series, isLoading: seriesLoading, error: seriesError } = useMetricasBancariasSerie(communityConsulta);
     const { bestClient, isLoading: bestClientLoading, error: bestClientError } = useMetricasBancariasMejorCliente(communityConsulta);
     const sortedCommunities = useMemo(() => communities.toSorted((a, b) => {
@@ -367,6 +426,19 @@ export const MetricasBancariasPage = () => {
             : String(left ?? "").localeCompare(String(right ?? ""), "es", { numeric: true, sensitivity: "base" });
         return pendingSort.direction === "asc" ? comparison : -comparison;
     }), [pendingOperations, pendingSort]);
+    const attendedDerivations = useMemo(
+        () => sortDerivationRows(derivations, attendedDerivationSort),
+        [derivations, attendedDerivationSort],
+    );
+    const attendedTransferTotal = useMemo(() => attendedDerivations.reduce((total, row) => total + row.montoTransferido, 0), [attendedDerivations]);
+    const attendedOperationsTotal = useMemo(() => attendedDerivations.reduce((total, row) => total + row.operaciones, 0), [attendedDerivations]);
+    const attendedDerivationKpi = {
+        label: "Derivaciones atendidas",
+        value: integerFormatter.format(attendedOperationsTotal),
+        supportingText: `${formatMoney(attendedTransferTotal)} transferencias pagadas`,
+        tone: "warning" as const,
+        onClick: () => attendedDerivationsTableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    };
     const dailyPerformance = useMemo(() => {
         const values = new Map<string, { periodo: string; operaciones: number; ganancias: number }>();
         for (const row of series) {
@@ -454,6 +526,12 @@ export const MetricasBancariasPage = () => {
             direction: current.column === column && current.direction === "desc" ? "asc" : "desc",
         }));
     };
+    const handleAttendedDerivationSort = (column: DerivationSortKey) => {
+        setAttendedDerivationSort((current) => ({
+            column,
+            direction: current.column === column && current.direction === "desc" ? "asc" : "desc",
+        }));
+    };
     const handleCompanyChange = (idEmpresa: number) => {
         setSelectedCompanyByBank((current) => ({ ...current, [activeBankRoute]: idEmpresa }));
     };
@@ -488,17 +566,18 @@ export const MetricasBancariasPage = () => {
                 empresa: selectedCompany.empresa,
                 fechaDesde: dateRange.fechaDesde,
                 fechaHasta: dateRange.fechaHasta,
-                kpis: [...selectedCompanyKpis, ...insightKpis].map((item) => ({ indicador: item.label, valor: item.value })),
+                kpis: [...selectedCompanyKpis, attendedDerivationKpi, ...insightKpis].map((item) => ({ indicador: item.label, valor: item.value })),
                 commissions,
                 communities,
                 clients,
                 pendingOperations,
+                derivations,
             });
         } finally {
             setIsExporting(false);
         }
     };
-    const currentError = error ?? seriesError ?? bestClientError;
+    const currentError = error ?? seriesError ?? bestClientError ?? derivationsError;
     const renderCompanyTabs = () => (
         <nav aria-label={`Empresas de ${getRouteLabel(activeBankRoute)}`} role="tablist" className="flex min-h-11 w-fit max-w-full flex-wrap items-center gap-1 rounded-lg border border-secondary bg-primary p-1">
             {selectedBank?.companies.map((company) => {
@@ -631,11 +710,11 @@ export const MetricasBancariasPage = () => {
                 )}
 
                 <section>
-                    {isLoading || seriesLoading || clientsLoading || communitiesLoading || bestClientLoading ? <LoadingState /> : selectedCompany ? (
+                    {isLoading || seriesLoading || clientsLoading || communitiesLoading || bestClientLoading || derivationsLoading ? <LoadingState /> : selectedCompany ? (
                         <div>
                             <p className="mb-2 truncate text-xs text-tertiary" title={selectedCompany.cuentas.join(", ")}>{selectedCompany.cuentas.join(" · ")}</p>
                             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
-                                {[...selectedCompanyKpis, ...insightKpis].map((item, index) => <MetricCard key={item.label} {...item} index={index} />)}
+                                {[...selectedCompanyKpis, attendedDerivationKpi, ...insightKpis].map((item, index) => <MetricCard key={item.label} {...item} index={index} />)}
                             </div>
                         </div>
                     ) : (
@@ -643,7 +722,7 @@ export const MetricasBancariasPage = () => {
                     )}
                 </section>
 
-                <Panel title="Distribución % Comisión" company={selectedCompany?.empresa} service="Efectivización" className="mb-2">
+                <Panel title="Distribución % Comisión" company={selectedCompany?.empresa} service="Efectivización" period={periodLabel} className="mb-2">
                     <div className="overflow-x-auto rounded-lg border border-secondary">
                         <table className="w-full min-w-[980px] border-collapse text-left text-sm">
                             <thead className="bg-secondary text-xs uppercase tracking-wide text-tertiary"><tr>
@@ -677,7 +756,7 @@ export const MetricasBancariasPage = () => {
                     </div>
                 </Panel>
 
-                <Panel title="Distribución Comunidad" company={selectedCompany?.empresa} service="Efectivización" className="mb-2">
+                <Panel title="Distribución Comunidad" company={selectedCompany?.empresa} service="Efectivización" period={periodLabel} className="mb-2">
                     <div className="overflow-x-auto rounded-lg border border-secondary">
                         <table className="w-full min-w-[1280px] border-collapse text-left text-sm">
                             <thead className="bg-secondary text-xs uppercase tracking-wide text-tertiary"><tr>
@@ -715,7 +794,7 @@ export const MetricasBancariasPage = () => {
                     </div>
                 </Panel>
 
-                <Panel title="Distribución Clientes con Más Operaciones" company={selectedCompany?.empresa} service="Efectivización" className="mb-2">
+                <Panel title="Distribución Clientes con Más Operaciones" company={selectedCompany?.empresa} service="Efectivización" period={periodLabel} className="mb-2">
                     <div className="overflow-x-auto rounded-lg border border-secondary">
                         <table className="w-full min-w-[1380px] border-collapse text-left text-sm">
                             <thead className="bg-secondary text-xs uppercase tracking-wide text-tertiary"><tr>
@@ -756,7 +835,7 @@ export const MetricasBancariasPage = () => {
                 </Panel>
 
                 <div ref={pendingTableRef} className="scroll-mt-6">
-                    <Panel title="Operaciones Pendientes" company={selectedCompany?.empresa} service="Efectivización" className="mb-2">
+                    <Panel title="Operaciones Pendientes" company={selectedCompany?.empresa} service="Efectivización" period={periodLabel} className="mb-2">
                         <div className="overflow-x-auto rounded-lg border border-secondary">
                             <table className="w-full min-w-[1380px] border-collapse text-left text-sm">
                                 <thead className="bg-secondary text-xs uppercase tracking-wide text-tertiary"><tr>
@@ -795,6 +874,19 @@ export const MetricasBancariasPage = () => {
                             ) : null}
                         </div>
                     </Panel>
+                </div>
+
+                <div ref={attendedDerivationsTableRef} className="scroll-mt-6">
+                    <DerivationsPanel
+                        title="Derivaciones Atendidas"
+                        rows={attendedDerivations}
+                        sort={attendedDerivationSort}
+                        onSort={handleAttendedDerivationSort}
+                        company={selectedCompany?.empresa}
+                        period={periodLabel}
+                        isLoading={derivationsLoading}
+                        error={derivationsError}
+                    />
                 </div>
 
             </div>

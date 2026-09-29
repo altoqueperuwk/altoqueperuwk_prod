@@ -149,6 +149,16 @@ export interface MetricasOperacionPendiente {
     estado: string;
 }
 
+export interface MetricasDerivacion {
+    idEmpresaContraparte: number | null;
+    empresaContraparte: string;
+    idBancoContraparte: number | null;
+    bancoContraparte: string;
+    operaciones: number;
+    gastosOperacionales: number;
+    montoTransferido: number;
+}
+
 export interface MetricasMejorCliente {
     idCliente: number;
     dni: string;
