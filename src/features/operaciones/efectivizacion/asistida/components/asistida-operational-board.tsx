@@ -328,6 +328,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
         isAdministratorProfile
         || !isJefeTiendaProfile
         || (userId !== null && Number(row.id_usuario_solicitud) === userId);
+    const canEditOperation = (row: OperacionProceso) => isPagado(row) || canManageOperation(row);
     const actions: string[] = [];
     const handleSinEnvioSolicitud = async (row: OperacionProceso) => {
         if (ruta !== "pos" || !canManageOperation(row) || isPagado(row)) return;
@@ -377,9 +378,9 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
                             <ButtonUtility
                                 size="xs"
                                 color="tertiary"
-                                tooltip={canManageOperation(row) ? "Editar solicitud" : "Solo el usuario que registro la operacion puede editarla"}
+                                tooltip={canEditOperation(row) ? "Editar solicitud" : "Solo el usuario que registro la operacion puede editarla"}
                                 icon={Edit03}
-                                isDisabled={!canManageOperation(row)}
+                                isDisabled={!canEditOperation(row)}
                                 onClick={() => setEditOperation(row)}
                             />
                         )}
@@ -387,9 +388,9 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
                             <ButtonUtility
                                 size="xs"
                                 color="tertiary"
-                                tooltip={canManageOperation(row) ? "Cambiar fecha de registro" : "Solo el usuario que registro la operacion puede editarla"}
+                                tooltip={canEditOperation(row) ? "Cambiar fecha de registro" : "Solo el usuario que registro la operacion puede editarla"}
                                 icon={CalendarIcon}
-                                isDisabled={!canManageOperation(row)}
+                                isDisabled={!canEditOperation(row)}
                                 onClick={() => setDateOperation(row)}
                             />
                         )}
@@ -408,7 +409,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
                             color="tertiary"
                             tooltip={canManageOperation(row) ? "Eliminar operacion" : "Solo el usuario que registro la operacion puede eliminarla"}
                             icon={Trash01}
-                            isDisabled={!canManageOperation(row) || (ruta !== "linkpago" && isPagado(row))}
+                            isDisabled={!canManageOperation(row) || isPagado(row)}
                             onClick={() => setDeleteOperation(row)}
                         />
                     </div>

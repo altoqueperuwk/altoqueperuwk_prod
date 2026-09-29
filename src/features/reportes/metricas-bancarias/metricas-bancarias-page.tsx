@@ -1,11 +1,12 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { parseDate as parseCalendarDate, type DateValue } from "@internationalized/date";
-import { BarChart03, ChevronDown, ChevronUp, Download01, Trash01 } from "@untitledui/icons";
+import { BarChart03, ChevronDown, ChevronUp, Download01, File06, File07, Trash01 } from "@untitledui/icons";
 import { motion } from "motion/react";
 import { AppLayout } from "@/components/application/app-layout";
 import { BasicDatePicker } from "@/components/application/date-picker/basic-date-picker";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Tooltip as UiTooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { cx } from "@/utils/cx";
 import {
@@ -18,7 +19,7 @@ import {
     useMetricasBancariasPendientes,
     useMetricasBancariasSerie,
 } from "./use-metricas-bancarias";
-import { exportMetricasBancarias } from "./metricas-bancarias-export";
+import { exportMetricasBancarias, type MetricasExportFormat } from "./metricas-bancarias-export";
 import { MetricasServiceNavigation } from "./metricas-service-navigation";
 import type { MetricasCliente, MetricasComision, MetricasComunidad, MetricasConsulta, MetricasDerivacion, MetricasDesglose, MetricasOperacionPendiente } from "./metricas-bancarias.types";
 import { RecordatorioEnviarModal } from "@/features/recordatorios-operativos/recordatorio-enviar-modal";
@@ -252,19 +253,23 @@ const DerivationsPanel = ({ title, rows, sort, onSort, company, period, isLoadin
 }) => (
     <Panel title={title} company={company} service="Efectivización" period={period} className="mb-2">
         <div className="overflow-x-auto rounded-lg border border-secondary">
-            <table className="w-full min-w-[960px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[1180px] border-collapse text-left text-sm">
                 <thead className="bg-secondary text-xs text-tertiary"><tr>
                     <SortableHeader label="Envió" column="empresaContraparte" activeColumn={sort.column} direction={sort.direction} onSort={onSort} />
                     <SortableHeader label="Banco origen" column="bancoContraparte" activeColumn={sort.column} direction={sort.direction} onSort={onSort} />
+                    <SortableHeader label="Comunidad" column="comunidad" activeColumn={sort.column} direction={sort.direction} onSort={onSort} />
+                    <SortableHeader label="% Comisión" column="porcentajeComision" activeColumn={sort.column} direction={sort.direction} align="right" onSort={onSort} />
                     <SortableHeader label="Operaciones" column="operaciones" activeColumn={sort.column} direction={sort.direction} align="right" onSort={onSort} />
                     <SortableHeader label="Gastos Operacionales" column="gastosOperacionales" activeColumn={sort.column} direction={sort.direction} align="right" onSort={onSort} />
                     <SortableHeader label="Transferido al cliente" column="montoTransferido" activeColumn={sort.column} direction={sort.direction} align="right" onSort={onSort} />
                 </tr></thead>
                 <tbody className="divide-y divide-secondary">
                     {rows.map((row) => (
-                        <tr key={`${row.idEmpresaContraparte ?? row.empresaContraparte}-${row.idBancoContraparte ?? row.bancoContraparte}`} className="bg-primary hover:bg-primary_hover">
+                        <tr key={`${row.idEmpresaContraparte ?? row.empresaContraparte}-${row.idBancoContraparte ?? row.bancoContraparte}-${row.idComunidad ?? row.comunidad}-${row.porcentajeComision}`} className="bg-primary hover:bg-primary_hover">
                             <td className="px-4 py-3 font-semibold text-primary">{row.empresaContraparte}</td>
                             <td className="px-4 py-3 text-secondary">{row.bancoContraparte}</td>
+                            <td className="px-4 py-3 text-secondary">{row.comunidad}</td>
+                            <td className="px-4 py-3 text-right tabular-nums text-secondary">{row.porcentajeComision.toFixed(2)}%</td>
                             <td className="px-4 py-3 text-right tabular-nums text-secondary">{integerFormatter.format(row.operaciones)}</td>
                             <td className="px-4 py-3 text-right tabular-nums text-error-primary">{formatMoney(row.gastosOperacionales)}</td>
                             <td className="px-4 py-3 text-right font-medium tabular-nums text-error-primary">{formatMoney(row.montoTransferido)}</td>
@@ -557,22 +562,29 @@ export const MetricasBancariasPage = () => {
             return { fechaDesde, fechaHasta, granularidad: "DIA" as const };
         });
     };
-    const handleExport = async () => {
+    const handleExport = async (format: MetricasExportFormat) => {
         if (!selectedCompany || isExporting) return;
         setIsExporting(true);
         try {
             await exportMetricasBancarias({
+                servicio: "Efectivización",
                 banco: getRouteLabel(activeBankRoute),
                 empresa: selectedCompany.empresa,
                 fechaDesde: dateRange.fechaDesde,
                 fechaHasta: dateRange.fechaHasta,
-                kpis: [...selectedCompanyKpis, attendedDerivationKpi, ...insightKpis].map((item) => ({ indicador: item.label, valor: item.value })),
+                kpis: [...selectedCompanyKpis, attendedDerivationKpi, ...insightKpis].map((item) => ({
+                    indicador: item.label,
+                    valor: item.value,
+                    detalle: "supportingText" in item
+                        ? item.supportingText
+                        : "supportingLines" in item ? item.supportingLines.join(" | ") : "",
+                })),
                 commissions,
                 communities,
                 clients,
                 pendingOperations,
                 derivations,
-            });
+            }, format);
         } finally {
             setIsExporting(false);
         }
@@ -611,9 +623,17 @@ export const MetricasBancariasPage = () => {
                     <div>
                         <h1 className="text-display-xs font-semibold text-primary">Métricas Bancarias</h1>
                     </div>
-                    <Button color="secondary" size="sm" iconLeading={Download01} isDisabled={!selectedCompany || isExporting || communitiesLoading || clientsLoading || commissionsLoading || pendingLoading || seriesLoading || bestClientLoading} onClick={() => void handleExport()}>
-                        {isExporting ? "Generando..." : "Descargar reporte"}
-                    </Button>
+                    <Dropdown.Root>
+                        <Button color="secondary" size="sm" iconLeading={Download01} iconTrailing={ChevronDown} isDisabled={!selectedCompany || isExporting || communitiesLoading || clientsLoading || commissionsLoading || pendingLoading || seriesLoading || bestClientLoading}>
+                            {isExporting ? "Generando..." : "Descargar reporte"}
+                        </Button>
+                        <Dropdown.Popover className="w-48">
+                            <Dropdown.Menu>
+                                <Dropdown.Item icon={File06} isDisabled={isExporting} onAction={() => void handleExport("xlsx")}>Excel</Dropdown.Item>
+                                <Dropdown.Item icon={File07} isDisabled={isExporting} onAction={() => void handleExport("pdf")}>PDF</Dropdown.Item>
+                            </Dropdown.Menu>
+                        </Dropdown.Popover>
+                    </Dropdown.Root>
                 </div>
 
                 <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="rounded-xl border border-secondary bg-primary p-4 shadow-xs">

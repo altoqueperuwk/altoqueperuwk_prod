@@ -1076,7 +1076,8 @@ $$;
 -- Reglas:
 --   - no recalcula comisiones;
 --   - no modifica estados, caja ni movimientos;
---   - respeta el permiso de edicion del usuario de la operacion.
+--   - en pendientes respeta el permiso del usuario de la operacion;
+--   - en pagadas permite la correccion de fecha a cualquier usuario habilitado.
 -- ============================================================================
 DROP FUNCTION IF EXISTS public.f_patch_tb_operacion_asistida_fecha_deposito(
   bigint, date, bigint
@@ -1113,7 +1114,8 @@ BEGIN
     RETURN jsonb_build_object('error', 'La fecha de registro es obligatoria.');
   END IF;
 
-  IF EXISTS (
+  IF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) <> 'PAGADO'
+  AND EXISTS (
     SELECT 1
     FROM public.tb_usuario u
     LEFT JOIN public.tb_rol r ON r.id = u.id_rol
@@ -1155,6 +1157,7 @@ $$;
 -- Reglas:
 --   - solo modifica campos enviados (COALESCE con valor actual);
 --   - si se cambia entidad tarjeta, resuelve empresa_ingreso y recalcula;
+--   - en POS pagado permite corregir Empresa/POS, pero conserva monto y destino;
 --   - no crea movimientos de caja;
 --   - no cambia estado ni fechas de control.
 -- ============================================================================
@@ -1269,18 +1272,38 @@ BEGIN
     RETURN jsonb_build_object('error', 'Operacion no encontrada.');
   END IF;
 
+  IF LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos'
+     AND UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) = 'PAGADO' THEN
+    IF p_monto_deposito_cliente IS NOT NULL
+       AND ROUND(p_monto_deposito_cliente::numeric, 2)
+         IS DISTINCT FROM ROUND(COALESCE(v_actual.monto_deposito_cliente, 0)::numeric, 2) THEN
+      RETURN jsonb_build_object('error', 'No se puede modificar el monto de una operacion POS pagada.');
+    END IF;
+
+    IF p_id_banco_destino IS NOT NULL
+       AND p_id_banco_destino IS DISTINCT FROM v_actual.id_banco_cliente_transferencia THEN
+      RETURN jsonb_build_object('error', 'No se puede modificar el banco de transferencia de una operacion POS pagada.');
+    END IF;
+
+    IF p_id_ruta_operacion_caja_destino IS NOT NULL THEN
+      RETURN jsonb_build_object('error', 'No se puede modificar el destino de una operacion POS pagada.');
+    END IF;
+
+    IF p_sin_envio_solicitud IS NOT NULL
+       AND p_sin_envio_solicitud IS DISTINCT FROM (
+         v_actual.id_empresa_salida IS NULL
+         AND v_actual.id_empresa_cuenta_salida IS NULL
+         AND v_actual.id_banco_cliente_transferencia IS NULL
+         AND COALESCE(v_actual.monto_transferencia_cliente, 0) = 0
+       ) THEN
+      RETURN jsonb_build_object('error', 'No se puede cambiar el modo de envio de una operacion POS pagada.');
+    END IF;
+  END IF;
+
   IF LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos' THEN
     IF p_codigo_operacion_deposito_cliente IS NOT NULL
        AND LENGTH(p_codigo_operacion_deposito_cliente) > 30 THEN
       RETURN jsonb_build_object('error', 'El codigo de operacion no puede superar los 30 caracteres.');
-    END IF;
-
-    IF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) = 'PAGADO'
-       AND (
-         (p_id_empresa_pos IS NOT NULL AND p_id_empresa_pos IS DISTINCT FROM v_actual.id_empresa_pos)
-         OR (p_id_pos IS NOT NULL AND p_id_pos IS DISTINCT FROM v_actual.id_pos)
-       ) THEN
-      RETURN jsonb_build_object('error', 'No se puede modificar Empresa o POS de una solicitud atendida.');
     END IF;
 
     p_id_empresa_pos := COALESCE(p_id_empresa_pos, v_actual.id_empresa_pos);
@@ -1333,7 +1356,8 @@ BEGIN
     RETURN jsonb_build_object('error', 'La operacion no pertenece a una ruta asistida.');
   END IF;
 
-  IF EXISTS (
+  IF UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) <> 'PAGADO'
+  AND EXISTS (
     SELECT 1
     FROM public.tb_usuario u
     LEFT JOIN public.tb_rol r ON r.id = u.id_rol
@@ -1695,10 +1719,6 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN (
-  'f_get_tb_operacion_asistida_bandeja',
-  'f_get_tb_operacion_asistida_kpi',
-  'f_post_tb_operacion_asistida',
-  'f_post_tb_operacion_asistida_pos_sin_envio',
   'f_patch_tb_operacion_asistida_fecha_deposito',
   'f_patch_tb_operacion_asistida'
 )

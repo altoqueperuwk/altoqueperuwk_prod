@@ -1,16 +1,17 @@
 import { useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { parseDate as parseCalendarDate, type DateValue } from "@internationalized/date";
-import { BarChart03, ChevronDown, ChevronUp, Download01, Trash01 } from "@untitledui/icons";
+import { BarChart03, ChevronDown, ChevronUp, Download01, File06, File07, Trash01 } from "@untitledui/icons";
 import { motion } from "motion/react";
 import { AppLayout } from "@/components/application/app-layout";
 import { BasicDatePicker } from "@/components/application/date-picker/basic-date-picker";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Tooltip as UiTooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { useAuth } from "@/providers/auth-provider";
 import { cx } from "@/utils/cx";
 import { MetricasServiceNavigation } from "../metricas-service-navigation";
-import { exportMetricasBancarias } from "../metricas-bancarias-export";
+import { exportMetricasBancarias, type MetricasExportFormat, type MetricasReportSection } from "../metricas-bancarias-export";
 import { RecordatorioEnviarModal } from "@/features/recordatorios-operativos/recordatorio-enviar-modal";
 import { formatMetricasDateRange } from "../metricas-date-range";
 import type {
@@ -240,16 +241,124 @@ export const MetricasPagoDeudaPage = () => {
         });
     };
     const reset = () => { setPeriod("week"); setDateRange(getDateRange("week")); setBranchId(null); setBankId(null); };
-    const handleExport = async () => {
+    const handleExport = async (format: MetricasExportFormat) => {
         if (!data || isExporting) return;
         setIsExporting(true);
         try {
+            const distributionColumns = (firstHeader: string) => [
+                { header: firstHeader, key: "nombre", width: 24 },
+                { header: "Solicitudes", key: "operaciones", width: 14 },
+                { header: "Atendidas", key: "atendidas", width: 14 },
+                { header: "Pendientes", key: "pendientes", width: 14 },
+                { header: "Monto Solicitado", key: "montoSolicitado", width: 19 },
+                { header: "Monto Transferido", key: "montoTransferido", width: 19 },
+                { header: "Ganancia", key: "ganancias", width: 17 },
+                { header: "Clientes Nuevos", key: "clientesNuevos", width: 16 },
+                { header: "Tasa Atención", key: "tasaAtencion", width: 15 },
+            ];
+            const mapDistribution = (rows: MetricasPagoDeudaDistribucion[]) => rows.map((row) => ({
+                nombre: row.nombre,
+                operaciones: row.operaciones,
+                atendidas: row.atendidas,
+                pendientes: row.pendientes,
+                montoSolicitado: row.montoSolicitado,
+                montoTransferido: row.montoTransferido,
+                ganancias: row.ganancias,
+                clientesNuevos: row.clientesNuevos,
+                tasaAtencion: `${row.tasaAtencion.toFixed(2)}%`,
+            }));
+            const financialColumns = (firstHeader: string, firstKey: string) => [
+                { header: firstHeader, key: firstKey, width: 22 },
+                { header: "Solicitudes", key: "operaciones", width: 14 },
+                { header: "Atendidas", key: "atendidas", width: 14 },
+                { header: "Pendientes", key: "pendientes", width: 14 },
+                { header: "Monto Solicitado", key: "recaudacion", width: 19 },
+                { header: "Monto Transferido", key: "salida", width: 19 },
+                { header: "Ganancia", key: "ganancias", width: 17 },
+            ];
+            const sections: MetricasReportSection[] = [
+                { title: "Distribución por Sede", columns: distributionColumns("Sede"), rows: mapDistribution(data.distribucionSedes) },
+                { title: "Distribución por Banco Solicitado", columns: distributionColumns("Banco Solicitado"), rows: mapDistribution(data.distribucionBancos) },
+                {
+                    title: "Distribución % Comisión",
+                    columns: financialColumns("Comisión", "porcentaje"),
+                    rows: data.comisiones.map((row) => ({
+                        porcentaje: row.porcentaje / 100,
+                        operaciones: row.operaciones,
+                        atendidas: row.atendidas,
+                        pendientes: row.pendientes,
+                        recaudacion: row.recaudacion,
+                        salida: row.salida,
+                        ganancias: row.ganancias,
+                    })),
+                },
+                {
+                    title: "Distribución Comunidad",
+                    columns: financialColumns("Comunidad", "comunidad"),
+                    rows: data.comunidades.map((row) => ({
+                        comunidad: row.comunidad,
+                        operaciones: row.operaciones,
+                        atendidas: row.atendidas,
+                        pendientes: row.pendientes,
+                        recaudacion: row.recaudacion,
+                        salida: row.salida,
+                        ganancias: row.ganancias,
+                    })),
+                },
+                {
+                    title: "Distribución Clientes con Más Solicitudes",
+                    columns: [
+                        { header: "DNI", key: "dni", width: 16 },
+                        { header: "Nombre Completo", key: "nombre", width: 34 },
+                        { header: "Comunidad", key: "comunidad", width: 20 },
+                        ...financialColumns("Solicitudes", "operaciones"),
+                    ],
+                    rows: data.clientes.map((row) => ({
+                        dni: row.dni,
+                        nombre: row.nombreCompleto,
+                        comunidad: row.comunidad,
+                        operaciones: row.operaciones,
+                        atendidas: row.atendidas,
+                        pendientes: row.pendientes,
+                        recaudacion: row.recaudacion,
+                        salida: row.salida,
+                        ganancias: row.ganancias,
+                    })),
+                },
+                {
+                    title: "Solicitudes Pendientes",
+                    columns: [
+                        { header: "DNI", key: "dni", width: 16 },
+                        { header: "Cliente", key: "cliente", width: 34 },
+                        { header: "Comunidad", key: "comunidad", width: 20 },
+                        { header: "Banco", key: "banco", width: 18 },
+                        { header: "Fecha", key: "fecha", width: 22 },
+                        { header: "Monto Solicitado", key: "recaudacion", width: 19 },
+                        { header: "Monto Transferido", key: "transferencia", width: 19 },
+                        { header: "Ganancia", key: "ganancias", width: 17 },
+                        { header: "Estado actual", key: "estado", width: 18 },
+                    ],
+                    rows: data.pendientes.map((row) => ({
+                        dni: row.dni,
+                        cliente: row.nombreCompleto,
+                        comunidad: row.comunidad,
+                        banco: row.banco,
+                        fecha: row.fecha,
+                        recaudacion: row.recaudacion,
+                        transferencia: row.transferencia,
+                        ganancias: row.ganancias,
+                        estado: row.estado,
+                    })),
+                },
+            ];
             await exportMetricasBancarias({
+                servicio: "Pago Deuda",
                 banco: activeBank ?? "Todos los bancos",
                 empresa: activeBranch,
                 fechaDesde: dateRange.fechaDesde,
                 fechaHasta: dateRange.fechaHasta,
-                kpis: kpis.map((item) => ({ indicador: item.label, valor: item.value })),
+                kpis: kpis.map((item) => ({ indicador: item.label, valor: item.value, detalle: item.lines?.join(" | ") ?? "" })),
+                sections,
                 commissions: data.comisiones,
                 communities: data.comunidades.map((row) => ({ ...row, idComunidad: row.idComunidad ?? 0 })),
                 clients: data.clientes,
@@ -260,7 +369,7 @@ export const MetricasPagoDeudaPage = () => {
                     ruta: row.banco.toLocaleLowerCase("es-PE"),
                     cuenta: row.banco,
                 })),
-            });
+            }, format);
         } finally {
             setIsExporting(false);
         }
@@ -270,7 +379,15 @@ export const MetricasPagoDeudaPage = () => {
         <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
                 <h1 className="text-display-xs font-semibold text-primary">Métricas Bancarias</h1>
-                <Button color="secondary" size="sm" iconLeading={Download01} isDisabled={!data || isLoading || isExporting} onClick={() => void handleExport()}>{isExporting ? "Generando..." : "Descargar reporte"}</Button>
+                <Dropdown.Root>
+                    <Button color="secondary" size="sm" iconLeading={Download01} iconTrailing={ChevronDown} isDisabled={!data || isLoading || isExporting}>{isExporting ? "Generando..." : "Descargar reporte"}</Button>
+                    <Dropdown.Popover className="w-48">
+                        <Dropdown.Menu>
+                            <Dropdown.Item icon={File06} isDisabled={isExporting} onAction={() => void handleExport("xlsx")}>Excel</Dropdown.Item>
+                            <Dropdown.Item icon={File07} isDisabled={isExporting} onAction={() => void handleExport("pdf")}>PDF</Dropdown.Item>
+                        </Dropdown.Menu>
+                    </Dropdown.Popover>
+                </Dropdown.Root>
             </div>
 
             <motion.section initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="rounded-xl border border-secondary bg-primary p-4 shadow-xs">

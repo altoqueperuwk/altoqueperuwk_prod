@@ -154,6 +154,9 @@ export interface MetricasDerivacion {
     empresaContraparte: string;
     idBancoContraparte: number | null;
     bancoContraparte: string;
+    idComunidad: number | null;
+    comunidad: string;
+    porcentajeComision: number;
     operaciones: number;
     gastosOperacionales: number;
     montoTransferido: number;

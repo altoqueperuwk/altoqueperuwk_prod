@@ -133,10 +133,21 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
         [comunidadId, comunidades],
     );
 
+    const selectedEmpresaPos = useMemo(
+        () => empresasPos.find((item) => String(item.id) === empresaPosId) ?? null,
+        [empresaPosId, empresasPos],
+    );
+
+    const selectedPos = useMemo(
+        () => posList.find((item) => String(item.id) === posId) ?? null,
+        [posId, posList],
+    );
+
     const userId = businessUser?.id ? Number(businessUser.id) : null;
     const userName = (businessUser?.nombre as string | undefined) ?? (businessUser?.username as string | undefined) ?? null;
     const isPosSinEnvio = ruta === "pos" && sinEnvioSolicitud;
     const isAttended = String(operation?.nombre_estado ?? "").trim().toUpperCase() === "PAGADO";
+    const isPaidPos = ruta === "pos" && isAttended;
 
     useEffect(() => {
         if (!isOpen) return;
@@ -305,21 +316,26 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
             const result = await operacionesRpcService.patchOperacionAsistida({
                 p_id: operation!.id,
                 p_id_banco_cliente: selectedEntidadTarjeta.id,
-                p_codigo_operacion_deposito_cliente: ruta === "pos" ? codigoOperacion.trim() || null : null,
+                ...(ruta === "pos" && codigoOperacion.trim() !== (operation?.codigo_operacion_deposito_cliente ?? "")
+                    ? { p_codigo_operacion_deposito_cliente: codigoOperacion.trim() || null }
+                    : {}),
                 p_numero_tarjeta: numeroTarjeta || null,
-                p_id_banco_destino: ruta === "pos" ? Number(bancoDestinoId) : null,
+                p_id_banco_destino: ruta === "pos" && !isPaidPos && !sinEnvioSolicitud ? Number(bancoDestinoId) : null,
                 p_tipo_documento_cliente: tipoDocumento,
                 p_dni_cliente: cleanDni,
                 p_nombre_cliente: nombre.trim() || null,
                 p_email_cliente: ruta === "pos" ? email.trim() || null : null,
                 p_id_comunidad: selectedCommunity.id,
                 p_nombre_comunidad: selectedCommunity.nombre,
-                p_monto_deposito_cliente: amount,
+                p_monto_deposito_cliente: isPaidPos ? null : amount,
                 p_id_usuario: userId,
                 p_nombre_usuario: userName,
-                p_sin_envio_solicitud: ruta === "pos" ? sinEnvioSolicitud : null,
+                p_id_ruta_operacion_caja_destino: null,
+                p_sin_envio_solicitud: ruta === "pos" && !isPaidPos ? sinEnvioSolicitud : null,
                 p_id_empresa_pos: ruta === "pos" ? Number(empresaPosId) : null,
+                p_nombre_empresa_pos: ruta === "pos" ? selectedEmpresaPos?.nombre ?? null : null,
                 p_id_pos: ruta === "pos" ? Number(posId) : null,
+                p_nombre_pos: ruta === "pos" ? selectedPos?.nombre ?? null : null,
             });
 
             if (result && "error" in result) {
@@ -372,7 +388,6 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                                         size="sm"
                                         label="Empresa"
                                         isRequired
-                                        disabled={isAttended}
                                         value={empresaPosId}
                                         onChange={(event) => setEmpresaPosId(event.currentTarget.value)}
                                         options={[{ label: "Seleccionar", value: "", disabled: true }, ...empresasPos.map((item) => ({ label: item.nombre, value: String(item.id) }))]}
@@ -381,7 +396,6 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                                         size="sm"
                                         label="POS"
                                         isRequired
-                                        disabled={isAttended}
                                         value={posId}
                                         onChange={(event) => setPosId(event.currentTarget.value)}
                                         options={[{ label: "Seleccionar", value: "", disabled: true }, ...posList.map((item) => ({ label: item.nombre, value: String(item.id) }))]}
@@ -481,6 +495,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                                 size="sm"
                                 label="Monto"
                                 isRequired
+                                isDisabled={isPaidPos}
                                 placeholder="S/ 0.00"
                                 value={monto}
                                 onChange={(value) => setMonto(sanitizeAmountInput(value))}
@@ -491,6 +506,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                                     size="sm"
                                     label="Banco Transferir"
                                     isRequired
+                                    disabled={isPaidPos}
                                     value={bancoDestinoId}
                                     onChange={(event) => setBancoDestinoId(event.currentTarget.value)}
                                     options={[
@@ -509,6 +525,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
                                         size="sm"
                                         label="No Enviar Solicitud"
                                         aria-label="No Enviar Solicitud"
+                                        isDisabled={isPaidPos}
                                         isSelected={sinEnvioSolicitud}
                                         onChange={(isSelected) => {
                                             setSinEnvioSolicitud(isSelected);

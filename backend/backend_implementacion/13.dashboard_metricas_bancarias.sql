@@ -1446,23 +1446,32 @@ BEGIN
       COALESCE(NULLIF(BTRIM(op.nombre_empresa_salida_origen), ''), NULLIF(BTRIM(op.nombre_empresa_ingreso), ''), 'Sin empresa') AS empresa_contraparte,
       COALESCE(op.id_banco_empresa_cuenta_salida_origen, op.id_banco_empresa_cuenta_ingreso) AS id_banco_contraparte,
       COALESCE(NULLIF(BTRIM(op.nombre_banco_empresa_cuenta_salida_origen), ''), NULLIF(BTRIM(op.nombre_banco_empresa_cuenta_ingreso), ''), 'Sin banco') AS banco_contraparte,
+      CASE
+        WHEN op.id_comunidad IS NULL OR NULLIF(BTRIM(op.nombre_comunidad), '') IS NULL THEN 0
+        ELSE op.id_comunidad
+      END::bigint AS id_comunidad,
+      COALESCE(NULLIF(BTRIM(op.nombre_comunidad), ''), 'Sin comunidad')::character varying AS comunidad,
+      COALESCE(op.comision_servicio, 0)::numeric AS porcentaje_comision,
       COUNT(*)::bigint AS operaciones,
       SUM(COALESCE(op.resultado_comision_banco_salida, 0))::numeric AS gastos_operacionales,
       SUM(COALESCE(op.monto_transferencia_cliente, 0))::numeric AS monto_transferido
     FROM operaciones op
-    GROUP BY 1, 2, 3, 4
+    GROUP BY 1, 2, 3, 4, 5, 6, 7
   )
   SELECT jsonb_build_object(
     'id_empresa_contraparte', m.id_empresa_contraparte,
     'empresa_contraparte', m.empresa_contraparte,
     'id_banco_contraparte', m.id_banco_contraparte,
     'banco_contraparte', m.banco_contraparte,
+    'id_comunidad', m.id_comunidad,
+    'comunidad', m.comunidad,
+    'porcentaje_comision', m.porcentaje_comision,
     'operaciones', m.operaciones,
     'gastos_operacionales', m.gastos_operacionales,
     'monto_transferido', m.monto_transferido
   )
   FROM metricas m
-  ORDER BY m.monto_transferido DESC, m.empresa_contraparte, m.banco_contraparte;
+  ORDER BY m.monto_transferido DESC, m.empresa_contraparte, m.banco_contraparte, m.comunidad, m.porcentaje_comision;
 END;
 $$;
 

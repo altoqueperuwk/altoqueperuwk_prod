@@ -105,8 +105,9 @@ SELECT public.f_get_dashboard_metricas_bancarias_mejor_cliente(
 );
 
 -- 10. Derivaciones atendidas de Efectivizacion. El contexto debe coincidir con
--- la empresa/cuenta de salida, agrupando por empresa y banco de origen y
--- sumando como gasto operacional la comision bancaria de salida.
+-- la empresa/cuenta de salida, agrupando por empresa, banco de origen,
+-- comunidad y porcentaje de comision, y sumando como gasto operacional la
+-- comision bancaria de salida.
 SELECT *
 FROM public.f_get_dashboard_metricas_bancarias_derivaciones(
   p_fecha_desde := DATE_TRUNC('month', CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date,
