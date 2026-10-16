@@ -6,6 +6,7 @@ import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { isAdministrator, isJefeTienda, useAuth } from "@/providers/auth-provider";
+import { canDeleteAssistedOperation } from "../utils/asistida-delete-permission";
 import { useToast } from "@/providers/toast-provider";
 import { bancoService } from "@/services/banco.service";
 import { estadoService } from "@/services/estado.service";
@@ -329,6 +330,14 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
         || !isJefeTiendaProfile
         || (userId !== null && Number(row.id_usuario_solicitud) === userId);
     const canEditOperation = (row: OperacionProceso) => isPagado(row) || canManageOperation(row);
+    const canDeleteOperation = (row: OperacionProceso) => canDeleteAssistedOperation({
+        ruta,
+        estado: row.nombre_estado,
+        idEstado: row.id_estado,
+        isAdministrator: isAdministratorProfile,
+        isJefeTienda: isJefeTiendaProfile,
+        canManage: canManageOperation(row),
+    });
     const actions: string[] = [];
     const handleSinEnvioSolicitud = async (row: OperacionProceso) => {
         if (ruta !== "pos" || !canManageOperation(row) || isPagado(row)) return;
@@ -407,10 +416,10 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
                         <ButtonUtility
                             size="xs"
                             color="tertiary"
-                            tooltip={canManageOperation(row) ? "Eliminar operacion" : "Solo el usuario que registro la operacion puede eliminarla"}
+                            tooltip={canDeleteOperation(row) ? "Eliminar operacion" : ruta === "linkpago" ? "Solo administrador o jefe de tienda; no disponible si ya esta eliminada" : "No disponible para esta operacion"}
                             icon={Trash01}
-                            isDisabled={!canManageOperation(row) || isPagado(row)}
-                            onClick={() => setDeleteOperation(row)}
+                            isDisabled={!canDeleteOperation(row) || isApplyingAction}
+                            onClick={() => { if (canDeleteOperation(row)) setDeleteOperation(row); }}
                         />
                     </div>
                 ),
@@ -420,7 +429,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
             if (ruta === "linkpago") return [...linkpagoColumns, actionColumn];
             return baseColumns;
         },
-        [canManageOperation, handleSinEnvioSolicitud, isAdministratorProfile, isApplyingAction, isJefeTiendaProfile, ruta, userId],
+        [canDeleteOperation, canManageOperation, handleSinEnvioSolicitud, isAdministratorProfile, isApplyingAction, isJefeTiendaProfile, ruta, userId],
     );
     const entidadTarjetaOptions = useMemo(
         () => {
@@ -599,7 +608,11 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
     };
 
     const handleDelete = async () => {
-        if (!deleteOperation) return;
+        if (!deleteOperation || isApplyingAction) return;
+        if (!canDeleteOperation(deleteOperation)) {
+            addToast("error", "No tiene permiso para eliminar esta operacion.");
+            return;
+        }
         setIsApplyingAction(true);
         try {
             const result = await operacionesRpcService.deleteOperacionProceso({

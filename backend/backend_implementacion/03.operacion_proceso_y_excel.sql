@@ -1,4 +1,4 @@
-﻿-- ============================================================================
+-- ============================================================================
 -- 12. TB_OPERACION_CARGA_EXCEL
 -- ============================================================================
 
@@ -859,8 +859,9 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso_eliminada (
 /*
 Funcion: f_patch_tb_operacion_proceso_eliminar
 Objetivo:
-  Aplicar soft delete a una operacion no pagada, revirtiendo primero sus
-  movimientos abiertos y conservando un snapshot para restaurar.
+  Aplicar soft delete conservando un snapshot para restaurar. Link Pago admite
+  Pagado exclusivamente para administrador o jefe de tienda autenticados.
+  Las demas rutas conservan sus validaciones y reversiones de caja.
 */
 CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_eliminar(
   p_id bigint,
@@ -879,6 +880,8 @@ DECLARE
   v_usuario bigint;
   v_ruta character varying;
   v_es_linkpago boolean := false;
+  v_actor_id bigint;
+  v_actor_autorizado boolean := false;
   v_saldo_caja numeric;
   v_saldo_simulado numeric;
   v_caja_simulada bigint;
@@ -899,7 +902,38 @@ BEGIN
   v_es_operacion_pendiente := UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) IN ('PENDIENTE', 'RECHAZADO');
   v_usuario := COALESCE(p_id_usuario, v_actual.id_usuario_gestor, v_actual.id_usuario);
 
-  IF LOWER(COALESCE(v_actual.ruta_origen, '')) IN ('pos', 'linkpago')
+  IF v_es_linkpago THEN
+    IF auth.uid() IS NULL THEN
+      RETURN jsonb_build_object('error', 'Sesion autenticada requerida para eliminar Link Pago.');
+    END IF;
+
+    SELECT u.id,
+      u.id_estado = 1 AND (
+        COALESCE(u.flag_super_admin, false)
+        OR u.id_rol IN (1, 3)
+        OR UPPER(BTRIM(COALESCE(r.nombre, ''))) IN ('ADMINISTRADOR', 'JEFE DE TIENDA')
+      )
+    INTO v_actor_id, v_actor_autorizado
+    FROM public.tb_usuario u
+    LEFT JOIN public.tb_rol r ON r.id = u.id_rol
+    WHERE u.auth_user_id = auth.uid()
+       OR (
+         u.auth_user_id IS NULL
+         AND LOWER(BTRIM(u.email)) = LOWER(BTRIM(auth.jwt() ->> 'email'))
+       )
+    ORDER BY (u.auth_user_id = auth.uid()) DESC NULLS LAST, u.id
+    LIMIT 1;
+
+    IF NOT COALESCE(v_actor_autorizado, false) THEN
+      RETURN jsonb_build_object('error', 'Solo administrador o jefe de tienda activo puede eliminar Link Pago.');
+    END IF;
+    IF p_id_usuario IS NOT NULL AND p_id_usuario IS DISTINCT FROM v_actor_id THEN
+      RETURN jsonb_build_object('error', 'El usuario indicado no corresponde a la sesion autenticada.');
+    END IF;
+    v_usuario := v_actor_id;
+  END IF;
+
+  IF LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos'
      AND EXISTS (
        SELECT 1
        FROM public.tb_usuario u
@@ -6491,4 +6525,14 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN ('f_patch_tb_operacion_proceso_pagado')
+ORDER BY n.nspname, p.proname;
+
+-- Entrega puntual: eliminacion de Link Pago (sin cambios de retencion BCP).
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN ('f_patch_tb_operacion_proceso_eliminar')
 ORDER BY n.nspname, p.proname;
