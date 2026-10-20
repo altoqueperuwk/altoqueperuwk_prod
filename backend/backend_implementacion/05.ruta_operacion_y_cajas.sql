@@ -1684,6 +1684,15 @@ BEGIN
     RETURN NULL;
   END IF;
 
+  -- HOTFIX 2026-10-20: coordinacion transaccional sin espera, compartida por ambos KPI.
+  -- Si hay conflicto se aborta; nunca se omite la sincronizacion contable.
+  IF NOT pg_catalog.pg_try_advisory_xact_lock(
+    1096043344, pg_catalog.hashtext(pg_catalog.lower(pg_catalog.btrim(p_ruta)))
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = '55P03',
+      MESSAGE = 'Otra operacion esta actualizando las cajas de esta ruta. Reintenta en unos segundos.';
+  END IF;
+
   SELECT id
   INTO v_estado_activo_id
   FROM public.tb_estado
@@ -2041,6 +2050,15 @@ BEGIN
     RETURN NULL;
   END IF;
 
+  -- HOTFIX 2026-10-20: coordinacion transaccional sin espera, compartida por ambos KPI.
+  -- Si hay conflicto se aborta; nunca se omite la sincronizacion contable.
+  IF NOT pg_catalog.pg_try_advisory_xact_lock(
+    1096043344, pg_catalog.hashtext(pg_catalog.lower(pg_catalog.btrim(p_ruta)))
+  ) THEN
+    RAISE EXCEPTION USING ERRCODE = '55P03',
+      MESSAGE = 'Otra operacion esta actualizando las cajas de esta ruta. Reintenta en unos segundos.';
+  END IF;
+
   SELECT id
   INTO v_estado_activo_id
   FROM public.tb_estado
@@ -2048,6 +2066,22 @@ BEGIN
   LIMIT 1;
 
   v_estado_activo_id := COALESCE(v_estado_activo_id, 1);
+
+  -- HOTFIX 2026-10-20: reservar las cajas que el UPDATE siguiente ya modifica.
+  -- Orden estable + NOWAIT: no esperar otra caja conservando bloqueos previos.
+  PERFORM c.id
+  FROM public.tb_caja_operativa c
+  WHERE c.id_estado = v_estado_activo_id
+    AND EXISTS (
+      SELECT 1
+      FROM public.tb_ruta_operacion_caja rc
+      WHERE rc.ruta = p_ruta
+        AND rc.id_estado = v_estado_activo_id
+        AND rc.id_empresa = c.id_empresa
+        AND rc.id_empresa_cuenta_bancaria = c.id_empresa_cuenta_bancaria
+    )
+  ORDER BY c.id
+  FOR UPDATE OF c NOWAIT;
 
   INSERT INTO public.tb_ruta_operacion_kpi (
     ruta,
@@ -5621,7 +5655,7 @@ BEGIN
   JOIN public.tb_banco b ON b.id = ecb.id_banco
   WHERE c.id = p_id_caja
   LIMIT 1
-  FOR UPDATE;
+  FOR UPDATE OF c NOWAIT;
 
   IF v_caja.id IS NULL THEN
     RETURN jsonb_build_object('error', 'La caja no existe.');
@@ -5971,7 +6005,7 @@ BEGIN
   FROM public.tb_caja_operativa c
   WHERE c.id = p_id_caja
   LIMIT 1
-  FOR UPDATE;
+  FOR UPDATE OF c NOWAIT;
 
   IF v_caja.id IS NULL THEN
     RAISE EXCEPTION 'La caja no existe.';
@@ -8575,4 +8609,19 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.proname IN ('f_sync_tb_ruta_operacion_kpi_operacion')
+ORDER BY n.nspname, p.proname;
+
+-- Hotfix de bloqueos: generador de DROP; no ejecutar DROP para este parche.
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN (
+  'f_post_tb_operacion_caja',
+  'f_apply_tb_operacion_caja_delta',
+  'f_sync_tb_ruta_operacion_kpi_caja',
+  'f_sync_tb_ruta_operacion_kpi_operacion'
+)
 ORDER BY n.nspname, p.proname;

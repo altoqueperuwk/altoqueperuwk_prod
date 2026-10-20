@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { rpcWithLockRetry } from "@/lib/rpc-lock-retry";
 import type {
     CajaOperativa,
     CajaOperativaCierre,
@@ -86,7 +87,7 @@ interface OperacionReanudarLoteResult {
 }
 
 const rpc = async <T>(fn: string, params: Record<string, unknown>): Promise<T> => {
-    const { data, error } = await supabase.rpc(fn, params);
+    const { data, error } = await rpcWithLockRetry(fn, () => supabase.rpc(fn, params));
 
     if (error) throw new Error(normalizeRpcErrorMessage(error.message));
     if (data && !Array.isArray(data) && typeof data === "object" && "error" in data) {

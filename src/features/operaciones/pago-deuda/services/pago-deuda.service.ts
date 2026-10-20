@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { rpcWithLockRetry } from "@/lib/rpc-lock-retry";
 import type { OperacionProceso } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 
 export type PagoDeudaMatchBatchItem = {
@@ -12,7 +13,7 @@ export type PagoDeudaMatchFlagBatchItem = {
 };
 
 const rpc = async <T>(fn: string, params: Record<string, unknown>): Promise<T> => {
-    const { data, error } = await supabase.rpc(fn, params);
+    const { data, error } = await rpcWithLockRetry(fn, () => supabase.rpc(fn, params));
 
     if (error) throw error;
     if (data && !Array.isArray(data) && typeof data === "object" && "error" in data) {
