@@ -574,6 +574,10 @@ CREATE TABLE IF NOT EXISTS public.tb_ruta_operacion_kpi (
 ALTER TABLE public.tb_ruta_operacion_kpi
   ADD COLUMN IF NOT EXISTS fuera_horario numeric NOT NULL DEFAULT 0;
 
+CREATE OR REPLACE VIEW public.v_ruta_operacion_metadata AS
+SELECT id, ruta, id_estado, id_usuario, fecha_registro FROM public.tb_ruta_operacion_kpi;
+REVOKE ALL ON public.v_ruta_operacion_metadata FROM PUBLIC, anon, authenticated;
+
 /*
 Funcion: f_get_tb_ruta_operacion_kpi
 Objetivo:
@@ -582,38 +586,43 @@ Objetivo:
   movimientos no comerciales se leen desde tb_operacion_caja. Caja inicial y
   caja actual se mantienen en tb_caja_operativa.
 */
-CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_kpi(
-  p_id bigint DEFAULT NULL,
-  p_ruta character varying DEFAULT NULL,
-  p_id_empresa bigint DEFAULT NULL,
-  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
-  p_id_estado bigint DEFAULT NULL
-)
-RETURNS TABLE (
-  id bigint,
-  ruta character varying,
-  caja_inicial numeric,
-  caja_actual numeric,
-  total_recaudado numeric,
-  ingresos numeric,
-  salidas numeric,
-  gastos_operacionales numeric,
-  ganancias numeric,
-  ingresos_retenidos numeric,
-  fuera_horario numeric,
-  pendiente_depositar numeric,
-  total_efectivizacion integer,
-  total_pago_deuda integer,
-  id_estado bigint,
-  nombre_estado character varying,
-  id_usuario bigint,
-  nombre_usuario character varying,
-  fecha_registro timestamp with time zone
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_kpi(p_id bigint DEFAULT NULL::bigint, p_ruta character varying DEFAULT NULL::character varying, p_id_empresa bigint DEFAULT NULL::bigint, p_id_empresa_cuenta_bancaria bigint DEFAULT NULL::bigint, p_id_estado bigint DEFAULT NULL::bigint)
+ RETURNS TABLE(id bigint, ruta character varying, caja_inicial numeric, caja_actual numeric, total_recaudado numeric, ingresos numeric, salidas numeric, gastos_operacionales numeric, ganancias numeric, ingresos_retenidos numeric, fuera_horario numeric, pendiente_depositar numeric, total_efectivizacion integer, total_pago_deuda integer, id_estado bigint, nombre_estado character varying, id_usuario bigint, nombre_usuario character varying, fecha_registro timestamp with time zone)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
 BEGIN
+  -- Compatibilidad: los lectores antiguos de bancos no consumen el cache
+  -- comercial, que ya no se recalcula en cada movimiento.
+  IF p_ruta IN ('bcp', 'interbank', 'scotiabank', 'bbva', 'banbif')
+     AND (p_id_estado IS NULL OR p_id_estado = 1)
+     AND EXISTS (SELECT 1 FROM public.v_ruta_operacion_metadata m WHERE m.ruta = p_ruta AND m.id_estado = 1) THEN
+    RETURN QUERY
+    SELECT v.id, v.ruta, v.caja_inicial, v.caja_actual, v.total_recaudado,
+      v.ingresos, v.salidas, v.gastos_operacionales, v.ganancias,
+      v.ingresos_retenidos, v.fuera_horario, v.pendiente_depositar,
+      v.total_efectivizacion, v.total_pago_deuda, v.id_estado,
+      v.nombre_estado, v.id_usuario, v.nombre_usuario, v.fecha_registro
+    FROM public.f_get_tb_ruta_operacion_kpi_operaciones_v2(
+      p_ruta, p_id_empresa, p_id_empresa_cuenta_bancaria
+    ) v
+    WHERE (p_id IS NULL OR v.id = p_id)
+      AND (p_id_estado IS NULL OR v.id_estado = p_id_estado);
+    RETURN;
+  ELSIF p_ruta IS NULL THEN
+    RETURN QUERY
+    SELECT v.*
+    FROM public.v_ruta_operacion_metadata m
+    CROSS JOIN LATERAL public.f_get_tb_ruta_operacion_kpi(
+      p_id := m.id, p_ruta := m.ruta, p_id_empresa := p_id_empresa,
+      p_id_empresa_cuenta_bancaria := p_id_empresa_cuenta_bancaria,
+      p_id_estado := p_id_estado
+    ) v
+    WHERE (p_id IS NULL OR m.id = p_id)
+    ORDER BY v.ruta, v.id;
+    RETURN;
+  END IF;
+
   IF p_id_empresa IS NOT NULL OR p_id_empresa_cuenta_bancaria IS NOT NULL THEN
     RETURN QUERY
     WITH base AS (
@@ -1387,7 +1396,7 @@ BEGIN
     AND (p_id_estado IS NULL OR k.id_estado = p_id_estado)
   ORDER BY k.ruta, k.id;
 END;
-$$;
+$function$
 
 /*
 Funcion: f_get_tb_ruta_operacion_ganancias_efectivizacion
@@ -1667,20 +1676,28 @@ Uso:
   - retenciones
   - flujo Pago Deuda
 */
-CREATE OR REPLACE FUNCTION public.f_sync_tb_ruta_operacion_kpi_operacion(
-  p_ruta character varying,
-  p_id_usuario bigint,
-  p_incluir_resultado boolean
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.f_sync_tb_ruta_operacion_kpi_operacion(p_ruta character varying, p_id_usuario bigint, p_incluir_resultado boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
 DECLARE
   v_estado_activo_id bigint;
   v_result jsonb;
 BEGIN
   IF COALESCE(p_ruta, '') = '' THEN
+    RETURN NULL;
+  END IF;
+
+  -- Los importes de estos bancos se consultan en vivo. Mantener el camino
+  -- antiguo solo para inicializar una ruta sin metadatos y rutas no migradas.
+  IF p_ruta IN ('bcp', 'interbank', 'scotiabank', 'bbva', 'banbif')
+     AND EXISTS (SELECT 1 FROM public.v_ruta_operacion_metadata m WHERE m.ruta = p_ruta) THEN
+    IF p_incluir_resultado THEN
+      SELECT to_jsonb(x) INTO v_result
+      FROM public.f_get_tb_ruta_operacion_kpi(p_ruta := p_ruta) x LIMIT 1;
+      RETURN v_result;
+    END IF;
     RETURN NULL;
   END IF;
 
@@ -1785,18 +1802,18 @@ BEGIN
 
   RETURN v_result;
 END;
-$$;
+$function$
 
-CREATE OR REPLACE FUNCTION public.f_sync_tb_ruta_operacion_kpi_operacion(
-  p_ruta character varying,
-  p_id_usuario bigint DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE sql
-SECURITY DEFINER
-AS $$
-  SELECT public.f_sync_tb_ruta_operacion_kpi_operacion(p_ruta, p_id_usuario, true);
-$$;
+CREATE OR REPLACE FUNCTION public.f_sync_tb_ruta_operacion_kpi_operacion(p_ruta character varying, p_id_usuario bigint DEFAULT NULL::bigint)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET statement_timeout TO '10min'
+AS $function$
+BEGIN
+  RETURN public.f_sync_tb_ruta_operacion_kpi_operacion(p_ruta, p_id_usuario, true);
+END;
+$function$
 
 /*
 Funcion: f_get_tb_operacion_bandeja_badges
@@ -5591,36 +5608,69 @@ Reglas compactas:
   - monto_ganancia queda congelado como dato de reporte, sin alterar por si solo
     el saldo porque ya esta implÃ­cito en la combinacion ingreso/gasto.
 */
-CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_caja(
+CREATE OR REPLACE FUNCTION public.f_sync_tb_caja_operativa_despues_movimiento(
   p_id_caja bigint,
-  p_tipo_origen character varying,
-  p_tipo_movimiento character varying,
-  p_id_operacion_caja_relacionada bigint DEFAULT NULL,
-  p_id_operacion_proceso bigint DEFAULT NULL,
-  p_id_codigo_servicio bigint DEFAULT NULL,
-  p_nombre_codigo_servicio character varying DEFAULT NULL,
-  p_dni_cliente character varying DEFAULT NULL,
-  p_nombre_cliente character varying DEFAULT NULL,
-  p_codigo_operacion character varying DEFAULT NULL,
-  p_id_categoria_movimiento bigint DEFAULT NULL,
-  p_nombre_categoria_movimiento character varying DEFAULT NULL,
-  p_detalle character varying DEFAULT NULL,
-  p_id_banco_tercero bigint DEFAULT NULL,
-  p_nombre_banco_tercero character varying DEFAULT NULL,
-  p_monto_ingreso numeric DEFAULT 0,
-  p_monto_gasto numeric DEFAULT 0,
-  p_monto_ganancia numeric DEFAULT 0,
-  p_monto_salida numeric DEFAULT 0,
-  p_flag_contabiliza_operacion boolean DEFAULT true,
-  p_id_estado bigint DEFAULT NULL,
-  p_id_usuario bigint DEFAULT NULL,
-  p_nombre_usuario character varying DEFAULT NULL,
-  p_tipo_facturacion character varying DEFAULT 'Boleta'
+  p_id_usuario bigint DEFAULT NULL
 )
-RETURNS jsonb
+RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
+DECLARE
+  v_caja public.tb_caja_operativa%ROWTYPE;
+  v_ruta character varying;
+BEGIN
+  SELECT c.* INTO v_caja FROM public.tb_caja_operativa c
+  WHERE c.id = p_id_caja FOR UPDATE OF c NOWAIT;
+  IF NOT FOUND THEN RAISE EXCEPTION 'La caja no existe.'; END IF;
+
+  FOR v_ruta IN
+    SELECT rc.ruta FROM public.tb_ruta_operacion_caja rc
+    WHERE rc.id_empresa = v_caja.id_empresa
+      AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
+      AND rc.id_estado = 1 ORDER BY rc.ruta
+  LOOP
+    IF v_ruta IN ('bcp', 'interbank', 'scotiabank', 'bbva', 'banbif') THEN
+      UPDATE public.tb_caja_operativa c
+      SET ingresos_retenido = COALESCE((
+        SELECT SUM(op.monto_deposito_cliente)
+        FROM public.tb_operacion_proceso op
+        WHERE op.flag_retenido = true
+          AND COALESCE(op.flag_fuera_horario, false) = false
+          AND op.id_empresa_ingreso = c.id_empresa
+          AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria
+          AND COALESCE(op.ruta_destino, op.ruta_origen) = v_ruta
+          AND op.id_caja_cierre IS NULL
+          AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+          AND NOT EXISTS (
+            SELECT 1 FROM public.tb_operacion_caja oc
+            WHERE oc.id_operacion_proceso = op.id
+              AND oc.id_caja_cierre IS NOT NULL
+              AND UPPER(BTRIM(COALESCE(oc.tipo_movimiento, ''))) = 'INGRESO'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM public.tb_ruta_operacion_caja rc
+            WHERE rc.ruta = v_ruta AND rc.id_estado = 1
+              AND rc.id_empresa = c.id_empresa
+              AND rc.id_empresa_cuenta_bancaria = c.id_empresa_cuenta_bancaria
+              AND op.fecha_registro < c.fecha_apertura
+          )
+      ), 0)
+      WHERE c.id = p_id_caja AND c.id_estado = 1;
+    ELSE
+      PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta, p_id_usuario);
+    END IF;
+  END LOOP;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.f_sync_tb_caja_operativa_despues_movimiento(bigint,bigint) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_caja(p_id_caja bigint, p_tipo_origen character varying, p_tipo_movimiento character varying, p_id_operacion_caja_relacionada bigint DEFAULT NULL::bigint, p_id_operacion_proceso bigint DEFAULT NULL::bigint, p_id_codigo_servicio bigint DEFAULT NULL::bigint, p_nombre_codigo_servicio character varying DEFAULT NULL::character varying, p_dni_cliente character varying DEFAULT NULL::character varying, p_nombre_cliente character varying DEFAULT NULL::character varying, p_codigo_operacion character varying DEFAULT NULL::character varying, p_id_categoria_movimiento bigint DEFAULT NULL::bigint, p_nombre_categoria_movimiento character varying DEFAULT NULL::character varying, p_detalle character varying DEFAULT NULL::character varying, p_id_banco_tercero bigint DEFAULT NULL::bigint, p_nombre_banco_tercero character varying DEFAULT NULL::character varying, p_monto_ingreso numeric DEFAULT 0, p_monto_gasto numeric DEFAULT 0, p_monto_ganancia numeric DEFAULT 0, p_monto_salida numeric DEFAULT 0, p_flag_contabiliza_operacion boolean DEFAULT true, p_id_estado bigint DEFAULT NULL::bigint, p_id_usuario bigint DEFAULT NULL::bigint, p_nombre_usuario character varying DEFAULT NULL::character varying, p_tipo_facturacion character varying DEFAULT 'Boleta'::character varying)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
 DECLARE
   v_caja record;
   v_estado_id bigint;
@@ -5838,11 +5888,7 @@ BEGIN
 
   -- Las cargas Excel difieren esta sincronizacion y la ejecutan una vez al final.
   IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
-    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario)
-    FROM public.tb_ruta_operacion_caja rc
-    WHERE rc.id_empresa = v_caja.id_empresa
-      AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
-      AND rc.id_estado = 1;
+    PERFORM public.f_sync_tb_caja_operativa_despues_movimiento(v_caja.id, p_id_usuario);
   END IF;
 
   RETURN (
@@ -5851,7 +5897,7 @@ BEGIN
     LIMIT 1
   );
 END;
-$$;
+$function$
 
 /*
 Funcion: f_post_tb_operacion_caja_contraparte
@@ -5968,22 +6014,11 @@ Objetivo:
   Aplicar o revertir en tb_caja_operativa el impacto financiero de un movimiento
   de caja, usando la misma semantica de f_post_tb_operacion_caja.
 */
-CREATE OR REPLACE FUNCTION public.f_apply_tb_operacion_caja_delta(
-  p_id_caja bigint,
-  p_tipo_movimiento character varying,
-  p_nombre_estado character varying DEFAULT NULL,
-  p_monto_ingreso numeric DEFAULT 0,
-  p_monto_gasto numeric DEFAULT 0,
-  p_monto_ganancia numeric DEFAULT 0,
-  p_monto_salida numeric DEFAULT 0,
-  p_flag_contabiliza_operacion boolean DEFAULT true,
-  p_factor integer DEFAULT 1,
-  p_id_usuario bigint DEFAULT NULL
-)
-RETURNS numeric
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.f_apply_tb_operacion_caja_delta(p_id_caja bigint, p_tipo_movimiento character varying, p_nombre_estado character varying DEFAULT NULL::character varying, p_monto_ingreso numeric DEFAULT 0, p_monto_gasto numeric DEFAULT 0, p_monto_ganancia numeric DEFAULT 0, p_monto_salida numeric DEFAULT 0, p_flag_contabiliza_operacion boolean DEFAULT true, p_factor integer DEFAULT 1, p_id_usuario bigint DEFAULT NULL::bigint)
+ RETURNS numeric
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
 DECLARE
   v_caja record;
   v_tipo_movimiento character varying;
@@ -6057,16 +6092,12 @@ BEGIN
 
   -- Los lotes de pago sincronizan el KPI una sola vez al finalizar.
   IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
-    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario)
-    FROM public.tb_ruta_operacion_caja rc
-    WHERE rc.id_empresa = v_caja.id_empresa
-      AND rc.id_empresa_cuenta_bancaria = v_caja.id_empresa_cuenta_bancaria
-      AND rc.id_estado = 1;
+    PERFORM public.f_sync_tb_caja_operativa_despues_movimiento(v_caja.id, p_id_usuario);
   END IF;
 
   RETURN v_saldo_nuevo;
 END;
-$$;
+$function$
 
 /*
 Funcion: f_patch_tb_operacion_caja_revertir_informativa
@@ -6171,18 +6202,11 @@ AS $$
   ), 0);
 $$;
 
-CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_caja_desde_proceso(
-  p_id_operacion_proceso bigint,
-  p_tipo_origen character varying DEFAULT 'EFECTIVIZACION',
-  p_tipo_movimiento character varying DEFAULT NULL,
-  p_id_usuario bigint DEFAULT NULL,
-  p_nombre_usuario character varying DEFAULT NULL,
-  p_id_estado bigint DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_caja_desde_proceso(p_id_operacion_proceso bigint, p_tipo_origen character varying DEFAULT 'EFECTIVIZACION'::character varying, p_tipo_movimiento character varying DEFAULT NULL::character varying, p_id_usuario bigint DEFAULT NULL::bigint, p_nombre_usuario character varying DEFAULT NULL::character varying, p_id_estado bigint DEFAULT NULL::bigint)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
 DECLARE
   v_op record;
   v_mov record;
@@ -6616,11 +6640,7 @@ BEGIN
       WHERE id = v_id_caja;
 
       IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
-        PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario)
-        FROM public.tb_ruta_operacion_caja rc
-        WHERE rc.id_empresa = v_caja_destino.id_empresa
-          AND rc.id_empresa_cuenta_bancaria = v_caja_destino.id_empresa_cuenta_bancaria
-          AND rc.id_estado = 1;
+        PERFORM public.f_sync_tb_caja_operativa_despues_movimiento(v_id_caja, p_id_usuario);
       END IF;
     ELSE
       PERFORM public.f_apply_tb_operacion_caja_delta(
@@ -6773,7 +6793,7 @@ BEGIN
 
   RETURN v_result;
 END;
-$$;
+$function$
 
 /*
 Funcion: f_patch_tb_operacion_caja
@@ -7722,38 +7742,11 @@ Objetivo:
   las salidas manuales se leen desde los movimientos OTROS del formulario
   Ingreso y Salidas. Las funciones KPI anteriores se conservan para rollback.
 */
-CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_kpi_operaciones_v2(
-  p_ruta character varying,
-  p_id_empresa bigint DEFAULT NULL,
-  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
-  p_id_caja bigint DEFAULT NULL
-)
-RETURNS TABLE (
-  id bigint,
-  ruta character varying,
-  caja_inicial numeric,
-  caja_actual numeric,
-  total_recaudado numeric,
-  ingresos numeric,
-  salidas numeric,
-  gastos_operacionales numeric,
-  ganancias numeric,
-  ingresos_retenidos numeric,
-  fuera_horario numeric,
-  pendiente_depositar numeric,
-  total_efectivizacion integer,
-  total_pago_deuda integer,
-  id_estado bigint,
-  nombre_estado character varying,
-  id_usuario bigint,
-  nombre_usuario character varying,
-  fecha_registro timestamp with time zone,
-  caja_recaudacion numeric,
-  pendiente_transferencia numeric
-)
-LANGUAGE sql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_kpi_operaciones_v2(p_ruta character varying, p_id_empresa bigint DEFAULT NULL::bigint, p_id_empresa_cuenta_bancaria bigint DEFAULT NULL::bigint, p_id_caja bigint DEFAULT NULL::bigint)
+ RETURNS TABLE(id bigint, ruta character varying, caja_inicial numeric, caja_actual numeric, total_recaudado numeric, ingresos numeric, salidas numeric, gastos_operacionales numeric, ganancias numeric, ingresos_retenidos numeric, fuera_horario numeric, pendiente_depositar numeric, total_efectivizacion integer, total_pago_deuda integer, id_estado bigint, nombre_estado character varying, id_usuario bigint, nombre_usuario character varying, fecha_registro timestamp with time zone, caja_recaudacion numeric, pendiente_transferencia numeric)
+ LANGUAGE sql
+ SECURITY DEFINER
+AS $function$
 WITH cuentas_pago_deuda_salida(
   id_empresa,
   id_empresa_cuenta_bancaria,
@@ -7841,6 +7834,9 @@ por_caja AS (
                (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
                OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
                OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
+               OR (op.id_empresa_ingreso = 4 AND op.id_empresa_cuenta_ingreso = 3 AND op.id_banco_empresa_cuenta_ingreso = 2)
+               OR (op.id_empresa_ingreso = 11 AND op.id_empresa_cuenta_ingreso = 12 AND op.id_banco_empresa_cuenta_ingreso = 2)
+               OR (op.id_empresa_ingreso = 12 AND op.id_empresa_cuenta_ingreso = 14 AND op.id_banco_empresa_cuenta_ingreso = 2)
                OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
                OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
              )
@@ -7856,6 +7852,9 @@ por_caja AS (
                  (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
                  OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
                  OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
+                 OR (op.id_empresa_ingreso = 4 AND op.id_empresa_cuenta_ingreso = 3 AND op.id_banco_empresa_cuenta_ingreso = 2)
+                 OR (op.id_empresa_ingreso = 11 AND op.id_empresa_cuenta_ingreso = 12 AND op.id_banco_empresa_cuenta_ingreso = 2)
+                 OR (op.id_empresa_ingreso = 12 AND op.id_empresa_cuenta_ingreso = 14 AND op.id_banco_empresa_cuenta_ingreso = 2)
                  OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
                  OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
                )
@@ -8030,6 +8029,9 @@ por_caja AS (
         WHEN (
           (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
           OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
+          OR (op.id_empresa_ingreso = 4 AND op.id_empresa_cuenta_ingreso = 3 AND op.id_banco_empresa_cuenta_ingreso = 2)
+          OR (op.id_empresa_ingreso = 11 AND op.id_empresa_cuenta_ingreso = 12 AND op.id_banco_empresa_cuenta_ingreso = 2)
+          OR (op.id_empresa_ingreso = 12 AND op.id_empresa_cuenta_ingreso = 14 AND op.id_banco_empresa_cuenta_ingreso = 2)
         ) THEN
           (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima')::date =
           (CURRENT_TIMESTAMP AT TIME ZONE 'America/Lima')::date
@@ -8053,7 +8055,13 @@ por_caja AS (
         ELSE false
       END AS retenido_hardcodeado
     ) retencion ON true
-    WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+    -- Efectivizacion: 3 Pendiente / 4 Pagado; no altera estados de Pago Deuda.
+    WHERE op.id_estado <> 10
+      AND (
+        UPPER(BTRIM(COALESCE(op.tipo_servicio, ''))) <> 'EFECTIVIZACION'
+        OR op.id_estado IN (3, 4)
+      )
+      AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
       AND (
         (op.id_empresa_ingreso = c.id_empresa AND op.id_empresa_cuenta_ingreso = c.id_empresa_cuenta_bancaria)
         OR
@@ -8115,7 +8123,7 @@ ruta_kpi AS (
     k.id_usuario,
     u.nombre AS nombre_usuario,
     k.fecha_registro
-  FROM public.tb_ruta_operacion_kpi k
+  FROM public.v_ruta_operacion_metadata k
   LEFT JOIN public.tb_estado est ON est.id = k.id_estado
   LEFT JOIN public.tb_usuario u ON u.id = k.id_usuario
   WHERE k.ruta = p_ruta
@@ -8158,7 +8166,7 @@ SELECT
 FROM por_caja pc
 FULL JOIN ruta_kpi rk ON true
 GROUP BY rk.id, rk.ruta, rk.id_estado, rk.nombre_estado, rk.id_usuario, rk.nombre_usuario, rk.fecha_registro;
-$$;
+$function$
 
 /*
 Funcion: f_get_tb_ruta_operacion_kpi_cierre_operaciones_v2
@@ -8495,20 +8503,14 @@ Objetivo:
   ciclo vivo o de un cierre. Se utiliza para conciliar el Saldo Banco sin
   descontar las comisiones bancarias de ingreso.
 */
-CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_gastos_salida_v2(
-  p_ruta character varying,
-  p_id_empresa bigint DEFAULT NULL,
-  p_id_empresa_cuenta_bancaria bigint DEFAULT NULL,
-  p_id_caja bigint DEFAULT NULL,
-  p_id_caja_cierre bigint DEFAULT NULL
-)
-RETURNS numeric
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  WITH caja AS (
+CREATE OR REPLACE FUNCTION public.f_get_tb_ruta_operacion_gastos_salida_v2(p_ruta character varying, p_id_empresa bigint DEFAULT NULL::bigint, p_id_empresa_cuenta_bancaria bigint DEFAULT NULL::bigint, p_id_caja bigint DEFAULT NULL::bigint, p_id_caja_cierre bigint DEFAULT NULL::bigint)
+ RETURNS numeric
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  -- Una sola lectura del contexto de cajas, no una por operación candidata.
+  WITH caja AS MATERIALIZED (
     SELECT
       c.id,
       c.fecha_apertura
@@ -8527,7 +8529,13 @@ AS $$
   )
   SELECT COALESCE(SUM(COALESCE(op.resultado_comision_banco_salida, 0)), 0)
   FROM public.tb_operacion_proceso op
-  WHERE UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
+  -- Efectivizacion: 3 Pendiente / 4 Pagado; no altera estados de Pago Deuda.
+  WHERE op.id_estado <> 10
+    AND (
+      UPPER(BTRIM(COALESCE(op.tipo_servicio, ''))) <> 'EFECTIVIZACION'
+      OR op.id_estado IN (3, 4)
+    )
+    AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) <> 'ELIMINADO'
     AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN (
       'DIRECTO_CAJA', 'RETORNO', 'RETORNO_DIRECTO'
     )
@@ -8547,7 +8555,7 @@ AS $$
           WHERE c.id = COALESCE(p_id_caja, c.id)
             AND (
               (
-                UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+                op.id_estado = 4
                 AND op.fecha_pagado IS NOT NULL
                 AND op.fecha_pagado >= COALESCE(c.fecha_apertura, '-infinity'::timestamp with time zone)
               )
@@ -8576,7 +8584,7 @@ AS $$
           )
         )
         AND (
-          UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PAGADO'
+          op.id_estado = 4
           OR (
             UPPER(BTRIM(COALESCE(op.tipo_servicio, ''))) = 'PAGO DEUDA'
             AND UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'PROCESADO'
@@ -8584,44 +8592,11 @@ AS $$
         )
       )
     );
-$$;
+$function$
 
 
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN (
-  'f_sync_tb_operacion_cierre_atribucion_v2',
-  'f_post_tb_caja_operativa_cierre',
-  'f_get_tb_ruta_operacion_kpi_safetypay',
-  'f_get_tb_ruta_operacion_kpi_operaciones_v2',
-  'f_get_reporte_cierre'
-)
-ORDER BY n.nspname, p.proname;
 
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_sync_tb_ruta_operacion_kpi_operacion')
-ORDER BY n.nspname, p.proname;
-
--- Hotfix de bloqueos: generador de DROP; no ejecutar DROP para este parche.
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN (
-  'f_post_tb_operacion_caja',
-  'f_apply_tb_operacion_caja_delta',
-  'f_sync_tb_ruta_operacion_kpi_caja',
-  'f_sync_tb_ruta_operacion_kpi_operacion'
-)
-ORDER BY n.nspname, p.proname;
+SELECT 'DROP FUNCTION IF EXISTS ' || n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+WHERE p.proname IN ('f_apply_tb_operacion_caja_delta', 'f_get_tb_ruta_operacion_gastos_salida_v2', 'f_get_tb_ruta_operacion_kpi', 'f_get_tb_ruta_operacion_kpi_operaciones_v2', 'f_post_tb_operacion_caja', 'f_post_tb_operacion_caja_desde_proceso', 'f_sync_tb_ruta_operacion_kpi_operacion', 'f_sync_tb_caja_operativa_despues_movimiento')
+ORDER BY n.nspname,p.proname;

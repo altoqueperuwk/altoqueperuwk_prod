@@ -1,11 +1,11 @@
-import { Fragment, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { motion } from "motion/react";
 import { ChevronLeft, ChevronRight } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { isInteractiveElement } from "@/features/operaciones/efectivizacion/shared/utils/row-selection";
-import { useVirtualTableRows } from "@/features/operaciones/efectivizacion/shared/hooks/use-virtual-table-rows";
+import { VirtualTableBody } from "./virtual-table-body";
 import { cx } from "@/utils/cx";
 
 interface Column<T> {
@@ -106,12 +106,7 @@ export const OperationTable = <T extends { id: number }>({
         return data.slice(start, start + activePageSize);
     }, [activePage, activePageSize, data, hidePagination, serverPagination]);
     const isVirtualized = virtualizeRows && hidePagination && paginatedData.length > 60;
-    const { scrollRef, virtualizer, items, paddingTop, paddingBottom } = useVirtualTableRows(paginatedData, isVirtualized, 64);
-    const renderedRows = isVirtualized
-        ? items.map((item) => ({ row: paginatedData[item.index], index: item.index }))
-        : paginatedData.map((row, index) => ({ row, index }));
     const RowComponent = virtualizeRows ? "tr" : motion.tr;
-    const RowsWrapper = isVirtualized ? Fragment : AnimatePresence;
     const virtualTableWidth = columns.reduce((total, column) => total + getVirtualColumnWidth(column), (hasSelection ? 36 : 0) + (renderActions ? 70 : 0));
     const skeletonRows = Array.from({ length: Math.min(activePageSize, 5) });
 
@@ -151,7 +146,7 @@ export const OperationTable = <T extends { id: number }>({
 
     return (
         <div className="overflow-hidden border-t border-secondary" data-copy-table="cierre-caja" aria-busy={isLoading || isRefreshing}>
-            <div ref={scrollRef} className="overflow-x-auto">
+            <div className="overflow-x-auto">
                 <table
                     className={cx("w-full divide-y divide-secondary", isVirtualized ? "table-fixed" : "min-w-max table-auto")}
                     style={isVirtualized ? { minWidth: virtualTableWidth } : undefined}
@@ -188,8 +183,12 @@ export const OperationTable = <T extends { id: number }>({
                             {renderActions ? <th className={cx("w-14 px-2 py-2 text-center text-xs font-semibold text-tertiary", isVirtualized && "sticky right-0 z-20 bg-secondary")}>Acciones</th> : null}
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-secondary bg-primary">
-                        {isLoading ? (
+                    <VirtualTableBody
+                        rows={paginatedData}
+                        enabled={isVirtualized}
+                        columnCount={columns.length + (hasSelection ? 1 : 0) + (renderActions ? 1 : 0)}
+                        isLoading={isLoading}
+                        loading={(
                             skeletonRows.map((_, rowIndex) => (
                                 <tr key={`loading-${rowIndex}`}>
                                     {hasSelection && (
@@ -205,16 +204,12 @@ export const OperationTable = <T extends { id: number }>({
                                     {renderActions ? <td className="px-2 py-2"><div className="mx-auto h-4 w-8 animate-pulse rounded bg-secondary" /></td> : null}
                                 </tr>
                             ))
-                        ) : data.length ? (
-                            <RowsWrapper {...(!isVirtualized ? { initial: false } : {})}>
-                                {isVirtualized && paddingTop > 0 && (
-                                    <tr key="virtual-spacer-top" aria-hidden="true"><td colSpan={columns.length + (hasSelection ? 1 : 0) + (renderActions ? 1 : 0)} className="border-0 p-0" style={{ height: paddingTop }} /></tr>
-                                )}
-                                {renderedRows.map(({ row, index }) => (
+                        )}
+                        renderRow={(row, index, measureRow) => (
                                     <RowComponent
                                         key={row.id}
                                         data-index={isVirtualized ? index : undefined}
-                                        ref={isVirtualized ? virtualizer.measureElement : undefined}
+                                        ref={measureRow}
                                         className={cx(
                                             hasSelection && "cursor-pointer transition-colors hover:bg-primary_hover",
                                             selectedIdSet.has(row.id) && "bg-warning-primary/20 hover:bg-warning-primary/30",
@@ -249,19 +244,15 @@ export const OperationTable = <T extends { id: number }>({
                                         })}
                                         {renderActions ? <td className={cx("w-14 px-2 py-2 text-center", isVirtualized && "sticky right-0 z-10 bg-primary")}>{renderActions(row)}</td> : null}
                                     </RowComponent>
-                                ))}
-                                {isVirtualized && paddingBottom > 0 && (
-                                    <tr key="virtual-spacer-bottom" aria-hidden="true"><td colSpan={columns.length + (hasSelection ? 1 : 0) + (renderActions ? 1 : 0)} className="border-0 p-0" style={{ height: paddingBottom }} /></tr>
-                                )}
-                            </RowsWrapper>
-                        ) : (
+                        )}
+                        empty={(
                             <tr>
                                 <td colSpan={columns.length + (hasSelection ? 1 : 0) + (renderActions ? 1 : 0)} className="px-4 py-10 text-center text-sm text-tertiary">
                                     {emptyText}
                                 </td>
                             </tr>
                         )}
-                    </tbody>
+                    />
                 </table>
             </div>
             {!hidePagination && <div className="flex flex-wrap items-center justify-center gap-3 border-t border-secondary px-4 py-3">

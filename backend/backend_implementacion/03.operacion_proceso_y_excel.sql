@@ -189,6 +189,10 @@ ALTER TABLE public.tb_operacion_proceso
   ADD COLUMN IF NOT EXISTS id_pos bigint,
   ADD COLUMN IF NOT EXISTS nombre_pos character varying;
 
+-- Indices de relaciones ya existentes en produccion. Ejecutar fuera de BEGIN/COMMIT.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tb_operacion_proceso_match ON public.tb_operacion_proceso USING btree (id_operacion_match);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tb_operacion_proceso_padre ON public.tb_operacion_proceso USING btree (id_operacion_padre);
+
 CREATE INDEX IF NOT EXISTS idx_tb_operacion_proceso_pos
   ON public.tb_operacion_proceso (id_pos, id_empresa_pos);
 
@@ -3435,17 +3439,11 @@ Reglas:
   - si una operacion entra en conflicto, rechaza el lote completo;
   - reutiliza la logica de pago individual para conservar los movimientos actuales.
 */
-CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_pagado_lote(
-  p_ids_operaciones jsonb,
-  p_id_estado bigint,
-  p_nombre_estado character varying,
-  p_id_usuario_gestor bigint DEFAULT NULL,
-  p_nombre_usuario_gestor character varying DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_pagado_lote(p_ids_operaciones jsonb, p_id_estado bigint, p_nombre_estado character varying, p_id_usuario_gestor bigint DEFAULT NULL::bigint, p_nombre_usuario_gestor character varying DEFAULT NULL::character varying)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
 DECLARE
   v_ids bigint[];
   v_id bigint;
@@ -3456,6 +3454,7 @@ DECLARE
   v_ruta character varying;
   v_rutas character varying[];
   v_ruta_sync character varying;
+  v_id_caja_sync bigint;
 BEGIN
   IF p_ids_operaciones IS NULL OR jsonb_typeof(p_ids_operaciones) <> 'array' THEN
     RETURN jsonb_build_object(
@@ -3567,7 +3566,17 @@ BEGIN
   PERFORM set_config('app.defer_kpi_sync', 'off', true);
 
   FOREACH v_ruta_sync IN ARRAY COALESCE(v_rutas, ARRAY[]::character varying[]) LOOP
-    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta_sync, p_id_usuario_gestor);
+    IF v_ruta_sync IN ('bcp', 'interbank', 'scotiabank', 'bbva', 'banbif') THEN
+      FOR v_id_caja_sync IN
+        SELECT DISTINCT oc.id_caja FROM public.tb_operacion_caja oc
+        WHERE oc.id_operacion_proceso = ANY(v_ids) AND oc.id_caja_cierre IS NULL
+        ORDER BY oc.id_caja
+      LOOP
+        PERFORM public.f_sync_tb_caja_operativa_despues_movimiento(v_id_caja_sync, p_id_usuario_gestor);
+      END LOOP;
+    ELSE
+      PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(v_ruta_sync, p_id_usuario_gestor);
+    END IF;
     PERFORM public.f_sync_tb_ruta_operacion_kpi_operacion(v_ruta_sync, p_id_usuario_gestor);
   END LOOP;
 
@@ -3577,7 +3586,7 @@ BEGIN
     'detalle', '[]'::jsonb
   );
 END;
-$$;
+$function$
 
 /*
 Funcion: f_patch_tb_operacion_proceso_directo_caja
@@ -6491,48 +6500,8 @@ BEGIN
 END;
 $$;
 
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN (
-  'f_get_tb_operacion_retencion_hardcodeada',
-  'f_get_tb_operacion_calculo_comision_servicio',
-  'f_get_tb_operacion_proceso',
-  'f_post_tb_operacion_proceso',
-  'f_post_tb_operacion_proceso_excel',
-  'f_post_tb_operacion_proceso_excel_ganancia',
-  'f_patch_tb_operacion_proceso_derivacion',
-  'f_patch_tb_operacion_proceso_devolver_derivacion',
-  'f_patch_tb_operacion_proceso_retencion',
-  'f_patch_tb_operacion_proceso_reanudar',
-  'f_patch_tb_operacion_proceso_pagado',
-  'f_patch_tb_operacion_proceso_pagado_lote',
-  'f_patch_tb_operacion_proceso_directo_caja',
-  'f_patch_tb_operacion_proceso_directo_caja_lote',
-  'f_patch_tb_operacion_proceso_revertir_directo_caja',
-  'f_patch_tb_operacion_proceso_reanudar_lote',
-  'f_patch_tb_operacion_proceso_reanudar_post_cierre'
-)
-ORDER BY n.nspname, p.proname;
 
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_patch_tb_operacion_proceso_pagado')
-ORDER BY n.nspname, p.proname;
-
--- Entrega puntual: eliminacion de Link Pago (sin cambios de retencion BCP).
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_patch_tb_operacion_proceso_eliminar')
-ORDER BY n.nspname, p.proname;
+SELECT 'DROP FUNCTION IF EXISTS ' || n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+WHERE p.proname IN ('f_patch_tb_operacion_proceso_pagado_lote')
+ORDER BY n.nspname,p.proname;

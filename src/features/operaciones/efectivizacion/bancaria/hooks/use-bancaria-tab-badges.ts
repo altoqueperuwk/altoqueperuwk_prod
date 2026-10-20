@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type { OperacionRutaBancaria } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
+import type { OperacionEmpresaBadge } from "@/features/operaciones/efectivizacion/shared/types/operaciones.types";
 import type { BancariaTab } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
 
 type BadgeMap = Partial<Record<BancariaTab, number>>;
@@ -95,8 +96,23 @@ export const useBancariaEmpresaBadges = (
     refreshKey = 0,
     enabled = true,
 ) => {
-    const [data, setData] = useState<CompanyBadgeMap>({});
+    const [rows, setRows] = useState<OperacionEmpresaBadge[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const needsBadges = enabled && activeTab !== "Movimientos";
+    const data = useMemo(() => {
+        const next: CompanyBadgeMap = {};
+        if (!needsBadges) return next;
+        for (const row of rows) {
+            const matchesTab = activeTab === "Unificado"
+                ? ["Efectivizacion", "Derivados", "POS"].includes(row.tab)
+                : row.tab === activeTab;
+            if (matchesTab && row.id_empresa != null) {
+                const companyId = Number(row.id_empresa);
+                next[companyId] = Number(next[companyId] ?? 0) + Number(row.cantidad ?? 0);
+            }
+        }
+        return next;
+    }, [activeTab, needsBadges, rows]);
 
     const params = useMemo(() => {
         const payload: Record<string, unknown> = {
@@ -115,8 +131,8 @@ export const useBancariaEmpresaBadges = (
     useEffect(() => {
         let ignore = false;
 
-        if (!enabled) {
-            setData({});
+        if (!needsBadges) {
+            setRows([]);
             setError(null);
             return () => {
                 ignore = true;
@@ -124,13 +140,6 @@ export const useBancariaEmpresaBadges = (
         }
 
         setError(null);
-
-        if (activeTab === "Movimientos") {
-            setData({});
-            return () => {
-                ignore = true;
-            };
-        }
 
         const request = retentionRoutes.has(ruta)
             ? operacionesRpcService.getOperacionRetencionEmpresaBadges(params)
@@ -140,17 +149,7 @@ export const useBancariaEmpresaBadges = (
             .then((rows) => {
                 if (ignore) return;
 
-                const next: CompanyBadgeMap = {};
-                for (const row of rows ?? []) {
-                    const matchesTab = activeTab === "Unificado"
-                        ? ["Efectivizacion", "Derivados", "POS"].includes(row.tab)
-                        : row.tab === activeTab;
-                    if (matchesTab && row.id_empresa != null) {
-                        const companyId = Number(row.id_empresa);
-                        next[companyId] = Number(next[companyId] ?? 0) + Number(row.cantidad ?? 0);
-                    }
-                }
-                setData(next);
+                setRows(rows ?? []);
             })
             .catch((err) => {
                 if (!ignore) setError(err instanceof Error ? err.message : "No se pudo cargar conteos por empresa.");
@@ -159,7 +158,7 @@ export const useBancariaEmpresaBadges = (
         return () => {
             ignore = true;
         };
-    }, [activeTab, enabled, params, refreshKey, ruta]);
+    }, [needsBadges, params, refreshKey, ruta]);
 
     return { data, error };
 };

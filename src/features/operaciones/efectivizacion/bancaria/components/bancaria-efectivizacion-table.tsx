@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { motion } from "motion/react";
 import { ChevronLeft, ChevronRight, Coins01, Copy01, CreditCardCheck, Edit03, Percent01, RefreshCcw02, Send01, Trash01 } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
@@ -29,7 +29,7 @@ import { isInteractiveElement } from "@/features/operaciones/efectivizacion/shar
 import { buildOperacionPagadoPayload, buildOperacionReanudarPayload } from "@/features/operaciones/efectivizacion/shared/utils/rpc-payloads";
 import { cx } from "@/utils/cx";
 import { getUnifiedFlowLabel } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
-import { useVirtualTableRows } from "@/features/operaciones/efectivizacion/shared/hooks/use-virtual-table-rows";
+import { VirtualTableBody } from "@/features/operaciones/efectivizacion/shared/components/virtual-table-body";
 
 interface EstadoRef {
     id: number;
@@ -441,11 +441,6 @@ export const BancariaEfectivizacionTable = ({
         [page, pageSize, rows, showPagination],
     );
     const isVirtualized = virtualizeRows && !showPagination && visibleRows.length > 60;
-    const { scrollRef, virtualizer, items, paddingTop, paddingBottom } = useVirtualTableRows(visibleRows, isVirtualized, 64);
-    const RowsWrapper = isVirtualized ? Fragment : AnimatePresence;
-    const renderedRows = isVirtualized
-        ? items.map((item) => ({ row: visibleRows[item.index], index: item.index }))
-        : visibleRows.map((row, index) => ({ row, index }));
     const RowComponent = virtualizeRows ? "tr" : motion.tr;
     const visibleIds = visibleRows
         .filter((row) => !isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId))
@@ -1316,7 +1311,7 @@ export const BancariaEfectivizacionTable = ({
 
     return (
         <div className="overflow-hidden border-t border-secondary" data-copy-table="cierre-caja" aria-busy={isLoading || isRefreshing}>
-            <div ref={scrollRef} className="overflow-x-auto">
+            <div className="overflow-x-auto">
                 <table
                     className={cx("w-full divide-y divide-secondary", isVirtualized ? "table-fixed" : "min-w-max table-auto")}
                     style={isVirtualized ? { minWidth: virtualTableWidth } : undefined}
@@ -1342,8 +1337,12 @@ export const BancariaEfectivizacionTable = ({
                             ))}
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-secondary bg-primary">
-                        {isLoading ? (
+                    <VirtualTableBody
+                        rows={visibleRows}
+                        enabled={isVirtualized}
+                        columnCount={tableColSpan}
+                        isLoading={isLoading}
+                        loading={(
                             Array.from({ length: 5 }).map((_, index) => (
                                 <tr key={index}>
                                     <td colSpan={tableColSpan} className="px-2 py-3">
@@ -1351,12 +1350,8 @@ export const BancariaEfectivizacionTable = ({
                                     </td>
                                 </tr>
                             ))
-                        ) : visibleRows.length ? (
-                            <RowsWrapper {...(!isVirtualized ? { initial: false } : {})}>
-                            {isVirtualized && paddingTop > 0 && (
-                                <tr key="virtual-spacer-top" aria-hidden="true"><td colSpan={tableColSpan} className="border-0 p-0" style={{ height: paddingTop }} /></tr>
-                            )}
-                            {renderedRows.map(({ row, index }) => {
+                        )}
+                        renderRow={(row, index, measureRow) => {
                                 const frozenOrigin = isFrozenOriginOperation(row, mode, activeCompanyId, activeAccountId);
                                 const frozenPaid = isFrozenPaidOperation(row, mode);
                                 const frozenRow = frozenOrigin || frozenPaid;
@@ -1396,7 +1391,7 @@ export const BancariaEfectivizacionTable = ({
                                     <RowComponent
                                         key={row.id}
                                         data-index={isVirtualized ? index : undefined}
-                                        ref={isVirtualized ? virtualizer.measureElement : undefined}
+                                        ref={measureRow}
                                         className={cx(
                                             frozenPaid && "bg-secondary grayscale opacity-75",
                                             hasSelection && !rowSaving && !frozenRow && "cursor-pointer transition-colors hover:bg-primary_hover",
@@ -1756,17 +1751,13 @@ export const BancariaEfectivizacionTable = ({
                                                 </td>}
                                     </RowComponent>
                                 );
-                            })}
-                            {isVirtualized && paddingBottom > 0 && (
-                                <tr key="virtual-spacer-bottom" aria-hidden="true"><td colSpan={tableColSpan} className="border-0 p-0" style={{ height: paddingBottom }} /></tr>
-                            )}
-                            </RowsWrapper>
-                        ) : (
+                            }}
+                        empty={(
                             <tr>
                                 <td colSpan={tableColSpan} className="px-4 py-10 text-center text-sm text-tertiary">{emptyText}</td>
                             </tr>
                         )}
-                    </tbody>
+                    />
                 </table>
             </div>
             {showPagination && <div className="flex flex-wrap items-center justify-center gap-3 border-t border-secondary px-4 py-3">
