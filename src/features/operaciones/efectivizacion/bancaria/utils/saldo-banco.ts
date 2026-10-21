@@ -6,12 +6,17 @@ interface SaldoBancoKpi {
     salidas?: number | null;
 }
 
+// Clave empresa:banco:cuenta, alineada con
+// f_get_tb_recaudacion_cuenta_flag_retenida. No afecta Caja Recaudación.
 const CUENTAS_CON_RETENCION_RECAUDACION = new Set([
     "5:3:33",
     "8:3:7",
     "7:4:16",
     "5:2:4",
     "6:2:5",
+    "4:2:3", // Impulsa Capital Corp S.A. — BCP
+    "11:2:12", // Habita Express S.A. — BCP
+    "12:2:14", // Abitex S.A. — BCP
 ]);
 
 export const tieneRetencionRecaudacion = (
