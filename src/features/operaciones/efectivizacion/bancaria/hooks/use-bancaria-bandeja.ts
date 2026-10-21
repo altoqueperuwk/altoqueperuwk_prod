@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { matchesBancariaEstadoFilter } from "@/features/operaciones/efectivizacion/bancaria/utils/bancaria-estado-label";
 import { operacionesRpcService } from "@/features/operaciones/efectivizacion/shared/services/operaciones-rpc.service";
 import type {
     OperacionCajaMovimiento,
@@ -243,7 +244,7 @@ export const useBancariaBandeja = ({
     const matchesCurrentOperacionView = useCallback(
         (row: OperacionProceso) => {
             if (tab !== "Pago Deuda" && activeFilter !== "Todos" && estadoByFilter[activeFilter]) {
-                if ((row.nombre_estado ?? "").toUpperCase() !== estadoByFilter[activeFilter].toUpperCase()) return false;
+                if (!matchesBancariaEstadoFilter(row, estadoByFilter[activeFilter])) return false;
             }
 
             if (tab === "Unificado") {

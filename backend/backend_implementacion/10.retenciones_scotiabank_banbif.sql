@@ -271,8 +271,8 @@ CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_bandeja_unificada(p_tab cha
  RETURNS SETOF jsonb
  LANGUAGE sql
  STABLE SECURITY DEFINER
-AS $function$
-  WITH args AS (
+AS $pos_filter$
+WITH args AS (
     SELECT
       LOWER(BTRIM(COALESCE(p_ruta, ''))) AS ruta,
       UPPER(BTRIM(COALESCE(p_filtro_estado, 'TODOS'))) AS filtro_estado,
@@ -321,6 +321,14 @@ AS $function$
     AND (
       a.filtro_estado = 'TODOS'
       OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = a.filtro_estado
+      OR (
+        a.filtro_estado = 'PENDIENTE'
+        AND (
+          UPPER(BTRIM(COALESCE(op.tipo_servicio, ''))) = 'POS'
+          OR LOWER(BTRIM(COALESCE(op.ruta_origen, ''))) = 'pos'
+        )
+        AND (op.id_estado = 7 OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = 'SOLICITADO')
+      )
     )
     AND (
       (
@@ -355,7 +363,7 @@ AS $function$
     op.id ASC
   OFFSET 0
   ) ordered_op;
-$function$
+$pos_filter$;
 
 /*
 Funcion: f_get_tb_operacion_retencion_bandeja_badges
@@ -671,7 +679,11 @@ AS $function$
 $function$
 
 
-SELECT 'DROP FUNCTION IF EXISTS ' || n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-WHERE p.proname IN ('f_get_tb_operacion_bandeja_unificada', 'f_get_tb_operacion_retencion_bandeja_badges', 'f_get_tb_operacion_retencion_empresa_badges')
-ORDER BY n.nspname,p.proname;
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN ('f_get_tb_operacion_bandeja_unificada')
+ORDER BY n.nspname, p.proname;
