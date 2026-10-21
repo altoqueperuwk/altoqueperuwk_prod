@@ -6202,11 +6202,25 @@ AS $$
   ), 0);
 $$;
 
+CREATE OR REPLACE FUNCTION public.f_lock_tb_cajas_operativas(p_ids bigint[])
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET lock_timeout = '1500ms'
+AS $$
+BEGIN
+  PERFORM c.id FROM public.tb_caja_operativa c
+  WHERE c.id = ANY(p_ids) ORDER BY c.id FOR UPDATE OF c;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.f_lock_tb_cajas_operativas(bigint[]) FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION public.f_post_tb_operacion_caja_desde_proceso(p_id_operacion_proceso bigint, p_tipo_origen character varying DEFAULT 'EFECTIVIZACION'::character varying, p_tipo_movimiento character varying DEFAULT NULL::character varying, p_id_usuario bigint DEFAULT NULL::bigint, p_nombre_usuario character varying DEFAULT NULL::character varying, p_id_estado bigint DEFAULT NULL::bigint)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
-AS $function$
+AS $match_release$
 DECLARE
   v_op record;
   v_mov record;
@@ -6642,6 +6656,18 @@ BEGIN
       IF current_setting('app.defer_kpi_sync', true) IS DISTINCT FROM 'on' THEN
         PERFORM public.f_sync_tb_caja_operativa_despues_movimiento(v_id_caja, p_id_usuario);
       END IF;
+    ELSIF v_tipo_movimiento = 'SALIDA'
+      AND UPPER(BTRIM(COALESCE(v_mov.tipo_movimiento, ''))) = 'SALIDA'
+      AND UPPER(BTRIM(COALESCE(p_tipo_origen, ''))) = 'PAGO_DEUDA'
+      AND UPPER(BTRIM(COALESCE(v_mov.tipo_origen, ''))) = 'PAGO_DEUDA'
+      AND v_mov.id_caja = v_id_caja
+      AND COALESCE(v_mov.monto_salida, 0) = COALESCE(v_monto_salida, 0)
+      AND COALESCE(v_mov.monto_gasto, 0) = COALESCE(v_monto_gasto, 0)
+      AND COALESCE(v_mov.flag_contabiliza_operacion, true) = true THEN
+      -- Procesado -> Pagado no cambia dinero ni contador. Mantener el
+      -- movimiento y su saldo historico; actualizar solo metadatos abajo.
+      v_saldo_anterior_nuevo := v_mov.saldo_anterior;
+      v_saldo_actual_nuevo := v_mov.saldo_actual;
     ELSE
       PERFORM public.f_apply_tb_operacion_caja_delta(
         p_id_caja := v_mov.id_caja,
@@ -6793,7 +6819,7 @@ BEGIN
 
   RETURN v_result;
 END;
-$function$
+$match_release$;
 
 /*
 Funcion: f_patch_tb_operacion_caja
@@ -8596,7 +8622,11 @@ $function$
 
 
 
-SELECT 'DROP FUNCTION IF EXISTS ' || n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-WHERE p.proname IN ('f_apply_tb_operacion_caja_delta', 'f_get_tb_ruta_operacion_gastos_salida_v2', 'f_get_tb_ruta_operacion_kpi', 'f_get_tb_ruta_operacion_kpi_operaciones_v2', 'f_post_tb_operacion_caja', 'f_post_tb_operacion_caja_desde_proceso', 'f_sync_tb_ruta_operacion_kpi_operacion', 'f_sync_tb_caja_operativa_despues_movimiento')
-ORDER BY n.nspname,p.proname;
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN ('f_lock_tb_cajas_operativas', 'f_post_tb_operacion_caja_desde_proceso')
+ORDER BY n.nspname, p.proname;

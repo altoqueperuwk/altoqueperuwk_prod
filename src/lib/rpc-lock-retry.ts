@@ -4,6 +4,8 @@ const RETRYABLE_PAYMENT_RPCS = new Set([
     "f_patch_tb_operacion_proceso_pagado",
     "f_patch_tb_operacion_proceso_pagado_lote",
     "f_patch_tb_pago_deuda_pagado",
+    "f_patch_tb_pago_deuda_match",
+    "f_patch_tb_pago_deuda_salida",
 ]);
 
 const RETRY_DELAYS_MS = [750, 1500, 3000] as const;

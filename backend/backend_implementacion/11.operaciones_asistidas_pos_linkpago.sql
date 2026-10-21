@@ -135,24 +135,11 @@ DROP FUNCTION IF EXISTS public.f_get_tb_operacion_asistida_bandeja(
   character varying, numeric
 );
 
-CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_asistida_bandeja(
-  p_ruta character varying,
-  p_fecha_registro_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_registro_hasta timestamp with time zone DEFAULT NULL,
-  p_nombre_estado character varying DEFAULT NULL,
-  p_dni_cliente character varying DEFAULT NULL,
-  p_codigo_operacion character varying DEFAULT NULL,
-  p_id_banco_cliente bigint DEFAULT NULL,
-  p_id_usuario_solicitud bigint DEFAULT NULL,
-  p_id_usuario_consulta bigint DEFAULT NULL,
-  p_numero_tarjeta character varying DEFAULT NULL,
-  p_monto_deposito_cliente numeric DEFAULT NULL
-)
-RETURNS SETOF jsonb
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.f_get_tb_operacion_asistida_bandeja(p_ruta character varying, p_fecha_registro_desde timestamp with time zone DEFAULT NULL::timestamp with time zone, p_fecha_registro_hasta timestamp with time zone DEFAULT NULL::timestamp with time zone, p_nombre_estado character varying DEFAULT NULL::character varying, p_dni_cliente character varying DEFAULT NULL::character varying, p_codigo_operacion character varying DEFAULT NULL::character varying, p_id_banco_cliente bigint DEFAULT NULL::bigint, p_id_usuario_solicitud bigint DEFAULT NULL::bigint, p_id_usuario_consulta bigint DEFAULT NULL::bigint, p_numero_tarjeta character varying DEFAULT NULL::character varying, p_monto_deposito_cliente numeric DEFAULT NULL::numeric)
+ RETURNS SETOF jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+AS $function$
   SELECT to_jsonb(op)
   FROM public.tb_operacion_proceso op
   LEFT JOIN public.tb_usuario consulta_usuario ON consulta_usuario.id = p_id_usuario_consulta
@@ -178,8 +165,11 @@ AS $$
       )
     )
     AND (
-      UPPER(BTRIM(COALESCE(p_nombre_estado, ''))) = 'ELIMINADO'
-      OR COALESCE(op.id_estado, 0) <> 10
+      op.id_estado IN (3, 4, 7)
+      OR (
+        UPPER(BTRIM(COALESCE(p_nombre_estado, ''))) = 'ELIMINADO'
+        AND op.id_estado = 10
+      )
     )
     AND (
       (p_fecha_registro_desde IS NULL AND p_fecha_registro_hasta IS NULL)
@@ -188,7 +178,16 @@ AS $$
         AND (p_fecha_registro_hasta IS NULL OR op.fecha_registro <= p_fecha_registro_hasta)
       )
     )
-    AND (p_nombre_estado IS NULL OR UPPER(BTRIM(COALESCE(op.nombre_estado, ''))) = UPPER(BTRIM(p_nombre_estado)))
+    AND (
+      p_nombre_estado IS NULL
+      OR CASE UPPER(BTRIM(p_nombre_estado))
+        WHEN 'PENDIENTE' THEN op.id_estado = 3
+        WHEN 'SOLICITADO' THEN op.id_estado = 7
+        WHEN 'PAGADO' THEN op.id_estado = 4
+        WHEN 'ELIMINADO' THEN op.id_estado = 10
+        ELSE false
+      END
+    )
     AND (p_dni_cliente IS NULL OR COALESCE(op.dni_cliente, '') ILIKE '%' || p_dni_cliente || '%')
     AND (
       NULLIF(BTRIM(COALESCE(p_codigo_operacion, '')), '') IS NULL
@@ -201,7 +200,7 @@ AS $$
     )
     AND (p_monto_deposito_cliente IS NULL OR op.monto_deposito_cliente = p_monto_deposito_cliente)
   ORDER BY op.fecha_registro DESC, op.id DESC;
-$$;
+$function$
 
 /*
 Funcion: f_post_tb_operacion_asistida
@@ -1718,8 +1717,5 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
        pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN (
-  'f_patch_tb_operacion_asistida_fecha_deposito',
-  'f_patch_tb_operacion_asistida'
-)
+WHERE p.proname IN ('f_get_tb_operacion_asistida_bandeja')
 ORDER BY n.nspname, p.proname;

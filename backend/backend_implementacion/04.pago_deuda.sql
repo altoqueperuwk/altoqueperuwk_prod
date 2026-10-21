@@ -2127,18 +2127,11 @@ Objetivo:
   Procesado y crea/sincroniza la SALIDA de caja. La caja puede quedar con
   saldo negativo; no se bloquea el paso por falta de saldo disponible.
 */
-CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_salida(
-  p_id_operacion bigint,
-  p_id_empresa_salida bigint DEFAULT NULL,
-  p_id_empresa_cuenta_salida bigint DEFAULT NULL,
-  p_id_usuario_gestor bigint DEFAULT NULL,
-  p_nombre_usuario_gestor character varying DEFAULT NULL,
-  p_ruta_destino character varying DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_salida(p_id_operacion bigint, p_id_empresa_salida bigint DEFAULT NULL::bigint, p_id_empresa_cuenta_salida bigint DEFAULT NULL::bigint, p_id_usuario_gestor bigint DEFAULT NULL::bigint, p_nombre_usuario_gestor character varying DEFAULT NULL::character varying, p_ruta_destino character varying DEFAULT NULL::character varying)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $match_release$
 DECLARE
   v_input record;
   v_op record;
@@ -2154,6 +2147,8 @@ DECLARE
   v_id_empresa_cuenta_salida_final bigint;
   v_caja_salida record;
 BEGIN
+  PERFORM public.f_lock_tb_pago_deuda_familia(p_id_operacion);
+
   SELECT *
   INTO v_input
   FROM public.tb_operacion_proceso
@@ -2223,6 +2218,15 @@ BEGIN
   );
 
   /* Mantener el lock y validar que exista la caja, sin bloquear por saldo. */
+  PERFORM public.f_lock_tb_cajas_operativas(ARRAY(
+    SELECT c.id FROM public.tb_caja_operativa c
+    WHERE (c.id_empresa = v_id_empresa_salida_final
+           AND c.id_empresa_cuenta_bancaria = v_id_empresa_cuenta_salida_final)
+       OR c.id IN (
+         SELECT oc.id_caja FROM public.tb_operacion_caja oc
+         WHERE oc.id_operacion_proceso = v_op.id AND oc.id_caja_cierre IS NULL
+       )
+  ));
   SELECT c.id, c.saldo_actual
   INTO v_caja_salida
   FROM public.tb_caja_operativa c
@@ -2284,7 +2288,7 @@ BEGIN
   );
 
   IF v_caja_result ? 'error' THEN
-    RETURN v_caja_result;
+    RAISE EXCEPTION USING MESSAGE = v_caja_result->>'error';
   END IF;
 
   v_ruta_kpi_final := COALESCE(p_ruta_destino, v_op.ruta_destino, v_op.ruta_origen);
@@ -2303,7 +2307,7 @@ BEGIN
 
   RETURN v_result;
 END;
-$$;
+$match_release$;
 
 /*
 Funcion: f_patch_tb_pago_deuda_empresa
@@ -2520,16 +2524,33 @@ Diseno compacto:
   - no anula la efectivizacion original
   - solo congela el snapshot que necesita la solicitud de pago de deuda
 */
-CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_match(
-  p_id_pago_deuda bigint,
-  p_id_operacion_efectivizacion bigint,
-  p_id_usuario_gestor bigint DEFAULT NULL,
-  p_nombre_usuario_gestor character varying DEFAULT NULL
+CREATE OR REPLACE FUNCTION public.f_lock_tb_pago_deuda_familia(
+  p_id_operacion bigint,
+  p_id_retorno bigint DEFAULT NULL
 )
-RETURNS jsonb
+RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
+SET lock_timeout = '1500ms'
 AS $$
+DECLARE
+  v_root bigint;
+BEGIN
+  SELECT COALESCE(op.id_operacion_padre, op.id) INTO v_root
+  FROM public.tb_operacion_proceso op WHERE op.id = p_id_operacion;
+  PERFORM op.id FROM public.tb_operacion_proceso op
+  WHERE op.id = v_root OR op.id_operacion_padre = v_root OR op.id = p_id_retorno
+  ORDER BY op.id FOR UPDATE OF op;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.f_lock_tb_pago_deuda_familia(bigint,bigint) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_match(p_id_pago_deuda bigint, p_id_operacion_efectivizacion bigint, p_id_usuario_gestor bigint DEFAULT NULL::bigint, p_nombre_usuario_gestor character varying DEFAULT NULL::character varying)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $match_release$
 DECLARE
   v_input record;
   v_op_deuda record;
@@ -2542,6 +2563,8 @@ DECLARE
   v_ingreso_result jsonb;
   v_monto_devuelto numeric;
 BEGIN
+  PERFORM public.f_lock_tb_pago_deuda_familia(p_id_pago_deuda, p_id_operacion_efectivizacion);
+
   SELECT *
   INTO v_input
   FROM public.tb_operacion_proceso
@@ -2646,6 +2669,14 @@ BEGIN
   v_monto_devuelto :=
     COALESCE(v_op_deuda.monto_devuelto, 0) + COALESCE(v_op_efect.monto_deposito_cliente, 0);
 
+  -- Reservar solo las cajas realmente involucradas antes de mutar saldos.
+  PERFORM public.f_lock_tb_cajas_operativas(ARRAY(
+    SELECT c.id FROM public.tb_caja_operativa c
+    WHERE c.id = v_movimiento_efect.id_caja
+       OR (c.id_empresa = v_op_efect.id_empresa_ingreso
+           AND c.id_empresa_cuenta_bancaria = v_op_efect.id_empresa_cuenta_ingreso)
+  ));
+
   UPDATE public.tb_operacion_proceso
   SET fecha_deposito_cliente = v_op_efect.fecha_deposito_cliente,
       monto_devuelto = v_monto_devuelto,
@@ -2733,13 +2764,9 @@ BEGIN
         id_usuario = COALESCE(p_id_usuario_gestor, id_usuario)
     WHERE id = v_movimiento_efect.id_caja;
 
-    PERFORM public.f_sync_tb_ruta_operacion_kpi_caja(rc.ruta, p_id_usuario_gestor)
-    FROM public.tb_ruta_operacion_caja rc
-    JOIN public.tb_caja_operativa c
-      ON c.id_empresa = rc.id_empresa
-     AND c.id_empresa_cuenta_bancaria = rc.id_empresa_cuenta_bancaria
-    WHERE c.id = v_movimiento_efect.id_caja
-      AND rc.id_estado = 1;
+    PERFORM public.f_sync_tb_caja_operativa_despues_movimiento(
+      v_movimiento_efect.id_caja, p_id_usuario_gestor
+    );
   ELSE
     v_ingreso_result := public.f_post_tb_operacion_caja_desde_proceso(
       p_id_operacion_proceso := v_op_efect.id,
@@ -2751,7 +2778,7 @@ BEGIN
     );
 
     IF v_ingreso_result ? 'error' THEN
-      RETURN v_ingreso_result;
+      RAISE EXCEPTION USING MESSAGE = v_ingreso_result->>'error';
     END IF;
   END IF;
 
@@ -2761,7 +2788,7 @@ BEGIN
     LIMIT 1
   );
 END;
-$$;
+$match_release$;
 
 /*
 Funcion: f_patch_tb_pago_deuda_pagado
@@ -2769,16 +2796,11 @@ Objetivo:
   Finalizar una operacion bancaria de Pago Deuda. Asegura SALIDA, INGRESO de
   retorno e INGRESO de comision sin duplicar movimientos.
 */
-CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_pagado(
-  p_id_operacion bigint,
-  p_resultado_comision_servicio numeric DEFAULT NULL,
-  p_id_usuario_gestor bigint DEFAULT NULL,
-  p_nombre_usuario_gestor character varying DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_pagado(p_id_operacion bigint, p_resultado_comision_servicio numeric DEFAULT NULL::numeric, p_id_usuario_gestor bigint DEFAULT NULL::bigint, p_nombre_usuario_gestor character varying DEFAULT NULL::character varying)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $match_release$
 DECLARE
   v_estado_pagado_id bigint;
   v_estado_pagado_nombre character varying;
@@ -2791,6 +2813,8 @@ DECLARE
   v_salida_result jsonb;
   v_comision_result jsonb;
 BEGIN
+  PERFORM public.f_lock_tb_pago_deuda_familia(p_id_operacion);
+
   SELECT *
   INTO v_input
   FROM public.tb_operacion_proceso
@@ -2925,6 +2949,20 @@ BEGIN
     RETURN jsonb_build_object('error', 'No existe caja inicial para la empresa y cuenta de salida seleccionada.');
   END IF;
 
+  -- Bloquear cajas vieja/nueva de salida y comision en un orden unico.
+  PERFORM public.f_lock_tb_cajas_operativas(ARRAY(
+    SELECT c.id FROM public.tb_caja_operativa c
+    WHERE (c.id_empresa = v_op.id_empresa_salida
+           AND c.id_empresa_cuenta_bancaria = v_op.id_empresa_cuenta_salida)
+       OR (c.id_empresa = v_root.id_empresa_ingreso
+           AND c.id_empresa_cuenta_bancaria = v_root.id_empresa_cuenta_ingreso)
+       OR c.id IN (
+         SELECT oc.id_caja FROM public.tb_operacion_caja oc
+         WHERE oc.id_operacion_proceso IN (v_op.id, v_root.id)
+           AND oc.id_caja_cierre IS NULL
+       )
+  ));
+
   UPDATE public.tb_operacion_proceso
   SET id_empresa_ingreso = v_root.id_empresa_ingreso,
       nombre_empresa_ingreso = v_cuenta_comision.empresa_nombre,
@@ -2975,7 +3013,7 @@ BEGIN
   );
 
   IF v_salida_result ? 'error' THEN
-    RETURN v_salida_result;
+    RAISE EXCEPTION USING MESSAGE = v_salida_result->>'error';
   END IF;
 
   v_comision_result := public.f_sync_tb_pago_deuda_comision_caja(
@@ -2989,7 +3027,7 @@ BEGIN
   );
 
   IF v_comision_result ? 'error' THEN
-    RETURN v_comision_result;
+    RAISE EXCEPTION USING MESSAGE = v_comision_result->>'error';
   END IF;
 
   v_ruta_kpi := COALESCE(v_op.ruta_destino, v_op.ruta_origen);
@@ -3002,7 +3040,7 @@ BEGIN
 
   RETURN v_result;
 END;
-$$;
+$match_release$;
 
 /*
 Funcion: f_patch_tb_pago_deuda_directo
@@ -3469,6 +3507,5 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
        pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE n.nspname = 'public'
-  AND p.proname IN ('f_patch_tb_pago_deuda_match')
-ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid);
+WHERE p.proname IN ('f_lock_tb_pago_deuda_familia', 'f_patch_tb_pago_deuda_match', 'f_patch_tb_pago_deuda_salida', 'f_patch_tb_pago_deuda_pagado')
+ORDER BY n.nspname, p.proname;

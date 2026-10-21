@@ -30,6 +30,7 @@ import { buildOperacionPagadoPayload, buildOperacionReanudarPayload } from "@/fe
 import { cx } from "@/utils/cx";
 import { getUnifiedFlowLabel } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
 import { VirtualTableBody } from "@/features/operaciones/efectivizacion/shared/components/virtual-table-body";
+import { getBancariaEstadoLabel } from "@/features/operaciones/efectivizacion/bancaria/utils/bancaria-estado-label";
 
 interface EstadoRef {
     id: number;
@@ -1622,7 +1623,7 @@ export const BancariaEfectivizacionTable = ({
                                         </td>}
                                         <td className="px-2 py-2 align-top">
                                             {isPlain ? (
-                                                <span className="text-sm text-secondary">{isPagado(row) ? "Pagado" : "Pendiente"}</span>
+                                                <span className="text-sm text-secondary">{getBancariaEstadoLabel(row)}</span>
                                             ) : <Button
                                                 size="xs"
                                                 color={isPagado(row) ? "secondary" : "primary"}
@@ -1636,7 +1637,7 @@ export const BancariaEfectivizacionTable = ({
                                                     if (estadoPagado) void handleEstado(row, String(estadoPagado.id));
                                                 }}
                                             >
-                                                {isPagado(row) ? "Pagado" : "Pendiente"}
+                                                {getBancariaEstadoLabel(row)}
                                             </Button>}
                                         </td>
                                         <td className="px-2 py-2 align-top">
