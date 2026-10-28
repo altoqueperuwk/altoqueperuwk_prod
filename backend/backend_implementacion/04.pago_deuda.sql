@@ -25,6 +25,21 @@ CREATE TABLE IF NOT EXISTS public.tb_pago_deuda_empresa_comision (
 CREATE UNIQUE INDEX IF NOT EXISTS tb_pago_deuda_empresa_comision_uk_cuenta
 ON public.tb_pago_deuda_empresa_comision (id_empresa_cuenta_bancaria);
 
+CREATE TABLE IF NOT EXISTS public.tb_pago_deuda_match_distribucion (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  id_operacion_retorno bigint NOT NULL REFERENCES public.tb_operacion_proceso(id),
+  id_pago_deuda bigint NOT NULL REFERENCES public.tb_operacion_proceso(id),
+  monto numeric(18,2) NOT NULL CHECK (monto > 0),
+  id_usuario bigint,
+  fecha_registro timestamp with time zone NOT NULL DEFAULT now(),
+  UNIQUE (id_operacion_retorno, id_pago_deuda),
+  CHECK (id_operacion_retorno <> id_pago_deuda)
+);
+CREATE INDEX IF NOT EXISTS idx_pago_deuda_match_distribucion_deuda
+  ON public.tb_pago_deuda_match_distribucion(id_pago_deuda);
+ALTER TABLE public.tb_pago_deuda_match_distribucion ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.tb_pago_deuda_match_distribucion FROM anon, authenticated;
+
 /*
 Funcion: f_get_tb_pago_deuda_empresa_comision
 Objetivo:
@@ -162,15 +177,12 @@ Objetivo:
   relacionadas ya pertenece a un cierre. Se utiliza como guardia comun para
   impedir modificaciones posteriores al cierre.
 */
-CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_tiene_cierre(
-  p_id_operacion bigint
-)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-AS $$
-  WITH raiz AS (
+CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_tiene_cierre(p_id_operacion bigint)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+AS $multi_release$
+WITH raiz AS (
     SELECT COALESCE(op.id_operacion_padre, op.id) AS id
     FROM public.tb_operacion_proceso op
     WHERE op.id = p_id_operacion
@@ -192,6 +204,11 @@ AS $$
       FROM public.tb_operacion_proceso
       WHERE id_operacion_padre IN (SELECT id FROM raiz)
     )
+    UNION
+    SELECT a.id_operacion_retorno
+    FROM public.tb_pago_deuda_match_distribucion a
+    JOIN public.tb_operacion_proceso d ON d.id=a.id_pago_deuda
+    JOIN raiz r ON r.id=COALESCE(d.id_operacion_padre,d.id)
   )
   SELECT EXISTS (
     SELECT 1
@@ -207,7 +224,7 @@ AS $$
     JOIN relacionadas r ON r.id = oc.id_operacion_proceso
     WHERE oc.id_caja_cierre IS NOT NULL
   );
-$$;
+$multi_release$;
 
 /*
 Funcion: f_get_tb_pago_deuda
@@ -224,22 +241,11 @@ DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda(
   timestamp with time zone, timestamp with time zone, bigint, bigint, bigint
 );
 
-CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda(
-  p_id bigint DEFAULT NULL,
-  p_dni_cliente character varying DEFAULT NULL,
-  p_id_estado bigint DEFAULT NULL,
-  p_codigo_operacion character varying DEFAULT NULL,
-  p_fecha_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_hasta timestamp with time zone DEFAULT NULL,
-  p_id_usuario_gestor bigint DEFAULT NULL,
-  p_id_usuario_solicitud bigint DEFAULT NULL,
-  p_id_usuario_consulta bigint DEFAULT NULL
-)
-RETURNS SETOF jsonb
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda(p_id bigint DEFAULT NULL::bigint, p_dni_cliente character varying DEFAULT NULL::character varying, p_id_estado bigint DEFAULT NULL::bigint, p_codigo_operacion character varying DEFAULT NULL::character varying, p_fecha_desde timestamp with time zone DEFAULT NULL::timestamp with time zone, p_fecha_hasta timestamp with time zone DEFAULT NULL::timestamp with time zone, p_id_usuario_gestor bigint DEFAULT NULL::bigint, p_id_usuario_solicitud bigint DEFAULT NULL::bigint, p_id_usuario_consulta bigint DEFAULT NULL::bigint)
+ RETURNS SETOF jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+AS $multi_release$
 DECLARE
   v_id_codigo_servicio_pago_deuda bigint;
   v_consulta_id_sucursal bigint;
@@ -289,7 +295,8 @@ BEGIN
     NULLIF(BTRIM(COALESCE(op.codigo_operacion_deposito_cliente, '')), ''),
     'flag_cerrada_caja',
     (
-      op.id_caja_cierre IS NOT NULL
+      public.f_get_tb_pago_deuda_tiene_cierre(op.id)
+      OR op.id_caja_cierre IS NOT NULL
       OR op.id_caja_cierre_ingreso IS NOT NULL
       OR op.id_caja_cierre_salida IS NOT NULL
       OR EXISTS (
@@ -340,6 +347,10 @@ BEGIN
     op_retorno.nombre_empresa_ingreso,
     'pd_retorno_nombre_banco_empresa_cuenta_ingreso',
     op_retorno.nombre_banco_empresa_cuenta_ingreso,
+    'pd_match_multiple',
+    EXISTS (SELECT 1 FROM public.tb_pago_deuda_match_distribucion a
+      JOIN public.tb_operacion_proceso d ON d.id=a.id_pago_deuda
+      WHERE d.id=op.id OR d.id_operacion_padre=op.id),
     'pd_retorno_monto_devolucion',
     op_retorno.monto_devolucion,
     'pd_retorno_empresas_cuentas',
@@ -353,23 +364,28 @@ BEGIN
       (ARRAY_AGG(r.id_empresa_cuenta_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS id_empresa_cuenta_ingreso,
       (ARRAY_AGG(r.nombre_empresa_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS nombre_empresa_ingreso,
       (ARRAY_AGG(r.nombre_banco_empresa_cuenta_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS nombre_banco_empresa_cuenta_ingreso,
-      SUM(GREATEST(
+      SUM(COALESCE(reparto.monto, GREATEST(
         COALESCE(r.monto_deposito_cliente, 0),
         COALESCE(r.monto_transferencia_cliente, 0)
-      )) AS monto_devolucion,
+      ))) AS monto_devolucion,
       JSONB_AGG(
         jsonb_build_object(
           'empresa', r.nombre_empresa_ingreso,
           'cuenta', r.nombre_banco_empresa_cuenta_ingreso,
           'codigo', r.codigo_operacion_deposito_cliente,
-          'monto', GREATEST(
+          'monto', COALESCE(reparto.monto, GREATEST(
             COALESCE(r.monto_deposito_cliente, 0),
             COALESCE(r.monto_transferencia_cliente, 0)
-          )
+          ))
         )
         ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id
       ) AS empresas_cuentas
     FROM public.tb_operacion_proceso r
+    LEFT JOIN LATERAL (
+      SELECT SUM(a.monto) AS monto FROM public.tb_pago_deuda_match_distribucion a
+      JOIN public.tb_operacion_proceso d ON d.id=a.id_pago_deuda
+      WHERE a.id_operacion_retorno=r.id AND (d.id=op.id OR d.id_operacion_padre=op.id)
+    ) reparto ON true
     WHERE UPPER(COALESCE(r.tipo_flujo_pago_deuda, '')) IN ('RETORNO', 'RETORNO_DIRECTO')
       AND (
         r.id = op.id_operacion_match
@@ -427,7 +443,7 @@ BEGIN
     )
   ORDER BY op.id DESC;
 END;
-$$;
+$multi_release$;
 
 /*
 Funcion: f_get_tb_pago_deuda_kpi
@@ -869,22 +885,12 @@ DROP FUNCTION IF EXISTS public.f_get_tb_pago_deuda_bandeja(
   timestamp with time zone
 );
 
-CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_bandeja(
-  p_ruta character varying,
-  p_id_empresa_salida bigint DEFAULT NULL,
-  p_id_empresa_cuenta_salida bigint DEFAULT NULL,
-  p_dni_cliente character varying DEFAULT NULL,
-  p_codigo_operacion character varying DEFAULT NULL,
-  p_id_estado bigint DEFAULT NULL,
-  p_fecha_caja_cierre_desde timestamp with time zone DEFAULT NULL,
-  p_fecha_caja_cierre_hasta timestamp with time zone DEFAULT NULL
-)
-RETURNS SETOF jsonb
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-AS $$
-  SELECT to_jsonb(op) || jsonb_build_object(
+CREATE OR REPLACE FUNCTION public.f_get_tb_pago_deuda_bandeja(p_ruta character varying, p_id_empresa_salida bigint DEFAULT NULL::bigint, p_id_empresa_cuenta_salida bigint DEFAULT NULL::bigint, p_dni_cliente character varying DEFAULT NULL::character varying, p_codigo_operacion character varying DEFAULT NULL::character varying, p_id_estado bigint DEFAULT NULL::bigint, p_fecha_caja_cierre_desde timestamp with time zone DEFAULT NULL::timestamp with time zone, p_fecha_caja_cierre_hasta timestamp with time zone DEFAULT NULL::timestamp with time zone)
+ RETURNS SETOF jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+AS $multi_release$
+SELECT to_jsonb(op) || jsonb_build_object(
     'id_usuario_atencion_cliente',
     COALESCE(op_solicitud.id_usuario_solicitud, op_solicitud.id_usuario),
     'nombre_atencion_cliente',
@@ -912,6 +918,8 @@ AS $$
     op_retorno.nombre_empresa_ingreso,
     'pd_retorno_nombre_banco_empresa_cuenta_ingreso',
     op_retorno.nombre_banco_empresa_cuenta_ingreso,
+    'pd_match_multiple',
+    EXISTS (SELECT 1 FROM public.tb_pago_deuda_match_distribucion a WHERE a.id_pago_deuda=op.id),
     'pd_retorno_monto_devolucion',
     op_retorno.monto_devolucion,
     'pd_retorno_codigos_operacion',
@@ -934,18 +942,20 @@ AS $$
       (ARRAY_AGG(r.id_empresa_cuenta_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS id_empresa_cuenta_ingreso,
       (ARRAY_AGG(r.nombre_empresa_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS nombre_empresa_ingreso,
       (ARRAY_AGG(r.nombre_banco_empresa_cuenta_ingreso ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id))[1] AS nombre_banco_empresa_cuenta_ingreso,
-      SUM(COALESCE(r.monto_deposito_cliente, r.monto_transferencia_cliente, 0)) AS monto_devolucion,
+      SUM(COALESCE(reparto.monto, r.monto_deposito_cliente, r.monto_transferencia_cliente, 0)) AS monto_devolucion,
       STRING_AGG(NULLIF(BTRIM(COALESCE(r.codigo_operacion_deposito_cliente, '')), ''), E'\n' ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id) AS codigos_operacion,
       JSONB_AGG(
         jsonb_build_object(
           'empresa', r.nombre_empresa_ingreso,
           'cuenta', r.nombre_banco_empresa_cuenta_ingreso,
           'codigo', r.codigo_operacion_deposito_cliente,
-          'monto', COALESCE(r.monto_deposito_cliente, r.monto_transferencia_cliente, 0)
+          'monto', COALESCE(reparto.monto, r.monto_deposito_cliente, r.monto_transferencia_cliente, 0)
         )
         ORDER BY r.fecha_deposito_cliente NULLS LAST, r.fecha_registro NULLS LAST, r.id
       ) AS empresas_cuentas
     FROM public.tb_operacion_proceso r
+    LEFT JOIN public.tb_pago_deuda_match_distribucion reparto
+      ON reparto.id_operacion_retorno=r.id AND reparto.id_pago_deuda=op.id
     WHERE UPPER(COALESCE(r.tipo_flujo_pago_deuda, '')) IN ('RETORNO', 'RETORNO_DIRECTO')
       AND (
         r.id = op.id_operacion_match
@@ -985,7 +995,7 @@ AS $$
     )
     AND (p_id_estado IS NULL OR op.id_estado = p_id_estado)
   ORDER BY op.id DESC;
-$$;
+$multi_release$;
 
 /*
 Funcion: f_patch_tb_pago_deuda_codigo_operacion
@@ -2790,6 +2800,119 @@ BEGIN
 END;
 $match_release$;
 
+CREATE OR REPLACE FUNCTION public.f_patch_tb_pago_deuda_match_multiple(
+  p_ids_pago_deuda bigint[],
+  p_id_operacion_efectivizacion bigint,
+  p_id_usuario_gestor bigint DEFAULT NULL,
+  p_nombre_usuario_gestor character varying DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET lock_timeout = '1500ms'
+AS $$
+DECLARE
+  v_ids bigint[];
+  v_existing bigint[];
+  v_source record;
+  v_debt record;
+  v_first record;
+  v_total numeric := 0;
+  v_result jsonb;
+BEGIN
+  IF cardinality(p_ids_pago_deuda) IS NULL OR cardinality(p_ids_pago_deuda) NOT BETWEEN 2 AND 20
+     OR array_position(p_ids_pago_deuda, NULL) IS NOT NULL THEN
+    RAISE EXCEPTION 'Selecciona entre 2 y 20 operaciones bancarias de Pago Deuda.';
+  END IF;
+  SELECT array_agg(DISTINCT x ORDER BY x) INTO v_ids FROM unnest(p_ids_pago_deuda) x;
+  IF cardinality(v_ids) <> cardinality(p_ids_pago_deuda) THEN
+    RAISE EXCEPTION 'No se permiten operaciones repetidas.';
+  END IF;
+  -- Reservar todas las familias y el retorno de una sola vez, en orden estable.
+  PERFORM op.id FROM public.tb_operacion_proceso op
+  WHERE op.id = p_id_operacion_efectivizacion OR op.id = ANY(v_ids)
+     OR op.id IN (SELECT d.id_operacion_padre FROM public.tb_operacion_proceso d WHERE d.id = ANY(v_ids))
+     OR op.id_operacion_padre IN (SELECT COALESCE(d.id_operacion_padre, d.id) FROM public.tb_operacion_proceso d WHERE d.id = ANY(v_ids))
+  ORDER BY op.id FOR UPDATE;
+
+  SELECT * INTO v_source FROM public.tb_operacion_proceso WHERE id = p_id_operacion_efectivizacion;
+  IF v_source.id IS NULL THEN RAISE EXCEPTION 'Operacion de retorno no encontrada.'; END IF;
+  SELECT array_agg(id_pago_deuda ORDER BY id_pago_deuda) INTO v_existing
+  FROM public.tb_pago_deuda_match_distribucion WHERE id_operacion_retorno = v_source.id;
+  IF v_existing IS NOT NULL THEN
+    IF v_existing IS DISTINCT FROM v_ids THEN RAISE EXCEPTION 'El retorno ya esta conciliado con otras operaciones.'; END IF;
+    RETURN (SELECT x FROM public.f_get_tb_operacion_proceso(p_id := v_source.id) x LIMIT 1);
+  END IF;
+  IF UPPER(BTRIM(COALESCE(v_source.tipo_servicio, ''))) <> 'EFECTIVIZACION'
+     OR UPPER(BTRIM(COALESCE(v_source.nombre_estado, ''))) <> 'PENDIENTE'
+     OR v_source.id_operacion_match IS NOT NULL
+     OR COALESCE(v_source.monto_deposito_cliente,0) <= 0
+     OR v_source.fecha_deposito_cliente IS NULL
+     OR public.f_get_tb_pago_deuda_tiene_cierre(v_source.id) THEN
+    RAISE EXCEPTION 'El retorno ya no esta disponible para conciliar.';
+  END IF;
+  IF (SELECT count(*) FROM public.tb_operacion_proceso WHERE id = ANY(v_ids)) <> cardinality(v_ids) THEN
+    RAISE EXCEPTION 'Una de las operaciones seleccionadas no existe.';
+  END IF;
+  IF (SELECT count(DISTINCT COALESCE(id_operacion_padre,id)) FROM public.tb_operacion_proceso WHERE id=ANY(v_ids)) <> cardinality(v_ids) THEN
+    RAISE EXCEPTION 'Selecciona operaciones de solicitudes distintas, sin repetir la misma familia.';
+  END IF;
+  IF v_source.monto_deposito_cliente <> round(v_source.monto_deposito_cliente,2) THEN
+    RAISE EXCEPTION 'El retorno debe tener como maximo dos decimales.';
+  END IF;
+  FOR v_debt IN SELECT * FROM public.tb_operacion_proceso WHERE id = ANY(v_ids) ORDER BY id LOOP
+    IF UPPER(BTRIM(COALESCE(v_debt.tipo_servicio,''))) <> 'PAGO DEUDA'
+       OR UPPER(BTRIM(COALESCE(v_debt.tipo_flujo_pago_deuda,''))) <> 'BANCO'
+       OR UPPER(BTRIM(COALESCE(v_debt.nombre_estado,''))) <> 'PROCESADO'
+       OR public.f_get_tb_pago_deuda_tiene_cierre(v_debt.id)
+       OR COALESCE(v_debt.monto_deposito_cliente,0) - COALESCE(v_debt.monto_devuelto,0) <= 0 THEN
+      RAISE EXCEPTION 'Una de las deudas ya no esta disponible o pertenece a un cierre.';
+    END IF;
+    IF COALESCE(v_debt.dni_cliente,'') = '' OR v_debt.dni_cliente IS DISTINCT FROM v_source.dni_cliente THEN
+      RAISE EXCEPTION 'Todas las deudas deben pertenecer al mismo DNI del retorno.';
+    END IF;
+    IF COALESCE(v_debt.monto_devuelto,0) < 0 OR
+       (v_debt.monto_deposito_cliente-COALESCE(v_debt.monto_devuelto,0)) <> round(v_debt.monto_deposito_cliente-COALESCE(v_debt.monto_devuelto,0),2) THEN
+      RAISE EXCEPTION 'El saldo pendiente de una deuda no es valido.';
+    END IF;
+    IF COALESCE(v_debt.id_banco_empresa_cuenta_salida,v_debt.id_banco_cliente) IS DISTINCT FROM v_source.id_banco_empresa_cuenta_ingreso THEN
+      RAISE EXCEPTION 'Todas las deudas deben corresponder al banco del retorno.';
+    END IF;
+    IF COALESCE(v_debt.fecha_pendiente,v_debt.fecha_registro) IS NULL
+       OR abs(extract(epoch FROM (v_source.fecha_deposito_cliente - COALESCE(v_debt.fecha_pendiente,v_debt.fecha_registro)))) > 86400 THEN
+      RAISE EXCEPTION 'Una de las deudas excede el rango de 24 horas.';
+    END IF;
+    v_total := v_total + v_debt.monto_deposito_cliente - COALESCE(v_debt.monto_devuelto,0);
+  END LOOP;
+  IF v_total <> v_source.monto_deposito_cliente THEN
+    RAISE EXCEPTION 'La suma pendiente seleccionada (%) debe coincidir con el retorno (%).', v_total, v_source.monto_deposito_cliente;
+  END IF;
+  -- Reutilizar una sola vez el flujo contable ya probado: un ingreso por retorno.
+  SELECT * INTO v_first FROM public.tb_operacion_proceso WHERE id = v_ids[1];
+  v_result := public.f_patch_tb_pago_deuda_match(v_first.id, v_source.id, p_id_usuario_gestor, p_nombre_usuario_gestor);
+  IF v_result ? 'error' THEN RAISE EXCEPTION '%', v_result->>'error'; END IF;
+  -- La atribución temporal del primer enlace se redistribuye dentro de la misma
+  -- transacción. Nunca se publica un retorno completo en cada deuda.
+  FOR v_debt IN SELECT * FROM public.tb_operacion_proceso WHERE id = ANY(v_ids) ORDER BY id LOOP
+    INSERT INTO public.tb_pago_deuda_match_distribucion(id_operacion_retorno,id_pago_deuda,monto,id_usuario)
+    VALUES(v_source.id,v_debt.id,
+      CASE WHEN v_debt.id=v_first.id THEN v_first.monto_deposito_cliente-COALESCE(v_first.monto_devuelto,0)
+           ELSE v_debt.monto_deposito_cliente-COALESCE(v_debt.monto_devuelto,0) END,p_id_usuario_gestor);
+    UPDATE public.tb_operacion_proceso
+    SET monto_devuelto = v_debt.monto_deposito_cliente,
+        fecha_deposito_cliente = v_source.fecha_deposito_cliente,
+        id_operacion_match = v_source.id,
+        id_usuario_gestor = COALESCE(p_id_usuario_gestor,id_usuario_gestor),
+        nombre_usuario_gestor = COALESCE(p_nombre_usuario_gestor,nombre_usuario_gestor)
+    WHERE id = v_debt.id OR id = v_debt.id_operacion_padre;
+  END LOOP;
+  RETURN (SELECT x FROM public.f_get_tb_operacion_proceso(p_id := v_source.id) x LIMIT 1);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.f_patch_tb_pago_deuda_match_multiple(bigint[],bigint,bigint,character varying) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.f_patch_tb_pago_deuda_match_multiple(bigint[],bigint,bigint,character varying) TO authenticated,service_role;
+
 /*
 Funcion: f_patch_tb_pago_deuda_pagado
 Objetivo:
@@ -3507,5 +3630,5 @@ SELECT 'DROP FUNCTION IF EXISTS ' ||
        pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_lock_tb_pago_deuda_familia', 'f_patch_tb_pago_deuda_match', 'f_patch_tb_pago_deuda_salida', 'f_patch_tb_pago_deuda_pagado')
+WHERE p.proname IN ('f_get_tb_pago_deuda_tiene_cierre', 'f_get_tb_pago_deuda', 'f_get_tb_pago_deuda_bandeja', 'f_patch_tb_pago_deuda_match_multiple')
 ORDER BY n.nspname, p.proname;

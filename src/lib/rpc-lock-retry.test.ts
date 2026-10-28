@@ -92,6 +92,7 @@ describe("Reintento acotado de pagos", () => {
         ["f_patch_tb_operacion_proceso_pagado_lote", (params: Record<string, unknown>) => operacionesRpcService.patchOperacionPagadoLote(params)],
         ["f_patch_tb_pago_deuda_pagado", (params: Record<string, unknown>) => pagoDeudaService.patchPagado(params)],
         ["f_patch_tb_pago_deuda_match", (params: Record<string, unknown>) => pagoDeudaService.patchMatch(params)],
+        ["f_patch_tb_pago_deuda_match_multiple", (params: Record<string, unknown>) => pagoDeudaService.patchMatchMultiple(params)],
         ["f_patch_tb_pago_deuda_salida", (params: Record<string, unknown>) => pagoDeudaService.patchSalida(params)],
     ] as const)("integra %s sin cambiar los parámetros", async (fn, call) => {
         mocks.rpc.mockReset().mockResolvedValueOnce(locked).mockResolvedValue(success);

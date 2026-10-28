@@ -215,6 +215,7 @@ export interface OperacionProceso {
     pd_codigo_operacion_transferencia?: string | null;
     pd_codigo_operacion_comision?: string | null;
     pd_retorno_id?: number | null;
+    pd_match_multiple?: boolean;
     pd_retorno_id_empresa_ingreso?: number | null;
     pd_retorno_id_empresa_cuenta_ingreso?: number | null;
     pd_retorno_nombre_empresa_ingreso?: string | null;

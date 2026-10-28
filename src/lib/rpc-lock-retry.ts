@@ -5,6 +5,7 @@ const RETRYABLE_PAYMENT_RPCS = new Set([
     "f_patch_tb_operacion_proceso_pagado_lote",
     "f_patch_tb_pago_deuda_pagado",
     "f_patch_tb_pago_deuda_match",
+    "f_patch_tb_pago_deuda_match_multiple",
     "f_patch_tb_pago_deuda_salida",
 ]);
 

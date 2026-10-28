@@ -88,6 +88,10 @@ export const pagoDeudaService = {
         return rpc<OperacionProceso>("f_patch_tb_pago_deuda_match", params);
     },
 
+    patchMatchMultiple(params: Record<string, unknown>) {
+        return rpc<OperacionProceso>("f_patch_tb_pago_deuda_match_multiple", params);
+    },
+
     patchDirecto(params: Record<string, unknown>) {
         return rpc<OperacionProceso>("f_patch_tb_pago_deuda_directo", params);
     },

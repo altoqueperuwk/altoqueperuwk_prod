@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { motion } from "motion/react";
+import { getMatchDistribution } from "@/features/operaciones/pago-deuda/utils/match-distribution";
 import { ChevronLeft, ChevronRight, Coins01, Copy01, CreditCardCheck, Edit03, Percent01, RefreshCcw02, Send01, Trash01 } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
@@ -390,7 +391,9 @@ export const BancariaEfectivizacionTable = ({
     const pagoDeudaMatchRequestId = useRef(0);
     const lastMatchRefreshKey = useRef<string | number>(matchRefreshKey);
     const [pdMatchRow, setPdMatchRow] = useState<OperacionProceso | null>(null);
-    const [pdSelectedMatchId, setPdSelectedMatchId] = useState<number | null>(null);
+    const [pdSelectedMatchIds, setPdSelectedMatchIds] = useState<number[]>([]);
+    const pdDistribution = getMatchDistribution(pdMatchRow?.monto_deposito_cliente, pdMatchRow ? (pagoDeudaMatches[pdMatchRow.id] ?? []) : [], pdSelectedMatchIds);
+    const togglePdMatch = (id: number) => setPdSelectedMatchIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
     const [interbankTransfer, setInterbankTransfer] = useState<{ row: OperacionProceso; value: string } | null>(null);
     const [dniEdit, setDniEdit] = useState<{ row: OperacionProceso; value: string } | null>(null);
     const [dniDrafts, setDniDrafts] = useState<Record<number, string>>({});
@@ -1025,21 +1028,18 @@ export const BancariaEfectivizacionTable = ({
         onMetricsChanged();
     };
 
-    const handlePagoDeudaMatch = async (row: OperacionProceso, matchId?: number) => {
+    const handlePagoDeudaMatch = async (row: OperacionProceso, matchIds: number[]) => {
         const matches = pagoDeudaMatches[row.id] ?? [];
         if (!matches.length) return;
 
-        const target = matchId ? matches.find((m) => m.id === matchId) : matches[0];
-        if (!target) return;
-
-        if (!matchId && matches.length > 1) {
-            return;
-        }
+        const selection = getMatchDistribution(row.monto_deposito_cliente, matches, matchIds);
+        if (!selection.valid) return;
 
         setSavingIds((current) => [...current, row.id]);
         try {
-            const saved = await pagoDeudaService.patchMatch({
-                p_id_pago_deuda: target.id,
+            const request = matchIds.length > 1 ? pagoDeudaService.patchMatchMultiple : pagoDeudaService.patchMatch;
+            const saved = await request({
+                ...(matchIds.length > 1 ? { p_ids_pago_deuda: matchIds } : { p_id_pago_deuda: matchIds[0] }),
                 p_id_operacion_efectivizacion: row.id,
                 p_id_usuario_gestor: user.userId,
                 p_nombre_usuario_gestor: user.userName,
@@ -1092,7 +1092,7 @@ export const BancariaEfectivizacionTable = ({
     const closePagoDeudaMatchModal = () => {
         pagoDeudaMatchRequestId.current += 1;
         setPdMatchRow(null);
-        setPdSelectedMatchId(null);
+        setPdSelectedMatchIds([]);
         setPagoDeudaMatchLoadingId(null);
         setPagoDeudaMatchError(null);
     };
@@ -1103,7 +1103,7 @@ export const BancariaEfectivizacionTable = ({
         const cached = pagoDeudaMatchCache.current.get(row.id);
 
         setPdMatchRow(row);
-        setPdSelectedMatchId(null);
+        setPdSelectedMatchIds([]);
         setPagoDeudaMatchError(null);
 
         if (cached?.fingerprint === fingerprint) return;
@@ -1136,11 +1136,11 @@ export const BancariaEfectivizacionTable = ({
     };
 
     const handleSavePagoDeudaMatch = async () => {
-        if (!pdMatchRow || !pdSelectedMatchId) return;
+        if (!pdMatchRow || !pdDistribution.valid) return;
         const row = pdMatchRow;
-        const matchId = pdSelectedMatchId;
+        const matchIds = [...pdSelectedMatchIds];
         closePagoDeudaMatchModal();
-        await handlePagoDeudaMatch(row, matchId);
+        await handlePagoDeudaMatch(row, matchIds);
     };
 
     const handleDirectoCaja = async (row: OperacionProceso) => {
@@ -1912,13 +1912,13 @@ export const BancariaEfectivizacionTable = ({
                                                     <tr
                                                         key={match.id}
                                                         className="cursor-pointer transition hover:bg-secondary_hover"
-                                                        onClick={() => setPdSelectedMatchId(match.id)}
+                                                        onClick={() => togglePdMatch(match.id)}
                                                     >
-                                                        <td className="px-3 py-3 align-middle">
+                                                        <td className="px-3 py-3 align-middle" onClick={(event) => event.stopPropagation()}>
                                                             <Checkbox
                                                                 aria-label={`Seleccionar Pago Deuda ${match.id}`}
-                                                                isSelected={pdSelectedMatchId === match.id}
-                                                                onChange={() => setPdSelectedMatchId(match.id)}
+                                                                isSelected={pdSelectedMatchIds.includes(match.id)}
+                                                                onChange={() => togglePdMatch(match.id)}
                                                             />
                                                         </td>
                                                         <td className="px-3 py-3 align-middle font-medium text-primary">{match.dni_cliente ?? "-"}</td>
@@ -1933,12 +1933,17 @@ export const BancariaEfectivizacionTable = ({
                                 })()}
                             </div>
 
+                            <p className="mt-3 text-sm text-secondary" role="status">
+                                Seleccionado: {formatMoney(pdDistribution.total)} · Retorno: {formatMoney(pdMatchRow?.monto_deposito_cliente)}
+                                {pdSelectedMatchIds.length > 1 && !pdDistribution.valid ? " · La suma pendiente debe coincidir con el retorno." : ""}
+                                {pdSelectedMatchIds.length === 1 && !pdDistribution.valid ? " · Selecciona las otras operaciones que completan el retorno." : ""}
+                            </p>
                             <div className="mt-5 flex justify-end gap-2">
                                 <Button color="secondary" onClick={closePagoDeudaMatchModal}>
                                     Cancelar
                                 </Button>
                                 <Button
-                                    isDisabled={!pdSelectedMatchId || (pdMatchRow ? savingIdSet.has(pdMatchRow.id) : false)}
+                                    isDisabled={!pdDistribution.valid || (pdMatchRow ? savingIdSet.has(pdMatchRow.id) : false)}
                                     isLoading={pdMatchRow ? savingIdSet.has(pdMatchRow.id) : false}
                                     onClick={() => void handleSavePagoDeudaMatch()}
                                 >

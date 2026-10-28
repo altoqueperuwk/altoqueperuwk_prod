@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Tabs } from "@/components/application/tabs/tabs";
+import { PagoDeudaDevolucion } from "@/features/operaciones/pago-deuda/components/pago-deuda-devolucion";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
 import { estadoService } from "@/services/estado.service";
@@ -1116,7 +1117,7 @@ export const BancariaOperationalTabs = ({
                 headerClassName: "min-w-48",
                 cellClassName: "min-w-48 max-w-56 whitespace-normal",
             },
-            { key: "monto_devuelto", label: "Monto\nDevolucion", headerClassName: "min-w-32 whitespace-pre-line", render: (row: OperacionProceso) => formatMoney(row.pd_retorno_monto_devolucion ?? row.monto_devuelto ?? 0) },
+            { key: "monto_devuelto", label: "Monto\nDevolucion", headerClassName: "min-w-32 whitespace-pre-line", render: (row: OperacionProceso) => <PagoDeudaDevolucion row={row} /> },
             ...(presentation === "plain" ? [] : [
                 { key: "estado_visual", label: "Estado", render: (row: OperacionProceso) => (
                     <PagoDeudaEstadoButton
