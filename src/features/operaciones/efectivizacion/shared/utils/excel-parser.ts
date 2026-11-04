@@ -381,13 +381,25 @@ export const parseBcpTxtRows = (content: string): ExcelRow[] => {
             BCP_TXT_POSITIONS.referenceStart,
             BCP_TXT_POSITIONS.referenceStart + BCP_TXT_POSITIONS.referenceLength,
         );
-        const dni = dniField.replace(/\D/g, "").replace(/^0+/, "").padStart(8, "0");
+        const numericHeader = /^DD\d{25}$/.test(trimmed.slice(0, 27));
+        const documentWithSuffix = /^ {5}(\d{8})I$/.exec(dniField);
+        const suffixHeader = documentWithSuffix !== null
+            && /^DD\d{11}$/.test(trimmed.slice(0, 13))
+            && trimmed.slice(13, 27) === dniField;
+        // Solo TXT BCP: nueve dígitos significativos conservan los últimos ocho.
+        // El sufijo literal I se admite únicamente en ambos campos coincidentes.
+        const numericDocument = /^\d{14}$/.test(dniField)
+            ? dniField.replace(/^0+/, "").padStart(8, "0")
+            : "";
+        const dni = suffixHeader
+            ? documentWithSuffix![1]
+            : numericDocument.length === 9 ? numericDocument.slice(-8) : numericDocument;
         const codigoOperacion = referencia.replace(/\D/g, "").slice(-8);
         const horaProceso = formatBcpTxtTime(horaRaw);
         const monto = Number(montoRaw) / 100;
 
         if (
-            !/^DD\d{25}$/.test(trimmed.slice(0, 27)) ||
+            !(numericHeader || suffixHeader) ||
             !/^\d{8}$/.test(fechaRaw) ||
             !horaProceso ||
             !/^\d{15}$/.test(montoRaw) ||

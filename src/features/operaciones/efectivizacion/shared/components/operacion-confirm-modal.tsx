@@ -1,10 +1,12 @@
+import type { ReactNode } from "react";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 
 interface OperacionConfirmModalProps {
+    children?: ReactNode;
     cancelLabel?: string;
     confirmLabel?: string;
-    description: string;
+    description: ReactNode;
     intent?: "primary" | "destructive";
     isLoading?: boolean;
     isOpen: boolean;
@@ -14,6 +16,7 @@ interface OperacionConfirmModalProps {
 }
 
 export const OperacionConfirmModal = ({
+    children,
     cancelLabel = "Cancelar",
     confirmLabel = "Confirmar",
     description,
@@ -32,6 +35,7 @@ export const OperacionConfirmModal = ({
                         <h2 className="text-lg font-semibold text-primary">{title}</h2>
                         <p className="text-sm text-tertiary">{description}</p>
                     </div>
+                    {children}
                     <div className="mt-6 flex justify-end gap-2">
                         <Button color="secondary" isDisabled={isLoading} onClick={onClose}>
                             {cancelLabel}

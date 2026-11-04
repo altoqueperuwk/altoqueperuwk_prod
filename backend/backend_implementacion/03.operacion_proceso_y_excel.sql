@@ -863,18 +863,15 @@ CREATE TABLE IF NOT EXISTS public.tb_operacion_proceso_eliminada (
 /*
 Funcion: f_patch_tb_operacion_proceso_eliminar
 Objetivo:
-  Aplicar soft delete conservando un snapshot para restaurar. Link Pago admite
-  Pagado exclusivamente para administrador o jefe de tienda autenticados.
+  Aplicar soft delete conservando un snapshot para restaurar. Link Pago y POS
+  pagado admiten administrador o jefe de tienda autenticados.
   Las demas rutas conservan sus validaciones y reversiones de caja.
 */
-CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_eliminar(
-  p_id bigint,
-  p_id_usuario bigint DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.f_patch_tb_operacion_proceso_eliminar(p_id bigint, p_id_usuario bigint DEFAULT NULL::bigint)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $pos_release$
 DECLARE
   v_actual record;
   v_mov record;
@@ -884,6 +881,7 @@ DECLARE
   v_usuario bigint;
   v_ruta character varying;
   v_es_linkpago boolean := false;
+  v_es_pos_pagado boolean := false;
   v_actor_id bigint;
   v_actor_autorizado boolean := false;
   v_saldo_caja numeric;
@@ -903,12 +901,15 @@ BEGIN
   END IF;
 
   v_es_linkpago := LOWER(COALESCE(v_actual.ruta_origen, '')) = 'linkpago';
-  v_es_operacion_pendiente := UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) IN ('PENDIENTE', 'RECHAZADO');
+  v_es_pos_pagado := LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos'
+    AND (v_actual.id_estado = 4 OR UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) = 'PAGADO');
+  v_es_operacion_pendiente := NOT v_es_pos_pagado
+    AND UPPER(BTRIM(COALESCE(v_actual.nombre_estado, ''))) IN ('PENDIENTE', 'RECHAZADO');
   v_usuario := COALESCE(p_id_usuario, v_actual.id_usuario_gestor, v_actual.id_usuario);
 
-  IF v_es_linkpago THEN
+  IF v_es_linkpago OR v_es_pos_pagado THEN
     IF auth.uid() IS NULL THEN
-      RETURN jsonb_build_object('error', 'Sesion autenticada requerida para eliminar Link Pago.');
+      RETURN jsonb_build_object('error', 'Sesion autenticada requerida para eliminar Link Pago o POS pagado.');
     END IF;
 
     SELECT u.id,
@@ -929,7 +930,7 @@ BEGIN
     LIMIT 1;
 
     IF NOT COALESCE(v_actor_autorizado, false) THEN
-      RETURN jsonb_build_object('error', 'Solo administrador o jefe de tienda activo puede eliminar Link Pago.');
+      RETURN jsonb_build_object('error', 'Solo administrador o jefe de tienda activo puede eliminar Link Pago o POS pagado.');
     END IF;
     IF p_id_usuario IS NOT NULL AND p_id_usuario IS DISTINCT FROM v_actor_id THEN
       RETURN jsonb_build_object('error', 'El usuario indicado no corresponde a la sesion autenticada.');
@@ -938,6 +939,7 @@ BEGIN
   END IF;
 
   IF LOWER(COALESCE(v_actual.ruta_origen, '')) = 'pos'
+     AND NOT v_es_pos_pagado
      AND EXISTS (
        SELECT 1
        FROM public.tb_usuario u
@@ -958,10 +960,14 @@ BEGIN
   IF COALESCE(v_actual.id_estado, 0) = 10
      OR UPPER(COALESCE(v_actual.nombre_estado, '')) = 'ELIMINADO'
      OR (
-       UPPER(COALESCE(v_actual.nombre_estado, '')) = 'PAGADO'
-       AND NOT v_es_linkpago
+       (v_actual.id_estado = 4 OR UPPER(COALESCE(v_actual.nombre_estado, '')) = 'PAGADO')
+       AND NOT (v_es_linkpago OR v_es_pos_pagado)
      ) THEN
     RETURN jsonb_build_object('error', 'No se puede eliminar una operacion Pagada o Eliminada.');
+  END IF;
+
+  IF v_es_pos_pagado AND v_actual.id_caja_cierre IS NOT NULL THEN
+    RETURN jsonb_build_object('error', 'No se puede eliminar una operacion incluida en un cierre de caja.');
   END IF;
 
   IF EXISTS (
@@ -1124,7 +1130,7 @@ BEGIN
   SET id_estado = v_estado_eliminado_id,
       nombre_estado = v_estado_eliminado_nombre,
       flag_retenido = false,
-      id_usuario_gestor = COALESCE(p_id_usuario, id_usuario_gestor),
+      id_usuario_gestor = CASE WHEN v_es_pos_pagado THEN v_usuario ELSE COALESCE(p_id_usuario, id_usuario_gestor) END,
       fecha_retencion = NULL,
       id_usuario_retiene = NULL,
       nombre_usuario_retiene = NULL,
@@ -1144,7 +1150,7 @@ BEGIN
     'movimientos_historicos_conservados', v_movimientos_cerrados_conservados
   );
 END;
-$$;
+$pos_release$;
 
 /*
 Funcion: f_patch_tb_operacion_proceso_restaurar
@@ -6501,7 +6507,11 @@ END;
 $$;
 
 
-SELECT 'DROP FUNCTION IF EXISTS ' || n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-WHERE p.proname IN ('f_patch_tb_operacion_proceso_pagado_lote')
-ORDER BY n.nspname,p.proname;
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' ||
+       p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN ('f_patch_tb_operacion_proceso_eliminar')
+ORDER BY n.nspname, p.proname;

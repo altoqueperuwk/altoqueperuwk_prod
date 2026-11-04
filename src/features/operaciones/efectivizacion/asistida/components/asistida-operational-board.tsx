@@ -7,6 +7,7 @@ import { Input } from "@/components/base/input/input";
 import { NativeSelect } from "@/components/base/select/select-native";
 import { isAdministrator, isJefeTienda, useAuth } from "@/providers/auth-provider";
 import { canDeleteAssistedOperation } from "../utils/asistida-delete-permission";
+import { PosDeleteSummary } from "./pos-delete-summary";
 import { useToast } from "@/providers/toast-provider";
 import { bancoService } from "@/services/banco.service";
 import { estadoService } from "@/services/estado.service";
@@ -761,15 +762,17 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
             <OperacionConfirmModal
                 isOpen={!!deleteOperation}
                 title="Eliminar operación"
-                description={ruta === "linkpago"
-                    ? "La operación pasará a Eliminado y se conservará en los reportes."
-                    : "La operación pasará a Eliminado y se conservará en los reportes. Esta acción no está disponible para operaciones pagadas."}
+                description={ruta === "pos" && deleteOperation && (isPagado(deleteOperation) || deleteOperation.id_estado === 4)
+                    ? <>Atención: este POS está en estado <span className="font-semibold text-concept-transferencia">PAGADO</span>. Si eliminas la operación, no podrás revertir esta acción.</>
+                    : "La operación pasará a Eliminado y se conservará en los reportes."}
                 confirmLabel="Eliminar"
                 intent="destructive"
                 isLoading={isApplyingAction}
                 onClose={() => setDeleteOperation(null)}
                 onConfirm={() => void handleDelete()}
-            />
+            >
+                {ruta === "pos" && deleteOperation && <PosDeleteSummary operation={deleteOperation} />}
+            </OperacionConfirmModal>
         </motion.section>
     );
 };

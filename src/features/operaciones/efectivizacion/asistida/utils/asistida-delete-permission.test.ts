@@ -17,8 +17,15 @@ describe("eliminación de operaciones asistidas", () => {
         expect(canDeleteAssistedOperation({ ...base, isAdministrator: true, estado: " ELIMINADO " })).toBe(false);
         expect(canDeleteAssistedOperation({ ...base, isJefeTienda: true, idEstado: 10 })).toBe(false);
     });
-    it("conserva el bloqueo de POS pagado para administrador", () => {
-        expect(canDeleteAssistedOperation({ ...base, ruta: "pos", isAdministrator: true, canManage: true })).toBe(false);
+    it.each(["isAdministrator", "isJefeTienda"] as const)("permite POS pagado a %s incluso de otro solicitante", (profile) => {
+        expect(canDeleteAssistedOperation({ ...base, ruta: "pos", [profile]: true })).toBe(true);
+        expect(canDeleteAssistedOperation({ ...base, ruta: "pos", estado: "", idEstado: 4, [profile]: true })).toBe(true);
+    });
+    it("niega POS pagado a otros perfiles aunque puedan gestionar la solicitud", () => {
+        expect(canDeleteAssistedOperation({ ...base, ruta: "pos", canManage: true })).toBe(false);
+    });
+    it("niega POS eliminado a perfiles autorizados", () => {
+        expect(canDeleteAssistedOperation({ ...base, ruta: "pos", isAdministrator: true, idEstado: 10 })).toBe(false);
     });
     it("conserva POS pendiente gestionable y bloquea el ajeno", () => {
         expect(canDeleteAssistedOperation({ ...base, ruta: "pos", estado: "Pendiente", canManage: true })).toBe(true);
