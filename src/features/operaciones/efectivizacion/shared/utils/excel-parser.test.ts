@@ -81,6 +81,72 @@ describe("documentos de TXT BCP", () => {
     });
 });
 
+describe("Excel histórico BCP", () => {
+    const headers = ["Fecha", "Fecha valuta", "Descripción operación", "Monto", "Saldo", "Sucursal - agencia", "Operación - Número", "Operación - Hora", "Usuario", "UTC", "Referencia2"];
+    const movement = (description: string, amount = 250) => ["05/11/2026", "", description, amount, 1000, "111-023", "00123456", "07:08:09", "CAJERO", "1013", ""];
+
+    it.each(["bcp", "/operaciones/bcp"] as const)("mapea las columnas y filtra únicamente EFECTIVO en %s", (route) => {
+        const rows = mapExcelRows([
+            ["Cuenta", "Cuenta de prueba"], ["Moneda", "Soles"], ["Tipo de Cuenta", "Corriente"], [],
+            headers,
+            movement("IMPUESTO ITF", -1), movement("COMIS.RECAUDACION", -12), movement("A OTRA CUENTA", -100),
+            movement("EFECTIVO00000001234567"),
+        ], route);
+        expect(rows).toEqual([{
+            dni: "EFECTIVO00000001234567", monto: "250", codigo_operacion: "00123456",
+            fecha_pago: "2026-11-05 00:00:00", hora_proceso: "07:08:09",
+            nombre_cliente_banco_ingreso: null, estado: null,
+        }]);
+    });
+
+    it("aplica la coincidencia por contenido e ignora mayúsculas/minúsculas", () => {
+        const rows = mapExcelRows([headers, movement("  pago efectivo00000001234567  "), movement("EFECTIVO00000012345678")], "bcp");
+        expect(rows).toHaveLength(2);
+        expect(rows[0].dni).toBe("pago efectivo00000001234567");
+    });
+
+    it("no busca EFECTIVO en otras columnas para admitir la fila", () => {
+        const nonCash = movement("TRANSFERENCIA"); nonCash[10] = "EFECTIVO";
+        const rows = mapExcelRows([headers, nonCash, movement("EFECTIVO00000012345678")], "bcp");
+        expect(rows).toHaveLength(1);
+    });
+
+    it("rechaza un reporte que no contiene movimientos EFECTIVO", () => {
+        expect(() => mapExcelRows([headers, movement("IMPUESTO ITF", -1)], "bcp")).toThrow("No se encontraron filas para procesar");
+    });
+
+    it("mantiene las filas de otros bancos sin aplicar el filtro BCP", () => {
+        const rows = mapExcelRows([
+            ["Código", "Importe Pagado", "Nro Movimiento", "Fecha Pago"],
+            ["01234567", 250, "00123456", "05/11/2026"],
+        ], "bbva");
+        expect(rows).toHaveLength(1);
+        expect(rows[0].dni).toBe("01234567");
+        expect(rows[0].estado).toBe("");
+    });
+
+    it("conserva el formato anterior de BCP con Nro operación", () => {
+        const rows = mapExcelRows([
+            ["Descripción operación", "Monto", "Nro operación", "Fecha"],
+            ["EFECTIVO00000001234567", 250, "00123456", "05/11/2026"],
+        ], "bcp");
+        expect(rows[0]).toMatchObject({ dni: "EFECTIVO00000001234567", codigo_operacion: "00123456", hora_proceso: "", nombre_cliente_banco_ingreso: "", estado: "" });
+    });
+
+    it("lee el nuevo formato desde un XLSX con la misma entrada que la interfaz", async () => {
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+            ["Cuenta", "Cuenta de prueba"], [], headers,
+            movement("COMIS.RECAUDACION", -12), movement("EFECTIVO00000001234567"),
+        ]), "Movimientos Históricos");
+        const buffer = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
+        const file = { name: "historicos-bcp.xlsx", arrayBuffer: async () => buffer } as File;
+        const rows = await readExcelRowsFromFile(file, "bcp");
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ codigo_operacion: "00123456", hora_proceso: "07:08:09", monto: "250", estado: null, nombre_cliente_banco_ingreso: null });
+    });
+});
+
 describe("excel-parser", () => {
     it("normalizes accents, separators and spaces", () => {
         expect(normalizeExcelHeader("  Código_Operación  ")).toBe("codigo operacion");

@@ -8,8 +8,8 @@ export type ExcelRow = {
     codigo_operacion: string;
     fecha_pago: string;
     hora_proceso: string;
-    nombre_cliente_banco_ingreso: string;
-    estado: string;
+    nombre_cliente_banco_ingreso: string | null;
+    estado: string | null;
 };
 
 export type HeaderAliasConfig = {
@@ -49,8 +49,9 @@ const excelHeaderConfig: Record<`/operaciones/${OperacionRutaBancaria}`, HeaderA
     "/operaciones/bcp": {
         dni: ["Descripcion operacion", "Descripcion operación"],
         monto: ["Monto"],
-        codigo_operacion: ["Nº operacion", "Nº operación", "Nro operacion", "Nro operación", "Nro. operacion"],
+        codigo_operacion: ["Nº operacion", "Nº operación", "Nro operacion", "Nro operación", "Nro. operacion", "Operación - Número"],
         fecha_pago: ["Fecha"],
+        hora_proceso: ["Operación - Hora"],
     },
     "/operaciones/bbva": {
         dni: ["Codigo", "Código"],
@@ -429,6 +430,11 @@ export const buildExcelRowsFromMatrix = (matrix: unknown[][], match: HeaderMatch
 
     const rows: ExcelRow[] = [];
     const path = routeToPath(route);
+    const headers = matrix[match.headerRowIndex] ?? [];
+    const isBcpDescription = isBcpRoute(route)
+        && normalizeExcelHeader(headers[match.idxDni]) === "descripcion operacion";
+    const isBcpHistorical = isBcpDescription
+        && normalizeExcelHeader(headers[match.idxCodigoOperacion]) === "operacion numero";
     const valueIndexes = [match.idxDni, match.idxMonto, match.idxCodigoOperacion, match.idxFechaPago].filter((idx) => idx >= 0);
 
     for (let index = match.headerRowIndex + 1; index < matrix.length; index += 1) {
@@ -438,14 +444,17 @@ export const buildExcelRowsFromMatrix = (matrix: unknown[][], match: HeaderMatch
         const getValue = (idx: number, offset = 0) =>
             idx >= 0 && row[idx + offset] !== undefined && row[idx + offset] !== null ? String(row[idx + offset]).trim() : "";
 
-        const offset = [0, -1, 1]
+        const offset = isBcpHistorical ? 0 : [0, -1, 1]
             .map((candidate) => ({
                 candidate,
                 score: valueIndexes.reduce((acc, idx) => acc + (getValue(idx, candidate) ? 1 : 0), 0),
             }))
             .sort((a, b) => b.score - a.score || Math.abs(a.candidate) - Math.abs(b.candidate))[0]?.candidate ?? 0;
 
-        const estado = getValue(match.idxEstado, offset);
+        const dni = getValue(match.idxDni, offset);
+        if (isBcpDescription && !dni.toUpperCase().includes("EFECTIVO")) continue;
+
+        const estado = isBcpHistorical ? null : getValue(match.idxEstado, offset);
         const searchableText = row.map((cell) => String(cell ?? "").toLowerCase()).join(" ");
         if (searchableText.includes("total de registros") || searchableText.includes("total registros")) continue;
 
@@ -453,12 +462,12 @@ export const buildExcelRowsFromMatrix = (matrix: unknown[][], match: HeaderMatch
         const fechaPago = path === "/operaciones/safetypay" ? normalizeDateToIsoSafetyPay(fechaPagoRaw) : normalizeDateToIso(fechaPagoRaw);
 
         rows.push({
-            dni: getValue(match.idxDni, offset),
+            dni,
             monto: getValue(match.idxMonto, offset),
             codigo_operacion: getValue(match.idxCodigoOperacion, offset),
             fecha_pago: fechaPago,
             hora_proceso: getValue(match.idxHoraProceso, offset),
-            nombre_cliente_banco_ingreso: path === "/operaciones/safetypay" ? "CMR Falabella" : getValue(match.idxBancoIngreso, offset),
+            nombre_cliente_banco_ingreso: isBcpHistorical ? null : path === "/operaciones/safetypay" ? "CMR Falabella" : getValue(match.idxBancoIngreso, offset),
             estado,
         });
     }
