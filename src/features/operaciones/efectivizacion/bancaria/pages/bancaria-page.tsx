@@ -557,9 +557,9 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
 
         addSection(
             "POS",
-            ["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"],
+            ["Cod. Op.", "POS", "Empresa POS", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"],
             pos.map((row) => [
-                text(row.operacion ?? row.codigo_operacion_deposito_cliente),
+                text(row.operacion ?? row.codigo_operacion_deposito_cliente), text(row.nombre_pos || "—"), text(row.nombre_empresa_pos || "—"),
                 text(row.dni ?? row.dni_cliente),
                 money(row.deposito),
                 percent(row.porcentaje_comision),
@@ -570,7 +570,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 text(row.estado ?? row.nombre_estado),
                 date(row.fecha ?? row.fecha_registro),
             ]),
-            [7],
+            [9],
         );
 
         const movementOrigin = (value: unknown) => {
@@ -718,7 +718,8 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 .set(pdfOptions)
                 .from(reportElement as HTMLElement)
                 .save();
-        } catch {
+        } catch (error) {
+            console.error("Error al generar el PDF de cierre", error);
             addToast("error", "No se pudo generar el PDF.");
         } finally {
             root?.unmount();

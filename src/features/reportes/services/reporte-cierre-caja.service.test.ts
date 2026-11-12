@@ -59,7 +59,7 @@ describe("getReporteCierreHistorico", () => {
                         nombre_empresa_salida_origen: "Empresa Origen",
                         nombre_banco_empresa_cuenta_salida_origen: "BCP",
                     }),
-                    operation({ id: 4, ruta_origen: "pos" }),
+                    operation({ id: 4, ruta_origen: "pos", nombre_pos: "CULQI", nombre_empresa_pos: "Hueso Cash S.A." }),
                 ],
                 f_get_tb_pago_deuda_bandeja: [
                     operation({
@@ -121,6 +121,7 @@ describe("getReporteCierreHistorico", () => {
         expect(report.efectivizacion).toHaveLength(2);
         expect(report.derivados).toHaveLength(1);
         expect(report.pos).toHaveLength(1);
+        expect((report.pos as Record<string, unknown>[])[0]).toMatchObject({ nombre_pos: "CULQI", nombre_empresa_pos: "Hueso Cash S.A." });
         expect(report.pago_deuda).toHaveLength(1);
         expect(report.movimientos).toHaveLength(1);
         expect((report.efectivizacion as Array<Record<string, unknown>>)[1]).toMatchObject({

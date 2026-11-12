@@ -52,6 +52,8 @@ interface PagoDeudaRow extends ReportRowBase {
 }
 
 interface PosRow extends ReportRowBase {
+    nombre_pos?: string | null;
+    nombre_empresa_pos?: string | null;
     empresa?: string | null;
     cuenta?: string | null;
     deposito?: number | null;
@@ -632,8 +634,8 @@ export const BancariaReporteCierrePdfOficial = ({ data }: BancariaReporteCierreP
                 {pos.length > 0 && (
                     <section>
                         <SectionHeader title="POS" count={pos.length} />
-                        <Table headers={["Cod. Op.", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={7}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(pos, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
-                            {pos.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.operacion ?? row.codigo_operacion_deposito_cliente)}</Cell><Cell>{valueOrDash(row.dni ?? row.dni_cliente)}</Cell><Cell numeric>{formatMoney(row.deposito)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell>{valueOrDash(row.empresa)}</Cell><Cell>{valueOrDash(row.cuenta)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado ?? row.nombre_estado} /></Cell><Cell>{formatDate(row.fecha ?? row.fecha_registro)}</Cell></tr>)}
+                        <Table headers={["Cod. Op.", "POS", "Empresa POS", "DNI", "Deposito", "% Comision", "S/ Comision", "Empresa", "Cuenta", "Transferencia", "Estado", "Fecha"]} footer={<tr className="total-row"><FooterCell colSpan={9}>Totales</FooterCell><FooterCell numeric>{formatMoney(sum(pos, (row) => row.transferencia))}</FooterCell><FooterCell colSpan={2} /></tr>}>
+                            {pos.map((row, index) => <tr key={index}><Cell>{valueOrDash(row.operacion ?? row.codigo_operacion_deposito_cliente)}</Cell><Cell>{row.nombre_pos || "—"}</Cell><Cell>{row.nombre_empresa_pos || "—"}</Cell><Cell>{valueOrDash(row.dni ?? row.dni_cliente)}</Cell><Cell numeric>{formatMoney(row.deposito)}</Cell><Cell numeric>{formatPercent(row.porcentaje_comision)}</Cell><Cell numeric>{formatMoney(row.soles_comision)}</Cell><Cell>{valueOrDash(row.empresa)}</Cell><Cell>{valueOrDash(row.cuenta)}</Cell><Cell numeric>{formatMoney(row.transferencia)}</Cell><Cell><StatusPill value={row.estado ?? row.nombre_estado} /></Cell><Cell>{formatDate(row.fecha ?? row.fecha_registro)}</Cell></tr>)}
                         </Table>
                     </section>
                 )}

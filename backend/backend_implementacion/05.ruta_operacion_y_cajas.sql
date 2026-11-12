@@ -4841,6 +4841,8 @@ BEGIN
   FROM (
     SELECT
       op.codigo_operacion_deposito_cliente AS operacion,
+      op.nombre_pos,
+      op.nombre_empresa_pos,
       op.dni_cliente AS dni,
       op.nombre_empresa_salida AS empresa,
       op.nombre_banco_empresa_cuenta_salida AS cuenta,
@@ -8622,11 +8624,7 @@ $function$
 
 
 
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_lock_tb_cajas_operativas', 'f_post_tb_operacion_caja_desde_proceso')
-ORDER BY n.nspname, p.proname;
+SELECT 'DROP FUNCTION IF EXISTS ' || n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+WHERE p.proname IN ('f_get_reporte_cierre')
+ORDER BY n.nspname,p.proname;
