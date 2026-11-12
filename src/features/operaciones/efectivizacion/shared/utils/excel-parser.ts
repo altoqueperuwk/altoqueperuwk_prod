@@ -79,10 +79,10 @@ const excelHeaderConfig: Record<`/operaciones/${OperacionRutaBancaria}`, HeaderA
         fecha_pago: ["Fecha de pago"],
     },
     "/operaciones/safetypay": {
-        dni: ["Nro. Documento", "Nro Documento"],
-        monto: ["Importe","Importe de la venta"],
-        codigo_operacion: ["Orden de pago","Id. de transacción"],
-        fecha_pago: ["Fecha"],
+        dni: ["Nro. Documento", "Nro Documento", "DNI"],
+        monto: ["Importe", "Importe de la venta", "Monto"],
+        codigo_operacion: ["Orden de pago", "Id. de transacción", "Operación"],
+        fecha_pago: ["Fecha", "Pagado"],
         estado: ["Estado"],
     },
 };
@@ -228,7 +228,8 @@ export const readMatrix = (buffer: ArrayBuffer, config: HeaderAliasConfig, fileN
         sampleText.includes("<table");
 
     if (looksHtml) {
-        const fullText = new TextDecoder("latin1").decode(buffer);
+        const encoding = /charset\s*=\s*["']?utf-?8/i.test(sampleText) ? "utf-8" : "latin1";
+        const fullText = new TextDecoder(encoding).decode(buffer);
         const htmlMatrix = parseHtmlMatrix(fullText, config);
         if (htmlMatrix && htmlMatrix.length > 1) return htmlMatrix;
         if (hasExternalSheetReference(fullText)) return null;
@@ -313,7 +314,7 @@ const normalizeDateToIso = (value: unknown): string => {
     return formatDateTime(new Date());
 };
 
-const normalizeDateToIsoSafetyPay = (value: unknown): string => {
+const normalizeDateToIsoSafetyPay = (value: unknown, isPaidColumn = false): string => {
     if (value == null || String(value).trim() === "") return formatDateTime(new Date());
 
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -322,6 +323,16 @@ const normalizeDateToIsoSafetyPay = (value: unknown): string => {
     }
 
     const str = String(value).trim();
+    // El nuevo reporte usa día/mes/año y hora de 12 horas en la columna Pagado.
+    // Fecha conserva la interpretación histórica mes/día/año.
+    if (isPaidColumn) {
+        const paidDate = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap])\.?\s*m\.?$/i);
+        if (paidDate) {
+            const [, day, month, year, hour, minute, second = "00", period] = paidDate;
+            const hours = Number(hour) % 12 + (period.toLowerCase() === "p" ? 12 : 0);
+            return `${year.length === 2 ? "20" : ""}${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")} ${String(hours).padStart(2, "0")}:${minute}:${second}`;
+        }
+    }
     if (/^\d+(?:\.\d+)?$/.test(str)) {
         const serialDate = excelSerialToIso(Number(str));
         if (serialDate) return serialDate;
@@ -444,7 +455,7 @@ export const buildExcelRowsFromMatrix = (matrix: unknown[][], match: HeaderMatch
         const getValue = (idx: number, offset = 0) =>
             idx >= 0 && row[idx + offset] !== undefined && row[idx + offset] !== null ? String(row[idx + offset]).trim() : "";
 
-        const offset = isBcpHistorical ? 0 : [0, -1, 1]
+        const offset = isBcpHistorical || (path === "/operaciones/safetypay" && normalizeExcelHeader(headers[match.idxFechaPago]) === "pagado") ? 0 : [0, -1, 1]
             .map((candidate) => ({
                 candidate,
                 score: valueIndexes.reduce((acc, idx) => acc + (getValue(idx, candidate) ? 1 : 0), 0),
@@ -459,7 +470,9 @@ export const buildExcelRowsFromMatrix = (matrix: unknown[][], match: HeaderMatch
         if (searchableText.includes("total de registros") || searchableText.includes("total registros")) continue;
 
         const fechaPagoRaw = getValue(match.idxFechaPago, offset);
-        const fechaPago = path === "/operaciones/safetypay" ? normalizeDateToIsoSafetyPay(fechaPagoRaw) : normalizeDateToIso(fechaPagoRaw);
+        const fechaPago = path === "/operaciones/safetypay"
+            ? normalizeDateToIsoSafetyPay(fechaPagoRaw, normalizeExcelHeader(headers[match.idxFechaPago]) === "pagado")
+            : normalizeDateToIso(fechaPagoRaw);
 
         rows.push({
             dni,

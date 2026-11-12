@@ -272,3 +272,36 @@ describe("excel-parser", () => {
         expect(rows.map((row) => row.codigo_operacion)).toEqual(["OP-1", "OP-1"]);
     });
 });
+
+describe("formatos SafetyPay", () => {
+    it.each([
+        [["Nro. Documento", "Importe", "Orden de pago", "Fecha", "Estado"], "11/12/2026 16:10:00"],
+        [["Nro Documento", "Importe de la venta", "Id. de transacción", "Fecha", "Estado"], "11/12/2026 16:10:00"],
+        [["DNI", "Monto", "Operación", "Pagado", "Estado"], "12/11/26, 4:10 p. m."],
+    ])("conserva los formatos anteriores y admite el nuevo %j", (headers, date) => {
+        const [row] = mapExcelRows([headers, ["01234567", 1500, "126316922236236", date, "Pagado"]], "safetypay");
+        expect(row).toMatchObject({dni:"01234567", monto:"1500", codigo_operacion:"126316922236236", fecha_pago:"2026-11-12 16:10:00", estado:"Pagado"});
+    });
+    it.each([["12:00 a. m.", "00:00:00"], ["12:00 p. m.", "12:00:00"], ["9:03 a. m.", "09:03:00"]])("interpreta %s", (hour, expected) => {
+        const [row] = mapExcelRows([["DNI","Monto","Operación","Pagado","Estado"], ["01234567",1,"123",`12/11/26, ${hour}`,"Pagado"]], "safetypay");
+        expect(row.fecha_pago).toBe(`2026-11-12 ${expected}`);
+    });
+    it("conserva el estado para que el servidor omita pendientes y expirados", () => {
+        const rows = mapExcelRows([["DNI","Monto","Operación","Pagado","Estado"], ...["Pagado","Pendiente","Expirado"].map(estado=>["01234567",1,"123","12/11/26, 4:10 p. m.",estado])], "safetypay");
+        expect(rows.map(row=>row.estado)).toEqual(["Pagado","Pendiente","Expirado"]);
+    });
+});
+
+it("lee el XLS HTML UTF-8 de SafetyPay conservando el encabezado Operación", async () => {
+    const html = '<html><head><meta charset="utf-8" /></head><body><table><tr><th>DNI</th><th>Monto</th><th>Operación</th><th>Pagado</th><th>Estado</th></tr><tr><td>12345678</td><td>1500</td><td>126316922236236</td><td>12/11/26, 4:10 p. m.</td><td>Pagado</td></tr></table></body></html>';
+    const bytes = new TextEncoder().encode(html);
+    const file = {name:"safetypay.xls", arrayBuffer:async()=>bytes.buffer} as File;
+    const rows = await readExcelRowsFromFile(file, "safetypay");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({codigo_operacion:"126316922236236", fecha_pago:"2026-11-12 16:10:00", estado:"Pagado"});
+});
+
+it("no desplaza columnas cuando Pagado está vacío en SafetyPay", () => {
+    const rows = mapExcelRows([["Cliente","DNI","Monto","Estado","Vence","Referencia","Operación","Solicitud","Pagado"], ["Cliente", "01234567",1500,"Pendiente","12/11/26, 6:14 p. m.","", "126316922236236", "12/11/26, 4:14 p. m.", ""]], "safetypay");
+    expect(rows[0]).toMatchObject({dni:"01234567", monto:"1500",estado:"Pendiente",codigo_operacion:"126316922236236"});
+});
