@@ -81,7 +81,7 @@ const excelHeaderConfig: Record<`/operaciones/${OperacionRutaBancaria}`, HeaderA
     "/operaciones/safetypay": {
         dni: ["Nro. Documento", "Nro Documento", "DNI"],
         monto: ["Importe", "Importe de la venta", "Monto"],
-        codigo_operacion: ["Orden de pago", "Id. de transacción", "Operación"],
+        codigo_operacion: ["Operación", "Id. de operación"],
         fecha_pago: ["Fecha", "Pagado"],
         estado: ["Estado"],
     },
@@ -202,6 +202,18 @@ const parseHtmlMatrix = (content: string, config: HeaderAliasConfig): unknown[][
     for (const table of tables) {
         const sheet = XLSX.utils.table_to_sheet(table);
         const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: true });
+        // Solo SafetyPay: table_to_sheet convierte identificadores numéricos a Number,
+        // incluso si el HTML declara formato de texto. Recuperar el texto original.
+        if (config === excelHeaderConfig["/operaciones/safetypay"]) {
+            const match = findHeaderMatch(matrix, config);
+            if (match) {
+                const sourceRows = Array.from(table.rows);
+                for (let row = match.headerRowIndex + 1; row < matrix.length; row += 1) {
+                    const cell = sourceRows[row]?.cells[match.idxCodigoOperacion];
+                    if (cell) matrix[row][match.idxCodigoOperacion] = cell.textContent?.trim() ?? "";
+                }
+            }
+        }
         const nonEmptyCells = matrix.reduce(
             (acc, row) => acc + row.filter((cell) => String(cell ?? "").trim() !== "").length,
             0,
@@ -243,7 +255,8 @@ export const readMatrix = (buffer: ArrayBuffer, config: HeaderAliasConfig, fileN
 
     for (const options of readOptions) {
         try {
-            let workbook = XLSX.read(buffer, options);
+            const isSafetyPay = config === excelHeaderConfig["/operaciones/safetypay"];
+            let workbook = XLSX.read(buffer, { ...options, ...(isSafetyPay ? { cellNF: true } : {}) });
             const xData = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
             workbook = XLSX.read(xData, { type: "array" });
 
@@ -252,6 +265,18 @@ export const readMatrix = (buffer: ArrayBuffer, config: HeaderAliasConfig, fileN
             if (!sheet) continue;
 
             const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: true });
+            if (config === excelHeaderConfig["/operaciones/safetypay"]) {
+                const match = findHeaderMatch(matrix, config);
+                if (match) {
+                    const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
+                    for (let row = match.headerRowIndex + 1; row < matrix.length; row += 1) {
+                        const cell = sheet[XLSX.utils.encode_cell({ r: row + range.s.r, c: match.idxCodigoOperacion + range.s.c })];
+                        if (cell) matrix[row][match.idxCodigoOperacion] = String(
+                            cell.t === "n" && !/^\d+$/.test(cell.w ?? "") ? cell.v : cell.w ?? cell.v ?? "",
+                        ).trim();
+                    }
+                }
+            }
             if (matrix.length > 1) return matrix;
         } catch {
             continue;

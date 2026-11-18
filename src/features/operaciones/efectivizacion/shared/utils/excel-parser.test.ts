@@ -275,8 +275,8 @@ describe("excel-parser", () => {
 
 describe("formatos SafetyPay", () => {
     it.each([
-        [["Nro. Documento", "Importe", "Orden de pago", "Fecha", "Estado"], "11/12/2026 16:10:00"],
-        [["Nro Documento", "Importe de la venta", "Id. de transacción", "Fecha", "Estado"], "11/12/2026 16:10:00"],
+        [["Nro. Documento", "Importe", "Operación", "Fecha", "Estado"], "11/12/2026 16:10:00"],
+        [["Nro Documento", "Importe de la venta", "Id. de operación", "Fecha", "Estado"], "11/12/2026 16:10:00"],
         [["DNI", "Monto", "Operación", "Pagado", "Estado"], "12/11/26, 4:10 p. m."],
     ])("conserva los formatos anteriores y admite el nuevo %j", (headers, date) => {
         const [row] = mapExcelRows([headers, ["01234567", 1500, "126316922236236", date, "Pagado"]], "safetypay");
@@ -304,4 +304,21 @@ it("lee el XLS HTML UTF-8 de SafetyPay conservando el encabezado Operación", as
 it("no desplaza columnas cuando Pagado está vacío en SafetyPay", () => {
     const rows = mapExcelRows([["Cliente","DNI","Monto","Estado","Vence","Referencia","Operación","Solicitud","Pagado"], ["Cliente", "01234567",1500,"Pendiente","12/11/26, 6:14 p. m.","", "126316922236236", "12/11/26, 4:14 p. m.", ""]], "safetypay");
     expect(rows[0]).toMatchObject({dni:"01234567", monto:"1500",estado:"Pendiente",codigo_operacion:"126316922236236"});
+});
+
+it("conserva ceros de operación en HTML solo para SafetyPay", async () => {
+    const code = "0126321177805405";
+    const html = `<html><head><meta charset="utf-8" /></head><body><table><tr><th>DNI</th><th>Monto</th><th>Operación</th><th>Pagado</th><th>Estado</th></tr><tr><td>12345678</td><td>1500</td><td style="mso-number-format:'@'">${code}</td><td>18/11/26, 4:10 p. m.</td><td>Pagado</td></tr></table></body></html>`;
+    const bytes = new TextEncoder().encode(html);
+    const rows = await readExcelRowsFromFile({name:"safetypay.xls",arrayBuffer:async()=>bytes.buffer} as File, "safetypay");
+    expect(rows[0]).toMatchObject({codigo_operacion:code,monto:"1500",fecha_pago:"2026-11-18 16:10:00"});
+});
+
+it("conserva el texto y el formato numérico de operación en XLSX SafetyPay", async () => {
+    const sheet = XLSX.utils.aoa_to_sheet([["DNI","Monto","Id. de operación","Pagado","Estado"],["12345678",1500,"0126321177805405","18/11/26, 4:10 p. m.","Pagado"],["12345678",1500,126321177805405,"18/11/26, 4:10 p. m.","Pagado"]]);
+    sheet.C3.z="0000000000000000";
+    const book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,sheet,"Operaciones");
+    const bytes=XLSX.write(book,{type:"array",bookType:"xlsx"});
+    const rows=await readExcelRowsFromFile({name:"safetypay.xlsx",arrayBuffer:async()=>bytes} as File,"safetypay");
+    expect(rows.map(r=>r.codigo_operacion)).toEqual(["0126321177805405","0126321177805405"]);
 });

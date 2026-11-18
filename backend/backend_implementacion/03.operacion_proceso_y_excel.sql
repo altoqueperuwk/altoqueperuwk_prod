@@ -1660,12 +1660,18 @@ DECLARE
   v_dup_id bigint;
   v_monto_duplicidad numeric;
   v_codigo_duplicidad character varying;
+  v_es_safetypay boolean := false;
   v_calc_serv jsonb;
   v_comision_efectivizacion jsonb;
   v_calc_ing jsonb;
   v_calc_sal jsonb;
   v_sincroniza_cliente boolean := false;
 BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM public.tb_codigo_servicio cs
+    WHERE cs.id = p_id_codigo_servicio
+      AND LOWER(BTRIM(cs.nombre)) = 'safetypay'
+  ) INTO v_es_safetypay;
   IF p_monto_deposito_cliente IS NOT NULL THEN
     p_monto_deposito_cliente := ROUND(p_monto_deposito_cliente::numeric, 2);
   END IF;
@@ -1923,6 +1929,10 @@ BEGIN
   v_flag_retenido_final := COALESCE((v_clasificacion_horaria->>'flag_retenido')::boolean, false);
 
   v_codigo_duplicidad := NULLIF(BTRIM(COALESCE(p_codigo_operacion_deposito_cliente, '')), '');
+    -- Solo se normaliza la clave; se guarda el código original.
+    IF v_es_safetypay AND v_codigo_duplicidad ~ '^[0-9]+$' THEN
+      v_codigo_duplicidad := COALESCE(NULLIF(LTRIM(v_codigo_duplicidad, '0'), ''), '0');
+    END IF;
 
   IF v_codigo_duplicidad IS NOT NULL
      AND p_id_codigo_servicio IS NOT NULL
@@ -1944,7 +1954,11 @@ BEGIN
     WHERE 1 = 1
       -- AND dni_cliente = p_dni_cliente
       AND ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2) = v_monto_duplicidad
-      AND UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, ''))) = UPPER(v_codigo_duplicidad)
+      AND (CASE
+            WHEN v_es_safetypay AND BTRIM(COALESCE(codigo_operacion_deposito_cliente, '')) ~ '^[0-9]+$'
+              THEN COALESCE(NULLIF(LTRIM(BTRIM(codigo_operacion_deposito_cliente), '0'), ''), '0')
+            ELSE UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, '')))
+          END) = UPPER(v_codigo_duplicidad)
       AND id_codigo_servicio = p_id_codigo_servicio
       AND fecha_deposito_cliente::date BETWEEN (p_fecha_deposito_cliente::date - 7) AND (p_fecha_deposito_cliente::date + 7)
     LIMIT 1;
@@ -4671,6 +4685,7 @@ DECLARE
   v_cliente_comunidad bigint;
   v_dup_id bigint;
   v_codigo_duplicidad character varying;
+  v_es_safetypay boolean := false;
   v_banco_cliente_id bigint;
   v_banco_cliente_nombre character varying;
   v_calc_serv jsonb;
@@ -4697,6 +4712,11 @@ DECLARE
   v_nombre_archivo_final character varying;
   v_fecha_carga_excel timestamp with time zone;
 BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM public.tb_codigo_servicio cs
+    WHERE cs.id = p_id_codigo_servicio
+      AND LOWER(BTRIM(cs.nombre)) = 'safetypay'
+  ) INTO v_es_safetypay;
   SELECT username INTO v_username
   FROM public.tb_usuario
   WHERE id = p_id_usuario;
@@ -5071,6 +5091,10 @@ BEGIN
 
     IF v_error_motivo IS NULL THEN
       v_codigo_duplicidad := NULLIF(BTRIM(COALESCE(v_fila.codigo_operacion, '')), '');
+    -- Solo se normaliza la clave; se guarda el código original.
+    IF v_es_safetypay AND v_codigo_duplicidad ~ '^[0-9]+$' THEN
+      v_codigo_duplicidad := COALESCE(NULLIF(LTRIM(v_codigo_duplicidad, '0'), ''), '0');
+    END IF;
       IF v_codigo_duplicidad IS NOT NULL THEN
         -- Fast path: duplicated rows do not need to wait for an advisory lock.
         SELECT id
@@ -5078,7 +5102,11 @@ BEGIN
         FROM public.tb_operacion_proceso
         WHERE id_codigo_servicio = p_id_codigo_servicio
           AND ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2) = ROUND(COALESCE(v_monto, 0)::numeric, 2)
-          AND UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, ''))) = UPPER(v_codigo_duplicidad)
+          AND (CASE
+            WHEN v_es_safetypay AND BTRIM(COALESCE(codigo_operacion_deposito_cliente, '')) ~ '^[0-9]+$'
+              THEN COALESCE(NULLIF(LTRIM(BTRIM(codigo_operacion_deposito_cliente), '0'), ''), '0')
+            ELSE UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, '')))
+          END) = UPPER(v_codigo_duplicidad)
           AND fecha_deposito_cliente >= (v_fecha_deposito::date - 7)
           AND fecha_deposito_cliente < (v_fecha_deposito::date + 8)
         LIMIT 1;
@@ -5098,7 +5126,11 @@ BEGIN
           FROM public.tb_operacion_proceso
           WHERE id_codigo_servicio = p_id_codigo_servicio
             AND ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2) = ROUND(COALESCE(v_monto, 0)::numeric, 2)
-            AND UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, ''))) = UPPER(v_codigo_duplicidad)
+            AND (CASE
+            WHEN v_es_safetypay AND BTRIM(COALESCE(codigo_operacion_deposito_cliente, '')) ~ '^[0-9]+$'
+              THEN COALESCE(NULLIF(LTRIM(BTRIM(codigo_operacion_deposito_cliente), '0'), ''), '0')
+            ELSE UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, '')))
+          END) = UPPER(v_codigo_duplicidad)
             AND fecha_deposito_cliente >= (v_fecha_deposito::date - 7)
             AND fecha_deposito_cliente < (v_fecha_deposito::date + 8)
           LIMIT 1;
@@ -5516,6 +5548,7 @@ DECLARE
   v_cliente_nombre character varying;
   v_dup_id bigint;
   v_codigo_duplicidad character varying;
+  v_es_safetypay boolean := false;
   v_id_empresa_cuenta_ingreso bigint;
   v_itf_cuenta numeric := 0;
   v_flag_por_sol_comision_banco_ingreso boolean := false;
@@ -5546,6 +5579,11 @@ DECLARE
   v_nombre_archivo_final character varying;
   v_fecha_carga_excel timestamp with time zone;
 BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM public.tb_codigo_servicio cs
+    WHERE cs.id = p_id_codigo_servicio
+      AND LOWER(BTRIM(cs.nombre)) = 'safetypay'
+  ) INTO v_es_safetypay;
   SELECT username INTO v_username
   FROM public.tb_usuario
   WHERE id = p_id_usuario;
@@ -5874,6 +5912,10 @@ BEGIN
     END IF;
 
     v_codigo_duplicidad := NULLIF(BTRIM(COALESCE(v_fila.codigo_operacion, '')), '');
+    -- Solo se normaliza la clave; se guarda el código original.
+    IF v_es_safetypay AND v_codigo_duplicidad ~ '^[0-9]+$' THEN
+      v_codigo_duplicidad := COALESCE(NULLIF(LTRIM(v_codigo_duplicidad, '0'), ''), '0');
+    END IF;
     IF v_codigo_duplicidad IS NOT NULL THEN
       -- Serialize identical deposits across simultaneous Excel loads.
       PERFORM pg_advisory_xact_lock(
@@ -5889,7 +5931,11 @@ BEGIN
       WHERE 1 = 1
         -- AND dni_cliente = v_dni_parseado
         AND ROUND(COALESCE(monto_deposito_cliente, 0)::numeric, 2) = ROUND(COALESCE(v_monto, 0)::numeric, 2)
-        AND UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, ''))) = UPPER(v_codigo_duplicidad)
+        AND (CASE
+            WHEN v_es_safetypay AND BTRIM(COALESCE(codigo_operacion_deposito_cliente, '')) ~ '^[0-9]+$'
+              THEN COALESCE(NULLIF(LTRIM(BTRIM(codigo_operacion_deposito_cliente), '0'), ''), '0')
+            ELSE UPPER(BTRIM(COALESCE(codigo_operacion_deposito_cliente, '')))
+          END) = UPPER(v_codigo_duplicidad)
         AND id_codigo_servicio = p_id_codigo_servicio
         AND fecha_deposito_cliente::date BETWEEN (v_fecha_deposito::date - 7) AND (v_fecha_deposito::date + 7)
       LIMIT 1;
@@ -6507,11 +6553,7 @@ END;
 $$;
 
 
-SELECT 'DROP FUNCTION IF EXISTS ' ||
-       n.nspname || '.' ||
-       p.proname || '(' ||
-       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname IN ('f_patch_tb_operacion_proceso_eliminar')
-ORDER BY n.nspname, p.proname;
+SELECT 'DROP FUNCTION IF EXISTS ' || n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+WHERE p.proname IN ('f_post_tb_operacion_proceso', 'f_post_tb_operacion_proceso_excel', 'f_post_tb_operacion_proceso_excel_ganancia')
+ORDER BY n.nspname,p.proname;
