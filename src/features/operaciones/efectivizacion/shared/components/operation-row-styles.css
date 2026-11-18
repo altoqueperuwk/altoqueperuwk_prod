@@ -1,0 +1,57 @@
+/* Scoped to operation data rows; headers, spacers and loading rows are excluded. */
+.operation-data-row {
+    --operation-row-hover: #e7efad;
+    --operation-row-edge: #88963b;
+    --operation-row-accent: #65751c;
+    --operation-row-selected: #d0e36c;
+    --operation-row-selected-hover: #bfd64e;
+}
+
+/* Checkbox tokens are scoped to these tables and only to the light theme. */
+html:not(.dark-mode) .operation-data-table {
+    --operation-checkbox-fill: #c3d849;
+    --operation-checkbox-edge: #65751c;
+    --operation-checkbox-mark: #26300b;
+}
+
+html:not(.dark-mode) .operation-data-table [data-selected] > div,
+html:not(.dark-mode) .operation-data-table [data-indeterminate] > div {
+    background-color: var(--operation-checkbox-fill);
+    --tw-ring-color: var(--operation-checkbox-edge);
+}
+
+html:not(.dark-mode) .operation-data-table :is([data-selected], [data-indeterminate]) > div > svg {
+    color: var(--operation-checkbox-mark);
+}
+
+.dark-mode .operation-data-row {
+    --operation-row-hover: #454b59;
+    --operation-row-edge: #929bad;
+    --operation-row-accent: #c5acff;
+    --operation-row-selected: #41256a;
+    --operation-row-selected-hover: #523180;
+}
+
+.operation-data-row[data-operation-selected="true"] > td {
+    background-color: var(--operation-row-selected);
+}
+
+.operation-data-row:is(:hover, :focus-within) {
+    /* Paid/frozen rows remain disabled, but their highlight must stay visible. */
+    opacity: 1;
+    filter: none;
+}
+
+.operation-data-row:is(:hover, :focus-within) > td {
+    background-color: var(--operation-row-hover);
+    box-shadow: inset 0 1px var(--operation-row-edge), inset 0 -1px var(--operation-row-edge);
+}
+
+.operation-data-row[data-operation-selected="true"]:is(:hover, :focus-within) > td {
+    background-color: var(--operation-row-selected-hover);
+}
+
+.operation-data-row:is(:hover, :focus-within) > td:first-child {
+    /* Inset mark never shifts the columns or changes virtual row measurements. */
+    box-shadow: inset 4px 0 var(--operation-row-accent), inset 0 1px var(--operation-row-edge), inset 0 -1px var(--operation-row-edge);
+}

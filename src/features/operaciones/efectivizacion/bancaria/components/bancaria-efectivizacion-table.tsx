@@ -32,6 +32,7 @@ import { cx } from "@/utils/cx";
 import { getUnifiedFlowLabel } from "@/features/operaciones/efectivizacion/bancaria/hooks/use-bancaria-bandeja";
 import { VirtualTableBody } from "@/features/operaciones/efectivizacion/shared/components/virtual-table-body";
 import { getBancariaEstadoLabel } from "@/features/operaciones/efectivizacion/bancaria/utils/bancaria-estado-label";
+import "@/features/operaciones/efectivizacion/shared/components/operation-row-styles.css";
 
 interface EstadoRef {
     id: number;
@@ -1314,7 +1315,7 @@ export const BancariaEfectivizacionTable = ({
         <div className="overflow-hidden border-t border-secondary" data-copy-table="cierre-caja" aria-busy={isLoading || isRefreshing}>
             <div className="overflow-x-auto">
                 <table
-                    className={cx("w-full divide-y divide-secondary", isVirtualized ? "table-fixed" : "min-w-max table-auto")}
+                    className={cx("operation-data-table w-full divide-y divide-secondary", isVirtualized ? "table-fixed" : "min-w-max table-auto")}
                     style={isVirtualized ? { minWidth: virtualTableWidth } : undefined}
                 >
                     {isVirtualized && <colgroup>
@@ -1393,10 +1394,11 @@ export const BancariaEfectivizacionTable = ({
                                         key={row.id}
                                         data-index={isVirtualized ? index : undefined}
                                         ref={measureRow}
+                                        data-operation-selected={(selectedIdSet.has(row.id) && !frozenRow) || undefined}
                                         className={cx(
+                                            "operation-data-row",
                                             frozenPaid && "bg-secondary grayscale opacity-75",
-                                            hasSelection && !rowSaving && !frozenRow && "cursor-pointer transition-colors hover:bg-primary_hover",
-                                            selectedIdSet.has(row.id) && !frozenRow && "bg-warning-primary/20 hover:bg-warning-primary/30",
+                                            hasSelection && !rowSaving && !frozenRow && "cursor-pointer",
                                         )}
                                         {...(!virtualizeRows ? {
                                             initial: { opacity: 0, y: 4 },

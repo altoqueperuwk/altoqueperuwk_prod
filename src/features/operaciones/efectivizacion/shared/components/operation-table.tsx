@@ -7,6 +7,7 @@ import { NativeSelect } from "@/components/base/select/select-native";
 import { isInteractiveElement } from "@/features/operaciones/efectivizacion/shared/utils/row-selection";
 import { VirtualTableBody } from "./virtual-table-body";
 import { cx } from "@/utils/cx";
+import "./operation-row-styles.css";
 
 interface Column<T> {
     key: keyof T | string;
@@ -148,7 +149,7 @@ export const OperationTable = <T extends { id: number }>({
         <div className="overflow-hidden border-t border-secondary" data-copy-table="cierre-caja" aria-busy={isLoading || isRefreshing}>
             <div className="overflow-x-auto">
                 <table
-                    className={cx("w-full divide-y divide-secondary", isVirtualized ? "table-fixed" : "min-w-max table-auto")}
+                    className={cx("operation-data-table w-full divide-y divide-secondary", isVirtualized ? "table-fixed" : "min-w-max table-auto")}
                     style={isVirtualized ? { minWidth: virtualTableWidth } : undefined}
                 >
                     {isVirtualized && <colgroup>
@@ -210,9 +211,10 @@ export const OperationTable = <T extends { id: number }>({
                                         key={row.id}
                                         data-index={isVirtualized ? index : undefined}
                                         ref={measureRow}
+                                        data-operation-selected={selectedIdSet.has(row.id) || undefined}
                                         className={cx(
-                                            hasSelection && "cursor-pointer transition-colors hover:bg-primary_hover",
-                                            selectedIdSet.has(row.id) && "bg-warning-primary/20 hover:bg-warning-primary/30",
+                                            "operation-data-row",
+                                            hasSelection && "cursor-pointer",
                                         )}
                                         {...(!virtualizeRows ? {
                                             layout: true,
