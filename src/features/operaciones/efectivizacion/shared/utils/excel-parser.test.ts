@@ -275,25 +275,25 @@ describe("excel-parser", () => {
 
 describe("formatos SafetyPay", () => {
     it.each([
-        [["Nro. Documento", "Importe", "Operación", "Fecha", "Estado"], "11/12/2026 16:10:00"],
-        [["Nro Documento", "Importe de la venta", "Id. de operación", "Fecha", "Estado"], "11/12/2026 16:10:00"],
-        [["DNI", "Monto", "Operación", "Pagado", "Estado"], "12/11/26, 4:10 p. m."],
+        [["Nro. Documento", "Importe", "Referencia", "Fecha", "Estado"], "11/12/2026 16:10:00"],
+        [["Nro Documento", "Importe de la venta", "Referencia", "Fecha", "Estado"], "11/12/2026 16:10:00"],
+        [["DNI", "Monto", "Referencia", "Pagado", "Estado"], "12/11/26, 4:10 p. m."],
     ])("conserva los formatos anteriores y admite el nuevo %j", (headers, date) => {
         const [row] = mapExcelRows([headers, ["01234567", 1500, "126316922236236", date, "Pagado"]], "safetypay");
         expect(row).toMatchObject({dni:"01234567", monto:"1500", codigo_operacion:"126316922236236", fecha_pago:"2026-11-12 16:10:00", estado:"Pagado"});
     });
     it.each([["12:00 a. m.", "00:00:00"], ["12:00 p. m.", "12:00:00"], ["9:03 a. m.", "09:03:00"]])("interpreta %s", (hour, expected) => {
-        const [row] = mapExcelRows([["DNI","Monto","Operación","Pagado","Estado"], ["01234567",1,"123",`12/11/26, ${hour}`,"Pagado"]], "safetypay");
+        const [row] = mapExcelRows([["DNI","Monto","Referencia","Pagado","Estado"], ["01234567",1,"123",`12/11/26, ${hour}`,"Pagado"]], "safetypay");
         expect(row.fecha_pago).toBe(`2026-11-12 ${expected}`);
     });
     it("conserva el estado para que el servidor omita pendientes y expirados", () => {
-        const rows = mapExcelRows([["DNI","Monto","Operación","Pagado","Estado"], ...["Pagado","Pendiente","Expirado"].map(estado=>["01234567",1,"123","12/11/26, 4:10 p. m.",estado])], "safetypay");
+        const rows = mapExcelRows([["DNI","Monto","Referencia","Pagado","Estado"], ...["Pagado","Pendiente","Expirado"].map(estado=>["01234567",1,"123","12/11/26, 4:10 p. m.",estado])], "safetypay");
         expect(rows.map(row=>row.estado)).toEqual(["Pagado","Pendiente","Expirado"]);
     });
 });
 
-it("lee el XLS HTML UTF-8 de SafetyPay conservando el encabezado Operación", async () => {
-    const html = '<html><head><meta charset="utf-8" /></head><body><table><tr><th>DNI</th><th>Monto</th><th>Operación</th><th>Pagado</th><th>Estado</th></tr><tr><td>12345678</td><td>1500</td><td>126316922236236</td><td>12/11/26, 4:10 p. m.</td><td>Pagado</td></tr></table></body></html>';
+it("lee el XLS HTML UTF-8 de SafetyPay conservando el encabezado Referencia", async () => {
+    const html = '<html><head><meta charset="utf-8" /></head><body><table><tr><th>DNI</th><th>Monto</th><th>Referencia</th><th>Pagado</th><th>Estado</th></tr><tr><td>12345678</td><td>1500</td><td>126316922236236</td><td>12/11/26, 4:10 p. m.</td><td>Pagado</td></tr></table></body></html>';
     const bytes = new TextEncoder().encode(html);
     const file = {name:"safetypay.xls", arrayBuffer:async()=>bytes.buffer} as File;
     const rows = await readExcelRowsFromFile(file, "safetypay");
@@ -303,22 +303,27 @@ it("lee el XLS HTML UTF-8 de SafetyPay conservando el encabezado Operación", as
 
 it("no desplaza columnas cuando Pagado está vacío en SafetyPay", () => {
     const rows = mapExcelRows([["Cliente","DNI","Monto","Estado","Vence","Referencia","Operación","Solicitud","Pagado"], ["Cliente", "01234567",1500,"Pendiente","12/11/26, 6:14 p. m.","", "126316922236236", "12/11/26, 4:14 p. m.", ""]], "safetypay");
-    expect(rows[0]).toMatchObject({dni:"01234567", monto:"1500",estado:"Pendiente",codigo_operacion:"126316922236236"});
+    expect(rows[0]).toMatchObject({dni:"01234567", monto:"1500",estado:"Pendiente",codigo_operacion:""});
 });
 
 it("conserva ceros de operación en HTML solo para SafetyPay", async () => {
     const code = "0126321177805405";
-    const html = `<html><head><meta charset="utf-8" /></head><body><table><tr><th>DNI</th><th>Monto</th><th>Operación</th><th>Pagado</th><th>Estado</th></tr><tr><td>12345678</td><td>1500</td><td style="mso-number-format:'@'">${code}</td><td>18/11/26, 4:10 p. m.</td><td>Pagado</td></tr></table></body></html>`;
+    const html = `<html><head><meta charset="utf-8" /></head><body><table><tr><th>DNI</th><th>Monto</th><th>Referencia</th><th>Pagado</th><th>Estado</th></tr><tr><td>12345678</td><td>1500</td><td style="mso-number-format:'@'">${code}</td><td>18/11/26, 4:10 p. m.</td><td>Pagado</td></tr></table></body></html>`;
     const bytes = new TextEncoder().encode(html);
     const rows = await readExcelRowsFromFile({name:"safetypay.xls",arrayBuffer:async()=>bytes.buffer} as File, "safetypay");
     expect(rows[0]).toMatchObject({codigo_operacion:code,monto:"1500",fecha_pago:"2026-11-18 16:10:00"});
 });
 
 it("conserva el texto y el formato numérico de operación en XLSX SafetyPay", async () => {
-    const sheet = XLSX.utils.aoa_to_sheet([["DNI","Monto","Id. de operación","Pagado","Estado"],["12345678",1500,"0126321177805405","18/11/26, 4:10 p. m.","Pagado"],["12345678",1500,126321177805405,"18/11/26, 4:10 p. m.","Pagado"]]);
+    const sheet = XLSX.utils.aoa_to_sheet([["DNI","Monto","Referencia","Pagado","Estado"],["12345678",1500,"0126321177805405","18/11/26, 4:10 p. m.","Pagado"],["12345678",1500,126321177805405,"18/11/26, 4:10 p. m.","Pagado"]]);
     sheet.C3.z="0000000000000000";
     const book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,sheet,"Operaciones");
     const bytes=XLSX.write(book,{type:"array",bookType:"xlsx"});
     const rows=await readExcelRowsFromFile({name:"safetypay.xlsx",arrayBuffer:async()=>bytes} as File,"safetypay");
     expect(rows.map(r=>r.codigo_operacion)).toEqual(["0126321177805405","0126321177805405"]);
+});
+
+it("SafetyPay usa Referencia aunque también existan Operación e Id. de operación", () => {
+    const rows=mapExcelRows([["DNI","Monto","Operación","Id. de operación","Referencia","Pagado","Estado"],["12345678",1500,"0126321177805405","999999","00177805","18/11/26, 6:09 p. m.","Pagado"]],"safetypay");
+    expect(rows[0].codigo_operacion).toBe("00177805");
 });

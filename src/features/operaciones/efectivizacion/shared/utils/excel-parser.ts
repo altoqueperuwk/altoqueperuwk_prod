@@ -81,7 +81,7 @@ const excelHeaderConfig: Record<`/operaciones/${OperacionRutaBancaria}`, HeaderA
     "/operaciones/safetypay": {
         dni: ["Nro. Documento", "Nro Documento", "DNI"],
         monto: ["Importe", "Importe de la venta", "Monto"],
-        codigo_operacion: ["Operación", "Id. de operación"],
+        codigo_operacion: ["Referencia"],
         fecha_pago: ["Fecha", "Pagado"],
         estado: ["Estado"],
     },
