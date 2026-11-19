@@ -1,3 +1,4 @@
+import { isDerivedOriginForContext } from "../utils/derivation-context";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Tabs } from "@/components/application/tabs/tabs";
@@ -431,20 +432,6 @@ const getUnifiedOperationFlow = (row: Pick<OperacionProceso, "flag_derivado" | "
     if (row.flag_derivado) return "Derivado" as const;
     if (String(row.ruta_origen ?? "").toLowerCase() === "pos") return "POS" as const;
     return "Efectivizacion" as const;
-};
-const isDerivedOriginForContext = (
-    row: OperacionProceso,
-    activeCompanyId: number | null,
-    activeAccountId: number | null,
-) => {
-    if (!row.flag_derivado || activeCompanyId == null || row.id_empresa_salida_origen == null) return false;
-    if (Number(row.id_empresa_salida_origen) !== Number(activeCompanyId)) return false;
-
-    return (
-        activeAccountId == null ||
-        row.id_empresa_cuenta_salida_origen == null ||
-        Number(row.id_empresa_cuenta_salida_origen) === Number(activeAccountId)
-    );
 };
 const isPagoDeudaDerivable = (row: OperacionProceso) => getPagoDeudaEstadoVisual(row).action === "transferencia";
 const quickActionRuleTabs: BancariaTab[] = ["Efectivizacion", "Unificado", "Derivados", "POS"];

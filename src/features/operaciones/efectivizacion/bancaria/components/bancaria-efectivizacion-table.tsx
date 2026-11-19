@@ -1,3 +1,4 @@
+import { isDerivedOriginForContext, isDerivedReceiverOperation } from "../utils/derivation-context";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { motion } from "motion/react";
 import { getMatchDistribution } from "@/features/operaciones/pago-deuda/utils/match-distribution";
@@ -121,54 +122,7 @@ const isFrozenOriginOperation = (
     mode: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados",
     activeCompanyId: number | null,
     activeAccountId: number | null,
-) => {
-    if (
-        (mode !== "efectivizacion" && mode !== "unificado") ||
-        row.flag_derivado !== true ||
-        activeCompanyId == null ||
-        row.id_empresa_salida_origen == null
-    ) {
-        return false;
-    }
-
-    if (Number(row.id_empresa_salida_origen) !== Number(activeCompanyId)) {
-        return false;
-    }
-
-    return (
-        activeAccountId == null ||
-        row.id_empresa_cuenta_salida_origen == null ||
-        Number(row.id_empresa_cuenta_salida_origen) === Number(activeAccountId)
-    );
-};
-const isDerivedReceiverOperation = (
-    row: OperacionProceso,
-    activeCompanyId: number | null,
-    activeAccountId: number | null,
-) => {
-    if (
-        row.flag_derivado !== true ||
-        activeCompanyId == null ||
-        row.id_empresa_salida == null ||
-        Number(row.id_empresa_salida) !== Number(activeCompanyId)
-    ) {
-        return false;
-    }
-
-    const matchesDestinationAccount = activeAccountId == null
-        ? true
-        : row.id_empresa_cuenta_salida == null || Number(row.id_empresa_cuenta_salida) === Number(activeAccountId);
-    if (!matchesDestinationAccount) return false;
-
-    const matchesOrigin = Number(row.id_empresa_salida_origen) === Number(activeCompanyId)
-        && (
-            activeAccountId != null
-                ? row.id_empresa_cuenta_salida_origen == null || Number(row.id_empresa_cuenta_salida_origen) === Number(activeAccountId)
-                : Number(row.id_empresa_cuenta_salida) === Number(row.id_empresa_cuenta_salida_origen)
-        );
-
-    return !matchesOrigin;
-};
+) => (mode === "efectivizacion" || mode === "unificado") && isDerivedOriginForContext(row, activeCompanyId, activeAccountId);
 const getDerivationDisplay = (
     row: OperacionProceso,
     mode: "efectivizacion" | "unificado" | "derivaciones" | "pos" | "eliminados",
