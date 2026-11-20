@@ -10,6 +10,7 @@ const GANANCIAS_ESPECIALES = new Set([
     "scotiabank:5:33",
     "scotiabank:8:7",
     "banbif:7:16",
+    "banbif:5:38",
 ]);
 
 const hasGananciaEspecial = (ruta: OperacionRutaBancaria, idEmpresa: number | null, idCuenta: number | null) =>

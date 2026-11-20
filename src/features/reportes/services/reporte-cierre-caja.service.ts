@@ -206,6 +206,7 @@ const specialGainAccounts = new Set([
     "scotiabank:5:33",
     "scotiabank:8:7",
     "banbif:7:16",
+    "banbif:5:38",
 ]);
 
 const hasSpecialGain = (context: ReporteCierreHistoricoContext) =>

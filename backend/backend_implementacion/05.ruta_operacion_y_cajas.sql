@@ -1522,7 +1522,8 @@ WITH cuentas_especiales(ruta, id_empresa, id_empresa_cuenta_bancaria, id_banco) 
   VALUES
     ('scotiabank'::character varying, 5::bigint, 33::bigint, 3::bigint),
     ('scotiabank'::character varying, 8::bigint, 7::bigint, 3::bigint),
-    ('banbif'::character varying, 7::bigint, 16::bigint, 4::bigint)
+    ('banbif'::character varying, 7::bigint, 16::bigint, 4::bigint),
+    ('banbif'::character varying, 5::bigint, 38::bigint, 4::bigint)
 ), parametros AS (
   SELECT
     LOWER(BTRIM(COALESCE(p_ruta, ''))) AS ruta,
@@ -7860,6 +7861,7 @@ por_caja AS (
              AND op.id_caja_cierre_salida IS NULL
              AND (
                (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+               OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 38 AND op.id_banco_empresa_cuenta_ingreso = 4)
                OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
                OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
                OR (op.id_empresa_ingreso = 4 AND op.id_empresa_cuenta_ingreso = 3 AND op.id_banco_empresa_cuenta_ingreso = 2)
@@ -7878,6 +7880,7 @@ por_caja AS (
                AND UPPER(BTRIM(COALESCE(op.tipo_flujo_pago_deuda, ''))) NOT IN ('DIRECTO_CAJA', 'RETORNO_DIRECTO')
                AND (
                  (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+                 OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 38 AND op.id_banco_empresa_cuenta_ingreso = 4)
                  OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
                  OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
                  OR (op.id_empresa_ingreso = 4 AND op.id_empresa_cuenta_ingreso = 3 AND op.id_banco_empresa_cuenta_ingreso = 2)
@@ -8066,6 +8069,7 @@ por_caja AS (
         WHEN (
           (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
           OR (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+          OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 38 AND op.id_banco_empresa_cuenta_ingreso = 4)
           OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
         ) THEN
           (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima') >= CASE
@@ -8311,6 +8315,7 @@ operaciones AS (
       WHEN (
         (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
         OR (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+        OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 38 AND op.id_banco_empresa_cuenta_ingreso = 4)
         OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
         OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 4 AND op.id_banco_empresa_cuenta_ingreso = 2)
         OR (op.id_empresa_ingreso = 6 AND op.id_empresa_cuenta_ingreso = 5 AND op.id_banco_empresa_cuenta_ingreso = 2)
@@ -8328,6 +8333,7 @@ operaciones AS (
         (
           (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 33 AND op.id_banco_empresa_cuenta_ingreso = 3)
           OR (op.id_empresa_ingreso = 7 AND op.id_empresa_cuenta_ingreso = 16 AND op.id_banco_empresa_cuenta_ingreso = 4)
+          OR (op.id_empresa_ingreso = 5 AND op.id_empresa_cuenta_ingreso = 38 AND op.id_banco_empresa_cuenta_ingreso = 4)
           OR (op.id_empresa_ingreso = 8 AND op.id_empresa_cuenta_ingreso = 7 AND op.id_banco_empresa_cuenta_ingreso = 3)
         )
         AND (op.fecha_deposito_cliente AT TIME ZONE 'America/Lima') >= CASE
@@ -8459,6 +8465,7 @@ agregado AS (
           (LOWER(BTRIM(COALESCE(c.ruta, ''))) = 'scotiabank' AND c.id_empresa = 5 AND c.id_empresa_cuenta_bancaria = 33 AND o.id_banco_empresa_cuenta_ingreso = 3)
           OR (LOWER(BTRIM(COALESCE(c.ruta, ''))) = 'scotiabank' AND c.id_empresa = 8 AND c.id_empresa_cuenta_bancaria = 7 AND o.id_banco_empresa_cuenta_ingreso = 3)
           OR (LOWER(BTRIM(COALESCE(c.ruta, ''))) = 'banbif' AND c.id_empresa = 7 AND c.id_empresa_cuenta_bancaria = 16 AND o.id_banco_empresa_cuenta_ingreso = 4)
+          OR (LOWER(BTRIM(COALESCE(c.ruta, ''))) = 'banbif' AND c.id_empresa = 5 AND c.id_empresa_cuenta_bancaria = 38 AND o.id_banco_empresa_cuenta_ingreso = 4)
         ) THEN
           CASE
             WHEN o.atribucion_ingreso
@@ -8628,3 +8635,15 @@ SELECT 'DROP FUNCTION IF EXISTS ' || n.nspname || '.' || p.proname || '(' || pg_
 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
 WHERE p.proname IN ('f_get_reporte_cierre')
 ORDER BY n.nspname,p.proname;
+
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' || p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN (
+  'f_get_tb_ruta_operacion_ganancias_efectivizacion_v2',
+  'f_get_tb_ruta_operacion_kpi_operaciones_v2',
+  'f_get_tb_ruta_operacion_kpi_cierre_operaciones_v2'
+)
+ORDER BY n.nspname, p.proname;

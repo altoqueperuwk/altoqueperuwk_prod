@@ -138,6 +138,37 @@ describe("getReporteCierreHistorico", () => {
         expect(report.retenciones).toEqual([]);
     });
 
+    it("usa la ganancia especial en el cierre de Capital Nova en BanBif", async () => {
+        rpcMock.mockImplementation((functionName: string) => Promise.resolve({
+            data: functionName === "f_get_tb_ruta_operacion_kpi_cierre_operaciones_v2"
+                ? [{ ganancias: 406.75 }]
+                : functionName === "f_get_tb_ruta_operacion_ganancias_efectivizacion_v2" ? [{ ganancias: 0 }] : [],
+            error: null,
+        }));
+
+        const report = await getReporteCierreHistorico({
+            idCaja: 81,
+            idCajaCierre: 366,
+            idEmpresa: 5,
+            idEmpresaCuentaBancaria: 38,
+            idBanco: 4,
+            ruta: "banbif",
+            nombreEmpresa: "Capital Nova S.A.",
+            nombreBanco: "BanBif",
+            fechaCierre: "2026-11-20",
+        });
+
+        expect(rpcMock).toHaveBeenCalledWith("f_get_tb_ruta_operacion_ganancias_efectivizacion_v2", {
+            p_ruta: "banbif",
+            p_id_empresa: 5,
+            p_id_empresa_cuenta_bancaria: 38,
+            p_id_caja: 81,
+            p_historico: true,
+            p_fecha_consulta: "2026-11-20",
+        });
+        expect(report.kpi).toMatchObject({ ganancias: 0 });
+    });
+
     it("conserva la transferencia real de los derivados enviados de SafetyPay", async () => {
         const safetyOperation = operation({
             id: 5564045,

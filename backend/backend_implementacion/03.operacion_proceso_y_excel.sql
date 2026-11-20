@@ -1462,7 +1462,7 @@ Objetivo:
   Clasificar la retencion exclusivamente por empresa, cuenta bancaria y banco.
 
 Regla:
-  - Solo las cinco combinaciones declaradas pueden retener.
+  - Solo las combinaciones declaradas pueden retener.
   - La hora se interpreta en America/Lima usando la fecha real del deposito.
   - Scotiabank y BanBif usan la ventana vigente de 24 horas alrededor del corte:
     antes de las 21:00, ayer 21:00 a hoy 20:59; desde las 21:00, hoy 21:00 a manana 20:59.
@@ -1491,6 +1491,7 @@ BEGIN
   v_aplica_retencion := (
     (p_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 33 AND p_id_banco = 3)
     OR (p_id_empresa = 7 AND p_id_empresa_cuenta_bancaria = 16 AND p_id_banco = 4)
+    OR (p_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 38 AND p_id_banco = 4)
     OR (p_id_empresa = 8 AND p_id_empresa_cuenta_bancaria = 7 AND p_id_banco = 3)
     OR (p_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 4 AND p_id_banco = 2)
     OR (p_id_empresa = 6 AND p_id_empresa_cuenta_bancaria = 5 AND p_id_banco = 2)
@@ -6557,3 +6558,13 @@ SELECT 'DROP FUNCTION IF EXISTS ' || n.nspname || '.' || p.proname || '(' || pg_
 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
 WHERE p.proname IN ('f_post_tb_operacion_proceso', 'f_post_tb_operacion_proceso_excel', 'f_post_tb_operacion_proceso_excel_ganancia')
 ORDER BY n.nspname,p.proname;
+
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' || p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN (
+  'f_get_tb_operacion_retencion_hardcodeada'
+)
+ORDER BY n.nspname, p.proname;

@@ -12,6 +12,7 @@ const CUENTAS_CON_RETENCION_RECAUDACION = new Set([
     "5:3:33",
     "8:3:7",
     "7:4:16",
+    "5:4:38",
     "5:2:4",
     "6:2:5",
     "4:2:3", // Impulsa Capital Corp S.A. — BCP

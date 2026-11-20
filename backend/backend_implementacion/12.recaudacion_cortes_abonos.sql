@@ -150,6 +150,7 @@ BEGIN
       AND (
         (ecb.id_empresa = 5 AND ecb.id = 33 AND ecb.id_banco = 3)
         OR (ecb.id_empresa = 7 AND ecb.id = 16 AND ecb.id_banco = 4)
+        OR (ecb.id_empresa = 5 AND ecb.id = 38 AND ecb.id_banco = 4)
         OR (ecb.id_empresa = 8 AND ecb.id = 7 AND ecb.id_banco = 3)
         OR (ecb.id_empresa = 5 AND ecb.id = 4 AND ecb.id_banco = 2)
         OR (ecb.id_empresa = 6 AND ecb.id = 5 AND ecb.id_banco = 2)
@@ -346,6 +347,7 @@ BEGIN
   IF NOT (
     (v_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 33 AND v_id_banco = 3)
     OR (v_id_empresa = 7 AND p_id_empresa_cuenta_bancaria = 16 AND v_id_banco = 4)
+    OR (v_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 38 AND v_id_banco = 4)
     OR (v_id_empresa = 8 AND p_id_empresa_cuenta_bancaria = 7 AND v_id_banco = 3)
     OR (v_id_empresa = 5 AND p_id_empresa_cuenta_bancaria = 4 AND v_id_banco = 2)
     OR (v_id_empresa = 6 AND p_id_empresa_cuenta_bancaria = 5 AND v_id_banco = 2)
@@ -1113,3 +1115,13 @@ WHERE p.proname IN (
 )
 ORDER BY n.nspname, p.proname;
 
+SELECT 'DROP FUNCTION IF EXISTS ' ||
+       n.nspname || '.' || p.proname || '(' ||
+       pg_get_function_identity_arguments(p.oid) || ');' AS drop_statement
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname IN (
+  'f_get_tb_recaudacion_cuenta_flag_retenida',
+  'f_get_tb_recaudacion_fecha_liberacion'
+)
+ORDER BY n.nspname, p.proname;
