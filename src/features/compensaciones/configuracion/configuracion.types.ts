@@ -1,11 +1,3 @@
-export interface EstadoCatalogo {
-    id: number;
-    nombre: string;
-}
-export interface SucursalCatalogo {
-    id: number;
-    nombre: string;
-}
 export interface Plan {
     id: number;
     codigo: string;
@@ -48,20 +40,6 @@ export interface Cargo {
     nombre: string;
     descripcion: string;
     orden: number;
-    idEstado: number;
-    estado: string;
-}
-export interface Jornada {
-    id: number;
-    codigo: string;
-    nombre: string;
-    modalidad: string;
-    horaEntrada: string;
-    horaSalida: string;
-    minutosTolerancia: number;
-    minutosDescanso: number;
-    diasSemana: number[];
-    cruzaMedianoche: boolean;
     idEstado: number;
     estado: string;
 }
@@ -133,21 +111,6 @@ export interface Regla {
     idEstado: number;
     estado: string;
 }
-export interface MetaSede {
-    id: number;
-    idPlanVersion: number;
-    planNombre: string;
-    numeroVersion: number;
-    estadoVersion: string;
-    idSucursal: number;
-    sucursalNombre: string;
-    codigoIndicador: string;
-    periodo: string;
-    valorMeta: number;
-    unidad: string;
-    idEstado: number;
-    estado: string;
-}
 export interface PenalidadTipo {
     id: number;
     idPlanVersion: number;
@@ -166,10 +129,7 @@ export interface PenalidadTipo {
     montoReferencia: number;
     montoBono: number | null;
     requiereRespuesta: boolean;
+    configuracion: Record<string, unknown>;
     idEstado: number;
     estado: string;
-}
-export interface ConfiguracionCatalogos {
-    estados: EstadoCatalogo[];
-    sucursales: SucursalCatalogo[];
 }

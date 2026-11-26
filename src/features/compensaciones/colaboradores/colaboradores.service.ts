@@ -4,11 +4,10 @@ import type {
     CatalogItem,
     Colaborador,
     ColaboradorAsignacion,
-    ColaboradorCuentaPago,
+    ColaboradorFicha,
     ColaboradorFilters,
     ColaboradorFormValues,
     ColaboradoresResult,
-    CuentaPagoFormValues,
     UsuarioElegible,
 } from "./colaboradores.types";
 
@@ -20,10 +19,13 @@ const numberValue = (value: unknown) => {
     const parsed = Number(value ?? 0);
     return Number.isFinite(parsed) ? parsed : 0;
 };
-const nullableNumber = (value: unknown) => (value === null || value === undefined ? null : numberValue(value));
+const nullableNumber = (value: unknown) => {
+    if (value === null || value === undefined || value === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+};
 const nullableString = (value: unknown) => (value === null || value === undefined || value === "" ? null : String(value));
 const stringValue = (value: unknown) => String(value ?? "");
-
 const rpc = async <T>(name: string, params: JsonRecord): Promise<T> => {
     const { data, error } = await supabase.rpc(name, params);
     if (error) throw error;
@@ -38,8 +40,6 @@ const mapAsignacion = (value: unknown): ColaboradorAsignacion => {
         cargoNombre: stringValue(row.cargo_nombre),
         idSucursal: numberValue(row.id_sucursal),
         sucursalNombre: stringValue(row.sucursal_nombre),
-        idJornada: numberValue(row.id_jornada),
-        jornadaNombre: stringValue(row.jornada_nombre),
         idPlan: numberValue(row.id_plan),
         planNombre: stringValue(row.plan_nombre),
         fechaInicio: stringValue(row.fecha_inicio),
@@ -73,25 +73,17 @@ const mapColaborador = (value: unknown): Colaborador => {
         idEstado: numberValue(row.id_estado),
         estadoNombre: stringValue(row.estado_nombre),
         asignacion: row.asignacion ? mapAsignacion(row.asignacion) : null,
+        ficha: mapFicha(row),
     };
 };
 
-const mapCuenta = (value: unknown): ColaboradorCuentaPago => {
-    const row = recordValue(value);
+const mapFicha = (row: JsonRecord): ColaboradorFicha => {
+    const permissions = recordValue(row.permisos_accion);
     return {
-        id: numberValue(row.id),
-        idBanco: numberValue(row.id_banco),
-        bancoNombre: stringValue(row.banco_nombre),
-        tipoCuenta: stringValue(row.tipo_cuenta),
-        moneda: stringValue(row.moneda),
-        numeroCuenta: stringValue(row.numero_cuenta),
-        numeroCci: nullableString(row.numero_cci),
-        titular: stringValue(row.titular),
-        esPrincipal: Boolean(row.es_principal),
-        fechaInicio: stringValue(row.fecha_inicio),
-        fechaFin: nullableString(row.fecha_fin),
-        idEstado: numberValue(row.id_estado),
-        estadoNombre: stringValue(row.estado_nombre),
+        permisos: {
+            puedeVerFicha: permissions.puede_ver_ficha === true,
+            puedeEditarFicha: permissions.puede_editar_ficha === true,
+        },
     };
 };
 
@@ -111,25 +103,30 @@ export const colaboradoresService = {
             p_busqueda: null,
             p_id_colaborador: idColaborador || null,
         });
-        return arrayValue(data).map((row) => ({
-            id: numberValue(row.id),
-            username: stringValue(row.username),
-            nombre: stringValue(row.nombre),
-            email: stringValue(row.email),
-            idRol: numberValue(row.id_rol),
-            rolNombre: stringValue(row.rol_nombre),
-            idSucursal: nullableNumber(row.id_sucursal),
-            sucursalNombre: stringValue(row.sucursal_nombre),
-            estadoNombre: stringValue(row.estado_nombre),
-            idColaborador: nullableNumber(row.id_colaborador),
-        }));
+        return arrayValue(data)
+            .filter((row) => {
+                const linked = nullableNumber(row.id_colaborador);
+                return idColaborador ? linked === idColaborador : linked === null;
+            })
+            .map((row) => ({
+                id: numberValue(row.id),
+                username: stringValue(row.username),
+                nombre: stringValue(row.nombre),
+                email: stringValue(row.email),
+                idRol: numberValue(row.id_rol),
+                rolNombre: stringValue(row.rol_nombre),
+                idSucursal: nullableNumber(row.id_sucursal),
+                sucursalNombre: stringValue(row.sucursal_nombre),
+                estadoNombre: stringValue(row.estado_nombre),
+                idColaborador: nullableNumber(row.id_colaborador),
+            }));
     },
 
     async getList(filters: ColaboradorFilters): Promise<ColaboradoresResult> {
         const data = recordValue(
-            await rpc<unknown>("f_get_tb_compensacion_colaborador", {
+            await rpc<unknown>("f_get_tb_compensacion_colaborador_ficha", {
                 p_busqueda: filters.search?.trim() || null,
-                p_fecha_referencia: null,
+                p_fecha_referencia: filters.fechaReferencia || null,
                 p_id: null,
                 p_id_cargo: filters.idCargo || null,
                 p_id_estado: filters.idEstado || null,
@@ -139,7 +136,22 @@ export const colaboradoresService = {
             }),
         );
 
+        if (!Array.isArray(data.items) || nullableNumber(data.total) === null || nullableNumber(data.total_paginas) === null)
+            throw new Error("La consulta de fichas está incompleta. Reintenta la carga.");
+        if (data.version_contrato !== "B2_01") throw new Error("La consulta de fichas requiere el contrato B2_01 del backend de compensaciones.");
+
         return {
+            resumen: ["colaboradores", "activos", "inactivos", "sedes"].every((key) => nullableNumber(recordValue(data.resumen)[key]) !== null)
+                ? {
+                      colaboradores: numberValue(recordValue(data.resumen).colaboradores),
+                      activos: numberValue(recordValue(data.resumen).activos),
+                      inactivos: numberValue(recordValue(data.resumen).inactivos),
+                      sedes: numberValue(recordValue(data.resumen).sedes),
+                  }
+                : null,
+            versionContrato: "B2_01",
+            fechaReferencia: stringValue(data.fecha_referencia),
+            puedeCrear: recordValue(data.permisos_accion).puede_crear === true,
             items: arrayValue(data.items).map(mapColaborador),
             total: numberValue(data.total),
             page: numberValue(data.pagina) || filters.page,
@@ -148,61 +160,85 @@ export const colaboradoresService = {
         };
     },
 
+    async getAdminCatalogs() {
+        const data = recordValue(await rpc<unknown>("f_get_compensacion_personal_catalogos", {}));
+        if (!["cargos", "planes", "sedes"].every((key) => Array.isArray(data[key])))
+            throw new Error("No se recibieron los catálogos completos de personal (SQL95).");
+        return {
+            cargos: arrayValue(data.cargos).map(mapCatalog),
+            planes: arrayValue(data.planes).map(mapCatalog),
+            sedes: arrayValue(data.sedes).map(mapCatalog),
+        };
+    },
+
     async getCatalogs() {
-        const [cargos, jornadas, planes] = await Promise.all([
+        const [cargos, planes] = await Promise.all([
             rpc<unknown[]>("f_get_tb_compensacion_cargo", { p_busqueda: null, p_id: null, p_id_estado: null }),
-            rpc<unknown[]>("f_get_tb_compensacion_jornada", { p_busqueda: null, p_id: null, p_id_estado: null }),
             rpc<unknown[]>("f_get_tb_compensacion_plan", { p_busqueda: null, p_id: null, p_id_estado: null }),
         ]);
         return {
             cargos: arrayValue(cargos).map(mapCatalog),
-            jornadas: arrayValue(jornadas).map(mapCatalog),
             planes: arrayValue(planes).map(mapCatalog),
         };
     },
 
     async create(values: ColaboradorFormValues) {
-        const nombreCompleto = [values.nombres, values.apellidoPaterno, values.apellidoMaterno].filter(Boolean).join(" ");
-        return rpc<JsonRecord>("f_post_tb_compensacion_colaborador", {
-            p_apellido_materno: values.apellidoMaterno || null,
-            p_apellido_paterno: values.apellidoPaterno || null,
-            p_celular: values.celular || null,
-            p_codigo_huellero: values.codigoHuellero || null,
-            p_email: values.email || null,
+        const nombreCompleto = values.nombreCompleto.trim().replace(/\s+/g, " ");
+        const datos = {
+            p_apellido_materno: null,
+            p_apellido_paterno: null,
+            p_celular: null,
+            p_codigo_huellero: values.numeroDocumento.trim(),
+            p_email: null,
             p_fecha_ingreso: values.fechaIngreso,
             p_id_cargo: values.idCargo,
             p_id_estado: values.idEstado || null,
-            p_id_jornada: values.idJornada,
             p_id_plan: values.idPlan,
             p_id_sucursal: values.idSucursal,
             p_id_usuario: values.idUsuario,
             p_modalidad: values.modalidad,
             p_nombre_completo: nombreCompleto,
-            p_nombres: values.nombres,
-            p_numero_documento: values.numeroDocumento,
+            p_nombres: nombreCompleto,
+            p_numero_documento: values.numeroDocumento.trim(),
             p_tipo_documento: values.tipoDocumento,
-        });
+        };
+        return rpc<JsonRecord>("f_post_tb_compensacion_colaborador", datos);
     },
 
     async update(id: number, values: ColaboradorFormValues) {
-        const nombreCompleto = [values.nombres, values.apellidoPaterno, values.apellidoMaterno].filter(Boolean).join(" ");
-        return rpc<JsonRecord>("f_patch_tb_compensacion_colaborador", {
-            p_apellido_materno: values.apellidoMaterno,
-            p_apellido_paterno: values.apellidoPaterno,
-            p_celular: values.celular,
-            p_codigo_huellero: values.codigoHuellero,
-            p_email: values.email,
+        const nombreCompleto = values.nombreCompleto.trim().replace(/\s+/g, " ");
+        const datos = {
+            ...(values.idCargo && values.idSucursal && values.idPlan
+                ? {
+                      p_id_cargo: values.idCargo,
+                      p_id_sucursal: values.idSucursal,
+                      p_id_plan: values.idPlan,
+                      p_modalidad: values.modalidad,
+                  }
+                : {}),
+            // NULL conserva información histórica que ya no se edita en este formulario.
+            p_apellido_materno: null,
+            p_apellido_paterno: null,
+            p_celular: null,
+            p_codigo_huellero: values.numeroDocumento.trim(),
+            p_email: null,
             p_fecha_cese: values.fechaCese || null,
             p_fecha_ingreso: values.fechaIngreso,
             p_id: id,
             p_id_estado: values.idEstado,
-            p_id_usuario: values.idUsuario,
+            p_id_usuario: null, // El vínculo con tb_usuario es inmutable al editar.
             p_motivo_cese: values.motivoCese,
             p_nombre_completo: nombreCompleto,
-            p_nombres: values.nombres,
-            p_numero_documento: values.numeroDocumento,
+            p_nombres: null,
+            p_numero_documento: values.numeroDocumento.trim(),
             p_tipo_documento: values.tipoDocumento,
-        });
+        };
+        return values.idCargo
+            ? rpc<JsonRecord>("f_post_compensacion_colaborador_ficha", {
+                  p_id: id,
+                  p_datos: datos,
+              })
+            : rpc<JsonRecord>("f_patch_tb_compensacion_colaborador", datos);
     },
 
     async updateStatus(id: number, idEstado: number) {
@@ -240,52 +276,10 @@ export const colaboradoresService = {
             p_id_cargo: values.idCargo,
             p_id_colaborador: idColaborador,
             p_id_estado: values.idEstado || null,
-            p_id_jornada: values.idJornada,
             p_id_plan: values.idPlan,
             p_id_sucursal: values.idSucursal,
             p_modalidad: values.modalidad,
             p_observacion: values.observacion || null,
-        });
-    },
-
-    async getAccounts(idColaborador: number): Promise<ColaboradorCuentaPago[]> {
-        const data = await rpc<unknown[]>("f_get_tb_compensacion_cuenta_pago", {
-            p_id: null,
-            p_id_colaborador: idColaborador,
-            p_incluir_datos_completos: false,
-            p_solo_vigentes: false,
-        });
-        return arrayValue(data).map(mapCuenta);
-    },
-
-    async saveAccount(idColaborador: number, values: CuentaPagoFormValues, id?: number) {
-        if (id) {
-            return rpc<JsonRecord>("f_patch_tb_compensacion_cuenta_pago", {
-                p_es_principal: values.esPrincipal,
-                p_fecha_fin: values.fechaFin || null,
-                p_fecha_inicio: values.fechaInicio,
-                p_id: id,
-                p_id_banco: values.idBanco,
-                p_id_estado: values.idEstado,
-                p_moneda: values.moneda,
-                p_numero_cci: values.numeroCci.includes("*") ? null : values.numeroCci,
-                p_numero_cuenta: values.numeroCuenta.includes("*") ? null : values.numeroCuenta,
-                p_tipo_cuenta: values.tipoCuenta,
-                p_titular: values.titular,
-            });
-        }
-
-        return rpc<JsonRecord>("f_post_tb_compensacion_cuenta_pago", {
-            p_es_principal: values.esPrincipal,
-            p_fecha_inicio: values.fechaInicio,
-            p_id_banco: values.idBanco,
-            p_id_colaborador: idColaborador,
-            p_id_estado: values.idEstado || null,
-            p_moneda: values.moneda,
-            p_numero_cci: values.numeroCci || null,
-            p_numero_cuenta: values.numeroCuenta,
-            p_tipo_cuenta: values.tipoCuenta,
-            p_titular: values.titular,
         });
     },
 };

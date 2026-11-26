@@ -1,0 +1,117 @@
+/*
+ * Identidad Al Toque Perú WK (muestra aprobada para Compensaciones).
+ * Marino #03204A + dorado #E7BA3A, tomados de altoqueperuwk.com.
+ *
+ * Se activa en todo Compensaciones con la clase `atk-brand` en <html> (hook `useAtkBrand`);
+ * las demás áreas de la aplicación conservan su paleta.
+ * Se redefine la escala primaria y los tokens semánticos; ningún componente cambia.
+ *
+ * Reglas de contraste: el dorado nunca es color de texto sobre blanco (1.9:1); el texto
+ * de marca usa dorado oscuro y el texto sobre dorado usa marino (8.6:1).
+ */
+html.atk-brand {
+    /* Escala dorada */
+    --color-brand-25: #fffcf3;
+    --color-brand-50: #fef8e4;
+    --color-brand-100: #fbefc2;
+    --color-brand-200: #f7e19a;
+    --color-brand-300: #f1d06a;
+    --color-brand-400: #ebc44f;
+    --color-brand-500: #e7ba3a;
+    --color-brand-600: #d8a92a;
+    --color-brand-700: #a37a10;
+    --color-brand-800: #7a5a00;
+    --color-brand-900: #5c4300;
+    --color-brand-950: #3a2b00;
+
+    /* Grises con tinte marino */
+    --color-neutral-25: #fbfcfe;
+    --color-neutral-50: #f7f9fd;
+    --color-neutral-100: #edf1f8;
+    --color-neutral-200: #dae2ee;
+    --color-neutral-300: #c3cfe0;
+    --color-neutral-400: #8e9db6;
+    --color-neutral-500: #7889a6;
+    --color-neutral-600: #5f7391;
+    --color-neutral-700: #475a7a;
+    --color-neutral-800: #2e4166;
+    --color-neutral-900: #0a2147;
+    --color-neutral-950: #05142e;
+
+    /* Acción de marca: dorado con texto marino */
+    --color-bg-brand-solid: #e7ba3a;
+    --color-bg-brand-solid_hover: #d8a92a;
+    --color-text-primary_on-brand: #031f4c;
+    --color-text-secondary_on-brand: #1d3a6b;
+    --color-bg-brand-primary: #fef8e4;
+    --color-bg-brand-secondary: #fbefc2;
+    --color-bg-brand-section: #03204a;
+    --color-bg-brand-section_subtle: #0a2d63;
+
+    /* Texto y detalles de marca en dorado oscuro (legible sobre blanco) */
+    --color-text-brand-primary: #5c4300;
+    --color-text-brand-secondary: #7a5a00;
+    --color-text-brand-secondary_hover: #5c4300;
+    --color-text-brand-tertiary: #94700a;
+    --color-text-brand-tertiary_alt: #94700a;
+    --color-fg-brand-primary: #94700a;
+    --color-fg-brand-secondary: #c99a1e;
+
+    /* Foco y selección en azul de apoyo, visibles sobre blanco */
+    --color-border-brand: #1d4a94;
+    --color-border-brand_alt: #1d4a94;
+    --color-focus-ring: #1d4a94;
+}
+
+html.atk-brand.dark-mode {
+    --color-bg-primary: #0e192d;
+    --color-bg-secondary: #0a1425;
+    --color-bg-tertiary: #14233e;
+    --color-bg-quaternary: #1d2d4b;
+    --color-bg-primary_alt: #0a1425;
+    --color-bg-secondary_alt: #0e192d;
+    --color-bg-primary_hover: #112038;
+    --color-bg-secondary_hover: #14233e;
+    --color-bg-active: #14233e;
+    --color-bg-overlay: #050b16;
+    --color-border-secondary: #1d2d4b;
+    --color-border-secondary_alt: #1d2d4b;
+    --color-border-tertiary: #16233d;
+    --color-border-primary: #2a4068;
+
+    --color-bg-brand-solid: #e3bb50;
+    --color-bg-brand-solid_hover: #edc866;
+    --color-text-primary_on-brand: #0a1424;
+    --color-text-secondary_on-brand: #1d3a6b;
+    --color-bg-brand-primary: rgb(227 187 80 / 0.14);
+    --color-bg-brand-secondary: rgb(227 187 80 / 0.2);
+    --color-bg-brand-section: #0a1425;
+    --color-bg-brand-section_subtle: #0e192d;
+
+    --color-text-brand-primary: #f7f9fd;
+    --color-text-brand-secondary: #e3bb50;
+    --color-text-brand-secondary_hover: #edc866;
+    --color-text-brand-tertiary: #d6ac3e;
+    --color-text-brand-tertiary_alt: #e3bb50;
+    --color-fg-brand-primary: #e3bb50;
+    --color-fg-brand-secondary: #e3bb50;
+
+    --color-border-brand: #e3bb50;
+    --color-border-brand_alt: #2a4068;
+    --color-focus-ring: #e3bb50;
+}
+
+/*
+ * Guía al pasar el cursor: campos, selectores, calendarios y botones secundarios
+ * iluminan su borde en dorado antes del clic. El foco conserva su color propio y
+ * los campos inválidos o deshabilitados no cambian.
+ */
+html.atk-brand .ring-primary:hover:not(:focus-within, [data-disabled], [aria-disabled="true"], :disabled, :has(:disabled), :where([data-invalid] *)) {
+    --tw-ring-color: var(--color-brand-500);
+}
+
+/* El check y el punto de radio mantienen contraste cuando el fondo de selección es dorado. */
+html.atk-brand [data-selected] > div.bg-brand-solid {
+    background-color: var(--color-text-primary_on-brand);
+    --tw-ring-color: var(--color-text-primary_on-brand);
+}

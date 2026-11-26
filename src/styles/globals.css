@@ -1,6 +1,8 @@
 @import "tailwindcss";
+@source not "../../archivo-historico";
 @import "./theme.css";
 @import "./typography.css";
+@import "./atk-brand.css";
 
 @plugin "@tailwindcss/typography";
 @plugin "tailwindcss-react-aria-components";

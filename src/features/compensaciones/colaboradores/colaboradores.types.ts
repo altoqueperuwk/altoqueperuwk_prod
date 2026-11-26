@@ -24,8 +24,6 @@ export interface ColaboradorAsignacion {
     cargoNombre: string;
     idSucursal: number;
     sucursalNombre: string;
-    idJornada: number;
-    jornadaNombre: string;
     idPlan: number;
     planNombre: string;
     fechaInicio: string;
@@ -33,22 +31,6 @@ export interface ColaboradorAsignacion {
     modalidad: string;
     observacion: string | null;
     esVigente: boolean;
-    estadoNombre: string;
-}
-
-export interface ColaboradorCuentaPago {
-    id: number;
-    idBanco: number;
-    bancoNombre: string;
-    tipoCuenta: string;
-    moneda: string;
-    numeroCuenta: string;
-    numeroCci: string | null;
-    titular: string;
-    esPrincipal: boolean;
-    fechaInicio: string;
-    fechaFin: string | null;
-    idEstado: number;
     estadoNombre: string;
 }
 
@@ -72,9 +54,18 @@ export interface Colaborador {
     idEstado: number;
     estadoNombre: string;
     asignacion: ColaboradorAsignacion | null;
+    ficha?: ColaboradorFicha;
+}
+
+export interface ColaboradorFicha {
+    permisos: { puedeVerFicha: boolean; puedeEditarFicha: boolean };
 }
 
 export interface ColaboradoresResult {
+    resumen: { colaboradores: number; activos: number; inactivos: number; sedes: number } | null;
+    versionContrato: "B2_01";
+    fechaReferencia: string;
+    puedeCrear: boolean;
     items: Colaborador[];
     total: number;
     page: number;
@@ -83,6 +74,7 @@ export interface ColaboradoresResult {
 }
 
 export interface ColaboradorFilters {
+    fechaReferencia?: string;
     search?: string;
     idEstado?: number;
     idSucursal?: number;
@@ -95,19 +87,13 @@ export interface ColaboradorFormValues {
     idUsuario: number;
     tipoDocumento: string;
     numeroDocumento: string;
-    nombres: string;
-    apellidoPaterno: string;
-    apellidoMaterno: string;
-    email: string;
-    celular: string;
-    codigoHuellero: string;
+    nombreCompleto: string;
     fechaIngreso: string;
     fechaCese: string;
     motivoCese: string;
     idEstado: number;
     idCargo: number;
     idSucursal: number;
-    idJornada: number;
     idPlan: number;
     modalidad: string;
 }
@@ -115,23 +101,9 @@ export interface ColaboradorFormValues {
 export interface AsignacionFormValues {
     idCargo: number;
     idSucursal: number;
-    idJornada: number;
     idPlan: number;
     fechaInicio: string;
     modalidad: string;
     observacion: string;
-    idEstado: number;
-}
-
-export interface CuentaPagoFormValues {
-    idBanco: number;
-    tipoCuenta: string;
-    numeroCuenta: string;
-    numeroCci: string;
-    titular: string;
-    moneda: string;
-    esPrincipal: boolean;
-    fechaInicio: string;
-    fechaFin: string;
     idEstado: number;
 }

@@ -9,6 +9,8 @@ import { useToast } from "@/providers/toast-provider";
 import { permisoMenuService } from "@/services/permiso-menu.service";
 import { permisoUsuarioService } from "@/services/permiso-usuario.service";
 import { getCoreEstadoItems } from "@/utils/estado-options";
+import { compensacionesMenuLabel } from "@/features/compensaciones/shared/compensaciones-navigation";
+import { advisorRouteAllowed } from "@/features/compensaciones/shared/compensacion-perfil";
 
 interface MenuNode {
     id: number;
@@ -33,7 +35,7 @@ const buildTree = (rows: Record<string, unknown>[]) => {
             nodes.set(id, {
                 id,
                 id_padre: row.id_padre == null ? null : Number(row.id_padre),
-                nombre: String(row.nombre ?? "-"),
+                nombre: compensacionesMenuLabel(String(row.nombre ?? "-"), String(row.ruta ?? "")),
                 orden: Number(row.orden ?? 0),
                 children: [],
             });
@@ -78,16 +80,33 @@ const filterJefeTiendaMenuRows = (rows: Record<string, unknown>[]) => {
     return rows.filter((row) => visibleIds.has(Number(row.id)));
 };
 
+export const filterAdvisorMenuRows = (rows: Record<string, unknown>[]) => {
+    const byId = new Map(rows.map(row => [Number(row.id), row]));
+    const parentIds = new Set(rows.map(row => Number(row.id_padre)));
+    const visible = new Set<number>();
+    for (const row of rows) {
+        if (parentIds.has(Number(row.id)) || !row.ruta || !advisorRouteAllowed(String(row.ruta))) continue;
+        let current: Record<string, unknown> | undefined = row;
+        while (current && !visible.has(Number(current.id))) {
+            visible.add(Number(current.id));
+            current = current.id_padre == null ? undefined : byId.get(Number(current.id_padre));
+        }
+    }
+    return rows.filter(row => visible.has(Number(row.id)));
+};
+
 export const PermisoUsuarioTreePopup = ({ isOpen, user, onClose, onSaved }: PermisoUsuarioTreePopupProps) => {
     const { estados } = useSessionCache();
     const { businessUser } = useAuth();
     const isBranchManager = isJefeTienda(businessUser) && !isAdministrator(businessUser);
+    const targetIsAdvisor = Number(user?.id_rol) === 4 && user?.flag_super_admin !== true;
     const { addToast } = useToast();
     const [tree, setTree] = useState<MenuNode[]>([]);
     const [selectedLeaves, setSelectedLeaves] = useState<Set<number>>(new Set());
     const [preservedLeafIds, setPreservedLeafIds] = useState<number[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [loadFailed, setLoadFailed] = useState(false);
 
     const activeId = useMemo(() => {
         const active = getCoreEstadoItems(estados).find((item) => item.label.toLowerCase() === "activo");
@@ -97,13 +116,15 @@ export const PermisoUsuarioTreePopup = ({ isOpen, user, onClose, onSaved }: Perm
     const loadPermissions = useCallback(async () => {
         if (!user?.id) return;
         setIsLoading(true);
+        setLoadFailed(false);
         try {
             const [menuRows, permissionRows] = await Promise.all([
                 permisoMenuService.getList({ p_id_estado: activeId }),
-                permisoUsuarioService.getList({ p_id_usuario: Number(user.id) }),
+                permisoUsuarioService.getList({ p_id_usuario: Number(user.id), p_id_estado: activeId }),
             ]);
             const fullTree = buildTree(menuRows);
-            const nextTree = buildTree(isBranchManager ? filterJefeTiendaMenuRows(menuRows) : menuRows);
+            const allowedRows = targetIsAdvisor ? filterAdvisorMenuRows(menuRows) : menuRows;
+            const nextTree = buildTree(isBranchManager ? filterJefeTiendaMenuRows(allowedRows) : allowedRows);
             const availableLeafIds = new Set(nextTree.flatMap(collectLeafIds));
             const allActiveLeafIds = new Set(fullTree.flatMap(collectLeafIds));
             const currentPermissionIds = permissionRows.map((row) => Number(row.id_permiso_menu));
@@ -113,11 +134,13 @@ export const PermisoUsuarioTreePopup = ({ isOpen, user, onClose, onSaved }: Perm
             setSelectedLeaves(current);
             setPreservedLeafIds(preserved);
         } catch {
+            setLoadFailed(true);
+            setTree([]);
             addToast("error", "No se pudieron cargar los permisos del usuario");
         } finally {
             setIsLoading(false);
         }
-    }, [activeId, addToast, isBranchManager, user]);
+    }, [activeId, addToast, isBranchManager, targetIsAdvisor, user]);
 
     useEffect(() => {
         if (isOpen) void loadPermissions();
@@ -146,7 +169,7 @@ export const PermisoUsuarioTreePopup = ({ isOpen, user, onClose, onSaved }: Perm
     };
 
     const handleSave = async () => {
-        if (!user?.id) return;
+        if (!user?.id || isLoading || loadFailed) return;
         setIsSaving(true);
         try {
             const idsToSave = Array.from(new Set([...preservedLeafIds, ...selectedLeaves]));
@@ -213,7 +236,7 @@ export const PermisoUsuarioTreePopup = ({ isOpen, user, onClose, onSaved }: Perm
                             <Button size="sm" color="secondary" onClick={onClose}>
                                 Cancelar
                             </Button>
-                            <Button size="sm" color="primary" iconLeading={Check} isLoading={isSaving} onClick={handleSave}>
+                            <Button size="sm" color="primary" iconLeading={Check} isLoading={isSaving} isDisabled={isLoading || loadFailed} onClick={handleSave}>
                                 Guardar Permisos
                             </Button>
                         </div>

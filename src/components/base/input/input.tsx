@@ -33,6 +33,8 @@ export interface InputBaseProps extends Omit<AriaInputProps, "size"> {
     tooltipClassName?: string;
     /** Keyboard shortcut to display. */
     shortcut?: string | boolean;
+    /** Shows an animated spinner at the end of the input, e.g. while validating the value. */
+    isLoading?: boolean;
     ref?: Ref<HTMLInputElement>;
     groupRef?: Ref<HTMLDivElement>;
     /** Icon component to display on the left side of the input. */
@@ -48,6 +50,7 @@ export const InputBase = ({
     isInvalid,
     isDisabled,
     isRequired,
+    isLoading,
     icon: Icon,
     placeholder,
     wrapperClassName,
@@ -126,6 +129,7 @@ export const InputBase = ({
                 {...(inputProps as AriaInputProps)}
                 ref={ref}
                 required={isRequired}
+                aria-busy={isLoading || undefined}
                 type={type === "password" && isPasswordVisible ? "text" : type}
                 placeholder={placeholder}
                 className={cx(
@@ -162,6 +166,19 @@ export const InputBase = ({
                         tooltipClassName,
                     )}
                 />
+            )}
+
+            {/* Loading spinner */}
+            {isLoading && (
+                <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    className={cx("pointer-events-none absolute size-4 animate-spin text-fg-brand-primary", sizes[inputSize].iconTrailing)}
+                >
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                </svg>
             )}
 
             {/* Password visibility toggle */}
@@ -239,6 +256,7 @@ export interface InputProps
             | "inputClassName"
             | "iconClassName"
             | "tooltipClassName"
+            | "isLoading"
         > {
     /** Label text for the input */
     label?: string;
@@ -260,6 +278,7 @@ export const Input = ({
     ref,
     groupRef,
     tooltip,
+    isLoading,
     iconClassName,
     inputClassName,
     wrapperClassName,
@@ -290,6 +309,7 @@ export const Input = ({
                             wrapperClassName,
                             tooltipClassName,
                             tooltip,
+                            isLoading,
                             type,
                         }}
                     />

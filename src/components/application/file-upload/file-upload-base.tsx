@@ -26,6 +26,8 @@ export const getReadableFileSize = (bytes: number) => {
 };
 
 interface FileUploadDropZoneProps {
+    /** Optional localized labels; existing consumers keep the default wording. */
+    labels?: { upload: string; attach: string; drag: string };
     /** The class name of the drop zone. */
     className?: string;
     /**
@@ -67,6 +69,7 @@ interface FileUploadDropZoneProps {
 }
 
 export const FileUploadDropZone = ({
+    labels = { upload: "Click to upload", attach: "and attach files", drag: "or drag and drop" },
     className,
     hint,
     isDisabled,
@@ -221,10 +224,10 @@ export const FileUploadDropZone = ({
                     />
                     <label htmlFor={id} className="flex cursor-pointer">
                         <Button color="link-color" size="md" isDisabled={isDisabled} onClick={() => inputRef.current?.click()}>
-                            Click to upload <span className="md:hidden">and attach files</span>
+                            {labels.upload} <span className="md:hidden">{labels.attach}</span>
                         </Button>
                     </label>
-                    <span className="text-sm max-md:hidden">or drag and drop</span>
+                    <span className="text-sm max-md:hidden">{labels.drag}</span>
                 </div>
                 <p className={cx("text-xs transition duration-100 ease-linear", isInvalid && "text-error-primary")}>
                     {hint || "SVG, PNG, JPG or GIF (max. 800x400px)"}

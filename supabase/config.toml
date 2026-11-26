@@ -1,0 +1,2 @@
+[functions.calificacion-publica]
+verify_jwt = false

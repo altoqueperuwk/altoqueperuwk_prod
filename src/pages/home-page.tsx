@@ -1,9 +1,15 @@
 import { AppLayout } from "@/components/application/app-layout";
 import { useAuth } from "@/providers/auth-provider";
+import { Navigate } from "react-router";
+import { useSessionCache } from "@/providers/session-cache-provider";
+import { isCompensacionAdvisor } from "@/features/compensaciones/shared/compensacion-perfil";
 
 export function HomePage() {
-    const { user } = useAuth();
+    const { user, businessUser } = useAuth();
+    const { navegacion, isLoading } = useSessionCache();
     const userName = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Usuario";
+    if (isCompensacionAdvisor(businessUser) && !isLoading && navegacion?.rutas_permitidas.includes("/compensaciones/resumen"))
+        return <Navigate to="/compensaciones/resumen" replace />;
 
     return (
         <AppLayout>

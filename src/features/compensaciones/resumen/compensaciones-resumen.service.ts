@@ -3,19 +3,16 @@ import type { CompensacionPeriodo } from "./compensaciones-resumen.types";
 
 type JsonRecord = Record<string, unknown>;
 
-const asRecord = (value: unknown): JsonRecord =>
-    value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
+const asRecord = (value: unknown): JsonRecord => (value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {});
 
 const asNumber = (value: unknown) => {
     const parsed = Number(value ?? 0);
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const asNullableNumber = (value: unknown) =>
-    value === null || value === undefined ? null : asNumber(value);
+const asNullableNumber = (value: unknown) => (value === null || value === undefined ? null : asNumber(value));
 
-const asNullableString = (value: unknown) =>
-    value === null || value === undefined || value === "" ? null : String(value);
+const asNullableString = (value: unknown) => (value === null || value === undefined || value === "" ? null : String(value));
 
 const mapPeriodo = (value: unknown): CompensacionPeriodo => {
     const row = asRecord(value);
@@ -32,11 +29,6 @@ const mapPeriodo = (value: unknown): CompensacionPeriodo => {
         fechaApertura: asNullableString(row.fecha_apertura),
         fechaAprobacion: asNullableString(row.fecha_aprobacion),
         fechaCierre: asNullableString(row.fecha_cierre),
-        totalLiquidaciones: asNullableNumber(row.total_liquidaciones),
-        liquidacionesPendientes: asNullableNumber(row.liquidaciones_pendientes),
-        totalPagar: asNullableNumber(row.total_pagar),
-        totalPagado: asNullableNumber(row.total_pagado),
-        solicitudesAsistenciaPendientes: asNullableNumber(row.solicitudes_asistencia_pendientes),
         eventosPendientes: asNullableNumber(row.eventos_pendientes),
         tieneCierreVigente: Boolean(row.tiene_cierre_vigente),
     };
@@ -55,4 +47,3 @@ export const compensacionesResumenService = {
         return (Array.isArray(data) ? data : []).map(mapPeriodo);
     },
 };
-

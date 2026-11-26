@@ -1,5 +1,8 @@
-import { useLocation } from "react-router";
 import { ChevronRight } from "@untitledui/icons";
+import { useLocation } from "react-router";
+import { useCompensacionPerfil } from "@/features/compensaciones/shared/compensacion-perfil";
+import { compensacionesMenuLabel } from "@/features/compensaciones/shared/compensaciones-navigation";
+import { useAtkBrand } from "@/hooks/use-atk-brand";
 import { cx } from "@/utils/cx";
 
 const routeLabels: Record<string, string> = {
@@ -19,16 +22,26 @@ const routeLabels: Record<string, string> = {
     "/sistema": "Sistema",
     "/atencion": "Atencion al Cliente",
     "/atencion/cliente": "Clientes",
+    "/atencion/mi-enlace-qr": "Mi enlace y QR",
     "/compensaciones": "Compensaciones",
     "/compensaciones/resumen": "Resumen",
     "/compensaciones/colaboradores": "Colaboradores",
-    "/compensaciones/asistencia": "Asistencia",
-    "/compensaciones/evidencias": "Evidencias",
-    "/compensaciones/incidencias": "Incidencias",
-    "/compensaciones/liquidaciones": "Liquidaciones",
-    "/compensaciones/cierres": "Cierres",
+    "/compensaciones/evidencias": "Todos los registros",
+    "/compensaciones/calificaciones": "Atención Calificada",
+    "/compensaciones/llamadas": "Llamadas",
+    "/compensaciones/tarjetas-erroneas": "Tarjetas erróneas",
+    "/compensaciones/auditoria-operaciones": "Auditoría Operaciones",
+    "/compensaciones/indisciplina-colaborador": "Indisciplina Colaborador",
+    "/compensaciones/penalidad-escalonada-bonos": "Penalidad Escalonada Bonos",
+    "/compensaciones/referidos": "Referidos",
+    "/compensaciones/atenciones": "Registro Nuevo",
+    "/compensaciones/otros-bonos": "Otros bonos",
+    "/compensaciones/auditoria-activa": "Auditoría de Pagos",
+    "/compensaciones/incidencias": "Incidencias del equipo",
+    "/compensaciones/mis-bonos-descuentos": "Mis Bonos y Penalidades",
+    "/compensaciones/bonos-mes": "Bonos del mes",
     "/compensaciones/configuracion": "Configuración",
-    "/compensaciones/reportes": "Reportes",
+    "/compensaciones/reportes": "Reporte de Bonos",
     "/operaciones": "Operaciones",
     "/operaciones/bcp": "BCP",
     "/operaciones/bbva": "BBVA",
@@ -52,41 +65,35 @@ const routeLabels: Record<string, string> = {
 };
 
 export const Breadcrumb = () => {
-    const { pathname } = useLocation();
+    const { pathname, search } = useLocation();
+    const compact = pathname.startsWith("/compensaciones/");
+    const { isAdministrator, isStoreManager, isResolving } = useCompensacionPerfil();
+    // Quien no administra ve en /resumen su lista personal de bonos y penalidades (Jefatura conserva su menú propio).
+    const personalResumen = pathname === "/compensaciones/resumen" && !search && !isAdministrator && !isStoreManager && !isResolving;
+    useAtkBrand(pathname.startsWith("/compensaciones"));
 
     return (
-        <nav aria-label="Breadcrumb" className="flex items-center gap-2">
-            <span
-                className={cx(
-                    "text-sm",
-                    pathname === "/" ? "text-primary font-medium" : "text-tertiary",
-                )}
-            >
-                Home
-            </span>
+        <nav aria-label="Breadcrumb" className={cx("flex items-center gap-2", compact && "min-w-0 flex-1")}>
+            <span className={cx("shrink-0 text-sm", pathname === "/" ? "font-medium text-primary" : "text-tertiary")}>Home</span>
             {pathname !== "/" &&
                 pathname
                     .split("/")
                     .filter(Boolean)
                     .map((_segment, index, segments) => {
                         const fullPath = "/" + segments.slice(0, index + 1).join("/");
-                        const label =
+                        const fallbackLabel =
                             routeLabels[fullPath] ||
-                            segments[index].charAt(0).toUpperCase() + segments[index].slice(1);
+                            (pathname.startsWith("/compensaciones/otros-bonos/") && index === 2
+                                ? segments[index].replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase())
+                                : segments[index].charAt(0).toUpperCase() + segments[index].slice(1));
                         const isLast = index === segments.length - 1;
+                        const label =
+                            isLast && personalResumen ? "Mis Bonos y Penalidades" : compensacionesMenuLabel(fallbackLabel, fullPath + (isLast ? search : ""));
 
                         return (
-                            <span key={fullPath} className="flex items-center gap-2">
-                                <ChevronRight
-                                    className="size-4 text-tertiary"
-                                    aria-hidden="true"
-                                />
-                                <span
-                                    className={cx(
-                                        "text-sm",
-                                        isLast ? "text-primary font-medium" : "text-tertiary",
-                                    )}
-                                >
+                            <span key={fullPath} className={cx("flex items-center gap-2", compact && (isLast ? "min-w-0" : "hidden shrink-0 sm:flex"))}>
+                                <ChevronRight className="size-4 shrink-0 text-tertiary" aria-hidden="true" />
+                                <span title={label} className={cx("text-sm", compact && "truncate", isLast ? "font-medium text-primary" : "text-tertiary")}>
                                     {label}
                                 </span>
                             </span>

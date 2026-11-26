@@ -59,8 +59,9 @@ export const NavItemBase = ({ accentColor, current, type, badge, href, icon: Ico
     const labelElement = (
         <span
             className={cx(
-                "flex-1 text-sm font-semibold text-secondary transition-inherit-all group-hover/item:text-secondary_hover",
+                "min-w-0 flex-1 text-sm font-semibold text-secondary transition-inherit-all group-hover/item:text-secondary_hover",
                 truncate && "truncate",
+                !truncate && "whitespace-normal break-words leading-5",
                 current && "text-secondary_hover",
             )}
         >
@@ -92,20 +93,12 @@ export const NavItemBase = ({ accentColor, current, type, badge, href, icon: Ico
                 target={isExternal ? "_blank" : "_self"}
                 rel="noopener noreferrer"
                 style={accentStyle}
-                className={cx(
-                    "py-2 pr-3 pl-10",
-                    styles.root,
-                    current && styles.rootSelected,
-                )}
+                className={cx("group/item py-2 pr-3", Icon ? "pl-2" : "pl-10", styles.root, !truncate && "max-h-none", current && styles.rootSelected)}
                 onClick={onClick}
                 aria-current={current ? "page" : undefined}
             >
-                {accentColor && (
-                    <span
-                        aria-hidden="true"
-                        className="mr-2 size-2 shrink-0 rounded-full bg-[var(--nav-accent)]"
-                    />
-                )}
+                {iconElement}
+                {accentColor && <span aria-hidden="true" className="mr-2 size-2 shrink-0 rounded-full bg-[var(--nav-accent)]" />}
                 {labelElement}
                 {externalIcon}
                 {badgeElement}
@@ -119,7 +112,7 @@ export const NavItemBase = ({ accentColor, current, type, badge, href, icon: Ico
             target={isExternal ? "_blank" : "_self"}
             rel="noopener noreferrer"
             style={accentStyle}
-            className={cx("group/item p-2", styles.root, current && styles.rootSelected)}
+            className={cx("group/item p-2", styles.root, !truncate && "max-h-none", current && styles.rootSelected)}
             onClick={onClick}
             aria-current={current ? "page" : undefined}
         >

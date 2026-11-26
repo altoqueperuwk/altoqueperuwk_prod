@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -24,6 +24,7 @@ interface AuthContextType {
     user: User | null;
     session: Session | null;
     businessUser: BusinessUser | null;
+    isBusinessUserLoading: boolean;
     isAuthenticated: boolean;
     isLoading: boolean;
     signIn: (email: string, password: string) => Promise<{ error?: string }>;
@@ -31,6 +32,9 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+/** Lectura de perfil sin iniciar ni modificar la sesión. */
+export const useOptionalAuth = () => useContext(AuthContext);
 
 export const useAuth = (): AuthContextType => {
     const context = useContext(AuthContext);
@@ -48,19 +52,43 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     const [user, setUser] = useState<User | null>(null);
     const [session, setSession] = useState<Session | null>(null);
     const [businessUser, setBusinessUser] = useState<BusinessUser | null>(null);
+    const [isBusinessUserLoading, setIsBusinessUserLoading] = useState(true);
     const [isLoading, setIsLoading] = useState(true);
+    const profileRequest = useRef(0);
+    const profileOwner = useRef<string | null>(null);
 
-    const fetchBusinessUser = useCallback(async (sessionUser: User) => {
+    const fetchBusinessUser = useCallback(async (sessionUser: User, force = false) => {
+        // INITIAL_SESSION/getSession y SIGNED_IN al volver a la ventana pueden
+        // referirse a la misma identidad. No desmontar sus formularios/filtros.
+        if (!force && profileOwner.current === sessionUser.id) return;
+        profileOwner.current = sessionUser.id;
+        const requestId = ++profileRequest.current;
+        setIsBusinessUserLoading(true);
+        setBusinessUser(null);
+        const timer = setTimeout(() => {
+            if (profileRequest.current !== requestId) return;
+            profileRequest.current += 1;
+            profileOwner.current = null;
+            setBusinessUser(null);
+            setIsBusinessUserLoading(false);
+        }, 20_000);
         try {
             const { data, error } = await supabase.rpc("f_get_tb_usuario", {
                 p_email: sessionUser.email,
             });
             if (error) throw error;
+            if (profileRequest.current !== requestId) return;
             if (data && Array.isArray(data) && data.length > 0) {
                 setBusinessUser(data[0] as BusinessUser);
-            }
+            } else profileOwner.current = null;
         } catch {
-            setBusinessUser(null);
+            if (profileRequest.current === requestId) {
+                profileOwner.current = null;
+                setBusinessUser(null);
+            }
+        } finally {
+            clearTimeout(timer);
+            if (profileRequest.current === requestId) setIsBusinessUserLoading(false);
         }
     }, []);
 
@@ -73,26 +101,36 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             setUser(currentSession?.user ?? null);
             if (currentSession?.user) {
                 fetchBusinessUser(currentSession.user);
+            } else {
+                profileRequest.current += 1;
+                profileOwner.current = null;
+                setBusinessUser(null);
+                setIsBusinessUserLoading(false);
             }
             setIsLoading(false);
         }).catch(() => {
             if (mounted) {
                 setUser(null);
                 setSession(null);
+                setBusinessUser(null);
+                setIsBusinessUserLoading(false);
                 setIsLoading(false);
             }
         });
 
         const {
             data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+        } = supabase.auth.onAuthStateChange((event, currentSession) => {
             if (!mounted) return;
             setSession(currentSession);
             setUser(currentSession?.user ?? null);
             if (currentSession?.user) {
-                fetchBusinessUser(currentSession.user);
+                fetchBusinessUser(currentSession.user, event === "USER_UPDATED");
             } else {
+                profileRequest.current += 1;
+                profileOwner.current = null;
                 setBusinessUser(null);
+                setIsBusinessUserLoading(false);
             }
         });
 
@@ -118,8 +156,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     const isAuthenticated = !!user;
 
     const value = useMemo<AuthContextType>(
-        () => ({ user, session, businessUser, isAuthenticated, isLoading, signIn, signOut }),
-        [user, session, businessUser, isAuthenticated, isLoading, signIn, signOut],
+        () => ({ user, session, businessUser, isBusinessUserLoading, isAuthenticated, isLoading, signIn, signOut }),
+        [user, session, businessUser, isBusinessUserLoading, isAuthenticated, isLoading, signIn, signOut],
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

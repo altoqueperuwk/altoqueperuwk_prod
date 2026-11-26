@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import type { ExportacionHistorial, ReportePayload, ReporteTipo } from "./reportes.types";
+import type { ExportacionHistorial, ReportePayload } from "./reportes.types";
 
 type JsonRecord = Record<string, unknown>;
 const recordValue = (value: unknown): JsonRecord => (value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {});
@@ -10,49 +10,17 @@ const rpc = async <T>(name: string, params: JsonRecord): Promise<T> => {
     if (error) throw error;
     return data as T;
 };
-const functions: Record<ReporteTipo, string> = {
-    FINANCIERO: "f_get_tb_compensacion_reporte_financiero",
-    SEDES: "f_get_tb_compensacion_reporte_sedes",
-    CONCEPTOS: "f_get_tb_compensacion_reporte_conceptos",
-    ASISTENCIA: "f_get_tb_compensacion_reporte_asistencia",
-    PRODUCTIVIDAD: "f_get_tb_compensacion_reporte_productividad",
-    PAGOS: "f_get_tb_compensacion_reporte_pagos",
-};
 
 export const reportesService = {
-    async getReport(type: ReporteTipo, periodId: number, branchId: number): Promise<ReportePayload> {
-        const params: JsonRecord = { p_id_periodo: periodId, p_id_sucursal: branchId || null };
-        if (type !== "SEDES") params.p_id_colaborador = null;
-        if (type === "CONCEPTOS") params.p_categoria = null;
-        const row = recordValue(await rpc<unknown>(functions[type], params));
-        const items = arrayValue(row.items);
-        let summary = recordValue(row.resumen);
-        if (type === "CONCEPTOS")
-            summary = {
-                total_ingresos: numberValue(row.total_ingresos),
-                total_descuentos: numberValue(row.total_descuentos),
-                total_neto: numberValue(row.total_neto),
-                total_conceptos: items.length,
-            };
-        if (type === "SEDES")
-            summary = items.reduce<JsonRecord>(
-                (total, item) => ({
-                    total_sedes: numberValue(total.total_sedes) + 1,
-                    total_colaboradores: numberValue(total.total_colaboradores) + numberValue(item.total_colaboradores),
-                    total_pagar: numberValue(total.total_pagar) + numberValue(item.total_pagar),
-                    total_pendiente: numberValue(total.total_pendiente) + numberValue(item.total_pendiente),
-                }),
-                { total_sedes: 0, total_colaboradores: 0, total_pagar: 0, total_pendiente: 0 },
-            );
-        return {
-            periodo: String(row.periodo ?? ""),
-            estadoPeriodo: String(row.estado_periodo ?? ""),
-            fuente: String(row.fuente ?? ""),
-            resumen: summary,
-            resumenSedes: arrayValue(row.resumen_sedes),
-            items,
-            nota: String(row.nota_cierre ?? row.regla_atribucion_sede ?? ""),
-        };
+    async getReport(periodId: number, branchId: number): Promise<ReportePayload> {
+        const row = recordValue(
+            await rpc<unknown>("f_get_tb_compensacion_reporte_financiero", {
+                p_id_periodo: periodId,
+                p_id_sucursal: branchId || null,
+                p_id_colaborador: null,
+            }),
+        );
+        return { periodo: String(row.periodo ?? ""), resumen: recordValue(row.resumen), items: arrayValue(row.items) };
     },
     async getExports(periodId: number): Promise<ExportacionHistorial[]> {
         const row = recordValue(
@@ -67,11 +35,9 @@ export const reportesService = {
         );
         return arrayValue(row.items).map((item) => ({
             id: numberValue(item.id),
-            tipoReporte: String(item.tipo_reporte ?? ""),
             formato: String(item.formato ?? ""),
             nombreArchivo: String(item.nombre_archivo ?? ""),
             totalRegistros: numberValue(item.total_registros),
-            totalReportado: item.total_reportado === null || item.total_reportado === undefined ? null : numberValue(item.total_reportado),
             estado: String(item.estado_exportacion ?? ""),
             fechaRegistro: String(item.fecha_registro ?? ""),
         }));

@@ -1,6 +1,8 @@
 import type { FC, ReactNode } from "react";
 
 export type NavItemType = {
+    /** Non-interactive section heading within a menu. */
+    sectionHeading?: boolean;
     /** Label text for the nav item. */
     label: string;
     /** URL to navigate to when the nav item is clicked. */
@@ -12,7 +14,7 @@ export type NavItemType = {
     /** Optional route accent color. */
     accentColor?: string;
     /** List of sub-items to display. */
-    items?: { label: string; href: string; icon?: FC<{ className?: string }>; badge?: ReactNode; accentColor?: string }[];
+    items?: NavItemType[];
     /** Whether this nav item is a divider. */
     divider?: boolean;
 };

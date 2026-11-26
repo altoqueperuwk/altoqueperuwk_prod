@@ -26,9 +26,12 @@ const getExpectedDocumentoLength = (tipoDocumento: number) => (Number(tipoDocume
 export const useClienteLookup = (numeroDocumento: string, tipoDocumento = 1) => {
     const [result, setResult] = useState<ClienteLookupResult | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState("");
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
+        let active = true;
+        setError("");
         const cleanDocumento = numeroDocumento.replace(/\D/g, "");
         if (cleanDocumento.length !== getExpectedDocumentoLength(tipoDocumento)) {
             setResult(null);
@@ -44,8 +47,9 @@ export const useClienteLookup = (numeroDocumento: string, tipoDocumento = 1) => 
             clienteService
                 .getList({ p_tipo_documento: tipoDocumento, p_numero_documento: cleanDocumento, p_id_estado: 1 })
                 .then((rows) => {
-                    if (rows.length > 0) {
-                        const row = rows[0];
+                    if (!active) return;
+                    const row = rows.find((candidate) => String(candidate.numero_documento).trim() === cleanDocumento);
+                    if (row) {
                         setResult({
                             id: Number(row.id),
                             nombre: String(row.nombre ?? ""),
@@ -56,14 +60,21 @@ export const useClienteLookup = (numeroDocumento: string, tipoDocumento = 1) => 
                         setResult(null);
                     }
                 })
-                .catch(() => setResult(null))
-                .finally(() => setIsLoading(false));
+                .catch(() => {
+                    if (!active) return;
+                    setResult(null);
+                    setError("No se pudo consultar el cliente. Intenta nuevamente o ingresa sus datos manualmente.");
+                })
+                .finally(() => {
+                    if (active) setIsLoading(false);
+                });
         }, 500);
 
         return () => {
+            active = false;
             if (timerRef.current) clearTimeout(timerRef.current);
         };
     }, [numeroDocumento, tipoDocumento]);
 
-    return { result, isLoading };
+    return { result, isLoading, error };
 };

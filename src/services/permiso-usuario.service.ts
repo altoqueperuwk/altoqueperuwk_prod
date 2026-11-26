@@ -48,6 +48,7 @@ export const permisoUsuarioService = {
       p_id_usuario_registra: idUsuarioRegistra,
     });
     if (error) throw error;
+    window.dispatchEvent(new CustomEvent("permisos-usuario-actualizados", { detail: { idUsuario } }));
     return data as Record<string, unknown>;
   },
 };

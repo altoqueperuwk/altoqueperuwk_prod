@@ -49,6 +49,9 @@ export interface IncidenciaRevision {
 
 export interface IncidenciaEvento {
     id: number;
+    usuarioRegistraId?: number;
+    reportanteId?: number | null;
+    responsableId?: number | null;
     idTipoEvento: number;
     idPenalidadTipo: number;
     tipoEventoNombre: string;
@@ -67,6 +70,12 @@ export interface IncidenciaEvento {
     titulo: string | null;
     motivo: string | null;
     evidencia: unknown[];
+    datos?: Record<string, unknown>;
+    /** Solo en Incidencias del equipo: ENVIADAS = la registró el Jefe; RECIBIDAS = otro perfil contra su equipo. */
+    direccion?: "ENVIADAS" | "RECIBIDAS";
+    clienteNombre?: string | null;
+    clienteDocumento?: string | null;
+    operaciones?: { codigo: string | null; tipo: string | null }[];
     estado: IncidenciaEstado;
     importeAprobado: number | null;
     usuarioRegistraNombre: string;
@@ -89,6 +98,7 @@ export interface IncidenciasResult {
 }
 
 export interface IncidenciaCreateValues {
+    montoPerdido?: string;
     idTipoEvento: number;
     idPenalidadTipo: number;
     idReportante: number | null;
@@ -101,4 +111,22 @@ export interface IncidenciaCreateValues {
     clienteDocumento: string;
     clienteNombre: string;
     operacionId: number | null;
+    operaciones?: OperacionCliente[];
+}
+
+/** Operación de Efectivización o Pago de Deuda del cliente, solo para adjuntar como sustento. */
+export interface OperacionCliente {
+    id: number;
+    tipo: string;
+    codigo: string | null;
+    monto: number | null;
+    fecha: string | null;
+    estado: string | null;
+}
+
+export interface EquipoIncidenciasResumen {
+    recibidasPendientes: number;
+    enviadasPendientes: number;
+    aprobadas: number;
+    rechazadas: number;
 }

@@ -21,7 +21,8 @@ export const useCompensacionesResumen = () => {
         setIsLoading(true);
         setError(null);
 
-        compensacionesResumenService.getPeriodos()
+        compensacionesResumenService
+            .getPeriodos()
             .then((result) => {
                 if (active) setPeriodos(result);
             })
@@ -41,4 +42,3 @@ export const useCompensacionesResumen = () => {
 
     return { periodos, isLoading, error, refresh };
 };
-

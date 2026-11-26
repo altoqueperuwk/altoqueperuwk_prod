@@ -1,5 +1,17 @@
 export type EvidenciaCategoria = "CALIFICACION" | "LLAMADA" | "TARJETA_TERCERO" | "REFERIDO" | "OTRO";
 
+export interface LlamadaContexto {
+    puedeElegirColaborador?: boolean;
+    colaboradores?: Array<{ id: number; nombre: string; sede: string }>;
+    idUsuario: number;
+    idColaborador: number | null;
+    puedeRegistrar: boolean;
+    puedeAprobar: boolean;
+    puedeRevisar: boolean;
+    puedeAgregarEfectivizacion?: boolean;
+    puedeRevertir?: boolean;
+}
+
 export type EvidenciaEstado = "BORRADOR" | "PENDIENTE" | "APROBADO" | "RECHAZADO" | "ANULADO" | "LIQUIDADO";
 
 export interface EvidenciaTipo {
@@ -35,6 +47,11 @@ export interface EvidenciaRevision {
 }
 
 export interface EvidenciaEvento {
+    fechaActualizacion?: string;
+    calificacionValida?: boolean;
+    usuarioRegistraId?: number | null;
+    idColaboradorBeneficiario?: number | null;
+    idColaboradorResponsable?: number | null;
     id: number;
     idTipoEvento: number;
     tipoCodigo: string;
@@ -55,6 +72,7 @@ export interface EvidenciaEvento {
     baseCalculo: number | null;
     cantidad: number | null;
     tarifaAplicada: number | null;
+    tarifaRegistro?: { tipoCalculo: string; valor: number } | null;
     importeAprobado: number | null;
     usuarioRegistraNombre: string;
     fechaRegistro: string;
@@ -93,4 +111,60 @@ export interface EvidenciaCreateValues {
     operacionId: number | null;
     evidenciaUrl: string;
     estrellas: number | null;
+}
+
+export interface TiktokOperacionLookup {
+    id: number;
+    codigo: string;
+    id_cliente: number;
+    dni: string;
+    cliente: string;
+    servicio: string;
+    monto: number;
+    fecha_deposito: string | null;
+    estado: string;
+    elegible: boolean;
+    motivo: string | null;
+}
+
+export interface TiktokEvidenceAttachment {
+    tipo: "IMAGEN_TIKTOK";
+    bucket: "compensaciones-tiktok-live";
+    path: string;
+    nombre: string;
+    mime_type: string;
+    size: number;
+}
+
+export interface CalificacionPolitica {
+    dni_obligatorio: boolean;
+    comentario_obligatorio: boolean;
+    asesor_obligatorio: boolean;
+}
+
+export interface CalificacionesResult {
+    puedeAdministrar?: boolean;
+    items: EvidenciaEvento[];
+    total: number;
+    totalPages: number;
+    pendientes: number;
+    aprobados: number;
+    noValidas: number;
+    importeAprobado: number;
+    politica: CalificacionPolitica;
+    puedeConfigurar: boolean;
+    asesores: Array<{ id: number; nombre: string }>;
+    ranking: Array<{ id: number; nombre: string; cantidad: number }>;
+    distribucion: Array<{ estrellas: number; cantidad: number }>;
+}
+
+export interface InnovacionImplementacion {
+    version: string;
+    comprobada: boolean;
+    puedeRevisar: boolean;
+    bloqueado: boolean;
+    constancia: { fecha: string; evidencia: string; motivo: string } | null;
+    /** true cuando Administración fija el importe (innovación de Jefatura). */
+    importeVariable?: boolean;
+    importeFijado?: number | null;
 }

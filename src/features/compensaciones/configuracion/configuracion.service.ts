@@ -1,18 +1,6 @@
 import { supabase } from "@/lib/supabase";
-import type {
-    Acceso,
-    Cargo,
-    Concepto,
-    ConfiguracionCatalogos,
-    EventoTipo,
-    Jornada,
-    MetaSede,
-    PenalidadTipo,
-    Plan,
-    PlanVersion,
-    Regla,
-    UsuarioAcceso,
-} from "./configuracion.types";
+import type { CambioParametro } from "./configuracion-parametros";
+import type { Acceso, Cargo, Concepto, EventoTipo, PenalidadTipo, Plan, PlanVersion, Regla, UsuarioAcceso } from "./configuracion.types";
 
 type JsonRecord = Record<string, unknown>;
 const recordValue = (value: unknown): JsonRecord => (value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {});
@@ -26,14 +14,35 @@ const rpc = async <T>(name: string, params: JsonRecord): Promise<T> => {
     return data as T;
 };
 
+export interface ComunidadCalificacion {
+    id: number;
+    nombre: string;
+    elegible: boolean;
+}
+export interface ComunidadesCalificacion {
+    /** false: la lista aún no se configuró y no se restringe por comunidad. */
+    configurado: boolean;
+    comunidades: ComunidadCalificacion[];
+}
+const comunidadesCalificacion = (value: unknown): ComunidadesCalificacion => {
+    const data = recordValue(value);
+    if (typeof data.configurado !== "boolean" || !Array.isArray(data.comunidades))
+        throw new Error("No se pudo verificar la lista de comunidades. Actualiza antes de guardar.");
+    return {
+        configurado: data.configurado,
+        comunidades: arrayValue(data.comunidades).map((row) => ({ id: numberValue(row.id), nombre: stringValue(row.nombre), elegible: row.elegible === true })),
+    };
+};
+
 export const configuracionService = {
-    async getCatalogs(): Promise<ConfiguracionCatalogos> {
-        const [states, branches] = await Promise.all([rpc<unknown[]>("f_get_tb_estado", { p_id: null }), rpc<unknown[]>("f_get_tb_sucursal", { p_id: null })]);
-        return {
-            estados: arrayValue(states).map((row) => ({ id: numberValue(row.id), nombre: stringValue(row.nombre) })),
-            sucursales: arrayValue(branches).map((row) => ({ id: numberValue(row.id), nombre: stringValue(row.nombre) })),
-        };
-    },
+    getRatingCommunities: async () => comunidadesCalificacion(await rpc<unknown>("f_get_compensacion_calificacion_comunidades", {})),
+    saveRatingCommunities: async (ids: number[]) => comunidadesCalificacion(await rpc<unknown>("f_put_compensacion_calificacion_comunidades", { p_ids: ids })),
+    prepareConfiguration: () => rpc<{ id_configuracion: number; creada: boolean }>("f_post_compensacion_configuracion_preparar", {}),
+    saveParameters: (versionId: number, changes: CambioParametro[]) =>
+        rpc<{ parametros_guardados: number; tarifas_desde?: string }>("f_post_compensacion_configuracion_guardar", {
+            p_id_plan_version: versionId,
+            p_cambios: changes,
+        }),
     async getPlans(): Promise<Plan[]> {
         const data = await rpc<unknown[]>("f_get_tb_compensacion_plan", { p_busqueda: null, p_id: null, p_id_estado: null });
         return arrayValue(data).map((row) => ({
@@ -158,43 +167,6 @@ export const configuracionService = {
             p_nombre: value.nombre,
             p_orden: Number(value.orden),
         }),
-    async getJornadas(): Promise<Jornada[]> {
-        const data = await rpc<unknown[]>("f_get_tb_compensacion_jornada", { p_busqueda: null, p_id: null, p_id_estado: null });
-        return arrayValue(data).map((row) => ({
-            id: numberValue(row.id),
-            codigo: stringValue(row.codigo),
-            nombre: stringValue(row.nombre),
-            modalidad: stringValue(row.modalidad),
-            horaEntrada: stringValue(row.hora_entrada).slice(0, 5),
-            horaSalida: stringValue(row.hora_salida).slice(0, 5),
-            minutosTolerancia: numberValue(row.minutos_tolerancia),
-            minutosDescanso: numberValue(row.minutos_descanso),
-            diasSemana: Array.isArray(row.dias_semana) ? row.dias_semana.map(numberValue) : [],
-            cruzaMedianoche: Boolean(row.cruza_medianoche),
-            idEstado: numberValue(row.id_estado),
-            estado: stringValue(row.estado_nombre),
-        }));
-    },
-    saveJornada(id: number | null, value: JsonRecord) {
-        const days = String(value.diasSemana ?? "")
-            .split(",")
-            .map((day) => Number(day.trim()))
-            .filter((day, index, values) => Number.isInteger(day) && day >= 1 && day <= 7 && values.indexOf(day) === index);
-        if (!days.length) throw new Error("Ingresa al menos un día válido entre 1 y 7");
-        return rpc(id ? "f_patch_tb_compensacion_jornada" : "f_post_tb_compensacion_jornada", {
-            ...(id ? { p_id: id } : {}),
-            p_codigo: value.codigo,
-            p_cruza_medianoche: value.cruzaMedianoche === "SI",
-            p_dias_semana: days,
-            p_hora_entrada: value.horaEntrada,
-            p_hora_salida: value.horaSalida,
-            p_id_estado: value.idEstado || null,
-            p_minutos_descanso: Number(value.minutosDescanso),
-            p_minutos_tolerancia: Number(value.minutosTolerancia),
-            p_modalidad: value.modalidad,
-            p_nombre: value.nombre,
-        });
-    },
     async getEventTypes(): Promise<EventoTipo[]> {
         const data = await rpc<unknown[]>("f_get_tb_compensacion_evento_tipo", {
             p_busqueda: null,
@@ -347,42 +319,6 @@ export const configuracionService = {
             p_valor_minimo: value.valorMinimo === "" ? null : Number(value.valorMinimo),
         });
     },
-    async getGoals(versionId?: number): Promise<MetaSede[]> {
-        const data = await rpc<unknown[]>("f_get_tb_compensacion_meta_sede", {
-            p_codigo_indicador: null,
-            p_id: null,
-            p_id_estado: null,
-            p_id_plan_version: versionId || null,
-            p_id_sucursal: null,
-            p_periodo: null,
-        });
-        return arrayValue(data).map((row) => ({
-            id: numberValue(row.id),
-            idPlanVersion: numberValue(row.id_plan_version),
-            planNombre: stringValue(row.plan_nombre),
-            numeroVersion: numberValue(row.numero_version),
-            estadoVersion: stringValue(row.estado_version),
-            idSucursal: numberValue(row.id_sucursal),
-            sucursalNombre: stringValue(row.sucursal_nombre),
-            codigoIndicador: stringValue(row.codigo_indicador),
-            periodo: stringValue(row.periodo),
-            valorMeta: numberValue(row.valor_meta),
-            unidad: stringValue(row.unidad),
-            idEstado: numberValue(row.id_estado),
-            estado: stringValue(row.estado_nombre),
-        }));
-    },
-    saveGoal: (id: number | null, value: JsonRecord) =>
-        rpc(id ? "f_patch_tb_compensacion_meta_sede" : "f_post_tb_compensacion_meta_sede", {
-            ...(id ? { p_id: id } : { p_id_plan_version: value.idPlanVersion }),
-            p_codigo_indicador: value.codigoIndicador,
-            p_configuracion: {},
-            p_id_estado: value.idEstado || null,
-            p_id_sucursal: value.idSucursal,
-            p_periodo: `${value.periodo}-01`,
-            p_unidad: value.unidad,
-            p_valor_meta: Number(value.valorMeta),
-        }),
     async getPenalties(versionId?: number): Promise<PenalidadTipo[]> {
         const data = await rpc<unknown[]>("f_get_tb_compensacion_penalidad_tipo", {
             p_busqueda: null,
@@ -409,6 +345,7 @@ export const configuracionService = {
             montoReferencia: numberValue(row.monto_referencia),
             montoBono: nullableNumber(row.monto_bono_reportante),
             requiereRespuesta: Boolean(row.requiere_respuesta),
+            configuracion: recordValue(row.configuracion),
             idEstado: numberValue(row.id_estado),
             estado: stringValue(row.estado_nombre),
         }));
@@ -419,7 +356,7 @@ export const configuracionService = {
                 ? { p_id: id, p_limpiar_bono_reportante: !value.idConceptoBono, p_limpiar_cargo: !value.idCargo }
                 : { p_id_plan_version: value.idPlanVersion }),
             p_codigo: value.codigo,
-            p_configuracion: {},
+            p_configuracion: typeof value.configuracionOriginal === "string" ? recordValue(JSON.parse(value.configuracionOriginal || "{}")) : {},
             p_descripcion: value.descripcion || null,
             p_id_cargo: value.idCargo || null,
             p_id_concepto_bono_reportante: value.idConceptoBono || null,

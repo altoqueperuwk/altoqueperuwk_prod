@@ -73,17 +73,18 @@ const addonOnlyColors = Object.fromEntries(Object.entries(filledColors).map(([ke
     { root: string; addon: string }
 >;
 
+// Limitar el pill a su contenedor y envolver la etiqueta antes de invadir otra celda.
 const withPillTypes = {
     [badgeTypes.pillColor]: {
-        common: "size-max flex items-center whitespace-nowrap rounded-full ring-1 ring-inset",
+        common: "flex h-max w-max max-w-full min-w-0 items-center whitespace-normal [overflow-wrap:anywhere] rounded-full ring-1 ring-inset",
         styles: filledColors,
     },
     [badgeTypes.badgeColor]: {
-        common: "size-max flex items-center whitespace-nowrap rounded-md ring-1 ring-inset",
+        common: "flex h-max w-max max-w-full min-w-0 items-center whitespace-normal [overflow-wrap:anywhere] rounded-md ring-1 ring-inset",
         styles: filledColors,
     },
     [badgeTypes.badgeModern]: {
-        common: "size-max flex items-center whitespace-nowrap rounded-md ring-1 ring-inset shadow-xs",
+        common: "flex h-max w-max max-w-full min-w-0 items-center whitespace-normal [overflow-wrap:anywhere] rounded-md ring-1 ring-inset shadow-xs",
         styles: {
             gray: {
                 root: "bg-primary text-secondary ring-primary",
@@ -96,15 +97,15 @@ const withPillTypes = {
 
 const withBadgeTypes = {
     [badgeTypes.pillColor]: {
-        common: "size-max flex items-center whitespace-nowrap rounded-full ring-1 ring-inset",
+        common: "flex h-max w-max max-w-full min-w-0 items-center whitespace-normal [overflow-wrap:anywhere] rounded-full ring-1 ring-inset",
         styles: filledColors,
     },
     [badgeTypes.badgeColor]: {
-        common: "size-max flex items-center whitespace-nowrap rounded-md ring-1 ring-inset",
+        common: "flex h-max w-max max-w-full min-w-0 items-center whitespace-normal [overflow-wrap:anywhere] rounded-md ring-1 ring-inset",
         styles: filledColors,
     },
     [badgeTypes.badgeModern]: {
-        common: "size-max flex items-center whitespace-nowrap rounded-md ring-1 ring-inset bg-primary text-secondary ring-primary shadow-xs",
+        common: "flex h-max w-max max-w-full min-w-0 items-center whitespace-normal [overflow-wrap:anywhere] rounded-md ring-1 ring-inset bg-primary text-secondary ring-primary shadow-xs",
         styles: addonOnlyColors,
     },
 };
@@ -140,7 +141,7 @@ export const Badge = <T extends BadgeTypes>(props: BadgeProps<T>) => {
         [badgeTypes.badgeModern]: badgeSizes,
     };
 
-    return <span className={cx(colors.common, sizes[type][size], colors.styles[color].root, props.className)}>{children}</span>;
+    return <span className={cx(colors.common, sizes[type][size], colors.styles[color].root, props.className)}><span className="min-w-0">{children}</span></span>;
 };
 
 interface BadgeWithDotProps<T extends BadgeTypes> {
@@ -176,8 +177,8 @@ export const BadgeWithDot = <T extends BadgeTypes>(props: BadgeWithDotProps<T>) 
 
     return (
         <span className={cx(colors.common, sizes[type][size], colors.styles[color].root, className)}>
-            <Dot className={colors.styles[color].addon} size="sm" />
-            {children}
+            <Dot className={cx(colors.styles[color].addon, "shrink-0")} size="sm" />
+            <span className="min-w-0">{children}</span>
         </span>
     );
 };
@@ -236,9 +237,9 @@ export const BadgeWithIcon = <T extends BadgeTypes>(props: BadgeWithIconProps<T>
 
     return (
         <span className={cx(colors.common, sizes[type][size][icon], colors.styles[color].root, className)}>
-            {IconLeading && <IconLeading className={cx(colors.styles[color].addon, "size-3 stroke-3")} />}
-            {children}
-            {IconTrailing && <IconTrailing className={cx(colors.styles[color].addon, "size-3 stroke-3")} />}
+            {IconLeading && <IconLeading className={cx(colors.styles[color].addon, "size-3 shrink-0 stroke-3")} />}
+            <span className="min-w-0">{children}</span>
+            {IconTrailing && <IconTrailing className={cx(colors.styles[color].addon, "size-3 shrink-0 stroke-3")} />}
         </span>
     );
 };
@@ -275,8 +276,8 @@ export const BadgeWithFlag = <T extends BadgeTypes>(props: BadgeWithFlagProps<T>
 
     return (
         <span className={cx(colors.common, sizes[type][size], colors.styles[color].root)}>
-            <img src={`https://www.untitledui.com/images/flags/${flag}.svg`} className="size-4 max-w-none rounded-full" alt={`${flag} flag`} />
-            {children}
+            <img src={`https://www.untitledui.com/images/flags/${flag}.svg`} className="size-4 max-w-none shrink-0 rounded-full" alt={`${flag} flag`} />
+            <span className="min-w-0">{children}</span>
         </span>
     );
 };
@@ -313,8 +314,8 @@ export const BadgeWithImage = <T extends BadgeTypes>(props: BadgeWithImageProps<
 
     return (
         <span className={cx(colors.common, sizes[type][size], colors.styles[color].root)}>
-            <img src={imgSrc} className="size-4 max-w-none rounded-full" alt="Badge image" />
-            {children}
+            <img src={imgSrc} className="size-4 max-w-none shrink-0 rounded-full" alt="Badge image" />
+            <span className="min-w-0">{children}</span>
         </span>
     );
 };
@@ -359,13 +360,13 @@ export const BadgeWithButton = <T extends BadgeTypes>(props: BadgeWithButtonProp
 
     return (
         <span className={cx(colors.common, sizes[type][size], colors.styles[color].root)}>
-            {children}
+            <span className="min-w-0">{children}</span>
             <button
                 type="button"
                 aria-label={buttonLabel}
                 onClick={props.onButtonClick}
                 className={cx(
-                    "flex cursor-pointer items-center justify-center p-0.5 outline-focus-ring transition duration-100 ease-linear focus-visible:outline-2",
+                    "flex shrink-0 cursor-pointer items-center justify-center p-0.5 outline-focus-ring transition duration-100 ease-linear focus-visible:outline-2",
                     colors.styles[color].addonButton,
                     type === "pill-color" ? "rounded-full" : "rounded-[3px]",
                 )}

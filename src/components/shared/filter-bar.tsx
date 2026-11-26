@@ -17,6 +17,7 @@ interface FilterBarProps {
     onClear: () => void;
     onNew: () => void;
     hideEstadoFilter?: boolean;
+    hideNew?: boolean;
     extraFilters?: ReactNode;
 }
 
@@ -30,6 +31,7 @@ export const FilterBar: FC<FilterBarProps> = ({
     onClear,
     onNew,
     hideEstadoFilter = false,
+    hideNew = false,
     extraFilters,
 }) => {
     const { estados } = useSessionCache();
@@ -86,11 +88,11 @@ export const FilterBar: FC<FilterBarProps> = ({
                     Limpiar
                 </Button>
 
-                <div className="ml-auto">
+                {!hideNew && <div className="ml-auto">
                     <Button size="sm" color="primary" iconLeading={Plus} onClick={onNew}>
                         Nuevo
                     </Button>
-                </div>
+                </div>}
             </div>
         </motion.div>
     );

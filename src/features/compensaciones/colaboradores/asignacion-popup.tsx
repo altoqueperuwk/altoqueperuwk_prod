@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, X } from "@untitledui/icons";
+import { Save01, XClose } from "@untitledui/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { TextArea } from "@/components/base/textarea/textarea";
+import { useAlert } from "@/components/shared/alert-center";
 import { useSessionCache } from "@/providers/session-cache-provider";
-import { useToast } from "@/providers/toast-provider";
 import { getCoreEstadoItems } from "@/utils/estado-options";
+import { CompensacionDatePicker } from "../shared/compensacion-date-picker";
+import { CompensacionDialogFooter } from "../shared/compensacion-dialog-chrome";
+import { CompensacionDialogHeader } from "../shared/compensacion-dialog-chrome";
+import { CompensacionSurface } from "../shared/compensacion-surface";
 import { colaboradoresService } from "./colaboradores.service";
 import type { AsignacionFormValues, CatalogItem, Colaborador } from "./colaboradores.types";
+import { planOperativoId } from "./plan-operativo";
 
 interface AsignacionPopupProps {
     isOpen: boolean;
@@ -17,7 +21,6 @@ interface AsignacionPopupProps {
     onSave: () => void;
     colaborador: Colaborador;
     cargos: CatalogItem[];
-    jornadas: CatalogItem[];
     planes: CatalogItem[];
     sucursales: CatalogItem[];
 }
@@ -28,16 +31,15 @@ const limaToday = () => {
     return `${part("year")}-${part("month")}-${part("day")}`;
 };
 
-export const AsignacionPopup = ({ isOpen, onClose, onSave, colaborador, cargos, jornadas, planes, sucursales }: AsignacionPopupProps) => {
+export const AsignacionPopup = ({ isOpen, onClose, onSave, colaborador, cargos, planes, sucursales }: AsignacionPopupProps) => {
     const { estados } = useSessionCache();
-    const { addToast } = useToast();
+    const notify = useAlert();
     const estadoItems = useMemo(() => getCoreEstadoItems(estados), [estados]);
     const activoId = Number(estadoItems.find((state) => state.label.toLocaleLowerCase("es-PE") === "activo")?.id ?? 0);
     const current = colaborador.asignacion;
     const [form, setForm] = useState<AsignacionFormValues>({
         idCargo: 0,
         idSucursal: 0,
-        idJornada: 0,
         idPlan: 0,
         fechaInicio: limaToday(),
         modalidad: "PRESENCIAL",
@@ -52,27 +54,27 @@ export const AsignacionPopup = ({ isOpen, onClose, onSave, colaborador, cargos, 
         setForm({
             idCargo: current?.idCargo ?? 0,
             idSucursal: current?.idSucursal ?? 0,
-            idJornada: current?.idJornada ?? 0,
-            idPlan: current?.idPlan ?? 0,
+            idPlan: planOperativoId(planes, current?.idPlan),
             fechaInicio: limaToday(),
             modalidad: current?.modalidad ?? "PRESENCIAL",
             observacion: "",
             idEstado: activoId,
         });
-    }, [activoId, current, isOpen]);
+    }, [activoId, current, isOpen, planes]);
 
     const setValue = <K extends keyof AsignacionFormValues>(key: K, value: AsignacionFormValues[K]) => setForm((state) => ({ ...state, [key]: value }));
 
     const handleSave = async () => {
-        if (!form.idCargo || !form.idSucursal || !form.idJornada || !form.idPlan || !form.fechaInicio)
-            return addToast("error", "Completa los datos obligatorios de la asignación");
+        if (isSaving) return;
+        if (!form.idPlan) return notify("notice", "La configuración general no está disponible; solicita su revisión a Administración.");
+        if (!form.idCargo || !form.idSucursal || !form.fechaInicio) return notify("validation", "Completa los datos obligatorios de la asignación.");
         setIsSaving(true);
         try {
             await colaboradoresService.saveAssignment(colaborador.id, form);
-            addToast("success", "Cambio de asignación registrado correctamente");
+            notify("success", "Cambio de asignación registrado.");
             onSave();
         } catch (error) {
-            addToast("error", error instanceof Error ? error.message : "No fue posible registrar la asignación");
+            notify("error", error instanceof Error ? error.message : "No fue posible registrar la asignación");
         } finally {
             setIsSaving(false);
         }
@@ -81,111 +83,84 @@ export const AsignacionPopup = ({ isOpen, onClose, onSave, colaborador, cargos, 
     return (
         <AnimatePresence>
             {isOpen && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute inset-0 bg-overlay/70"
-                        onClick={onClose}
-                    />
+                <CompensacionSurface title="Asignación laboral" onClose={onClose} busy={isSaving}>
                     <motion.div
                         initial={{ opacity: 0, scale: 0.97 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.97 }}
                         transition={{ duration: 0.15 }}
-                        className="relative z-10 w-full max-w-xl rounded-xl bg-primary p-6 shadow-xl"
+                        className="relative z-10 flex w-full max-w-xl flex-col overflow-hidden rounded-xl bg-primary shadow-xl"
                     >
-                        <div className="flex items-start justify-between gap-4">
+                        <CompensacionDialogHeader title={<>Cambiar cargo y horario</>} onClose={onClose} busy={isSaving}>
                             <div>
-                                <h2 className="text-lg font-semibold text-primary">Cambiar asignación</h2>
                                 <p className="mt-1 text-sm text-tertiary">{colaborador.nombreCompleto}</p>
                             </div>
-                            <Button size="xs" color="tertiary" iconLeading={X} aria-label="Cerrar" onClick={onClose} />
-                        </div>
-                        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                            <Select
-                                label="Cargo"
-                                size="sm"
-                                isRequired
-                                items={options(cargos)}
-                                selectedKey={form.idCargo}
-                                onSelectionChange={(key) => key !== null && setValue("idCargo", Number(key))}
-                            >
-                                {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
-                            </Select>
-                            <Select
-                                label="Sede"
-                                size="sm"
-                                isRequired
-                                items={options(sucursales)}
-                                selectedKey={form.idSucursal}
-                                onSelectionChange={(key) => key !== null && setValue("idSucursal", Number(key))}
-                            >
-                                {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
-                            </Select>
-                            <Select
-                                label="Jornada"
-                                size="sm"
-                                isRequired
-                                items={options(jornadas)}
-                                selectedKey={form.idJornada}
-                                onSelectionChange={(key) => key !== null && setValue("idJornada", Number(key))}
-                            >
-                                {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
-                            </Select>
-                            <Select
-                                label="Plan"
-                                size="sm"
-                                isRequired
-                                items={options(planes)}
-                                selectedKey={form.idPlan}
-                                onSelectionChange={(key) => key !== null && setValue("idPlan", Number(key))}
-                            >
-                                {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
-                            </Select>
-                            <Input
-                                label="Inicio de vigencia"
-                                size="sm"
-                                type="date"
-                                isRequired
-                                value={form.fechaInicio}
-                                onChange={(value) => setValue("fechaInicio", value)}
-                            />
-                            <Select
-                                label="Modalidad"
-                                size="sm"
-                                items={[
-                                    { id: "PRESENCIAL", label: "Presencial" },
-                                    { id: "REMOTO", label: "Remoto" },
-                                    { id: "HIBRIDO", label: "Híbrido" },
-                                ]}
-                                selectedKey={form.modalidad}
-                                onSelectionChange={(key) => key !== null && setValue("modalidad", String(key))}
-                            >
-                                {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
-                            </Select>
-                            <div className="sm:col-span-2">
-                                <TextArea
-                                    label="Observación"
+                        </CompensacionDialogHeader>
+                        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+                            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                                <Select
+                                    label="Cargo"
+                                    placeholder="Selecciona un cargo"
                                     size="sm"
-                                    rows={3}
-                                    value={form.observacion}
-                                    onChange={(value) => setValue("observacion", value)}
+                                    isRequired
+                                    items={options(cargos)}
+                                    selectedKey={form.idCargo}
+                                    onSelectionChange={(key) => key !== null && setValue("idCargo", Number(key))}
+                                >
+                                    {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                                </Select>
+                                <Select
+                                    label="Sede"
+                                    placeholder="Selecciona una sede"
+                                    size="sm"
+                                    isRequired
+                                    items={options(sucursales)}
+                                    selectedKey={form.idSucursal}
+                                    onSelectionChange={(key) => key !== null && setValue("idSucursal", Number(key))}
+                                >
+                                    {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                                </Select>
+                                <CompensacionDatePicker
+                                    label="Aplicar desde"
+
+                                    isRequired
+                                    value={form.fechaInicio}
+                                    onChange={(value) => setValue("fechaInicio", value)}
                                 />
+                                <Select
+                                    label="Modalidad"
+                                    size="sm"
+                                    items={[
+                                        { id: "PRESENCIAL", label: "Presencial" },
+                                        { id: "REMOTO", label: "Remoto" },
+                                        { id: "HIBRIDO", label: "Híbrido" },
+                                    ]}
+                                    selectedKey={form.modalidad}
+                                    onSelectionChange={(key) => key !== null && setValue("modalidad", String(key))}
+                                >
+                                    {(item) => <Select.Item id={item.id}>{item.label}</Select.Item>}
+                                </Select>
+                                <div className="sm:col-span-2">
+                                    <TextArea
+                                        label="Observación"
+                                        size="sm"
+                                        rows={3}
+                                        value={form.observacion}
+                                        onChange={(value) => setValue("observacion", value)}
+                                    />
+                                </div>
                             </div>
                         </div>
-                        <div className="mt-6 flex justify-end gap-3">
-                            <Button size="sm" color="secondary" onClick={onClose}>
+                        <CompensacionDialogFooter>
+                            <Button size="sm" color="secondary" iconLeading={XClose} isDisabled={isSaving} onClick={onClose}>
                                 Cancelar
                             </Button>
-                            <Button size="sm" color="primary" iconLeading={Check} isLoading={isSaving} onClick={() => void handleSave()}>
+                            <Button size="sm" color="primary" iconLeading={Save01} isLoading={isSaving} onClick={() => void handleSave()}>
                                 Registrar cambio
                             </Button>
-                        </div>
+                        </CompensacionDialogFooter>
                     </motion.div>
-                </div>
+                </CompensacionSurface>
             )}
         </AnimatePresence>
     );
