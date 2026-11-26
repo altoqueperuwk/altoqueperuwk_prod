@@ -29,7 +29,7 @@ export const CompactInlineSelect = ({ className, options, width, ...props }: Com
         {...props}
         size="sm"
         className={cx(width, className)}
-        selectClassName="h-8 truncate py-1.5 pl-2 pr-7 text-xs font-medium"
+        selectClassName="h-[26px] truncate py-0 pl-2 pr-7 text-[11px] font-medium"
         options={options}
     />
 );
@@ -57,7 +57,7 @@ interface CompactBadgeLineProps {
 }
 
 export const CompactBadgeLine = ({ children, className, color = "gray" }: CompactBadgeLineProps) => (
-    <Badge size="sm" color={color} className={cx("max-w-full truncate text-xs", className)}>
+    <Badge type="color" size="sm" color={color} className={cx("max-w-full truncate text-xs", className)}>
         {children}
     </Badge>
 );

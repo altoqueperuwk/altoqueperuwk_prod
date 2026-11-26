@@ -185,6 +185,7 @@ export const PagoDeudaEstadoButton = ({
     return (
         <Button
             size="xs"
+            className="h-6 px-2 py-0 text-[11px]"
             color={isActionable ? "primary" : "secondary"}
             isDisabled={!isActionable || isLoading || isBlocked}
             isLoading={isLoading}
@@ -252,7 +253,7 @@ const CuentaComisionSelector = ({
                     color="secondary"
                     iconTrailing={ChevronDown}
                     isDisabled={disabled || isSaving || enabledGroups.length === 0}
-                    className="max-w-full justify-between"
+                    className="h-6 max-w-full justify-between px-2 py-0 text-[11px]"
                 >
                     <span className="truncate">{selectedLabel}</span>
                 </Button>
@@ -1082,6 +1083,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, dateFrom, dateTo }: 
                             color="tertiary"
                             tooltip={canEdit ? "Editar solicitud" : "La solicitud no puede editarse en su estado actual"}
                             icon={Edit03}
+                            className="atk-row-action rounded-lg text-fg-quaternary"
                             isDisabled={!canEdit}
                             onClick={() => openEditSolicitud(row)}
                         />
@@ -1090,6 +1092,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, dateFrom, dateTo }: 
                             color="tertiary"
                             tooltip={canEdit ? "Eliminar Solicitud" : "La solicitud no puede eliminarse en su estado actual"}
                             icon={Trash01}
+                            className="atk-row-action rounded-lg text-fg-quaternary"
                             isDisabled={!canEdit}
                             onClick={() => setDeletingSolicitudes([row])}
                         />
@@ -1120,8 +1123,11 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, dateFrom, dateTo }: 
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}
-            className="overflow-hidden rounded-lg border border-secondary bg-primary shadow-xs"
+            className="atk-card overflow-hidden rounded-lg border border-secondary bg-primary"
         >
+            <div className="atk-strip">
+                <h2 className="atk-strip-title">Operaciones registradas</h2>
+            </div>
             <OperationToolbar
                 activeFilter={activeFilter}
                 actions={actions}
@@ -1166,7 +1172,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, dateFrom, dateTo }: 
                     <Modal className="max-w-lg">
                         <Dialog aria-label="Editar solicitud de pago deuda">
                             <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                                <div>
+                                <div className="atk-modal-head">
                                     <h2 className="text-lg font-semibold text-primary">Editar Solicitud</h2>
                                     <p className="mt-1 text-sm text-tertiary">Pago Deuda {editSolicitud.row.id}</p>
                                 </div>
@@ -1272,7 +1278,7 @@ export const PagoDeudaBoard = ({ onChanged, refreshKey = 0, dateFrom, dateTo }: 
                     <Modal className="max-w-sm">
                         <Dialog aria-label="Comision de pago deuda">
                             <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                                <div>
+                                <div className="atk-modal-head">
                                     <h2 className="text-lg font-semibold text-primary">
                                         {manualCommission.type === "especial" ? "Com. Especial" : "S/ Com. Extra"}
                                     </h2>

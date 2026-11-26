@@ -181,7 +181,7 @@ export const CajaOperativaPopup = ({ existingItems = [], isOpen, item, onClose, 
                         transition={{ duration: 0.15 }}
                         className="relative z-10 w-full max-w-lg rounded-xl bg-primary p-6 shadow-xl"
                     >
-                        <div className="mb-6 flex items-center justify-between">
+                        <div className="atk-modal-head mb-6 flex items-center justify-between">
                             <h2 className="text-lg font-semibold text-primary">
                                 {isEditing ? "Editar Caja Operativa" : "Nueva Caja Operativa"}
                             </h2>

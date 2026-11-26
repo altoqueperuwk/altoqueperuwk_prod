@@ -376,7 +376,7 @@ export const LinkPagoEditModal = ({ isOpen, operation, ruta, onClose, onSaved }:
             <Modal className="max-w-lg">
                 <Dialog>
                     <div className="flex flex-col gap-5 rounded-xl bg-primary p-6 shadow-xl ring-1 ring-secondary">
-                        <div>
+                        <div className="atk-modal-head">
                             <h2 className="text-lg font-semibold text-primary">Editar Operacion</h2>
                             <p className="mt-1 text-sm text-tertiary">Actualiza los campos necesarios para recalcular comisiones.</p>
                         </div>

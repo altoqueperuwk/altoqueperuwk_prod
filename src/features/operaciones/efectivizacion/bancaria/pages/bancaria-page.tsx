@@ -1030,14 +1030,16 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                 <ModalOverlay isOpen={isEditCajaOpen} onOpenChange={(open) => !open && setIsEditCajaOpen(false)}>
                     <Modal className="max-w-sm">
                         <Dialog>
-                            <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                                <div>
-                                    <h2 className="text-lg font-semibold text-primary">Editar Caja Operativa</h2>
-                                    <p className="mt-1 text-sm text-tertiary">
-                                        {cajaEdit ? `${cajaEdit.nombre_empresa} — ${cajaEdit.nombre_banco}` : ""}
-                                    </p>
+                            <div className="w-full overflow-hidden rounded-xl bg-primary shadow-xl ring-1 ring-secondary">
+                                <div className="atk-strip px-5">
+                                    <div>
+                                        <h2 className="text-sm font-semibold text-primary">Editar Caja Operativa</h2>
+                                        <p className="text-xs text-tertiary">
+                                            {cajaEdit ? `${cajaEdit.nombre_empresa} — ${cajaEdit.nombre_banco}` : ""}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="mt-5 grid gap-4">
+                                <div className="grid gap-4 px-5 py-4">
                                     <Input
                                         size="sm"
                                         label="Saldo Inicial"
@@ -1053,7 +1055,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                                         isDisabled
                                     />
                                 </div>
-                                <div className="mt-6 flex justify-end gap-2">
+                                <div className="flex justify-end gap-2 border-t border-secondary px-5 py-3">
                                     <Button color="secondary" onClick={() => setIsEditCajaOpen(false)}>Cancelar</Button>
                                     <Button isLoading={isSavingCaja} onClick={() => void handleSaveCaja()}>Guardar</Button>
                                 </div>
@@ -1066,7 +1068,7 @@ export const BancariaPage = ({ ruta }: BancariaPageProps) => {
                     <Modal className="max-w-xs">
                         <Dialog>
                             <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                                <div>
+                                <div className="atk-modal-head">
                                     <h2 className="text-lg font-semibold text-primary">Descargar Reporte</h2>
                                     <p className="mt-1 text-sm text-tertiary">
                                         {activeCompanyCaja?.nombre_empresa ?? activeCompany?.nombre_empresa ?? "Empresa"} — {activeCompanyCaja?.nombre_banco ?? routeLabel}

@@ -170,7 +170,7 @@ export const OperacionReglasAbonoModal = ({
                 <Dialog>
                     <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
                         <div className="flex flex-col gap-5">
-                        <div>
+                        <div className="atk-modal-head">
                             <h2 className="text-lg font-semibold text-primary">Reglas de Abono</h2>
                             <p className="mt-1 text-sm text-tertiary">{title}</p>
                         </div>

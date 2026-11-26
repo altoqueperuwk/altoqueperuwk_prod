@@ -532,7 +532,7 @@ export const OperacionReglasEfectivizacionModal = ({
                 <Modal className="max-w-6xl">
                     <Dialog>
                         <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                            <div className="flex items-start justify-between gap-4">
+                            <div className="atk-modal-head flex items-start justify-between gap-4">
                                 <div>
                                     <h2 className="text-lg font-semibold text-primary">Reglas de Efectivizacion</h2>
                                 </div>

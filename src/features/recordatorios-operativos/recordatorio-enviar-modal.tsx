@@ -77,7 +77,7 @@ export const RecordatorioEnviarModal = ({ idOperacion }: RecordatorioEnviarModal
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="absolute inset-0 bg-overlay/70 backdrop-blur-[6px]" onClick={handleClose} />
                         <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.15 }} className="relative z-10 w-full max-w-lg rounded-xl bg-primary p-6 shadow-xl ring-1 ring-secondary">
-                            <div className="flex items-start justify-between gap-4">
+                            <div className="atk-modal-head flex items-start justify-between gap-4">
                                 <div>
                                     <h2 className="text-lg font-semibold text-primary">Enviar aviso de operación pendiente</h2>
                                     <p className="mt-1 text-sm text-tertiary">El aviso permanecerá activo hasta que la operación sea cerrada.</p>

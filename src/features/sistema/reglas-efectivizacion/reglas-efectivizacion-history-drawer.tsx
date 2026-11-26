@@ -85,7 +85,7 @@ export const ReglasEfectivizacionHistoryDrawer = ({ isOpen, onClose, itemId }: R
             transition={{ type: "spring", damping: 26, stiffness: 220 }}
             className="relative z-10 flex h-full w-full max-w-md flex-col bg-primary shadow-xl"
           >
-            <div className="flex items-center justify-between border-b border-secondary px-6 py-5">
+            <div className="atk-modal-head-drawer flex items-center justify-between border-b border-secondary px-6 py-5">
               <h2 className="text-lg font-semibold text-primary">Historial de Regla</h2>
               <Button size="xs" color="tertiary" iconLeading={X} onClick={onClose} />
             </div>

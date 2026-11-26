@@ -116,7 +116,7 @@ export const PosConfigModal = ({ isOpen, onClose, onSaved }: PosConfigModalProps
         <Modal className="max-w-2xl">
           <Dialog>
             <div className="flex max-h-[85vh] flex-col gap-5 rounded-xl bg-primary p-6 shadow-xl ring-1 ring-secondary">
-              <div className="flex items-center justify-between">
+              <div className="atk-modal-head flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-primary">Configuración POS</h2>
                   <p className="mt-1 text-sm text-tertiary">Administra los POS disponibles para las solicitudes.</p>

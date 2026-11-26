@@ -134,16 +134,17 @@ const MetricCard = ({ label, value, change, supportingText, supportingTextSize =
             onKeyDown={(event) => {
                 if (onClick && (event.key === "Enter" || event.key === " ")) onClick();
             }}
-            className={cx("min-w-0 rounded-lg border border-secondary bg-primary p-3 shadow-xs", onClick && "cursor-pointer transition duration-200 hover:border-brand focus-visible:outline-2 focus-visible:outline-brand")}
+            className={cx("atk-card atk-kpi min-w-0 rounded-lg border border-secondary bg-primary pb-3", onClick && "cursor-pointer transition duration-200 hover:border-brand focus-visible:outline-2 focus-visible:outline-brand")}
         >
-            <div className="flex items-start justify-between gap-3">
-                <p className="text-xs font-medium text-tertiary">{label}</p>
+            <div className="atk-strip atk-strip-sm">
+                <p className="atk-strip-title">{label}</p>
                 {change !== null && change !== undefined && (
                     <Badge size="sm" color={isFavorable ? "success" : "error"}>
                         {isPositive ? "+" : ""}{change.toFixed(1)}%
                     </Badge>
                 )}
             </div>
+            <div className="px-3">
             <p className={cx(
                 "mt-2 font-semibold tabular-nums",
                 valueSize === "xs" ? "text-[11px] leading-4" : valueSize === "sm" ? "text-sm leading-5" : "text-lg",
@@ -172,6 +173,7 @@ const MetricCard = ({ label, value, change, supportingText, supportingTextSize =
                     {supportingLines.map((line) => <p key={line} className="truncate" title={line}>{line}</p>)}
                 </div>
             )}
+            </div>
         </motion.article>
     );
 };
@@ -186,16 +188,16 @@ interface PanelProps {
 }
 
 const Panel = ({ title, children, className, company, service, period }: PanelProps) => (
-    <motion.section layout transition={{ duration: 0.2 }} className={cx("rounded-xl border border-secondary bg-primary p-5 shadow-xs", className)}>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-primary">{title}</h2>
+    <motion.section layout transition={{ duration: 0.2 }} className={cx("atk-card rounded-xl border border-secondary bg-primary", className)}>
+        <div className="atk-strip flex-wrap px-5">
+            <h2 className="atk-strip-title">{title}</h2>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                 {company && <Badge size="sm" color="gray">{company}</Badge>}
                 {service && <Badge size="sm" color="brand">{service}</Badge>}
                 {period && <Badge size="sm" color="blue">{period}</Badge>}
             </div>
         </div>
-        {children}
+        <div className="p-5">{children}</div>
     </motion.section>
 );
 

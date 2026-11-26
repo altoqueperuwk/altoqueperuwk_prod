@@ -4,6 +4,7 @@ import { Lock01, Mail01 } from "@untitledui/icons";
 import { motion } from "motion/react";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
+import { AtkWordmark } from "@/components/foundations/logo/atk-wordmark";
 import { useAuth } from "@/providers/auth-provider";
 
 export function LoginPage() {
@@ -64,10 +65,9 @@ export function LoginPage() {
             >
                 <div className="flex flex-col gap-8 rounded-xl border border-secondary bg-primary p-8">
                     <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-3">
-                            <h1 className="text-display-sm font-semibold text-primary">Al Toque Peru</h1>
-                            <div className="h-5 w-1 rounded-full bg-brand-solid" />
-                        </div>
+                        <h1>
+                            <AtkWordmark className="text-display-xs" />
+                        </h1>
                         <p className="text-sm text-tertiary">Sistema de Gestion Operativa</p>
                     </div>
 

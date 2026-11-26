@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle, File07, Trash01, UploadCloud02, XClose } from "@untitledui/icons";
+import { Check, File07, Trash01, UploadCloud02, XClose } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { useAuth } from "@/providers/auth-provider";
 import { useToast } from "@/providers/toast-provider";
@@ -206,14 +206,14 @@ export const BancariaExcelUpload = ({
     };
 
     return (
-        <section className={cx("h-full rounded-lg border border-secondary bg-primary p-5 shadow-xs", className)} aria-label={`Carga de archivo ${companyName}`}>
-            <div className="grid min-w-0 items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_fit-content(680px)]">
-                <div className="grid min-w-0">
+        <section className={cx("atk-card h-full rounded-lg border border-secondary bg-primary", className)} aria-label={`Carga de archivo ${companyName}`}>
+            <div className="atk-strip">
+                <h2 className="atk-strip-title">Carga Masiva</h2>
+            </div>
+            <div className="grid min-w-0 items-stretch gap-4 p-4 sm:p-5 xl:grid-cols-12">
+                <div className="grid min-w-0 xl:col-span-7">
                     <label
-                        className={cx(
-                            "flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-secondary bg-secondary px-4 py-8 text-center transition duration-100",
-                            "hover:bg-primary_hover",
-                        )}
+                        className="atk-dropzone flex min-h-[185px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-6 text-center"
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={(event) => {
                             event.preventDefault();
@@ -221,9 +221,11 @@ export const BancariaExcelUpload = ({
                             if (file) void handleFile(file);
                         }}
                     >
-                        <UploadCloud02 className="mb-5 size-10 text-fg-quaternary" />
+                        <span className="atk-dropzone-icon mb-3 flex size-11 items-center justify-center rounded-full">
+                            <UploadCloud02 aria-hidden="true" className="size-6" />
+                        </span>
                         <span className="text-sm font-semibold text-primary">Selecciona o arrastra un archivo</span>
-                        <span className="mt-2 text-xs text-tertiary">.zip, .xlsx, .xls, .html, .htm, .txt</span>
+                        <span className="mt-1 text-[11px] text-tertiary">.zip, .xlsx, .xls, .html, .htm, .txt</span>
                         <input
                             key={`${activeCompany?.id_empresa ?? "sin-empresa"}-${fileName}`}
                             type="file"
@@ -237,23 +239,25 @@ export const BancariaExcelUpload = ({
                     </label>
                 </div>
 
-                <div className="grid min-w-0 content-start gap-4 xl:min-w-[360px] xl:max-w-[680px]">
-                    <div className={cx("min-w-0 rounded-xl border border-secondary bg-primary p-4 shadow-xs", !hasFile && "opacity-60")}>
-                        <div className="flex min-w-0 items-start gap-3">
-                            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-secondary bg-secondary">
-                                <File07 className="size-5 text-fg-brand-primary" />
+                <div className="flex min-w-0 flex-col justify-between gap-3 xl:col-span-5">
+                    <div className="atk-tile flex min-w-0 items-center justify-between gap-3 rounded-xl p-3.5">
+                        <div className="flex min-w-0 items-center gap-3">
+                            <div className="atk-tile-icon flex size-9 shrink-0 items-center justify-center rounded-lg">
+                                <File07 aria-hidden="true" className="size-4" />
                             </div>
-                            <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-semibold text-primary">{fileName || "Sin archivo seleccionado"}</p>
-                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tertiary">
+                            <div className="min-w-0">
+                                <p className="truncate text-xs font-semibold text-primary">{fileName || "Sin archivo seleccionado"}</p>
+                                <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-tertiary">
                                     <span>{hasFile ? formatFileSize(fileSize) : "0 KB"}</span>
-                                    <span className="flex items-center gap-1 text-success-primary">
-                                        <CheckCircle className="size-3.5" />
+                                    <span className="flex items-center gap-0.5 font-medium text-success-primary">
+                                        <Check aria-hidden="true" className="size-3" />
                                         {hasFile ? "Complete" : "Pendiente"}
                                     </span>
                                     <span>{rows.length ? `${rows.length} filas detectadas` : "0 filas detectadas"}</span>
                                 </div>
                             </div>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end justify-between gap-1 self-stretch">
                             <Button
                                 size="xs"
                                 color="tertiary"
@@ -262,32 +266,36 @@ export const BancariaExcelUpload = ({
                                 isDisabled={!fileName || isProcessing}
                                 onClick={resetUpload}
                             />
-                        </div>
-                        <div className="mt-4 flex min-w-0 items-center gap-3">
-                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary_alt">
-                                <div className={cx("h-full rounded-full bg-brand-solid transition-all", hasFile ? "w-full" : "w-0")} />
-                            </div>
-                            <span className="shrink-0 text-xs font-semibold text-secondary">{hasFile ? "100%" : "0%"}</span>
+                            <span className="text-[11px] font-bold text-tertiary">{hasFile ? "100%" : "0%"}</span>
                         </div>
                     </div>
 
-                    <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="grid grid-cols-3 gap-2">
                         {[
                             ["Procesados", processedCount],
                             ["Omitidos", omittedCount],
                             ["Errores", errorCount],
                         ].map(([label, value]) => (
-                            <div key={label} className="flex min-h-10 items-center rounded-lg border border-secondary bg-secondary px-4 shadow-xs">
-                                <p className="w-full text-center text-xs font-semibold text-secondary">{label}: {value}</p>
+                            <div key={label} className="atk-tile rounded-lg px-2.5 py-2 text-center">
+                                <p className="text-[11px] font-medium text-tertiary tabular-nums">
+                                    {label}: <strong className="text-primary">{value}</strong>
+                                </p>
                             </div>
                         ))}
                     </div>
 
-                    <div className="grid gap-3 sm:grid-cols-2">
-                        <Button size="md" iconLeading={File07} isDisabled={!hasFile || isProcessing} isLoading={isProcessing} onClick={handleProcess}>
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                        <Button
+                            size="md"
+                            className="atk-upload-process"
+                            iconLeading={File07}
+                            isDisabled={!hasFile || isProcessing}
+                            isLoading={isProcessing}
+                            onClick={handleProcess}
+                        >
                             Procesar
                         </Button>
-                        <Button size="md" iconLeading={XClose} isDisabled={!fileName || isProcessing} onClick={resetUpload}>
+                        <Button size="md" color="secondary" iconLeading={XClose} isDisabled={!fileName || isProcessing} onClick={resetUpload}>
                             Cancelar
                         </Button>
                     </div>

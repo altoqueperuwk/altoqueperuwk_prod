@@ -64,6 +64,7 @@ const AsistidaEstadoButton = ({ row }: { row: OperacionProceso }) => {
     return (
         <Button
             size="xs"
+            className="h-6 px-2 py-0 text-[11px]"
             color={pagado ? "secondary" : "primary"}
             isDisabled
         >
@@ -390,6 +391,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
                                 color="tertiary"
                                 tooltip={canEditOperation(row) ? "Editar solicitud" : "Solo el usuario que registro la operacion puede editarla"}
                                 icon={Edit03}
+                                className="atk-row-action rounded-lg text-fg-quaternary"
                                 isDisabled={!canEditOperation(row)}
                                 onClick={() => setEditOperation(row)}
                             />
@@ -400,6 +402,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
                                 color="tertiary"
                                 tooltip={canEditOperation(row) ? "Cambiar fecha de registro" : "Solo el usuario que registro la operacion puede editarla"}
                                 icon={CalendarIcon}
+                                className="atk-row-action rounded-lg text-fg-quaternary"
                                 isDisabled={!canEditOperation(row)}
                                 onClick={() => setDateOperation(row)}
                             />
@@ -410,6 +413,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
                                 color="tertiary"
                                 tooltip={canManageOperation(row) ? "No Enviar Solicitud" : "Solo el usuario que registro la operacion puede editarla"}
                                 icon={CreditCardX}
+                                className="atk-row-action rounded-lg text-fg-quaternary"
                                 isDisabled={!canManageOperation(row) || isPagado(row) || isApplyingAction}
                                 onClick={() => void handleSinEnvioSolicitud(row)}
                             />
@@ -419,6 +423,7 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
                             color="tertiary"
                             tooltip={canDeleteOperation(row) ? "Eliminar operacion" : ruta === "linkpago" ? "Solo administrador o jefe de tienda; no disponible si ya esta eliminada" : "No disponible para esta operacion"}
                             icon={Trash01}
+                            className="atk-row-action rounded-lg text-fg-quaternary"
                             isDisabled={!canDeleteOperation(row) || isApplyingAction}
                             onClick={() => { if (canDeleteOperation(row)) setDeleteOperation(row); }}
                         />
@@ -640,8 +645,11 @@ export const AsistidaOperationalBoard = ({ onChanged, refreshKey = 0, ruta, date
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}
-            className="overflow-hidden rounded-lg border border-secondary bg-primary shadow-xs"
+            className="atk-card overflow-hidden rounded-lg border border-secondary bg-primary"
         >
+            <div className="atk-strip">
+                <h2 className="atk-strip-title">Operaciones registradas</h2>
+            </div>
             {ruta === "linkpago" ? (
                 <div className="flex flex-wrap items-center gap-3 border-b border-secondary px-4 py-3">
                     <Input size="sm" label="" aria-label="Codigo operacion" placeholder="Cod. Operacion" value={codigo} onChange={setCodigo} className="w-44" />

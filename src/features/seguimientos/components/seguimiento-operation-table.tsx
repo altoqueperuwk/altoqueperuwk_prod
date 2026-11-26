@@ -40,7 +40,7 @@ const formatAttentionTime = (row: OperacionProceso, now: number, paymentMode = f
 
 const AttentionTimeCell = ({ row, now, paymentMode = false }: { row: OperacionProceso; now: number; paymentMode?: boolean }) => {
     const time = formatAttentionTime(row, now, paymentMode);
-    return <Badge type="pill-color" size="sm" color={time.color}>{time.label}</Badge>;
+    return <Badge type="color" size="sm" color={time.color}>{time.label}</Badge>;
 };
 
 const statusCell = (row: OperacionProceso) => (
@@ -116,7 +116,7 @@ const paymentSteps = (row: OperacionProceso) => {
     return (
         <div className="flex items-center gap-1">
             {[1, 2, 3, 4].map((step) => (
-                <span key={step} title={`${step}. ${definitions[step - 1]}`} className={`flex size-5 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-inset ${step <= completed ? "bg-success-primary text-white ring-success-primary" : "bg-primary text-tertiary ring-secondary"}`}>
+                <span key={step} title={`${step}. ${definitions[step - 1]}`} className={`flex size-5 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-inset ${step <= completed ? "bg-success-solid text-white ring-transparent" : "bg-primary text-tertiary ring-secondary"}`}>
                     {step <= completed ? "✓" : step}
                 </span>
             ))}
@@ -235,7 +235,7 @@ const unifiedStepsCell = (row: OperacionProceso) => {
             <span
                 key={step}
                 title={`${step}. ${definitions[step - 1]}`}
-                className={`flex size-5 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-inset ${step <= steps ? "bg-success-primary text-white ring-success-primary" : "bg-primary text-tertiary ring-secondary"}`}
+                className={`flex size-5 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-inset ${step <= steps ? "bg-success-solid text-white ring-transparent" : "bg-primary text-tertiary ring-secondary"}`}
             >
                 {step <= steps ? "✓" : step}
             </span>

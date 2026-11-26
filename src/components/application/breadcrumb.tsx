@@ -1,5 +1,5 @@
 import { ChevronRight } from "@untitledui/icons";
-import { useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
 import { useCompensacionPerfil } from "@/features/compensaciones/shared/compensacion-perfil";
 import { compensacionesMenuLabel } from "@/features/compensaciones/shared/compensaciones-navigation";
 import { useAtkBrand } from "@/hooks/use-atk-brand";
@@ -61,7 +61,7 @@ const routeLabels: Record<string, string> = {
     "/reportes/metricas-bancarias/pos": "POS",
     "/reportes/metricas-bancarias/link-pago": "Link Pago",
     "/bandeja": "Bandeja",
-    "/": "Home",
+    "/": "Inicio",
 };
 
 export const Breadcrumb = () => {
@@ -74,7 +74,13 @@ export const Breadcrumb = () => {
 
     return (
         <nav aria-label="Breadcrumb" className={cx("flex items-center gap-2", compact && "min-w-0 flex-1")}>
-            <span className={cx("shrink-0 text-sm", pathname === "/" ? "font-medium text-primary" : "text-tertiary")}>Home</span>
+            {pathname === "/" ? (
+                <span className="shrink-0 text-sm font-medium text-primary">Inicio</span>
+            ) : (
+                <Link to="/" className="atk-crumb-link shrink-0 rounded-sm text-sm text-tertiary outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2">
+                    Inicio
+                </Link>
+            )}
             {pathname !== "/" &&
                 pathname
                     .split("/")

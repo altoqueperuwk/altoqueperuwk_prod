@@ -40,9 +40,11 @@ const isDuplicateClienteError = (error: unknown) => {
 };
 
 const KpiCard = ({ label, value }: { label: string; value: unknown }) => (
-    <div className="rounded-lg border border-secondary bg-primary px-4 py-3 shadow-xs">
-        <p className="text-xs font-medium text-secondary">{label}</p>
-        <p className="mt-1 text-xl font-semibold text-primary tabular-nums">{formatInteger(value)}</p>
+    <div className="atk-card atk-kpi rounded-lg border border-secondary bg-primary">
+        <div className="atk-strip atk-strip-sm">
+            <p className="atk-strip-title">{label}</p>
+        </div>
+        <p className="px-3 py-2.5 text-xl font-semibold text-primary tabular-nums">{formatInteger(value)}</p>
     </div>
 );
 
@@ -382,8 +384,11 @@ export const AtencionClientePage = () => {
                     </div>
                 )}
 
-                <div className="rounded-lg border border-secondary bg-primary p-4 shadow-xs">
-                    <h2 className="mb-3 text-sm font-semibold text-primary">Nuevo Cliente</h2>
+                <div className="atk-card rounded-lg border border-secondary bg-primary">
+                    <div className="atk-strip mb-4">
+                        <h2 className="atk-strip-title">Nuevo Cliente</h2>
+                    </div>
+                    <div className="px-4 pb-4">
                     <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[120px_180px_minmax(220px,1fr)_180px_180px_150px_auto]">
                         <div>
                             <Select
@@ -433,9 +438,13 @@ export const AtencionClientePage = () => {
                             <Button size="sm" color="primary" iconLeading={Check} title="Guardar" aria-label="Guardar" isLoading={isSaving} onClick={handleCreate}>Guardar</Button>
                         </div>
                     </div>
+                    </div>
                 </div>
 
-                <div className="flex flex-col gap-3 rounded-lg border border-secondary bg-primary p-4 shadow-xs">
+                <div className="atk-card flex flex-col gap-3 rounded-lg border border-secondary bg-primary px-4 pb-4">
+                    <div className="atk-strip -mx-4 mb-1">
+                        <h2 className="atk-strip-title">Filtros de Búsqueda</h2>
+                    </div>
                     <div className="flex flex-wrap items-end gap-3">
                         <div className="w-44">
                             <Select

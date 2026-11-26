@@ -51,26 +51,26 @@ const flowVisuals: Record<(typeof flowFilters)[number], { icon: typeof Activity;
 };
 
 const AttentionMetric = ({ label, value, color, icon: Icon }: { label: string; value: string; color: "success" | "warning" | "error"; icon: typeof Clock }) => (
-    <div className="min-w-0 rounded-lg border border-secondary bg-primary p-3 shadow-xs">
-        <div className="flex items-start justify-between gap-2">
-            <p className="text-xs font-medium text-tertiary">{label}</p>
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-tertiary">
-                <Icon className="size-4" />
-            </span>
+    <div className="atk-card atk-kpi min-w-0 rounded-lg border border-secondary bg-primary pb-3">
+        <div className="atk-strip atk-strip-sm">
+            <p className="atk-strip-title">{label}</p>
+            <Icon aria-hidden="true" className="size-4 shrink-0 text-tertiary" />
         </div>
-        <div className="mt-4 flex items-baseline gap-2">
+        <div className="mt-3 flex items-baseline gap-2 px-3">
             <p className="text-2xl font-semibold tabular-nums text-primary">{value}</p>
             <span className="text-xs text-tertiary">operaciones</span>
         </div>
-        <Badge className="mt-3" type="pill-color" size="sm" color={color}>{color === "success" ? "En tiempo" : color === "warning" ? "Atención próxima" : "Requiere atención"}</Badge>
+        <Badge className="mx-3 mt-3" type="color" size="sm" color={color}>{color === "success" ? "En tiempo" : color === "warning" ? "Atención próxima" : "Requiere atención"}</Badge>
     </div>
 );
 
 const MinimalKpiCard = ({ label, value, color, badge }: { label: string; value: string; color: "brand" | "success" | "warning" | "error"; badge: string }) => (
-    <div className="flex min-h-28 flex-col justify-between rounded-lg border border-secondary bg-primary p-4 shadow-xs">
-        <p className="text-xs font-medium text-tertiary">{label}</p>
-        <p className="mt-3 text-2xl font-semibold tabular-nums text-primary">{value}</p>
-        <Badge className="mt-3 self-start" type="pill-color" size="sm" color={color}>{badge}</Badge>
+    <div className="atk-card atk-kpi flex min-h-28 flex-col justify-between rounded-lg border border-secondary bg-primary pb-3">
+        <div className="atk-strip atk-strip-sm">
+            <p className="atk-strip-title">{label}</p>
+        </div>
+        <p className="mt-3 px-4 text-2xl font-semibold tabular-nums text-primary">{value}</p>
+        <Badge className="mx-4 mt-3 self-start" type="color" size="sm" color={color}>{badge}</Badge>
     </div>
 );
 
@@ -275,7 +275,7 @@ const LegacyRedesignedSeguimientoPage = () => {
                         >
                             <LayersThree01 className="size-4" />
                             Todos
-                            <Badge type="pill-color" size="sm" color="gray">{formatInteger(result.total)}</Badge>
+                            <Badge type="color" size="sm" color="gray">{formatInteger(result.total)}</Badge>
                         </Button>
                         {bancariaRouteKeys.map((route) => {
                             const Icon = bankVisuals[route].icon;
@@ -351,7 +351,7 @@ const LegacyRedesignedSeguimientoPage = () => {
                             <p className="truncate text-xs text-tertiary">{selectedFlow === "Todos" ? "Todos los flujos" : `${selectedFlow} · solo pendientes`}</p>
                         </div>
                     </div>
-                    <BadgeWithIcon type="pill-color" size="sm" color="gray" iconLeading={FlowIcon}>{formatInteger(result.total)} operaciones</BadgeWithIcon>
+                    <BadgeWithIcon type="color" size="sm" color="gray" iconLeading={FlowIcon}>{formatInteger(result.total)} operaciones</BadgeWithIcon>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 border-b border-secondary p-3 sm:px-5">
                     <Input aria-label="DNI" className="w-full sm:w-44" placeholder="DNI" value={dni} onChange={(value) => { setDni(value); resetPage(); }} />

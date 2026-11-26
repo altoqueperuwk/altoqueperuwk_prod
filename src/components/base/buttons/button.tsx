@@ -54,7 +54,7 @@ export const styles = sortCx({
     colors: {
         primary: {
             root: [
-                "bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover data-loading:bg-brand-solid_hover",
+                "atk-btn-primary bg-brand-solid text-primary_on-brand shadow-xs-skeuomorphic ring-1 ring-transparent ring-inset hover:bg-brand-solid_hover data-loading:bg-brand-solid_hover",
                 // Inner border gradient
                 "before:absolute before:inset-px before:border before:border-white/12 before:mask-b-from-0%",
                 // Icon styles
@@ -63,7 +63,7 @@ export const styles = sortCx({
         },
         secondary: {
             root: [
-                "bg-primary text-secondary shadow-xs-skeuomorphic ring-1 ring-primary ring-inset hover:bg-primary_hover hover:text-secondary_hover data-loading:bg-primary_hover",
+                "atk-btn-secondary bg-primary text-secondary shadow-xs-skeuomorphic ring-1 ring-primary ring-inset hover:bg-primary_hover hover:text-secondary_hover data-loading:bg-primary_hover",
                 // Icon styles
                 "*:data-icon:text-fg-quaternary hover:*:data-icon:text-fg-quaternary_hover",
             ].join(" "),
@@ -217,7 +217,8 @@ export const Button = ({
                 styles.common.root,
                 styles.sizes[size].root,
                 styles.colors[color].root,
-                isLinkType && styles.sizes[size].linkRoot,
+                isLinkType ? styles.sizes[size].linkRoot : "atk-hover",
+                !isLinkType && color.includes("destructive") && "atk-hover-danger",
                 (loading || (href && (disabled || loading))) && "pointer-events-none",
                 // If in `loading` state, hide everything except the loading icon (and text if `showTextWhileLoading` is true).
                 loading && (showTextWhileLoading ? "[&>*:not([data-icon=loading]):not([data-text])]:hidden" : "[&>*:not([data-icon=loading])]:invisible"),

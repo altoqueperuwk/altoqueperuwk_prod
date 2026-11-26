@@ -172,7 +172,7 @@ export const CajaOperativaRutaModal = ({ isOpen, caja, onClose, onSave }: CajaOp
                         transition={{ duration: 0.15 }}
                         className="relative z-10 flex max-h-[85vh] w-full max-w-4xl flex-col rounded-xl bg-primary p-6 shadow-xl"
                     >
-                        <div className="mb-5 flex items-start justify-between gap-4">
+                        <div className="atk-modal-head mb-5 flex items-start justify-between gap-4">
                             <div>
                                 <h2 className="text-lg font-semibold text-primary">Rutas Asociadas</h2>
                                 <p className="mt-1 text-sm text-tertiary">

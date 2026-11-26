@@ -1351,7 +1351,7 @@ export const BancariaEfectivizacionTable = ({
                                         data-operation-selected={(selectedIdSet.has(row.id) && !frozenRow) || undefined}
                                         className={cx(
                                             "operation-data-row",
-                                            frozenPaid && "bg-secondary grayscale opacity-75",
+                                            frozenRow && "bg-secondary grayscale opacity-75",
                                             hasSelection && !rowSaving && !frozenRow && "cursor-pointer",
                                         )}
                                         {...(!virtualizeRows ? {
@@ -1582,6 +1582,7 @@ export const BancariaEfectivizacionTable = ({
                                                 <span className="text-sm text-secondary">{getBancariaEstadoLabel(row)}</span>
                                             ) : <Button
                                                 size="xs"
+                                                className="h-6 px-2 py-0 text-[11px]"
                                                 color={isPagado(row) ? "secondary" : "primary"}
                                                 isDisabled={rowSaving || frozenRow || isEliminados || ((!onPayRow || !rowIsPos) && !estadoPagado) || Boolean(isPayingRow?.(row))}
                                                 isLoading={Boolean(isPayingRow?.(row))}
@@ -1601,7 +1602,7 @@ export const BancariaEfectivizacionTable = ({
                                                 <span className="text-sm text-secondary">{formatDate(displayOperationDate) || "-"}</span>
                                             ) : <CompactCellText primary={formatTime(displayOperationDate) || "-"} secondary={formatDate(displayOperationDate)} />}
                                         </td>
-                                                {!readOnly && <td className={cx("px-2 py-2 text-center align-top", isVirtualized && "sticky right-0 z-10 bg-primary", frozenPaid && "bg-secondary", selectedIdSet.has(row.id) && !frozenRow && "bg-warning-primary/20")}>
+                                                {!readOnly && <td className={cx("px-2 py-2 text-center align-top", isVirtualized && "sticky right-0 z-10 bg-primary", frozenRow && "bg-secondary", selectedIdSet.has(row.id) && !frozenRow && "bg-warning-primary/20")}>
                                             {!frozenOrigin && <div className={cx("flex items-center justify-center gap-1", isVirtualized && "flex-wrap")}>
                                                 {!frozenPaid && (mode === "efectivizacion" || mode === "unificado" || mode === "derivaciones" || mode === "pos") && ruta !== "safetypay" && (
                                                     <ButtonUtility
@@ -1610,7 +1611,7 @@ export const BancariaEfectivizacionTable = ({
                                                         icon={Send01}
                                                         tooltip="Derivar Operacion"
                                                         className={cx(
-                                                            "rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid",
+                                                            "atk-row-action rounded-lg text-fg-quaternary",
                                                             isPagado(row) && "bg-primary text-secondary ring-primary hover:bg-primary_hover",
                                                         )}
                                                         isDisabled={frozenRow || rowSaving}
@@ -1624,7 +1625,7 @@ export const BancariaEfectivizacionTable = ({
                                                             color="tertiary"
                                                             tooltip="% Comision Especial"
                                                             icon={Percent01}
-                                                            className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
+                                                            className="atk-row-action rounded-lg text-fg-quaternary"
                                                             isDisabled={frozenRow || rowSaving || commissionState.specialDisabled}
                                                             onClick={() => void handleAction(row, "ComisionEspecial")}
                                                         />
@@ -1633,7 +1634,7 @@ export const BancariaEfectivizacionTable = ({
                                                             color="tertiary"
                                                             tooltip="S/ Comision Extra"
                                                             icon={<span className="text-xs font-bold leading-none">S/</span>}
-                                                            className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
+                                                            className="atk-row-action rounded-lg text-fg-quaternary"
                                                             isDisabled={frozenRow || rowSaving || commissionState.extraDisabled}
                                                             onClick={() => void handleAction(row, "ComisionExtra")}
                                                         />
@@ -1643,7 +1644,7 @@ export const BancariaEfectivizacionTable = ({
                                                                 color="tertiary"
                                                                 tooltip="Transferencia Interbancaria"
                                                                 icon={CreditCardCheck}
-                                                                className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
+                                                                className="atk-row-action rounded-lg text-fg-quaternary"
                                                                 isDisabled={frozenRow || rowSaving}
                                                                 onClick={() => void handleAction(row, "TransferenciaInterbancaria")}
                                                             />
@@ -1656,7 +1657,7 @@ export const BancariaEfectivizacionTable = ({
                                                         color="tertiary"
                                                         tooltip="Eliminar Operacion"
                                                         icon={Trash01}
-                                                        className="rounded-lg text-fg-quaternary ring-1 ring-transparent ring-inset hover:bg-brand-solid hover:text-primary_on-brand hover:ring-brand-solid"
+                                                        className="atk-row-action rounded-lg text-fg-quaternary"
                                                         isDisabled={frozenRow || rowSaving}
                                                         onClick={() => void handleAction(row, "EliminarOperacion")}
                                                     />
@@ -1667,7 +1668,7 @@ export const BancariaEfectivizacionTable = ({
                                                         color="secondary"
                                                         icon={CreditCardCheck}
                                                         tooltip="Confirmar Pago Deuda"
-                                                        className="rounded-lg bg-concept-transferencia text-primary_on-brand ring-1 ring-concept-transferencia ring-inset hover:opacity-90"
+                                                        className="atk-btn-primary rounded-lg bg-brand-solid text-primary_on-brand ring-1 ring-brand-solid ring-inset *:text-primary_on-brand"
                                                         isDisabled={pdDisabled}
                                                         onClick={() => {
                                                             void loadPagoDeudaMatches(row);
@@ -1748,7 +1749,7 @@ export const BancariaEfectivizacionTable = ({
                 <Modal className="max-w-sm">
                     <Dialog>
                         <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                            <div>
+                            <div className="atk-modal-head">
                                 <h2 className="text-lg font-semibold text-primary">
                                     {manualCommission?.type === "especial" ? "Com. Especial" : "Com. Extra"}
                                 </h2>
@@ -1792,7 +1793,7 @@ export const BancariaEfectivizacionTable = ({
                 <Modal className="max-w-sm">
                     <Dialog>
                         <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                            <h2 className="text-lg font-semibold text-primary">
+                            <h2 className="atk-modal-head text-lg font-semibold text-primary">
                                 {recurringCommission?.type === "especial" ? "Com. Especial Recurrente" : "Com. Extra Recurrente"}
                             </h2>
                             <p className="mt-1 text-sm text-tertiary">
@@ -1832,7 +1833,7 @@ export const BancariaEfectivizacionTable = ({
                 <Modal className="max-w-2xl">
                     <Dialog>
                         <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                            <div>
+                            <div className="atk-modal-head">
                                 <h2 className="text-lg font-semibold text-primary">Match Pago Deuda</h2>
                                 <p className="mt-1 text-sm text-tertiary">
                                     {pdMatchRow ? `Operacion retorno: ${pdMatchRow.dni_cliente ?? "-"} - ${formatMoney(pdMatchRow.monto_deposito_cliente)}` : ""}
@@ -1914,7 +1915,7 @@ export const BancariaEfectivizacionTable = ({
                 <Modal className="max-w-sm">
                     <Dialog>
                         <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                            <div>
+                            <div className="atk-modal-head">
                                 <h2 className="text-lg font-semibold text-primary">Editar DNI</h2>
                                 <p className="mt-1 text-sm text-tertiary">
                                     {dniEdit ? `Operacion ${dniEdit.row.codigo_operacion_deposito_cliente ?? dniEdit.row.id}` : ""}
@@ -1940,7 +1941,7 @@ export const BancariaEfectivizacionTable = ({
                 <Modal className="max-w-sm">
                     <Dialog>
                         <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                            <div>
+                            <div className="atk-modal-head">
                                 <h2 className="text-lg font-semibold text-primary">Transferencia Interbancaria</h2>
                                 <p className="mt-1 text-sm text-tertiary">
                                     Selecciona el banco de transferencia para recalcular la operacion.

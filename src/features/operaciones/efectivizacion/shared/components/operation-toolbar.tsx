@@ -107,6 +107,7 @@ export const OperationToolbar = ({
                             key={filter}
                             size="sm"
                             color={filter === activeFilter ? "primary" : "tertiary"}
+                            className={filter === activeFilter ? "atk-selected" : undefined}
                             onClick={() => onFilterChange(filter)}
                         >
                             {filter}
@@ -119,7 +120,7 @@ export const OperationToolbar = ({
                         key={action}
                         size="sm"
                         color="secondary"
-                        className="hover:bg-brand-solid_hover hover:text-primary_on-brand hover:ring-brand-solid disabled:hover:bg-primary disabled:hover:text-secondary disabled:hover:ring-primary"
+                        className="atk-gold-hover"
                         isDisabled={isActionDisabled?.(action) ?? true}
                         onClick={() => onAction?.(action)}
                     >
@@ -131,6 +132,7 @@ export const OperationToolbar = ({
                         size="sm"
                         color="secondary"
                         iconLeading={Copy01}
+                        className="atk-gold-hover"
                         onClick={onCopyTable}
                     >
                         Copiar

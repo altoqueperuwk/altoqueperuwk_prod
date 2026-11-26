@@ -121,7 +121,7 @@ interface BadgeProps<T extends BadgeTypes> {
 }
 
 export const Badge = <T extends BadgeTypes>(props: BadgeProps<T>) => {
-    const { type = "pill-color", size = "md", color = "gray", children } = props;
+    const { type = "color", size = "md", color = "gray", children } = props;
     const colors = withPillTypes[type];
 
     const pillSizes = {
@@ -153,7 +153,7 @@ interface BadgeWithDotProps<T extends BadgeTypes> {
 }
 
 export const BadgeWithDot = <T extends BadgeTypes>(props: BadgeWithDotProps<T>) => {
-    const { size = "md", color = "gray", type = "pill-color", className, children } = props;
+    const { size = "md", color = "gray", type = "color", className, children } = props;
 
     const colors = withBadgeTypes[type];
 
@@ -194,7 +194,7 @@ interface BadgeWithIconProps<T extends BadgeTypes> {
 }
 
 export const BadgeWithIcon = <T extends BadgeTypes>(props: BadgeWithIconProps<T>) => {
-    const { size = "md", color = "gray", type = "pill-color", iconLeading: IconLeading, iconTrailing: IconTrailing, children, className } = props;
+    const { size = "md", color = "gray", type = "color", iconLeading: IconLeading, iconTrailing: IconTrailing, children, className } = props;
 
     const colors = withBadgeTypes[type];
 
@@ -253,7 +253,7 @@ interface BadgeWithFlagProps<T extends BadgeTypes> {
 }
 
 export const BadgeWithFlag = <T extends BadgeTypes>(props: BadgeWithFlagProps<T>) => {
-    const { size = "md", color = "gray", flag = "AU", type = "pill-color", children } = props;
+    const { size = "md", color = "gray", flag = "AU", type = "color", children } = props;
 
     const colors = withPillTypes[type];
 
@@ -291,7 +291,7 @@ interface BadgeWithImageProps<T extends BadgeTypes> {
 }
 
 export const BadgeWithImage = <T extends BadgeTypes>(props: BadgeWithImageProps<T>) => {
-    const { size = "md", color = "gray", type = "pill-color", imgSrc, children } = props;
+    const { size = "md", color = "gray", type = "color", imgSrc, children } = props;
 
     const colors = withPillTypes[type];
 
@@ -337,7 +337,7 @@ interface BadgeWithButtonProps<T extends BadgeTypes> {
 }
 
 export const BadgeWithButton = <T extends BadgeTypes>(props: BadgeWithButtonProps<T>) => {
-    const { size = "md", color = "gray", type = "pill-color", icon: Icon = CloseX, buttonLabel, children } = props;
+    const { size = "md", color = "gray", type = "color", icon: Icon = CloseX, buttonLabel, children } = props;
 
     const colors = withPillTypes[type];
 
@@ -386,7 +386,7 @@ interface BadgeIconProps<T extends BadgeTypes> {
 }
 
 export const BadgeIcon = <T extends BadgeTypes>(props: BadgeIconProps<T>) => {
-    const { size = "md", color = "gray", type = "pill-color", icon: Icon } = props;
+    const { size = "md", color = "gray", type = "color", icon: Icon } = props;
 
     const colors = withPillTypes[type];
 

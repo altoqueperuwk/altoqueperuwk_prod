@@ -88,7 +88,7 @@ export const BancariaExcelRollbackModal = ({
             <Modal className="max-w-5xl">
                 <Dialog>
                     <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                        <div>
+                        <div className="atk-modal-head">
                             <h2 className="text-lg font-semibold text-primary">Eliminar carga Excel</h2>
                             <p className="mt-1 text-sm text-tertiary">
                                 Selecciona una carga para revertirla completamente. Solo se puede eliminar si todo sigue Pendiente.

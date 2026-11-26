@@ -111,16 +111,16 @@ const Tab = ({ active, children, onClick, title }: { active: boolean; children: 
 );
 
 const Panel = ({ title, context, period, children }: { title: string; context?: string[]; period?: string; children: ReactNode }) => (
-    <motion.section layout transition={{ duration: 0.2 }} className="rounded-xl border border-secondary bg-primary p-5 shadow-xs">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-primary">{title}</h2>
+    <motion.section layout transition={{ duration: 0.2 }} className="atk-card rounded-xl border border-secondary bg-primary">
+        <div className="atk-strip flex-wrap px-5">
+            <h2 className="atk-strip-title">{title}</h2>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                 {context?.map((item) => <Badge key={item} size="sm" color="gray">{item}</Badge>)}
                 <Badge size="sm" color="brand">Pago Deuda</Badge>
                 {period && <Badge size="sm" color="blue">{period}</Badge>}
             </div>
         </div>
-        {children}
+        <div className="p-5">{children}</div>
     </motion.section>
 );
 
@@ -141,9 +141,12 @@ const MetricCard = ({ label, value, lines, tone = "default", compact = false, in
         tabIndex={onClick ? 0 : undefined}
         onClick={onClick}
         onKeyDown={(event) => { if (onClick && (event.key === "Enter" || event.key === " ")) onClick(); }}
-        className={cx("min-w-0 rounded-lg border border-secondary bg-primary p-3 shadow-xs", onClick && "cursor-pointer transition duration-200 hover:border-brand focus-visible:outline-2 focus-visible:outline-brand")}
+        className={cx("atk-card atk-kpi min-w-0 rounded-lg border border-secondary bg-primary pb-3", onClick && "cursor-pointer transition duration-200 hover:border-brand focus-visible:outline-2 focus-visible:outline-brand")}
     >
-        <p className="text-xs font-medium text-tertiary">{label}</p>
+        <div className="atk-strip atk-strip-sm">
+            <p className="atk-strip-title">{label}</p>
+        </div>
+        <div className="px-3">
         <p className={cx(
             "mt-2 break-words font-semibold tabular-nums",
             compact ? "text-[11px] leading-4" : "text-lg",
@@ -153,6 +156,7 @@ const MetricCard = ({ label, value, lines, tone = "default", compact = false, in
             tone === "default" && "text-primary",
         )}>{value}</p>
         {lines?.length ? <div className="mt-2 space-y-1 text-[11px] text-tertiary">{lines.map((line) => <p key={line} className="truncate" title={line}>{line}</p>)}</div> : null}
+        </div>
     </motion.article>
 );
 

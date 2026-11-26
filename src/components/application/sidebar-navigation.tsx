@@ -36,7 +36,7 @@ import { NavList } from "@/components/application/app-navigation/base-components
 import type { NavItemType } from "@/components/application/app-navigation/config";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
-import { UntitledLogoMinimal } from "@/components/foundations/logo/untitledui-logo-minimal";
+import { AtkWordmark } from "@/components/foundations/logo/atk-wordmark";
 import {
     advisorRouteAllowed,
     isCompensacionAdvisor,
@@ -119,22 +119,6 @@ const resolveNavLabel = (label: string, href?: string | null) => {
     return label;
 };
 
-const operationAccentByRoute: Record<string, string> = {
-    "/operaciones/bcp": "#FF7900",
-    "/operaciones/bbva": "#004481",
-    "/operaciones/scotiabank": "#EC1C24",
-    "/operaciones/banbif": "#00A1E4",
-    "/operaciones/interbank": "#00A757",
-    "/operaciones/safetypay": "#1363DF",
-    "/operaciones/pos": "#6A1B9A",
-    "/operaciones/linkpago": "#00E5FF",
-    "/operaciones/deuda": "#2C3E50",
-    "/operaciones/pago-deuda": "#2C3E50",
-    "/operaciones/pagodeuda": "#2C3E50",
-};
-
-const resolveNavAccent = (href?: string | null) => (href ? operationAccentByRoute[href] : undefined);
-
 const SIDEBAR_WIDTH = 280;
 
 interface SidebarNavigationProps {
@@ -171,7 +155,6 @@ export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) 
                     label: compensacionesMenuLabel(resolveNavLabel(child.nombre as string, child.ruta as string | null), child.ruta as string | null),
                     href: child.ruta || "#",
                     icon: resolveIcon((child.icono as string) || ""),
-                    accentColor: resolveNavAccent(child.ruta as string | null),
                 })) || [];
 
             const isReportsGroup =
@@ -189,7 +172,6 @@ export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) 
                     label: "Métricas Bancarias",
                     href: "/reportes/metricas-bancarias",
                     icon: BarChart03,
-                    accentColor: undefined,
                 });
             }
 
@@ -241,7 +223,7 @@ export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) 
     }
 
     const sidebarContent = (
-        <div className="flex h-full flex-col justify-between overflow-auto">
+        <div className="atk-sidebar-scroll flex h-full flex-col justify-between overflow-auto">
             <div className="flex flex-col gap-5 px-4 min-[1920px]:px-5">
                 <button
                     onClick={() => {
@@ -250,8 +232,7 @@ export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) 
                     }}
                     className="flex w-fit items-center gap-2"
                 >
-                    <UntitledLogoMinimal className="size-6" />
-                    <span className="text-sm font-semibold text-primary">Al Toque Peru</span>
+                    <AtkWordmark />
                 </button>
             </div>
 

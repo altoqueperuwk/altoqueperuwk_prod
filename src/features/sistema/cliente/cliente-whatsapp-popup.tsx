@@ -141,7 +141,7 @@ export const ClienteWhatsappPopup = ({ isOpen, onClose, onSave, item }: ClienteW
             transition={{ duration: 0.15 }}
             className="relative z-10 w-full max-w-md rounded-xl bg-primary p-6 shadow-xl"
           >
-            <div className="mb-6 flex items-center justify-between">
+            <div className="atk-modal-head mb-6 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-primary">{isEditing ? "Editar Cliente" : "Nuevo Cliente"}</h2>
               <Button size="xs" color="tertiary" iconLeading={X} onClick={onClose} />
             </div>

@@ -1,15 +1,9 @@
 /*
- * Identidad Al Toque Perú WK (muestra aprobada para Compensaciones).
- * Marino #03204A + dorado #E7BA3A, tomados de altoqueperuwk.com.
- *
- * Se activa en todo Compensaciones con la clase `atk-brand` en <html> (hook `useAtkBrand`);
- * las demás áreas de la aplicación conservan su paleta.
- * Se redefine la escala primaria y los tokens semánticos; ningún componente cambia.
- *
- * Reglas de contraste: el dorado nunca es color de texto sobre blanco (1.9:1); el texto
- * de marca usa dorado oscuro y el texto sobre dorado usa marino (8.6:1).
+ * Identidad Al Toque Perú WK en toda la aplicación (muestra V2).
+ * Dorado champagne + marino, con superficies degradadas y títulos separados.
+ * Regla de contraste: el dorado no es color de texto sobre blanco.
  */
-html.atk-brand {
+html {
     /* Escala dorada */
     --color-brand-25: #fffcf3;
     --color-brand-50: #fef8e4;
@@ -61,23 +55,45 @@ html.atk-brand {
     --color-border-brand: #1d4a94;
     --color-border-brand_alt: #1d4a94;
     --color-focus-ring: #1d4a94;
+
+    /* Superficies porcelana */
+    --color-bg-primary: #ffffff;
+    --color-bg-secondary: #eef3fb;
+    --color-bg-tertiary: #e6eef9;
+    --color-bg-quaternary: #dae2ee;
+    --color-bg-primary_alt: #ffffff;
+    --color-bg-secondary_alt: #f7faff;
+    --color-bg-primary_hover: #f4f7fc;
+    --color-bg-secondary_hover: #e8eef8;
+    --color-bg-active: #edf2fa;
+    --color-border-primary: #cbd6e6;
+    --color-border-secondary: #d5dfef;
+    --color-border-secondary_alt: #d5dfef;
+    --color-border-tertiary: #e6eef9;
+
+    --color-utility-brand-700: #6b4f00;
+    --color-concept-ingreso: #047857;
+    --color-concept-ganancia: #047857;
+    --color-concept-salida: #dc2626;
+    --color-concept-gasto: #dc2626;
+    --atk-canvas: radial-gradient(circle at 85% 0%, rgb(232 185 49 / 0.08) 0%, transparent 42%), linear-gradient(155deg, #f7faff 0%, #eef3fb 52%, #e6eef9 100%);
+    --atk-surface: linear-gradient(165deg, #ffffff 0%, #f9fbff 100%);
+    --atk-elevated: linear-gradient(180deg, #f4f7fc 0%, #edf2fa 100%);
+    --atk-elevated-hover: linear-gradient(180deg, #edf2fa 0%, #e4ecf8 100%);
+    --atk-specular: rgb(255 255 255 / 0.95);
+    --atk-shadow: 0 4px 16px -4px rgb(4 27 70 / 0.07), 0 1px 3px 0 rgb(4 27 70 / 0.04);
+    --atk-gold: linear-gradient(135deg, #f1ca54 0%, #e2b32b 52%, #cfa01b 100%);
+    --atk-gold-hover: linear-gradient(135deg, #f6d367 0%, #e9bc36 52%, #d7a821 100%);
+    --atk-fila: #fff6d6;
+    --atk-fila-linea: #d3a21c;
+    --atk-count-bg: #ffe9a3;
+    --atk-count-borde: #dfb02a;
+    --atk-count-texto: #5c4300;
+    --atk-icono-hover: #94700a;
 }
 
-html.atk-brand.dark-mode {
-    --color-bg-primary: #0e192d;
-    --color-bg-secondary: #0a1425;
-    --color-bg-tertiary: #14233e;
-    --color-bg-quaternary: #1d2d4b;
-    --color-bg-primary_alt: #0a1425;
-    --color-bg-secondary_alt: #0e192d;
-    --color-bg-primary_hover: #112038;
-    --color-bg-secondary_hover: #14233e;
-    --color-bg-active: #14233e;
+html.dark-mode {
     --color-bg-overlay: #050b16;
-    --color-border-secondary: #1d2d4b;
-    --color-border-secondary_alt: #1d2d4b;
-    --color-border-tertiary: #16233d;
-    --color-border-primary: #2a4068;
 
     --color-bg-brand-solid: #e3bb50;
     --color-bg-brand-solid_hover: #edc866;
@@ -99,6 +115,355 @@ html.atk-brand.dark-mode {
     --color-border-brand: #e3bb50;
     --color-border-brand_alt: #2a4068;
     --color-focus-ring: #e3bb50;
+
+    --color-bg-primary: #111e36;
+    --color-bg-secondary: #0a1425;
+    --color-bg-tertiary: #192b4a;
+    --color-bg-quaternary: #223656;
+    --color-bg-primary_alt: #0a1425;
+    --color-bg-secondary_alt: #13223c;
+    --color-bg-primary_hover: #192b4a;
+    --color-bg-secondary_hover: #1d3256;
+    --color-bg-active: #192b4a;
+    --color-border-primary: #31507f;
+    --color-border-secondary: #22365a;
+    --color-border-secondary_alt: #22365a;
+    --color-border-tertiary: #192b4a;
+
+    --color-utility-brand-700: #f1d06a;
+    --color-concept-ingreso: #34d399;
+    --color-concept-ganancia: #34d399;
+    --color-concept-salida: #f87171;
+    --color-concept-gasto: #f87171;
+    --atk-canvas: radial-gradient(circle at 15% -5%, rgb(22 54 112 / 0.34) 0%, transparent 45%), radial-gradient(circle at 90% 10%, rgb(232 185 49 / 0.045) 0%, transparent 38%), linear-gradient(160deg, #08101e 0%, #0c1628 50%, #091221 100%);
+    --atk-surface: linear-gradient(165deg, #15243f 0%, #0d182c 100%);
+    --atk-elevated: linear-gradient(180deg, #192b4a 0%, #13223c 100%);
+    --atk-elevated-hover: linear-gradient(180deg, #20365c 0%, #182a4a 100%);
+    --atk-specular: rgb(148 182 235 / 0.14);
+    --atk-shadow: 0 8px 24px -6px rgb(2 6 16 / 0.62), 0 2px 6px -1px rgb(2 6 16 / 0.4);
+    --atk-gold: linear-gradient(135deg, #ecc552 0%, #deb031 55%, #c7991e 100%);
+    --atk-gold-hover: linear-gradient(135deg, #f3d066 0%, #e7ba3e 55%, #d3a426 100%);
+    --atk-fila: #232c39;
+    --atk-fila-linea: rgb(229 184 59 / 0.75);
+    --atk-count-bg: rgb(229 184 59 / 0.16);
+    --atk-count-borde: rgb(229 184 59 / 0.6);
+    --atk-count-texto: #f6d675;
+    --atk-icono-hover: #e5b83b;
+}
+
+
+/* ---------- Superficies, franjas de título y controles ---------- */
+.atk-canvas {
+    background-image: var(--atk-canvas);
+}
+.atk-card {
+    background-image: var(--atk-surface);
+    box-shadow: inset 0 1px 0 0 var(--atk-specular), var(--atk-shadow);
+}
+.atk-strip {
+    display: flex;
+    min-height: 46px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--color-border-secondary);
+    border-radius: 7px 7px 0 0;
+    background-image: var(--atk-elevated);
+}
+.atk-strip-title {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+}
+.atk-btn-primary:not(:disabled) {
+    background-image: var(--atk-gold);
+}
+.atk-btn-primary:not(:disabled):hover {
+    background-image: var(--atk-gold-hover);
+}
+.atk-btn-primary:disabled {
+    background-image: var(--atk-gold);
+}
+.atk-btn-secondary {
+    background-image: var(--atk-elevated);
+}
+.atk-btn-secondary:not(:disabled):hover {
+    background-image: var(--atk-elevated-hover);
+}
+
+/* ---------- Al pasar el cursor ---------- */
+.atk-hover {
+    transition-property: color, background-color, border-color, box-shadow, scale, translate;
+    transition-duration: 160ms;
+}
+.atk-hover:hover:not(:disabled, [data-disabled], [data-loading]) {
+    scale: 1.03;
+    translate: 0 -1px;
+    box-shadow:
+        0 0 0 1px #e5b83b,
+        0 0 0 4px rgb(229 184 59 / 0.22),
+        0 6px 16px -4px rgb(222 176 49 / 0.45);
+}
+.atk-hover-icon:hover:not(:disabled, [data-disabled]) {
+    scale: 1.12;
+}
+.atk-hover-danger:hover:not(:disabled, [data-disabled], [data-loading]) {
+    box-shadow:
+        0 0 0 1px #f87171,
+        0 0 0 4px rgb(248 113 113 / 0.22),
+        0 6px 16px -4px rgb(220 38 38 / 0.4);
+}
+.atk-kpi {
+    transition:
+        translate 180ms ease,
+        border-color 200ms ease;
+}
+.atk-kpi:hover {
+    translate: 0 -1px;
+    border-color: rgb(229 184 59 / 0.38);
+}
+/* Etiquetas del KPI: degradado de la propuesta */
+html .atk-pill {
+    background-image: linear-gradient(180deg, #f4f7fc 0%, #edf2fa 100%);
+    border-color: rgb(188 204 228 / 0.72);
+    color: #4a5b75;
+    transition:
+        border-color 150ms ease,
+        color 150ms ease;
+}
+html.dark-mode .atk-pill {
+    background-image: linear-gradient(180deg, rgb(25 43 74 / 0.85) 0%, rgb(19 34 60 / 0.95) 100%);
+    border-color: rgb(46 72 117 / 0.52);
+    color: #9cb0ce;
+}
+html body .atk-pill:hover {
+    border-color: #e5b83b;
+    color: var(--color-text-primary);
+}
+html .atk-tab:not([data-selected]):hover {
+    background-color: rgb(229 184 59 / 0.14);
+    color: var(--color-text-primary);
+}
+/* ---------- Carga Masiva ---------- */
+html {
+    --atk-borde-suave: rgb(188 204 228 / 0.72);
+    --atk-oro-suave: linear-gradient(135deg, rgb(232 185 49 / 0.16) 0%, rgb(232 185 49 / 0.06) 100%);
+    --atk-oro-texto: #8a6500;
+}
+html.dark-mode {
+    --atk-borde-suave: rgb(46 72 117 / 0.52);
+    --atk-oro-suave: linear-gradient(135deg, rgb(229 184 59 / 0.16) 0%, rgb(229 184 59 / 0.05) 100%);
+    --atk-oro-texto: #e5b83b;
+}
+html .atk-dropzone {
+    background-image: radial-gradient(circle at 50% 35%, rgb(229 184 59 / 0.06) 0%, transparent 70%), var(--atk-input-bg);
+    border-color: var(--atk-input-borde);
+    transition: border-color 150ms ease;
+}
+html body .atk-dropzone:hover,
+html body .atk-dropzone:focus-within {
+    border-color: #e5b83b;
+}
+.atk-dropzone-icon {
+    background-image: var(--atk-oro-suave);
+    border: 1px solid rgb(229 184 59 / 0.25);
+    color: #e5b83b;
+    transition: scale 150ms ease;
+}
+.atk-dropzone:hover .atk-dropzone-icon {
+    scale: 1.05;
+}
+.atk-tile {
+    background-image: var(--atk-input-bg);
+    border: 1px solid var(--atk-borde-suave);
+}
+.atk-tile-icon {
+    border: 1px solid var(--atk-input-borde);
+    color: var(--atk-oro-texto);
+}
+html .atk-upload-process:disabled {
+    background-color: transparent;
+    background-image: var(--atk-oro-suave);
+    box-shadow: none;
+    color: var(--atk-oro-texto);
+}
+html .atk-upload-process:disabled * {
+    color: var(--atk-oro-texto);
+}
+@media (prefers-reduced-motion: reduce) {
+    .atk-hover:hover,
+    .atk-hover-icon:hover,
+    .atk-kpi:hover {
+        scale: none;
+        translate: none;
+    }
+}
+
+/* Barra de acciones de la tabla: fondo amarillo y letra negra */
+html .atk-gold-hover:hover:not(:disabled, [data-disabled], [data-loading]) {
+    background-color: #e5b83b;
+    background-image: var(--atk-gold);
+    color: #000;
+    --tw-ring-color: #e5b83b;
+}
+html .atk-gold-hover:hover:not(:disabled, [data-disabled], [data-loading]) * {
+    color: #000;
+}
+
+/* ---------- Campos: degradado de la propuesta ---------- */
+html {
+    --atk-input-bg: linear-gradient(180deg, #f4f7fc 0%, #edf2fa 100%);
+    --atk-input-borde: #cbd6e6;
+}
+html.dark-mode {
+    --atk-input-bg: linear-gradient(180deg, rgb(25 43 74 / 0.85) 0%, rgb(19 34 60 / 0.95) 100%);
+    --atk-input-borde: rgb(56 86 138 / 0.68);
+}
+html :is(.atk-input, .atk-input-group) {
+    background-image: var(--atk-input-bg);
+}
+/* Dentro de un campo compuesto, el degradado lo pone solo el contenedor */
+html .atk-input-group .atk-input {
+    background-image: none;
+}
+/* Los estados de foco y error conservan sus colores */
+html .atk-input:not(:focus, :focus-within, :disabled, .ring-2, .ring-error_subtle, [aria-invalid="true"], [data-invalid], [data-invalid] *) {
+    --tw-ring-color: var(--atk-input-borde);
+}
+html .atk-input:hover:not(:focus, :focus-within, :disabled, .ring-2, .ring-error_subtle, [aria-invalid="true"], [data-invalid], [data-invalid] *) {
+    --tw-ring-color: rgb(110 145 204 / 0.75);
+}
+html .atk-input:is(:focus, :focus-within):not(.ring-error, [aria-invalid="true"], [data-invalid], [data-invalid] *) {
+    --tw-ring-color: #e5b83b;
+    --tw-shadow: 0 0 0 3px rgb(229 184 59 / 0.2);
+}
+
+/* ---------- Selector Ingreso / Salida ---------- */
+html .atk-segment {
+    gap: 0;
+    padding: 2px;
+    background-image: var(--atk-input-bg);
+    box-shadow: inset 0 0 0 1px var(--atk-input-borde);
+}
+html .atk-segment > .atk-segment-item {
+    margin: 0;
+    padding-block: 6px;
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--color-text-secondary);
+}
+html .atk-segment > .atk-segment-item:not([data-selected], :disabled):hover {
+    background: rgb(229 184 59 / 0.14);
+    color: var(--color-text-primary);
+}
+html .atk-segment > .atk-segment-item[data-selected] {
+    background: var(--atk-gold);
+    box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.35),
+        0 1px 4px rgb(4 22 56 / 0.2);
+    color: #041638;
+}
+html .atk-segment > .atk-segment-danger[data-selected] {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: #fff;
+}
+
+/* ---------- Resaltado de fila en todas las tablas ---------- */
+/* Los calendarios y las filas de aviso quedan fuera. */
+html table:not([role="application"] table) > tbody > tr:not(:has(> td[colspan])):is(:hover, [data-selected]) > td {
+    background-color: var(--atk-fila);
+    box-shadow:
+        inset 0 1px var(--atk-fila-linea),
+        inset 0 -1px var(--atk-fila-linea);
+}
+html table:not([role="application"] table) > tbody > tr:not(:has(> td[colspan])):is(:hover, [data-selected]) > td:first-child {
+    box-shadow:
+        inset 3px 0 var(--atk-fila-linea),
+        inset 0 1px var(--atk-fila-linea),
+        inset 0 -1px var(--atk-fila-linea);
+}
+
+/* ---------- Encabezados separados en modales y paneles ---------- */
+.atk-modal-head,
+.atk-modal-head-drawer {
+    border-bottom: 1px solid var(--color-border-secondary);
+    background-image: var(--atk-elevated);
+}
+/* El encabezado llega a los bordes del panel anulando su relleno */
+html .atk-modal-head {
+    margin-top: -1.25rem;
+    margin-inline: -1.25rem;
+    padding: 0.875rem 1.25rem;
+    border-radius: 11px 11px 0 0;
+}
+html .p-6 .atk-modal-head {
+    margin-top: -1.5rem;
+    margin-inline: -1.5rem;
+    padding: 1rem 1.5rem;
+}
+html :is(.atk-modal-head, .atk-modal-head-drawer) h2,
+html h2.atk-modal-head {
+    font-size: 14px;
+    line-height: 20px;
+}
+/* Tarjetas pequeñas: franja baja y título en varias líneas */
+.atk-strip.atk-strip-sm {
+    min-height: 38px;
+    gap: 8px;
+    padding: 6px 12px;
+}
+.atk-strip-sm .atk-strip-title {
+    white-space: normal;
+}
+.rounded-xl > .atk-strip {
+    border-radius: 11px 11px 0 0;
+}
+
+/* ---------- Logotipo y miga de pan ---------- */
+.atk-wordmark-accent {
+    color: #c99200;
+}
+html.dark-mode .atk-wordmark-accent {
+    color: #fbbc2c;
+}
+.atk-crumb-link:hover {
+    color: var(--atk-oro-texto);
+    text-decoration: underline;
+}
+
+/* ---------- Barra de desplazamiento del menú ---------- */
+.atk-sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-primary) transparent;
+}
+
+/* Contador de pestañas: amarillo sin seleccionar, marino en la seleccionada */
+html .atk-count {
+    background: var(--atk-count-bg);
+    color: var(--atk-count-texto);
+    --tw-ring-color: var(--atk-count-borde);
+    font-variant-numeric: tabular-nums;
+}
+html [data-selected] .atk-count {
+    background: #041b46;
+    color: #ffffff;
+    --tw-ring-color: #041b46;
+}
+
+/* Iconos de acción de fila */
+html .atk-row-action:hover:not(:disabled) {
+    background: color-mix(in srgb, #e5b83b 16%, transparent);
+    color: var(--atk-icono-hover);
+}
+html .atk-row-action:hover:not(:disabled) * {
+    color: var(--atk-icono-hover);
 }
 
 /*
@@ -106,12 +471,134 @@ html.atk-brand.dark-mode {
  * iluminan su borde en dorado antes del clic. El foco conserva su color propio y
  * los campos inválidos o deshabilitados no cambian.
  */
-html.atk-brand .ring-primary:hover:not(:focus-within, [data-disabled], [aria-disabled="true"], :disabled, :has(:disabled), :where([data-invalid] *)) {
+html .ring-primary:hover:not(:focus-within, [data-disabled], [aria-disabled="true"], :disabled, :has(:disabled), :where([data-invalid] *)) {
     --tw-ring-color: var(--color-brand-500);
 }
 
 /* El check y el punto de radio mantienen contraste cuando el fondo de selección es dorado. */
-html.atk-brand [data-selected] > div.bg-brand-solid {
+html [data-selected] > div.bg-brand-solid {
     background-color: var(--color-text-primary_on-brand);
     --tw-ring-color: var(--color-text-primary_on-brand);
+}
+
+/* ==========================================================================
+ * Modo claro en azul. El modo oscuro conserva el dorado.
+ * Regla: lo amarillo no lleva borde azul, para no mezclar ambos colores.
+ * ========================================================================== */
+html:not(.dark-mode) {
+    --atk-azul-sel: linear-gradient(135deg, #06255e 0%, #041840 100%);
+    --atk-azul-hover: linear-gradient(135deg, #0b3a8c 0%, #062761 100%);
+    --atk-fila: #e5edfc;
+    --atk-fila-linea: #0b3a8c;
+}
+
+/* Botones principales: azul en reposo, amarillo al pasar el ratón */
+html:not(.dark-mode) .atk-btn-primary:not(.atk-hover-icon) {
+    background-color: #06255e;
+    background-image: var(--atk-azul-sel);
+    color: #ffffff;
+}
+html:not(.dark-mode) .atk-btn-primary:not(.atk-hover-icon) > :is([data-text], [data-icon], svg) {
+    color: inherit;
+}
+html:not(.dark-mode) .atk-btn-primary:not(.atk-hover-icon):hover:not(:disabled, [data-disabled], [data-loading]) {
+    background-color: #e9bc36;
+    background-image: var(--atk-gold-hover);
+    color: #041b46;
+}
+
+/* Seleccionados (pestañas, filtros, bandejas y periodos): azul también con el ratón encima */
+html:not(.dark-mode) :is(.atk-btn-primary.atk-selected, [role="tab"][aria-selected="true"].atk-btn-primary, [aria-selected="true"].bg-brand-solid, .atk-tab[data-selected]:not(.border-b-2, .border-l-2)):not(#_) {
+    background-color: #06255e;
+    background-image: var(--atk-azul-sel);
+    color: #ffffff;
+}
+html:not(.dark-mode) :is(.atk-btn-primary.atk-selected, [role="tab"][aria-selected="true"].atk-btn-primary, [aria-selected="true"].bg-brand-solid, .atk-tab[data-selected]:not(.border-b-2, .border-l-2)):not(#_) > :is([data-text], [data-icon], svg, span:not(.atk-count, .bg-primary)) {
+    color: inherit;
+}
+
+/* Contador de pestañas: amarillo sobre la pestaña azul */
+html:not(.dark-mode) :is([data-selected], .atk-tab:hover) .atk-count {
+    background: #ffe9a3;
+    color: #041b46;
+    --tw-ring-color: #dfb02a;
+}
+
+/* Movimiento (Ingreso / Salida) */
+html:not(.dark-mode) .atk-segment > :is(.atk-segment-item, .atk-segment-danger)[data-selected] {
+    background: var(--atk-azul-sel);
+    color: #ffffff;
+}
+html:not(.dark-mode) .atk-segment > .atk-segment-item:not([data-selected], :disabled):hover {
+    background: var(--atk-azul-hover);
+    color: #ffffff;
+}
+html:not(.dark-mode) .atk-segment > .atk-segment-item:is([data-selected], :hover):not(:disabled) * {
+    color: #ffffff;
+}
+
+/* Resto de botones, pestañas sin seleccionar y etiquetas: azul al pasar el ratón */
+html:not(.dark-mode) .atk-btn-secondary:hover:not(:disabled, [data-disabled], [data-loading]),
+html:not(.dark-mode) .atk-tab:not([data-selected], .border-b-2, .border-l-2):hover,
+html:not(.dark-mode) body .atk-pill:hover {
+    background-color: #0b3a8c;
+    background-image: var(--atk-azul-hover);
+    border-color: #0b3a8c;
+    color: #ffffff;
+    --tw-ring-color: #0b3a8c;
+}
+html:not(.dark-mode) .atk-btn-secondary:hover:not(:disabled, [data-disabled], [data-loading]) > :is([data-text], [data-icon], svg),
+html:not(.dark-mode) .atk-tab:not([data-selected], .border-b-2, .border-l-2):hover > :is([data-icon], svg, span),
+html:not(.dark-mode) .atk-gold-hover:hover:not(:disabled, [data-disabled], [data-loading]) * {
+    color: #ffffff;
+}
+html:not(.dark-mode) .atk-gold-hover:hover:not(:disabled, [data-disabled], [data-loading]) {
+    color: #ffffff;
+}
+
+/* Halo azul; el amarillo (botón principal) y el rojo (destructivo) conservan el suyo */
+html:not(.dark-mode) .atk-hover:hover:not(:disabled, [data-disabled], [data-loading], .atk-hover-danger, .atk-btn-primary),
+html:not(.dark-mode) .atk-btn-primary:is(.atk-selected, [aria-selected="true"], .atk-hover-icon):hover:not(:disabled) {
+    box-shadow:
+        0 0 0 1px #0b3a8c,
+        0 0 0 4px rgb(11 58 140 / 0.18),
+        0 6px 16px -4px rgb(11 58 140 / 0.4);
+}
+
+/* Botones deshabilitados con el ratón encima: borde azul */
+html:not(.dark-mode) .atk-hover:is(:disabled, [data-disabled]):not([data-loading], .atk-upload-process):hover {
+    box-shadow:
+        0 0 0 1px #0b3a8c,
+        0 0 0 4px rgb(11 58 140 / 0.14);
+}
+
+/* Campos y listas: borde azul al seleccionar y al pasar el ratón */
+html:not(.dark-mode) .atk-input:is(:focus, :focus-within):not(.ring-error, [aria-invalid="true"], [data-invalid], [data-invalid] *) {
+    --tw-ring-color: #0b3a8c;
+    --tw-shadow: 0 0 0 3px rgb(11 58 140 / 0.18);
+}
+html:not(.dark-mode) .ring-primary:hover:not(:focus-within, [data-disabled], [aria-disabled="true"], :disabled, :has(:disabled), :where([data-invalid] *)) {
+    --tw-ring-color: #0b3a8c;
+}
+
+/* Iconos de acción de fila y fila seleccionada */
+html:not(.dark-mode) .atk-row-action:hover:not(:disabled),
+html:not(.dark-mode) .atk-btn-primary.atk-hover-icon:hover:not(:disabled) {
+    background-color: #0b3a8c;
+    background-image: var(--atk-azul-hover);
+    color: #ffffff;
+}
+html:not(.dark-mode) .atk-row-action:hover:not(:disabled) *,
+html:not(.dark-mode) .atk-btn-primary.atk-hover-icon:hover:not(:disabled) * {
+    color: #ffffff;
+}
+html:not(.dark-mode) table:not([role="application"] table) > tbody > tr[data-selected]:not(:has(> td[colspan])) > td {
+    background-color: #d3e1fa;
+}
+
+/* Textos secundarios dentro de un botón o pestaña con fondo de color: heredan su color.
+   Las etiquetas con fondo propio (contadores) quedan como están. */
+html:not(.dark-mode) :is(.atk-btn-secondary:hover:not(:disabled, [data-disabled], [data-loading]), .atk-btn-primary:not(.atk-hover-icon), .atk-tab:not(.border-b-2, .border-l-2):is([data-selected], :hover))
+    :is(.text-primary, .text-secondary, .text-tertiary, .text-quaternary):not([class*="bg-"]) {
+    color: inherit;
 }

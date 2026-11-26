@@ -30,13 +30,15 @@ export const OperacionConfirmModal = ({
     <ModalOverlay isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
         <Modal className="max-w-md">
             <Dialog>
-                <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                    <div className="flex flex-col gap-2">
-                        <h2 className="text-lg font-semibold text-primary">{title}</h2>
-                        <p className="text-sm text-tertiary">{description}</p>
+                <div className="w-full overflow-hidden rounded-xl bg-primary shadow-xl ring-1 ring-secondary">
+                    <div className="atk-strip px-5">
+                        <h2 className="text-sm font-semibold text-primary">{title}</h2>
                     </div>
-                    {children}
-                    <div className="mt-6 flex justify-end gap-2">
+                    <div className="px-5 py-4">
+                        <p className="text-sm text-tertiary">{description}</p>
+                        {children}
+                    </div>
+                    <div className="flex justify-end gap-2 border-t border-secondary px-5 py-3">
                         <Button color="secondary" isDisabled={isLoading} onClick={onClose}>
                             {cancelLabel}
                         </Button>

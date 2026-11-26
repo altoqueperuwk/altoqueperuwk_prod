@@ -105,18 +105,23 @@ const uniqueOptions = (items: Array<{ label: string; value: number | string | nu
 };
 
 const Panel = ({ title, description, children, className }: { title: string; description: string; children: ReactNode; className?: string }) => (
-    <motion.section layout transition={{ duration: 0.2 }} className={cx("rounded-xl border border-secondary bg-primary p-5 shadow-xs", className)}>
-        <div className="mb-5">
-            <h2 className="text-md font-semibold text-primary">{title}</h2>
-            <p className="mt-1 text-sm text-tertiary">{description}</p>
+    <motion.section layout transition={{ duration: 0.2 }} className={cx("atk-card rounded-xl border border-secondary bg-primary", className)}>
+        <div className="atk-strip px-5">
+            <div className="min-w-0">
+                <h2 className="atk-strip-title">{title}</h2>
+                <p className="text-xs text-tertiary">{description}</p>
+            </div>
         </div>
-        {children}
+        <div className="p-5">{children}</div>
     </motion.section>
 );
 
 const MetricCard = ({ label, value, supportingText, badges, tone = "default", index }: { label: string; value: string; supportingText?: string; badges?: string[]; tone?: "default" | "success" | "warning" | "error"; index: number }) => (
-    <motion.article initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: index * 0.025 }} className="rounded-xl border border-secondary bg-primary p-4 shadow-xs">
-        <p className="text-sm font-medium text-tertiary">{label}</p>
+    <motion.article initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: index * 0.025 }} className="atk-card atk-kpi rounded-xl border border-secondary bg-primary pb-4">
+        <div className="atk-strip atk-strip-sm px-4">
+            <p className="atk-strip-title">{label}</p>
+        </div>
+        <div className="px-4">
         <p className={cx(
             "mt-3 text-display-xs font-semibold tracking-tight",
             tone === "success" && "text-success-primary",
@@ -126,6 +131,7 @@ const MetricCard = ({ label, value, supportingText, badges, tone = "default", in
         )}>{value}</p>
         {supportingText && <p className="mt-1 text-xs text-tertiary">{supportingText}</p>}
         {badges?.length ? <div className="mt-3 flex flex-wrap gap-1.5">{badges.map((badge) => <Badge key={badge} type="modern" size="sm">{badge}</Badge>)}</div> : null}
+        </div>
     </motion.article>
 );
 

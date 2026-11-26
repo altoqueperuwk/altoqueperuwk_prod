@@ -127,7 +127,7 @@ export const PagoDeudaActionModal = ({
             <Modal className="max-w-md">
                 <Dialog>
                     <div className="w-full rounded-xl bg-primary p-6 shadow-xl ring-1 ring-secondary">
-                        <div>
+                        <div className="atk-modal-head">
                             <h2 className="text-lg font-semibold text-primary">{action}</h2>
                             <p className="mt-1 text-sm text-tertiary">
                                 {selectedCount} solicitud(es) seleccionada(s)

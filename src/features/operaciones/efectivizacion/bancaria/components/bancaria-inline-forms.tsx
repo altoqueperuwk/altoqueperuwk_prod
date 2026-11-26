@@ -164,7 +164,7 @@ const SegmentedControl = ({
 
     return (
         <ButtonGroup
-            className={cx("grid w-full grid-flow-col [&>*]:w-full [&>*]:justify-center", className)}
+            className={cx("atk-segment grid w-full grid-flow-col [&>*]:w-full [&>*]:justify-center", className)}
             selectedKeys={selectedKey ? [selectedKey] : []}
             size="sm"
             onSelectionChange={(keys) => {
@@ -177,7 +177,7 @@ const SegmentedControl = ({
                     <ButtonGroupItem
                         id={option.value}
                         key={option.value}
-                        className="selected:bg-brand-solid selected:text-primary_on-brand selected:hover:bg-brand-solid_hover selected:hover:text-primary_on-brand"
+                        className={cx("atk-segment-item", option.value === "Salida" && "atk-segment-danger")}
                     >
                         {option.label}
                     </ButtonGroupItem>

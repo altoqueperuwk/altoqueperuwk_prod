@@ -2022,8 +2022,13 @@ export const BancariaOperationalTabs = ({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}
-            className={embedded ? "overflow-hidden bg-primary" : "overflow-hidden rounded-lg border border-secondary bg-primary shadow-xs"}
+            className={embedded ? "overflow-hidden bg-primary" : "atk-card overflow-hidden rounded-lg border border-secondary bg-primary"}
         >
+            {!embedded && (
+                <div className="atk-strip">
+                    <h2 className="atk-strip-title">Operaciones registradas</h2>
+                </div>
+            )}
             <div className="flex flex-col gap-3 p-4">
                 {showCompanyTabs ? (
                     <div className="flex flex-wrap items-center gap-3">
@@ -2328,7 +2333,7 @@ export const BancariaOperationalTabs = ({
                 <Modal className="max-w-sm">
                     <Dialog>
                         <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                            <div>
+                            <div className="atk-modal-head">
                                 <h2 className="text-lg font-semibold text-primary">Editar DNI</h2>
                                 <p className="mt-1 text-sm text-tertiary">
                                     {dniEdit ? `Operacion ${dniEdit.row.codigo_operacion_deposito_cliente ?? dniEdit.row.id}` : ""}

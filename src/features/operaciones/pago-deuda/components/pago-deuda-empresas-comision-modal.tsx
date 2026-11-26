@@ -140,7 +140,7 @@ export const PagoDeudaEmpresasComisionModal = ({
             <Modal className="max-w-5xl">
                 <Dialog>
                     <div className="w-full rounded-xl bg-primary p-6 shadow-xl ring-1 ring-secondary">
-                        <div className="flex items-start justify-between gap-4">
+                        <div className="atk-modal-head flex items-start justify-between gap-4">
                             <div>
                                 <h2 className="text-lg font-semibold text-primary">Empresas Comision</h2>
                                 <p className="mt-1 text-sm text-tertiary">

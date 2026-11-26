@@ -214,7 +214,7 @@ export const PermisoUsuarioTreePopup = ({ isOpen, user, onClose, onSaved }: Perm
                         transition={{ duration: 0.15 }}
                         className="relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl bg-primary shadow-xl"
                     >
-                        <div className="flex items-start justify-between border-b border-secondary px-6 py-5">
+                        <div className="atk-modal-head-drawer flex items-start justify-between border-b border-secondary px-6 py-5">
                             <div>
                                 <h2 className="text-lg font-semibold text-primary">Permisos de Menú</h2>
                                 <p className="mt-1 text-sm text-secondary">

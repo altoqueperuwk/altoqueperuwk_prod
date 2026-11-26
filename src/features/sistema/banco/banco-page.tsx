@@ -72,7 +72,7 @@ export const BancoPage = () => {
       );
     }},
     { key: "flag_permite_deposito", header: "Depósito", render: (value: unknown) => (
-      <BadgeWithDot color={value ? "success" : "gray"} size="sm" type="pill-color">
+      <BadgeWithDot color={value ? "success" : "gray"} size="sm" type="color">
         {value ? "Sí" : "No"}
       </BadgeWithDot>
     )},

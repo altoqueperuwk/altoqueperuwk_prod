@@ -73,7 +73,7 @@ export const EstadoPopup = ({ isOpen, onClose, onSave, item }: EstadoPopupProps)
             transition={{ duration: 0.15 }}
             className="relative z-10 w-full max-w-md rounded-xl bg-primary p-6 shadow-xl"
           >
-            <div className="flex items-center justify-between mb-6">
+            <div className="atk-modal-head flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold text-primary">
                 {isEditing ? "Editar Estado" : "Nuevo Estado"}
               </h2>

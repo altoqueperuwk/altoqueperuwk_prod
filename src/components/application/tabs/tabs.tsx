@@ -176,7 +176,7 @@ export const Tab = ({ label, children, badge, icon: Icon, className, ...otherPro
             {...otherProps}
             className={(prop) =>
                 cx(
-                    "z-10 flex h-max cursor-pointer items-center justify-center gap-2 rounded-md whitespace-nowrap text-quaternary transition duration-100 ease-linear",
+                    "atk-tab z-10 flex h-max cursor-pointer items-center justify-center gap-2 rounded-md whitespace-nowrap text-quaternary transition duration-100 ease-linear",
                     "group-orientation-vertical:justify-start",
                     fullWidth && "w-full flex-1",
                     sizes[size].base,
@@ -201,7 +201,7 @@ export const Tab = ({ label, children, badge, icon: Icon, className, ...otherPro
                                 size="sm"
                                 type={showPillColorBadge ? "pill-color" : "modern"}
                                 color={showPillColorBadge && (state.isHovered || state.isSelected) ? "brand" : "gray"}
-                                className={cx("hidden transition-inherit-all md:flex", size === "sm" && "-my-px")}
+                                className={cx("atk-count hidden transition-inherit-all md:flex", size === "sm" && "-my-px")}
                             >
                                 {badge}
                             </Badge>

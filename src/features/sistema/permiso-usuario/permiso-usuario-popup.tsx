@@ -188,7 +188,7 @@ export const PermisoUsuarioPopup = ({ isOpen, onClose, onSave, item }: PermisoUs
             transition={{ duration: 0.15 }}
             className="relative z-10 w-full max-w-lg rounded-xl bg-primary p-6 shadow-xl max-h-[90vh] overflow-y-auto"
           >
-            <div className="flex items-center justify-between mb-6">
+            <div className="atk-modal-head flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold text-primary">
                 {isEditing ? "Editar Permiso de Usuario" : "Nuevo Permiso de Usuario"}
               </h2>

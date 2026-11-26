@@ -156,7 +156,7 @@ export const EmpresaCuentasModal = ({ isOpen, onClose, empresa }: EmpresaCuentas
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.15 }}
             className="relative z-10 w-full max-w-6xl max-h-[85vh] flex flex-col rounded-xl bg-primary p-6 shadow-xl"
           >
-            <div className="flex items-center justify-between mb-2">
+            <div className="atk-modal-head flex items-center justify-between mb-2">
               <div>
                 <h2 className="text-lg font-semibold text-primary">Cuentas Bancarias — {empresaNombre || ""}</h2>
                 <p className="text-sm text-tertiary mt-0.5">Gestión de cuentas bancarias de la empresa.</p>

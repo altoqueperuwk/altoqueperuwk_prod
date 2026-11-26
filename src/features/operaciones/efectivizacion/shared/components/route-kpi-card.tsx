@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Eye, EyeOff } from "@untitledui/icons";
+import { Eye, EyeOff, TrendDown01, TrendUp01, Wallet02 } from "@untitledui/icons";
 import { motion } from "motion/react";
 import { Button as AriaButton } from "react-aria-components";
 import { cx } from "@/utils/cx";
@@ -26,6 +26,7 @@ export const RouteKpiCard = ({
     valueClassName = "text-primary",
 }: RouteKpiCardProps) => {
     const [isSecondaryValueVisible, setIsSecondaryValueVisible] = useState(false);
+    const Icono = /error|salida|gasto/.test(valueClassName) ? TrendDown01 : valueClassName.includes("success") || valueClassName.includes("concept") ? TrendUp01 : Wallet02;
     const maskedSecondaryValue = secondaryValue?.trim().startsWith("-") ? "-S/ ••••••" : "S/ ••••••";
 
     return (
@@ -33,9 +34,13 @@ export const RouteKpiCard = ({
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}
-            className="min-h-24 rounded-lg border border-secondary bg-primary p-4 shadow-xs"
+            className="atk-card atk-kpi flex min-h-24 flex-col rounded-lg border border-secondary bg-primary"
         >
-            <p className="text-xs font-medium text-tertiary">{label}</p>
+            <div className="atk-strip">
+                <p className="atk-strip-title">{label}</p>
+                <Icono aria-hidden="true" className={cx("size-4 shrink-0", valueClassName)} />
+            </div>
+            <div className="flex flex-1 flex-col px-4 pt-1 pb-4">
             {isLoading ? (
                 <div className="mt-3 h-7 w-24 animate-pulse rounded bg-secondary" />
             ) : (
@@ -67,11 +72,11 @@ export const RouteKpiCard = ({
                         </div>
                     ) : null}
                     {badges.length > 0 && (
-                        <div className={cx("flex flex-wrap gap-1.5", secondaryValue ? "mt-2" : "mt-3")}>
+                        <div className={cx("mt-auto flex flex-wrap gap-1.5", secondaryValue ? "pt-2" : "pt-3")}>
                             {badges.map((badge) => (
                                 <span
                                     key={badge}
-                                    className="rounded-md border border-secondary bg-secondary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-secondary"
+                                    className="atk-pill rounded-md border px-2 py-0.5 text-[10px] font-medium leading-[15px]"
                                 >
                                     {badge}
                                 </span>
@@ -80,6 +85,7 @@ export const RouteKpiCard = ({
                     )}
                 </>
             )}
+            </div>
         </motion.div>
     );
 };

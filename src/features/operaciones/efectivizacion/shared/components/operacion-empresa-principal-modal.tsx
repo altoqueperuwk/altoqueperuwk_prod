@@ -129,7 +129,7 @@ export const OperacionEmpresaPrincipalModal = ({ isOpen, onClose, onSaved, ruta 
             <Modal className="w-full max-w-2xl">
                 <Dialog>
                     <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                        <div className="flex items-start justify-between gap-4">
+                        <div className="atk-modal-head flex items-start justify-between gap-4">
                             <div>
                                 <h2 className="text-lg font-semibold text-primary">Empresa Principal</h2>
                                 <p className="mt-1 text-sm text-tertiary">

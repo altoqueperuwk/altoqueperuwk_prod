@@ -584,7 +584,7 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
             <Modal className="max-w-7xl">
                 <Dialog>
                     <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                        <div className="flex items-start justify-between gap-4">
+                        <div className="atk-modal-head flex items-start justify-between gap-4">
                             <div>
                                 <h2 className="text-lg font-semibold text-primary">Empresas</h2>
                                 <p className="mt-1 text-sm text-tertiary">Crea empresas y cuentas disponibles para la ruta actual.</p>
@@ -948,7 +948,7 @@ export const OperacionEmpresasModal = ({ isOpen, onClose, onSaved, ruta }: Opera
             <Modal className="max-w-xl">
                 <Dialog>
                     <div className="w-full rounded-xl bg-primary p-5 shadow-xl ring-1 ring-secondary">
-                        <div>
+                        <div className="atk-modal-head">
                             <h2 className="text-lg font-semibold text-primary">Nueva Empresa</h2>
                             <p className="mt-1 text-sm text-tertiary">
                                 Estas son las empresas registradas actualmente.
