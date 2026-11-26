@@ -123,10 +123,12 @@ const SIDEBAR_WIDTH = 280;
 
 interface SidebarNavigationProps {
     isOpen: boolean;
+    /** El usuario ocultó el menú fijo de pantallas anchas. */
+    isHidden?: boolean;
     onToggle: () => void;
 }
 
-export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) => {
+export const SidebarNavigation = ({ isOpen, isHidden = false, onToggle }: SidebarNavigationProps) => {
     const location = useLocation();
     const { theme, setTheme } = useTheme();
     const { navegacion, isLoading } = useSessionCache();
@@ -200,7 +202,7 @@ export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) 
     if (isLoading && !navegacion) {
         return (
             <aside
-                className="fixed inset-y-0 left-0 z-40 hidden h-full flex-col border-r border-secondary bg-primary min-[1920px]:flex"
+                className={cx("fixed inset-y-0 left-0 z-40 hidden h-full flex-col border-r border-secondary bg-primary", !isHidden && "min-[1920px]:flex")}
                 style={{ width: SIDEBAR_WIDTH }}
             >
                 <div className="flex flex-1 items-center justify-center">
@@ -299,7 +301,7 @@ export const SidebarNavigation = ({ isOpen, onToggle }: SidebarNavigationProps) 
         <>
             {/* Desktop sidebar — always visible on lg+ */}
             <aside
-                className="fixed inset-y-0 left-0 z-40 hidden h-full flex-col border-r border-secondary bg-primary pt-4 min-[1920px]:flex min-[1920px]:pt-5"
+                className={cx("fixed inset-y-0 left-0 z-40 hidden h-full flex-col border-r border-secondary bg-primary pt-4", !isHidden && "min-[1920px]:flex min-[1920px]:pt-5")}
                 style={{ width: SIDEBAR_WIDTH }}
             >
                 {sidebarContent}

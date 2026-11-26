@@ -15,8 +15,7 @@ export const Header = ({ onToggleMenu }: HeaderProps) => {
                         size="sm"
                         color="tertiary"
                         iconLeading={Menu03}
-                        className="min-[1920px]:hidden"
-                        aria-label="Abrir menu"
+                        aria-label="Mostrar u ocultar menu"
                         onClick={onToggleMenu}
                     />
                 )}
